@@ -111,3 +111,35 @@ fn paths_with_template_braces_are_preserved_as_literal_json_data() {
     let guide = artifact_generation_guide_in(&request, Some("link"));
     assert!(guide.contains(&serde_json::to_string(&output).unwrap()));
 }
+
+#[test]
+fn artifact_display_accepts_lf_and_crlf_headers_without_changing_user_text() {
+    let prompt = "  Preserve this\r\nuser text.\n\u{1f916}\r\n ";
+    for ending in ["\n", "\r\n"] {
+        let text = format!(
+            "{prompt}{ARTIFACT_GENERATION_MARKER}Artifact generation profile v1{ending}Instructions."
+        );
+        let displayed = display_prompt(&text);
+        assert_eq!(displayed, prompt);
+        assert_eq!(displayed.as_ptr(), text.as_ptr());
+    }
+}
+
+#[test]
+fn artifact_display_retains_partial_or_lookalike_profile_headers() {
+    for header in [
+        "Artifact generation profile v1",
+        "Artifact generation profile v1\r",
+        "Artifact generation profile v1\r\r\n",
+        "Artifact generation profile v10\n",
+        "Artifact generation profile v1 extra\n",
+        " Artifact generation profile v1\n",
+        "Artifact generation profile v\n",
+    ] {
+        let text = format!("Keep\r\nthis.{ARTIFACT_GENERATION_MARKER}{header}");
+        assert_eq!(display_prompt(&text), text);
+    }
+    let changed_marker =
+        "Keep\r\n\r\nSlate artifact generation:\r\nArtifact generation profile v1\r\n";
+    assert_eq!(display_prompt(changed_marker), changed_marker);
+}

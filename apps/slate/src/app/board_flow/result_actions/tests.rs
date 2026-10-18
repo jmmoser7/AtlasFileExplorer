@@ -46,10 +46,11 @@ fn point(h: &Harness, host: NodeId, index: usize) -> Pos2 {
         .app
         .board_xf()
         .rect_w2s(h.app.doc().scene.node(host).unwrap().rect);
+    let placement = h.app.result_strip_placement(host, body);
     let images = h.app.agent_images(host);
     let runs: Vec<_> = images.iter().map(|image| image.request.as_str()).collect();
     atlas_shell::home::album_index_rects(
-        body,
+        placement,
         &runs,
         images.len(),
         h.app.agent_shown_index(host).unwrap_or(0),
@@ -178,9 +179,10 @@ fn hover_only_strip_survives_the_gap_and_a_held_click_without_selecting_the_host
         .rect_w2s(h.app.doc().scene.node(host).unwrap().rect);
     let at = point(&h, host, 1);
     tick(&mut h, vec![egui::Event::PointerMoved(at)]);
-    assert!(!h
-        .app
-        .result_strip_hovered(&h.ctx, host, body, h.app.board_xf().z));
+    assert!(
+        !h.app
+            .result_strip_hovered(&h.ctx, host, body, h.app.board_xf().z)
+    );
     assert!(h.app.agents.flow.results.menu.is_none());
     assert!(h.app.board_sel.is_empty());
     tick(&mut h, vec![egui::Event::PointerMoved(body.center())]);
@@ -188,7 +190,8 @@ fn hover_only_strip_survives_the_gap_and_a_held_click_without_selecting_the_host
         tick(&mut h, vec![]);
     }
     assert!(h.app.board_sel.is_empty());
-    let gap = Pos2::new(at.x, body.bottom() + 5.0 * h.app.board_xf().z);
+    let placement = h.app.result_strip_placement(host, body);
+    let gap = Pos2::new(at.x, placement.bottom() + 5.0 * h.app.board_xf().z);
     tick(&mut h, vec![egui::Event::PointerMoved(gap)]);
     assert!(
         h.app
@@ -239,6 +242,85 @@ fn hover_only_strip_survives_the_gap_and_a_held_click_without_selecting_the_host
 }
 
 #[test]
+fn external_fallback_chrome_cannot_own_a_shifted_thumbnail_pick() {
+    let (mut h, host) = fixture("result-strip-external-fallback-clearance");
+    h.app.patch_nodes(&[host], |node| {
+        node.rect = slate_doc::scene::WorldRect::new(-60.0, -40.0, 120.0, 80.0);
+        node.rotation_deg = 17.0;
+    });
+    h.app.shape_properties.panel = Some(crate::app::board_properties::Panel::Agent);
+    for _ in 0..12 {
+        h.frame();
+    }
+    let body = h
+        .app
+        .board_xf()
+        .rect_w2s(h.app.doc().scene.node(host).unwrap().rect);
+    let (tab, chrome_host, chrome_bottom) = h.app.shape_properties.result_chrome_bottom.unwrap();
+    assert_eq!((tab, chrome_host), (h.app.tab().id, host));
+    assert!(chrome_bottom > body.bottom());
+    let images = h.app.agent_images(host);
+    let runs: Vec<_> = images.iter().map(|image| image.request.as_str()).collect();
+    let old = atlas_shell::home::album_index_rects(
+        body,
+        &runs,
+        images.len(),
+        h.app.agent_shown_index(host).unwrap_or(0),
+        h.app.board_xf().z,
+    );
+    assert!(old.iter().any(|(_, rect)| rect.center().y <= chrome_bottom));
+    let placement = h.app.result_strip_placement(host, body);
+    assert!(placement.bottom() >= chrome_bottom);
+
+    let expected_id = h.app.agent_images(host)[1].id.clone();
+    let at = point(&h, host, 1);
+    click(&mut h, at, false, false);
+    assert_eq!(h.app.agent_shown_index(host), Some(1));
+    assert_eq!(
+        h.app.agent_active_output(host).as_deref(),
+        Some(expected_id.as_str())
+    );
+    assert_eq!(
+        h.app.shape_properties.panel,
+        Some(crate::app::board_properties::Panel::Agent),
+        "thumbnail click keeps the generator editor open instead of activating fallback controls"
+    );
+    let menu = h
+        .app
+        .agents
+        .flow
+        .results
+        .menu
+        .as_ref()
+        .expect("thumbnail click opens its actions");
+    assert_eq!(menu.address.outputs, vec![expected_id]);
+
+    h.app.board_sel.clear();
+    h.frame();
+    let (fade_tab, fade_host, fade_bottom) = h
+        .app
+        .shape_properties
+        .result_chrome_bottom
+        .expect("freshly painted fading chrome still occupies its current footprint");
+    assert_eq!((fade_tab, fade_host), (tab, host));
+    assert!(fade_bottom > body.bottom());
+    assert!(h.app.result_strip_placement(host, body).bottom() >= fade_bottom);
+    let mut time = h.ctx.input(|input| input.time);
+    for _ in 0..30 {
+        time += 1.0 / 60.0;
+        h.frame_with(|input| input.time = Some(time));
+    }
+    assert_eq!(h.app.shape_properties.result_chrome_bottom, None);
+    h.app.shape_properties.result_chrome_bottom =
+        Some((fade_tab.wrapping_add(1), fade_host, fade_bottom));
+    assert_eq!(
+        h.app.result_strip_placement(host, body),
+        body,
+        "the old tab/selection footprint does not displace the next strip"
+    );
+}
+
+#[test]
 fn painted_strip_corridor_follows_host_and_zoom_without_rescaling_its_spacing() {
     let (mut h, host) = fixture("result-strip-retained-geometry");
     let body = h
@@ -281,13 +363,14 @@ fn painted_strip_corridor_follows_host_and_zoom_without_rescaling_its_spacing() 
         assert!(!h.app.result_strip_hovered(ctx, host, body, zoom));
     });
     h.app.remember_result_strip(host, body, Rect::NOTHING, zoom);
-    assert!(!h
-        .app
-        .agents
-        .flow
-        .results
-        .strips
-        .contains_key(&(h.app.tab().id, host)));
+    assert!(
+        !h.app
+            .agents
+            .flow
+            .results
+            .strips
+            .contains_key(&(h.app.tab().id, host))
+    );
 }
 
 #[test]

@@ -5,6 +5,9 @@ use serde_json::json;
 #[path = "perf_tests.rs"]
 mod perf;
 
+#[path = "proposal_chat_tests.rs"]
+mod proposal_chat;
+
 #[test]
 fn mentions_resolve_exact_names_and_disambiguate_by_identity() {
     let roster = [("one", "Dot"), ("two", "Dot helper")];

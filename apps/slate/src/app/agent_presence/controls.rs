@@ -18,6 +18,9 @@ impl SlateApp {
                 | Clone { .. }
         );
         match action {
+            decision @ (AcceptProposal { .. } | RejectProposal { .. }) => {
+                self.dispatch_presence_action(ctx, decision);
+            }
             SetOwnChats { id, enabled } => self.presence_set_own_chats(&id, enabled)?,
             Retry { id, message } => self.presence_retry_message(&id, &message)?,
             ConnectPeople => self.presence.human_chat.setup.open = true,

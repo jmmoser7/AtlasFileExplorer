@@ -384,6 +384,7 @@ impl eframe::App for Preview {
                 busy: !p.human && self.busy,
                 messages: &messages[i],
                 message_total: self.threads.get(&p.id).map_or(0, Vec::len),
+                proposals: &[],
                 draft: self.drafts.get(&p.id).map_or("", String::as_str),
                 queued_provider: self.queued.as_deref(),
                 model: "",

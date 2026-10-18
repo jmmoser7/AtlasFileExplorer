@@ -1,6 +1,7 @@
 use super::super::tests::Harness;
 use super::*;
 
+mod delivery;
 #[path = "participant_read_tests.rs"]
 mod participant_reads;
 
@@ -352,6 +353,7 @@ fn publish_helper_state(h: &mut Harness, who: &str, status: atlas_agent::AgentSt
         ],
         ..Default::default()
     };
+    delivery::wait_request(&dir.join("request.json"), &session.request);
     atlas_ai::agent::atomic_write_json(&dir.join("session.json"), &session).unwrap();
     h.app.presence.sources.expect(&dir, &session.request);
     let deadline = Instant::now() + std::time::Duration::from_secs(15);
@@ -446,18 +448,7 @@ fn human_text_patch_sends_the_complete_message_and_agent_or_layout_patches_do_no
     let request_id = h.app.presence.agents[0].request.clone();
     assert!(!request_id.is_empty());
     let path = h.app.presence.agents[0].dir.join("request.json");
-    // This checks delivered content, not latency. Busy Windows builds can delay
-    // scheduling the background file worker beyond the normal interactive case.
-    let deadline = Instant::now() + std::time::Duration::from_secs(15);
-    let first: atlas_agent::AgentRequest = loop {
-        if let Ok(bytes) = std::fs::read(&path) {
-            if let Ok(request) = serde_json::from_slice::<atlas_agent::AgentRequest>(&bytes) {
-                break request;
-            }
-        }
-        assert!(Instant::now() < deadline, "message worker did not deliver");
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    };
+    let first = delivery::wait_request(&path, &request_id);
     assert_eq!(first.id, request_id);
     assert_eq!(first.prompt, "Please organize the three images");
 

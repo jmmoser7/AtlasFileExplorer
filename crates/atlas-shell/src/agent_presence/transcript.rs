@@ -93,7 +93,7 @@ pub(super) fn show(
                     ui.set_width(ui.available_width());
                     ui.spacing_mut().item_spacing.y = 0.0;
                     ui.add_space(16.0);
-                    if p.messages.is_empty() {
+                    if p.messages.is_empty() && p.proposals.is_empty() {
                         ui.vertical_centered(|ui| {
                             ui.add_space(22.0);
                             ui.label(
@@ -121,8 +121,59 @@ pub(super) fn show(
                             ui.add_space(if attached { 16.0 } else { 23.0 });
                         }
                     }
+                    for proposal in p.proposals {
+                        ui.add_space(if attached { 12.0 } else { 18.0 });
+                        proposal_row(ui, palette, p.id, proposal, attached, actions);
+                    }
                     ui.add_space(if attached { 14.0 } else { 20.0 });
                 });
+        });
+}
+
+fn proposal_row(
+    ui: &mut Ui,
+    palette: &Palette,
+    participant: &str,
+    proposal: &ProposalDecision<'_>,
+    attached: bool,
+    actions: &mut Vec<PresenceAction>,
+) {
+    egui::Frame::NONE
+        .fill(palette.card)
+        .stroke(egui::Stroke::new(0.7_f32, palette.border))
+        .corner_radius(if attached { 14 } else { 18 })
+        .inner_margin(if attached { 12 } else { 16 })
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(RichText::new("Proposed board change").font(chrome::font(ui, 10.0)).color(palette.sub));
+            ui.add_space(5.0);
+            ui.label(RichText::new(proposal.label).font(chrome::font(ui, if attached { 14.0 } else { 16.0 })).color(palette.ink));
+            if proposal.recovery_required {
+                ui.add_space(5.0);
+                ui.label(RichText::new("Acceptance was interrupted. Review the board before dismissing this proposal.").font(chrome::font(ui, 11.0)).color(palette.sub));
+            }
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                for (accept, label) in [(true, "Accept"), (false, "Reject")] {
+                    let enabled = !accept || !proposal.recovery_required;
+                    let (rect, _) = ui.allocate_exact_size(Vec2::new(70.0, 28.0), Sense::hover());
+                    let response = ui.interact(
+                        rect,
+                        Id::new(("presence-proposal-decision", participant, proposal.id, accept)),
+                        if enabled { Sense::click() } else { Sense::hover() },
+                    );
+                    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+                    ui.painter().rect_filled(rect, 14, if enabled && response.hovered() { palette.card_hover } else { palette.window });
+                    chrome::label(ui, rect, label, 12.0, if enabled { palette.ink } else { palette.sub }, Align2::CENTER_CENTER);
+                    if response.clicked() {
+                        actions.push(if accept {
+                            PresenceAction::AcceptProposal { participant: participant.into(), id: proposal.id.into() }
+                        } else {
+                            PresenceAction::RejectProposal { participant: participant.into(), id: proposal.id.into() }
+                        });
+                    }
+                }
+            });
         });
 }
 #[allow(clippy::too_many_arguments)]

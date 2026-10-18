@@ -65,6 +65,7 @@ pub(super) fn body(
         app.shape_properties
             .chrome_hits
             .extend(chrome::image_brush_header_groups(header, zoom));
+        app.occupy_property_popups(&response.popups);
         app.shape_properties
             .chrome_hits
             .extend(response.popups.iter().copied());

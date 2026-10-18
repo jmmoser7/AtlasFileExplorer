@@ -100,6 +100,7 @@ pub mod preview;
 #[cfg(all(test, windows))]
 mod probe_web;
 mod recovery;
+mod screenshot;
 pub mod session;
 pub mod settings;
 #[cfg(test)]
@@ -240,6 +241,7 @@ type SystemFonts = Vec<(String, Vec<u8>)>;
 
 pub struct SlateApp {
     recovery: recovery::RecoveryRuntime,
+    screenshot: Option<screenshot::Capture>,
     pub(crate) updater: atlas_update::Updater,
     pub thumbs: ThumbPool,
     pub tabs: Vec<SlateTab>,
@@ -764,6 +766,7 @@ impl SlateApp {
     /// Full construction from a bare egui context. Used by `new` and by the
     /// headless test harness (no eframe window, no registry writes).
     fn with_ctx(egui_ctx: &egui::Context, initial_doc: Option<PathBuf>) -> Self {
+        let screenshot = screenshot::Capture::from_environment();
         let mut boot = atlas_core::session_log::Startup::begin();
         // Overlaps the rest of construction. A board opened at launch waits
         // for these bytes so the first frame is not in the wrong face; Home
@@ -838,7 +841,12 @@ impl SlateApp {
             next_preview_slot: 0,
             preview_reqs_this_frame: 0,
             settings,
-            recovery: recovery::RecoveryRuntime::default(),
+            recovery: recovery::RecoveryRuntime::with_root(
+                screenshot
+                    .as_ref()
+                    .map(|shot| shot.recovery_root().to_path_buf()),
+            ),
+            screenshot,
             picker: dialogs.picker(),
             export_rx: None,
             collect_rx: None,
@@ -2200,42 +2208,9 @@ impl SlateApp {
         if let Some(cmd) = fb.command {
             self.dispatch(ctx, atlas_commands::CommandId(cmd), None);
         }
-        self.debug_screenshot(ctx);
-    }
-
-    /// Dev harness: `SLATE_SHOT=<path>[;delay_frames]` saves a screenshot and exits.
-    fn debug_screenshot(&mut self, ctx: &egui::Context) {
-        let Ok(spec) = std::env::var("SLATE_SHOT") else {
-            return;
-        };
-        let (path, delay) = match spec.split_once(';') {
-            Some((p, d)) => (p.to_string(), d.parse().unwrap_or(240u64)),
-            None => (spec, 240),
-        };
-        if self.frame_no == delay {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+        if let Some(shot) = &mut self.screenshot {
+            shot.frame(ctx, self.frame_no, self.recovery.capture_status());
         }
-        let shot: Option<std::sync::Arc<egui::ColorImage>> = ctx.input(|i| {
-            i.raw.events.iter().find_map(|e| {
-                if let egui::Event::Screenshot { image, .. } = e {
-                    Some(image.clone())
-                } else {
-                    None
-                }
-            })
-        });
-        if let Some(img) = shot {
-            let [w, h] = img.size;
-            let mut rgba = Vec::with_capacity(w * h * 4);
-            for px in &img.pixels {
-                rgba.extend_from_slice(&px.to_array());
-            }
-            if let Some(buf) = image::RgbaImage::from_raw(w as u32, h as u32, rgba) {
-                let _ = buf.save(&path);
-            }
-            std::process::exit(0);
-        }
-        ctx.request_repaint();
     }
 
     /// Maintain the AI live-link beacon: which workbook is open, what's

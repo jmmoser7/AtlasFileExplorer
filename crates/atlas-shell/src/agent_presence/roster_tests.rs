@@ -16,6 +16,7 @@ struct Fixture {
     message_text: String,
     message_outgoing: bool,
     screen: Rect,
+    proposals: Vec<(String, String, bool)>,
 }
 impl Fixture {
     fn new() -> Self {
@@ -31,6 +32,7 @@ impl Fixture {
             message_text: "I am arranging the images in this frame.".into(),
             message_outgoing: false,
             screen: Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 720.0)),
+            proposals: Vec::new(),
         }
     }
     fn frame(&mut self, events: Vec<egui::Event>) -> (Vec<PresenceAction>, egui::FullOutput) {
@@ -46,6 +48,17 @@ impl Fixture {
             status: "",
         }];
         let empty = String::new();
+        let proposals: Vec<_> = self
+            .proposals
+            .iter()
+            .map(
+                |(id, label, recovery_required)| super::super::ProposalDecision {
+                    id,
+                    label,
+                    recovery_required: *recovery_required,
+                },
+            )
+            .collect();
         let participants = [
             Participant {
                 id: "self",
@@ -65,6 +78,7 @@ impl Fixture {
                 busy: false,
                 messages: &[],
                 message_total: 0,
+                proposals: &[],
                 draft: self.drafts.get("self").unwrap_or(&empty),
                 queued_provider: None,
                 model: "",
@@ -88,6 +102,7 @@ impl Fixture {
                 busy: self.busy,
                 messages: &messages,
                 message_total: messages.len(),
+                proposals: &proposals,
                 draft: self.drafts.get("dot").unwrap_or(&empty),
                 queued_provider: None,
                 model: "",
@@ -455,3 +470,6 @@ fn adapter_history_ranges_share_the_canonical_pagination_and_attached_limit() {
 
 #[path = "roster_visual_tests.rs"]
 mod visual;
+
+#[path = "roster_proposal_tests.rs"]
+mod proposals;

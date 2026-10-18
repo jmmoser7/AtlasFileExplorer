@@ -28,14 +28,24 @@ pub(in crate::icons) fn mesh(icon: Icon, physical_size: f32) -> Arc<egui::Mesh> 
 }
 
 fn build(source: &Source, physical_size: f32) -> egui::Mesh {
+    let material = source_material(source, physical_size);
+    let covered = vector_ink::max_coverage_mesh(&material);
+    to_egui(&covered)
+}
+
+#[cfg(test)]
+pub(in crate::icons) fn source_material_for_audit(icon: Icon, physical_size: f32) -> InkMesh {
+    source_material(&sources()[icon.name()], physical_size)
+}
+
+fn source_material(source: &Source, physical_size: f32) -> InkMesh {
     let feather = 24.0 / physical_size.max(1.0);
     let foreground = build_source(source, source.width, 0.0);
     let keyline = build_source(source, source.width + 1.0, feather);
     let mut material = vector_ink::InkMesh::default();
     append_material(&mut material, &foreground, true);
     append_material(&mut material, &keyline, false);
-    let covered = vector_ink::max_coverage_mesh(&material);
-    to_egui(&covered)
+    material
 }
 
 fn append_material(target: &mut vector_ink::InkMesh, source: &InkMesh, foreground: bool) {

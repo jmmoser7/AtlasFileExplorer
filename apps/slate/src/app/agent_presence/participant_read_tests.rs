@@ -337,7 +337,8 @@ fn participant_reads_survive_unrelated_journaled_scene_changes() {
 #[test]
 fn ordinary_board_reads_preserve_legacy_live_descriptors_and_excerpt_bounds() {
     let (mut h, _) = joined();
-    for n in 0..32 {
+    let peer_count = atlas_agent::presence::SESSION_LIMIT - 1;
+    for n in 0..peer_count {
         h.app
             .join_presence(profile(&format!("Peer {n}")), None)
             .unwrap();
@@ -355,6 +356,10 @@ fn ordinary_board_reads_preserve_legacy_live_descriptors_and_excerpt_bounds() {
             ..Default::default()
         }));
     }
+    assert_eq!(
+        h.app.presence.agents.len(),
+        atlas_agent::presence::SESSION_LIMIT
+    );
     let mut query = call(&h, 0, vec![], 0);
     query.operation = BoardOperation::Read {
         node_ids: vec![],
@@ -364,7 +369,7 @@ fn ordinary_board_reads_preserve_legacy_live_descriptors_and_excerpt_bounds() {
     let reply = read(&mut h, &query);
     assert!(reply.success, "{reply:?}");
     let peers = reply.result["participants"].as_array().unwrap();
-    assert_eq!(peers.len(), 32);
+    assert_eq!(peers.len(), peer_count);
     assert_eq!(peers[0]["name"], "Peer 0");
     assert_eq!(peers[0]["status"].as_str().unwrap().len(), 600);
     assert!(peers

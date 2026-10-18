@@ -1,7 +1,7 @@
 //! Regressions from the native review: regular text and a scaled chat's clip.
 use super::*;
 
-fn screen_response(f: &Fixture, id: Id) -> (Rect, Rect) {
+pub(super) fn screen_response(f: &Fixture, id: Id) -> (Rect, Rect) {
     let response = f.ctx.read_response(id).expect("rendered input target");
     let transform = f
         .ctx
@@ -97,12 +97,18 @@ fn registered_regular_family_reaches_painted_text_without_changing_other_chrome(
     f.ctx.set_fonts(fonts);
     let original = f.ctx.style().text_styles.clone();
     f.state.set_font_family(Some(family.clone()));
+    f.proposals
+        .push(("font-proposal".into(), "Move board objects".into(), false));
     let out = f.open_chat("dot");
     for expected in [
         "Dot",
         "Ready in proposal mode",
         "I am arranging the images in this frame.",
         "Message",
+        "Proposed board change",
+        "Move board objects",
+        "Accept",
+        "Reject",
     ] {
         let texts: Vec<_> = out
             .shapes

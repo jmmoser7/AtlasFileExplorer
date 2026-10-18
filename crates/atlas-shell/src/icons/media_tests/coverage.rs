@@ -126,13 +126,77 @@ fn outline_counter_preserves_the_host_image() {
                 let center = (CELL * ppp * 0.5) as u32;
                 for y in center - 1..=center + 1 {
                     for x in center - 1..=center + 1 {
-                        assert_eq!(pixels.get_pixel(x, y).0[3], 0,
-                            "Ellipse counter covers host pixels at {size}/{ppp}, dark={dark}, {x}/{y}");
+                        assert_eq!(
+                            pixels.get_pixel(x, y).0[3],
+                            0,
+                            "Ellipse counter covers host pixels at {size}/{ppp}, dark={dark}, {x}/{y}"
+                        );
                     }
                 }
             }
         }
     }
+}
+
+#[test]
+#[ignore = "set ATLAS_MEDIA_ICON_AUDIT_DIR to retain the exact failed Agent mesh"]
+fn export_agent_media_failure_for_numeric_audit() {
+    let dir = std::path::PathBuf::from(
+        std::env::var("ATLAS_MEDIA_ICON_AUDIT_DIR").expect("audit output directory"),
+    );
+    std::fs::create_dir_all(&dir).unwrap();
+    let encode = |mesh: &egui::Mesh| {
+        serde_json::json!({
+            "vertex_columns": ["point_x_bits", "point_y_bits", "raster_x_bits", "raster_y_bits", "premult_rgba"],
+            "vertices": mesh.vertices.iter().map(|v| (
+                v.pos.x.to_bits(), v.pos.y.to_bits(),
+                (v.pos.x * 1.5_f32).to_bits(), (v.pos.y * 1.5_f32).to_bits(),
+                v.color.to_array(),
+            )).collect::<Vec<_>>(),
+            "indices": &mesh.indices,
+        })
+    };
+    let mut cases = Vec::new();
+    for alpha in [64, 255] {
+        let meshes = media_mesh(Icon::Agent, 24.0, 1.5, alpha, true);
+        let pixels = super::super::tests::rasterize(&meshes, CELL, CELL, 1.5, Color32::TRANSPARENT);
+        let max = pixels.pixels().map(|p| p.0[3]).max().unwrap();
+        cases.push(serde_json::json!({
+            "caller_alpha": alpha,
+            "meshes": meshes.iter().map(&encode).collect::<Vec<_>>(),
+            "max_alpha": max,
+            "max_pixels": pixels.enumerate_pixels().filter(|(_, _, p)| p.0[3] == max)
+                .map(|(x, y, p)| (x, y, p.0)).collect::<Vec<_>>(),
+            "raster_width": pixels.width(), "raster_height": pixels.height(),
+            "pixel_alpha": pixels.pixels().map(|p| p.0[3]).collect::<Vec<_>>(),
+        }));
+    }
+    let material = density::media::mesh(Icon::Agent, 36.0);
+    let input = density::media::source_material_for_audit(Icon::Agent, 36.0);
+    let output = vector_ink::max_coverage_mesh(&input);
+    let encode_ink = |mesh: &vector_ink::InkMesh| {
+        serde_json::json!({
+            "vertex_columns": ["master_x_bits", "master_y_bits", "coverage_alpha_bits"],
+            "vertices": mesh.vertices.iter().map(|v| (
+                v.pos[0].to_bits(), v.pos[1].to_bits(), v.alpha.to_bits(),
+            )).collect::<Vec<_>>(),
+            "color_columns": ["material_red_bits", "green_bits", "blue_bits", "alpha_bits"],
+            "colors": mesh.colors.iter().map(|color| color.map(f32::to_bits)).collect::<Vec<_>>(),
+            "indices": &mesh.indices,
+        })
+    };
+    let evidence = serde_json::json!({
+        "source": "Exact production Agent 24pt/1.5ppp failing case; unchanged shared rasterizer",
+        "material_physical_size": 36.0, "material": encode(&material),
+        "pre_envelope": encode_ink(&input),
+        "post_envelope": encode_ink(&output),
+        "placed_cases": cases,
+    });
+    std::fs::write(
+        dir.join("agent-24pt-1_5ppp-exact-mesh.json"),
+        serde_json::to_vec_pretty(&evidence).unwrap(),
+    )
+    .unwrap();
 }
 
 /// Actual production material meshes, rasterized at native pixel density. The

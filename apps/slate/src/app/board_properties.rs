@@ -522,16 +522,14 @@ pub struct ShapeProperties {
     pub(super) pages_focus: u16,
     pub preview: Vec<Node>,
     edits: Vec<Property>,
-    /// Last photo-filter radio under the pointer. The intensity slider sits
-    /// beside the radios, so a scrub starts after hover has already ended.
+    /// Filter intensity scrubs retain the last hovered photo-filter radio.
     filter_aim: Option<usize>,
     number: Option<NumberEdit>,
-    /// Typed corner amount opened by a click on the corner grip.
     corner_entry: Option<CornerEntry>,
     text_family_open: bool,
     text_size_open: bool,
-    /// Screen rects of the strip and open editor, so a text caret can ignore them.
     pub chrome_hits: Vec<Rect>,
+    pub(crate) result_chrome_bottom: Option<(u64, NodeId, f32)>,
     color: chrome::ColorState,
     last_chrome: Option<LastChrome>,
 }
@@ -1307,6 +1305,7 @@ impl SlateApp {
         if panel == Panel::Agent {
             let id = self.shape_properties.ids.first().copied()?;
             let popups = self.agent_editor_body(ui, rect, id, z, theme);
+            self.occupy_property_popups(&popups);
             self.shape_properties.chrome_hits.extend(popups);
             return None;
         }
@@ -1669,6 +1668,7 @@ impl SlateApp {
             z,
             theme,
         );
+        self.occupy_property_popups(&edit.popups);
         self.shape_properties.chrome_hits.extend(edit.popups);
         if let Some((index, value)) = edit.emphasis {
             self.preview_shape_property(match index {

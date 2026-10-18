@@ -100,6 +100,37 @@ pub fn album_index_strip(
     .clicked
 }
 
+/// Current visible result squares and opacity, shared by paint and early input.
+#[allow(clippy::too_many_arguments)]
+pub fn album_result_layout(
+    ctx: &egui::Context,
+    id: Id,
+    album: Rect,
+    runs: &[&str],
+    count: usize,
+    focus: usize,
+    shown: bool,
+    zoom: f32,
+    min_images: usize,
+) -> Option<(f32, Vec<(usize, Rect)>)> {
+    if count < min_images.max(1) {
+        return None;
+    }
+    let fade = album_browsing(ctx, id).max(ctx.animate_bool_with_time(
+        id.with("album-strip"),
+        shown,
+        ALBUM_SETTLE_SECONDS,
+    ));
+    if fade <= 0.01 {
+        return None;
+    }
+    let side = STRIP_SQUARE * zoom;
+    if side < 2.0 {
+        return None;
+    }
+    Some((fade, album_index_rects(album, runs, count, focus, zoom)))
+}
+
 /// Interactive generated-result variant; one response feeds the same controller
 /// as the circular history inside the generator editor.
 #[allow(clippy::too_many_arguments)]
@@ -118,25 +149,23 @@ pub fn album_result_strip(
     selected: &[usize],
 ) -> crate::result_actions::ResultInteraction {
     let mut out = crate::result_actions::ResultInteraction::default();
-    if images.len() < min_images.max(1) {
-        return out;
-    }
-    let fade = album_browsing(ui.ctx(), id).max(ui.ctx().animate_bool_with_time(
-        id.with("album-strip"),
+    let Some((fade, squares)) = album_result_layout(
+        ui.ctx(),
+        id,
+        album,
+        runs,
+        images.len(),
+        focus,
         shown,
-        ALBUM_SETTLE_SECONDS,
-    ));
-    if fade <= 0.01 {
+        zoom,
+        min_images,
+    ) else {
         return out;
-    }
-    let side = STRIP_SQUARE * zoom;
-    if side < 2.0 {
-        return out;
-    }
+    };
     let mut painter = ui.painter().clone();
     painter.multiply_opacity(fade);
     let mut painted_bounds = Rect::NOTHING;
-    for (i, square) in album_index_rects(album, runs, images.len(), focus, zoom) {
+    for (i, square) in squares {
         painted_bounds = painted_bounds.union(square);
         let enabled = images[i].enabled;
         let mut response = ui.interact(

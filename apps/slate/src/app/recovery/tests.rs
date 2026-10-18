@@ -3,6 +3,8 @@ use crate::app::tests::Harness;
 use slate_doc::{recovery::RecoveryStore, SlateDoc};
 use std::sync::mpsc;
 
+mod capture;
+
 fn fake_worker() -> (RecoveryRuntime, mpsc::Receiver<Job>, mpsc::Sender<Event>) {
     let (jobs, requests) = mpsc::channel();
     let (updates, events) = mpsc::channel();

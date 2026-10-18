@@ -9,6 +9,7 @@ mod tests;
 
 #[derive(Clone)]
 pub(super) struct LastChrome {
+    pub(super) host: Option<(u64, NodeId)>,
     pub(super) bounds: WorldRect,
     pub(super) items: Vec<StripItem>,
     generation: (u64, u64),
@@ -22,6 +23,7 @@ pub(super) struct LastChrome {
 impl SlateApp {
     /// Runs before board input. Layout is recomputed from the host transform every frame.
     pub(crate) fn shape_properties_ui(&mut self, ui: &mut egui::Ui, xf: &BoardXf) -> bool {
+        self.shape_properties.result_chrome_bottom = None;
         let ctx = ui.ctx().clone();
         self.clear_image_palette_frame(&ctx);
         self.sync_shape_properties();
@@ -99,6 +101,10 @@ impl SlateApp {
                         )
                     });
                 self.shape_properties.last_chrome = Some(LastChrome {
+                    host: match self.shape_properties.ids.as_slice() {
+                        [host] => Some((self.tab().id, *host)),
+                        _ => None,
+                    },
                     bounds,
                     items: items.clone(),
                     generation,
@@ -185,6 +191,7 @@ impl SlateApp {
         } else {
             chrome::strip_rect_below(xf.w2s(chrome_state.bottom), items.len(), z, fade)
         };
+        self.occupy_result_chrome(chrome_state.host, strip);
         let mut requested_panel = None;
         let mut requested_frame = None;
         let mut requested_agent = None;
@@ -413,6 +420,7 @@ impl SlateApp {
                         |ui, rect, layout| self.shape_property_body(ui, rect, panel, z, layout),
                     );
                     if let Some(editor) = editor {
+                        self.occupy_result_chrome(chrome_state.host, editor.area);
                         captures |= ctx.pointer_latest_pos().is_some_and(|p| {
                             editor.area.contains(p)
                                 || !grip_under
@@ -439,6 +447,9 @@ impl SlateApp {
                 && press.is_some()
                 && ctx.pointer_latest_pos().is_some_and(|p| {
                     if let [host] = self.shape_properties.nodes.as_slice() {
+                        if self.result_strip_contains(&ctx, host.id, xf.rect_w2s(host.rect), z) {
+                            return true;
+                        }
                         if self.image_palette_eligible(host.id) {
                             let world = xf.s2w(p);
                             return self.board_pick_node_with_locked(world.x, world.y, true)

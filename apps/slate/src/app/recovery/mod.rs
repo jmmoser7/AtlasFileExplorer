@@ -77,6 +77,17 @@ pub(super) struct RecoveryRuntime {
 }
 
 impl RecoveryRuntime {
+    pub(super) fn with_root(root: Option<PathBuf>) -> Self {
+        Self {
+            root,
+            ..Self::default()
+        }
+    }
+
+    pub(super) fn capture_status(&self) -> Result<bool, &str> {
+        self.status.as_deref().map_or(Ok(self.writer_ready), Err)
+    }
+
     fn send(&mut self, job: Job) -> bool {
         if self
             .worker

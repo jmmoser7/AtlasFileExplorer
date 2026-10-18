@@ -278,7 +278,27 @@ fn public_command_schema_and_argument_validation_share_one_catalogue() {
     let h = setup("presence-command-schema");
     let schema = SlateApp::targeted_command_schema();
     let entries = schema.as_object().unwrap();
-    assert_eq!(entries.len(), 9);
+    let approved = std::collections::BTreeSet::from([
+        "board.objects.create_frame",
+        "board.objects.create_generator",
+        "board.objects.create_shape",
+        "board.objects.create_text",
+        "board.objects.create_train",
+        "board.objects.delete",
+        "board.objects.move",
+        "board.objects.order",
+        "board.objects.place_images",
+        "board.objects.resize",
+        "board.objects.wire",
+        "portal.agent.run",
+    ]);
+    assert_eq!(
+        entries
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>(),
+        approved
+    );
     for (command, definition) in entries {
         assert!(commands::SPECS.iter().any(|spec| spec.id.0 == command));
         assert!(definition["arguments"].is_object());

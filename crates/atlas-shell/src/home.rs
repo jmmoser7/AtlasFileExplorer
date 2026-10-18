@@ -301,8 +301,7 @@ pub struct AlbumImage {
 pub struct AlbumInput {
     pub drag: bool,
     pub wheel: bool,
-    /// The host paints the shown image at rest (with its own crop, corners
-    /// and filters); the album paints only while it is browsed.
+    /// The host paints crop/corners/filters at rest; the album paints only while browsing.
     pub host_paints_rest: bool,
 }
 
@@ -312,13 +311,14 @@ pub use album::{image_album, image_album_picker};
 
 /// How far the album with this `id` is from rest: 0 settled, 1 browsing.
 pub fn album_browsing(ctx: &egui::Context, id: Id) -> f32 {
-    1.0 - ctx
-        .data(|d| d.get_temp::<f32>(id.with("album-expansion")))
-        .unwrap_or(1.0)
+    let expansion = ctx.data(|d| d.get_temp::<f32>(id.with("album-expansion")));
+    1.0 - expansion.unwrap_or(1.0)
 }
 
 mod album_strip;
-pub use album_strip::{album_index_rects, album_index_strip, album_result_strip, album_strip_rect};
+pub use album_strip::{
+    album_index_rects, album_index_strip, album_result_layout, album_result_strip, album_strip_rect,
+};
 
 fn album_uv(source: Vec2, host: Vec2) -> Rect {
     let ratio = (host.x / host.y.max(1.0)) / (source.x / source.y.max(1.0)).max(0.001);

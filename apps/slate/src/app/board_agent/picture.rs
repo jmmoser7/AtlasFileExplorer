@@ -125,11 +125,9 @@ impl SlateApp {
             self.agents.flow.set_hud_hidden(id, false);
         }
         let hud = !flowing && !self.agents.flow.hud_hidden(id);
-        let reveal = hud
-            && (hovered
-                || selected
-                || self.flow_capsule_open(id)
-                || self.result_strip_hovered(ui.ctx(), id, body, z));
+        let Some((reveal, strip_focus)) = self.result_strip_state(ui.ctx(), id, body, z) else {
+            return;
+        };
         // A new result reshapes the card to its aspect, once.
         if let (Some(i), false) = (shown, picked) {
             let image = &images[i];
@@ -152,11 +150,16 @@ impl SlateApp {
         // Image-node controls have one home: the selected image's blister.
         // Album flow and generation previews still paint within the image.
         if self.image_palette_eligible(id) {
-            let editor_open =
-                self.shape_properties.ids == [id] && self.shape_properties.panel.is_some();
-            if !editor_open {
-                self.paint_agent_album_strip(ui, id, body, &images, shown, flowing, reveal, z);
-            }
+            self.paint_agent_album_strip(
+                ui,
+                id,
+                body,
+                self.result_strip_placement(id, body),
+                &images,
+                strip_focus,
+                reveal,
+                z,
+            );
             if running || waiting > 0 {
                 self.paint_run_progress(
                     ui,
@@ -205,7 +208,16 @@ impl SlateApp {
         if hud {
             self.paint_run_progress(ui, painter, id, body, z, view.task().working(), previews);
         }
-        self.paint_agent_album_strip(ui, id, body, &images, shown, flowing, reveal, z);
+        self.paint_agent_album_strip(
+            ui,
+            id,
+            body,
+            self.result_strip_placement(id, body),
+            &images,
+            strip_focus,
+            reveal,
+            z,
+        );
         if !reveal || !legible {
             return;
         }

@@ -241,6 +241,11 @@ pub(super) fn show(
     } else {
         layout.blister.band
     };
+    let owner = Some((app.tab().id, id));
+    if showing_panel {
+        app.occupy_result_chrome(owner, layout.overall);
+    }
+    app.occupy_result_chrome(owner, layout.blister.band);
 
     egui::Area::new(outline::layer(id).id)
         .order(chrome::CANVAS_CHROME_ORDER)
@@ -408,6 +413,7 @@ pub(super) fn show(
         let point = xf.s2w(pointer);
         slate_doc::geom::point_in_node_outline(&host, point.x, point.y, 0.0)
     });
+    let on_results = app.result_strip_contains(&ctx, id, xf.rect_w2s(host.rect), z);
     if !captures {
         if panel.is_some()
             && panel != Some(Panel::Brush)
@@ -420,7 +426,10 @@ pub(super) fn show(
             if !app.shape_properties.edits.is_empty() {
                 app.apply_shape_preview(&ctx, false);
             }
-        } else if app.property_dismiss_press(&ctx).is_some_and(|press| !press) && !on_image {
+        } else if app.property_dismiss_press(&ctx).is_some_and(|press| !press)
+            && !on_image
+            && !on_results
+        {
             if let Some(panel) = panel {
                 app.dismiss_object_panel(id, panel, std::time::Instant::now());
             }

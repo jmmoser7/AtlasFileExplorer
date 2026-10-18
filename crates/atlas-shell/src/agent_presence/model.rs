@@ -15,6 +15,13 @@ pub struct ConversationMessage<'a> {
     pub system: bool,
     pub status: &'a str,
 }
+/// Application-selected pending work. The shell owns presentation, never the
+/// command payload, session policy, or the decision's authority.
+pub struct ProposalDecision<'a> {
+    pub id: &'a str,
+    pub label: &'a str,
+    pub recovery_required: bool,
+}
 pub struct Participant<'a> {
     pub id: &'a str,
     pub name: &'a str,
@@ -35,6 +42,7 @@ pub struct Participant<'a> {
     pub messages: &'a [ConversationMessage<'a>],
     /// Full durable history length, including turns outside the visible page.
     pub message_total: usize,
+    pub proposals: &'a [ProposalDecision<'a>],
     pub draft: &'a str,
     pub queued_provider: Option<&'a str>,
     pub model: &'a str,
@@ -48,6 +56,14 @@ pub struct RetiredProfile<'a> {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum PresenceAction {
+    AcceptProposal {
+        participant: String,
+        id: String,
+    },
+    RejectProposal {
+        participant: String,
+        id: String,
+    },
     Add {
         name: String,
         hat: String,

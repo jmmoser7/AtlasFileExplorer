@@ -120,51 +120,90 @@ fn a_picked_result_keeps_its_relative_workbook_locator_and_its_album_index() {
 
 #[test]
 fn a_closed_image_blister_keeps_all_result_thumbnail_squares_visible() {
+    use crate::app::preview::{PX_EXACT, PreviewEntry, linked_image_key};
+    use std::sync::Arc;
+
     let (mut h, id) = generator_with_output("album-closed-blister-thumbnails");
     append_result(&mut h, id, "second");
     append_result(&mut h, id, "third");
     h.app.board_sel = std::iter::once(id).collect();
     let node = h.app.doc().scene.node(id).unwrap().clone();
     h.app.zoom_to_rect(node.rect);
+    let z = h.app.tab().cam.z * 0.42;
+    let canvas_height = h.app.canvas_rect.height();
+    h.app.tab_mut().cam.z = z;
+    h.app.tab_mut().cam.offset = egui::vec2(
+        node.rect.x + node.rect.w * 0.5,
+        node.rect.y + node.rect.h * 0.5 + canvas_height * 0.22 / z,
+    );
     assert!(h.app.image_palette_eligible(id));
+    assert!(
+        h.app.image_blister_eligible(&node),
+        "the 0.42 zoom fixture still routes to the attached image blister"
+    );
     assert!(h.app.shape_properties.panel.is_none());
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    let textures = loop {
-        h.frame();
-        let images = h.app.agent_images(id);
-        let ready: Option<Vec<_>> = images
-            .iter()
-            .map(|image| {
-                h.app
-                    .linked_image_texture(
-                        slate_doc::scene::resolve_source(
-                            h.app.tab().path.as_deref(),
-                            &image.source,
-                        ),
-                        &image.id,
-                        44.0 * h.app.board_xf().z,
-                    )
-                    .map(|texture| texture.id())
-            })
-            .collect();
-        if let Some(textures) = ready {
-            break textures;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "local thumbnails become ready"
+    let images = h.app.agent_images(id);
+    for image in &images {
+        let path = slate_doc::scene::resolve_source(h.app.tab().path.as_deref(), &image.source);
+        let pixels = egui::ColorImage::new([20, 10], egui::Color32::from_rgb(80, 120, 160));
+        let tex = h.ctx.load_texture(
+            format!("album-result-{}", image.id),
+            pixels.clone(),
+            egui::TextureOptions::LINEAR,
         );
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    };
+        h.app.preview_cache.insert(
+            linked_image_key(&path, &image.id),
+            PreviewEntry {
+                tex,
+                bytes: pixels.pixels.len() * 4,
+                pixels: Arc::new(pixels),
+                px: PX_EXACT,
+                last_used: 0,
+            },
+        );
+    }
+    let textures: Vec<_> = images
+        .iter()
+        .map(|image| {
+            let path = slate_doc::scene::resolve_source(h.app.tab().path.as_deref(), &image.source);
+            h.app
+                .linked_image_texture(path, &image.id, 44.0 * z)
+                .unwrap()
+                .id()
+        })
+        .collect();
     for _ in 0..30 {
         frame(&mut h, id, false);
     }
     let output = h.frame_output(|_| {});
-    let bottom = h
+    let body = h
         .app
         .board_xf()
-        .rect_w2s(h.app.doc().scene.node(id).unwrap().rect)
-        .bottom();
+        .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+    let chrome_bottom = h
+        .app
+        .shape_properties
+        .result_chrome_bottom
+        .filter(|(tab, host, _)| *tab == h.app.tab().id && *host == id)
+        .map(|(_, _, bottom)| bottom)
+        .expect("the selected image publishes its current occupied chrome bottom");
+    let old_squares = atlas_shell::home::album_index_rects(
+        body,
+        &h.app
+            .agent_images(id)
+            .iter()
+            .map(|image| image.request.as_str())
+            .collect::<Vec<_>>(),
+        textures.len(),
+        h.app.agent_shown_index(id).unwrap_or(0),
+        h.app.board_xf().z,
+    );
+    assert!(
+        old_squares
+            .iter()
+            .any(|(_, rect)| rect.center().y <= chrome_bottom),
+        "the regression fixture places an old thumbnail hit inside occupied chrome"
+    );
     fn under(shape: &egui::Shape, clip: Rect, texture: egui::TextureId, bottom: f32) -> bool {
         match shape {
             egui::Shape::Rect(rect) => {
@@ -189,13 +228,36 @@ fn a_closed_image_blister_keeps_all_result_thumbnail_squares_visible() {
             _ => false,
         }
     }
-    for texture in textures {
+    for texture in &textures {
         assert!(
-            output
-                .shapes
-                .iter()
-                .any(|shape| under(&shape.shape, shape.clip_rect, texture, bottom)),
-            "every generated result has a visible thumbnail below the selected image"
+            output.shapes.iter().any(|shape| under(
+                &shape.shape,
+                shape.clip_rect,
+                *texture,
+                chrome_bottom
+            )),
+            "every generated result paints below the current occupied image chrome"
+        );
+    }
+
+    h.app.shape_properties.panel = Some(crate::app::board_properties::Panel::Agent);
+    let output = h.frame_output(|_| {});
+    let editor_bottom = h
+        .app
+        .shape_properties
+        .result_chrome_bottom
+        .filter(|(tab, host, _)| *tab == h.app.tab().id && *host == id)
+        .map(|(_, _, bottom)| bottom)
+        .expect("the open generator editor publishes its current occupied bottom");
+    for texture in &textures {
+        assert!(
+            output.shapes.iter().any(|shape| under(
+                &shape.shape,
+                shape.clip_rect,
+                *texture,
+                editor_bottom
+            )),
+            "the result thumbnails remain painted below the open generator editor"
         );
     }
 }

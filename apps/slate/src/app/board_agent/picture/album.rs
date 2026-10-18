@@ -8,9 +8,9 @@ impl SlateApp {
         ui: &egui::Ui,
         id: NodeId,
         body: Rect,
+        placement: Rect,
         images: &[atlas_agent::ImageOutput],
-        shown: Option<usize>,
-        flowing: bool,
+        focus: usize,
         reveal: bool,
         z: f32,
     ) {
@@ -18,12 +18,6 @@ impl SlateApp {
         // Squares under the card: every result, grouped by run. While it
         // flows they follow the flow.
         if images.len() > 1 {
-            let focus = if flowing {
-                self.agents.cover_focus.get(&id).copied()
-            } else {
-                shown
-            }
-            .unwrap_or(0);
             let squares: Vec<AlbumImage> = images
                 .iter()
                 .enumerate()
@@ -58,7 +52,7 @@ impl SlateApp {
             let interaction = atlas_shell::home::album_result_strip(
                 ui,
                 Id::new(("agent-picture", id.0)),
-                body,
+                placement,
                 &squares,
                 &runs,
                 focus,
@@ -78,7 +72,7 @@ impl SlateApp {
                     .unwrap_or(Rect::NOTHING),
                 z,
             );
-            let strip = atlas_shell::home::album_strip_rect(body, images.len(), z);
+            let strip = atlas_shell::home::album_strip_rect(placement, images.len(), z);
             self.handle_result_interaction(ui, id, interaction, strip);
         } else {
             self.remember_result_strip(id, body, Rect::NOTHING, z);

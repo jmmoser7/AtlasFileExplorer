@@ -15,7 +15,12 @@ impl SlateApp {
             !n.hidden
                 && count > 1
                 && self.image_wheel(n.id) == ImageWheel::Album
-                && atlas_shell::home::album_strip_rect(xf.rect_w2s(n.rect), count, xf.z).contains(p)
+                && atlas_shell::home::album_strip_rect(
+                    self.result_strip_placement(n.id, xf.rect_w2s(n.rect)),
+                    count,
+                    xf.z,
+                )
+                .contains(p)
         });
         on_strip
             || self

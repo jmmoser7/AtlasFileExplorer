@@ -183,36 +183,16 @@ impl SlateApp {
         let title = format!("{} · public activity", a.profile.name);
         let snapshot = a.snapshot.clone();
         let status = a.status.clone();
-        let session = a.binding.session_id.clone();
         let palette = self.palette();
         let mut open = true;
-        let mut accept = None;
-        let mut reject = None;
         egui::Window::new(title).id(egui::Id::new("collaborator-conversation")).open(&mut open).default_width(420.0).show(ctx,|ui|{
             ui.label(status);
-            for proposal in self.pending_stage_proposals().iter().filter(|p|p.session.as_deref()==Some(&session)) {
-                ui.horizontal(|ui|{ui.label(&proposal.title);if ui.button("Accept").clicked(){accept=Some(proposal.id.clone());}if ui.button("Reject").clicked(){reject=Some(proposal.id.clone());}});
-            }
             if let Some(snapshot)=snapshot {
                 egui::ScrollArea::vertical().max_height(280.0).show(ui,|ui|{for turn in snapshot.turns.iter().rev().take(32).collect::<Vec<_>>().into_iter().rev(){ui.strong(&turn.role);ui.label(&turn.text);ui.add_space(6.0);}});
                 let entries:Vec<_>=snapshot.activity.iter().map(|e|activity::ActivityEntry{id:&e.id,label:match e.kind{atlas_agent::AgentActivityKind::Commentary=>"Message",atlas_agent::AgentActivityKind::ToolStarted=>"Tool started",atlas_agent::AgentActivityKind::ToolFinished=>"Tool finished"},text:&e.text}).collect();
                 if !entries.is_empty(){self.presence.activity_view.fold=activity::CardFold::Open;let(rect,_)=ui.allocate_exact_size(egui::vec2(ui.available_width(),220.0),egui::Sense::hover());activity::paint(ui,rect,activity::ActivityView{entries:&entries,state:&mut self.presence.activity_view,running:matches!(snapshot.status,atlas_agent::AgentStatus::Thinking)},1.0,palette);}
             }else{ui.weak("Send a task from the participant capsule. Dot and other local sidecars connect through this session's file link.");}
         });
-        if let Some(id) = accept {
-            self.dispatch(
-                ctx,
-                atlas_commands::CommandId("presence.accept"),
-                Some(serde_json::json!({"id":id}).to_string()),
-            );
-        }
-        if let Some(id) = reject {
-            self.dispatch(
-                ctx,
-                atlas_commands::CommandId("presence.reject"),
-                Some(serde_json::json!({"id":id}).to_string()),
-            );
-        }
         if !open {
             self.presence.inspect = None;
         }

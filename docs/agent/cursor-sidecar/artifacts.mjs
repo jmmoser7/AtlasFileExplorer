@@ -123,7 +123,7 @@ export function displayPrompt(text) {
   const i=text.lastIndexOf(marker);
   if(i>=0) { try { if(Array.isArray(JSON.parse(text.slice(i+marker.length)))) text=text.slice(0,i); } catch {} }
   const artifact = text.lastIndexOf(ARTIFACT_GENERATION_MARKER);
-  if (artifact >= 0 && text.slice(artifact + ARTIFACT_GENERATION_MARKER.length).startsWith('Artifact generation profile v1\n')) {
+  if (artifact >= 0 && /^Artifact generation profile v1\r?\n/.test(text.slice(artifact + ARTIFACT_GENERATION_MARKER.length))) {
     return text.slice(0, artifact);
   }
   const end=text.startsWith('Slate board:') ? text.indexOf(SLATE_LINK_LINE+'\n') : -1;

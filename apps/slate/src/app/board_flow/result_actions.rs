@@ -64,6 +64,82 @@ impl SlateApp {
             .unwrap_or_default()
     }
 
+    /// Shell adds the canonical strip gap; the host remains the hover origin.
+    pub(crate) fn result_strip_placement(&self, host: NodeId, mut body: Rect) -> Rect {
+        if let Some((_, _, bottom)) = self
+            .shape_properties
+            .result_chrome_bottom
+            .filter(|(tab, owner, _)| *tab == self.tab().id && *owner == host)
+        {
+            body.max.y = body.bottom().max(bottom);
+        }
+        body
+    }
+
+    pub(crate) fn result_strip_state(
+        &self,
+        ctx: &egui::Context,
+        host: NodeId,
+        body: Rect,
+        zoom: f32,
+    ) -> Option<(bool, usize)> {
+        let node = self.doc().scene.node(host)?;
+        let agent = slate_doc::agent_chat::agent(node)?;
+        if node.hidden || agent.view == PortalView::Text || self.agent_picture_draw_mode(host) {
+            return None;
+        }
+        let selected = self.board_sel.len() == 1 && self.board_sel.contains(&host);
+        let flowing = selected
+            && self.image_wheel(host) == crate::app::board_agent::ImageWheel::Album
+            && atlas_shell::home::album_browsing(ctx, Id::new(("agent-picture", host.0))) > 0.001;
+        let focus = if flowing {
+            self.agents.cover_focus.get(&host).copied()
+        } else {
+            self.agent_shown_index(host)
+        }
+        .unwrap_or(0);
+        let reveal = !flowing
+            && !self.agents.flow.hud_hidden(host)
+            && (ctx.pointer_latest_pos().is_some_and(|p| body.contains(p))
+                || selected
+                || self.flow_capsule_open(host)
+                || self.result_strip_hovered(ctx, host, body, zoom));
+        Some((reveal, focus))
+    }
+
+    /// Exact current thumbnail hits keep their editor open without taking input.
+    pub(crate) fn result_strip_contains(
+        &self,
+        ctx: &egui::Context,
+        host: NodeId,
+        body: Rect,
+        zoom: f32,
+    ) -> bool {
+        let Some(pointer) = ctx.pointer_latest_pos() else {
+            return false;
+        };
+        if !self.canvas_rect.contains(pointer) {
+            return false;
+        }
+        let images = self.agent_images(host);
+        let runs: Vec<&str> = images.iter().map(|image| image.request.as_str()).collect();
+        let Some((reveal, focus)) = self.result_strip_state(ctx, host, body, zoom) else {
+            return false;
+        };
+        atlas_shell::home::album_result_layout(
+            ctx,
+            Id::new(("agent-picture", host.0)),
+            self.result_strip_placement(host, body),
+            &runs,
+            images.len(),
+            focus,
+            reveal,
+            zoom,
+            2,
+        )
+        .is_some_and(|(_, squares)| squares.iter().any(|(_, square)| square.contains(pointer)))
+    }
+
     pub(crate) fn remember_result_strip(
         &mut self,
         host: NodeId,

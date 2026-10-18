@@ -2,6 +2,35 @@
 use super::*;
 
 impl SlateApp {
+    /// Borrow display metadata only. The staging owner performs the real
+    /// applicability, replay, permission and journal checks when a human decides.
+    pub(super) fn presence_proposal_rows(&self, who: &str) -> Vec<chrome::ProposalDecision<'_>> {
+        let Some(agent) = self
+            .presence
+            .agents
+            .iter()
+            .find(|a| a.profile.id == who && a.tab == self.tab().id && a.departure.is_none())
+        else {
+            return Vec::new();
+        };
+        self.pending_stage_proposals()
+            .iter()
+            .filter(|proposal| {
+                proposal.session.as_deref() == Some(agent.binding.session_id.as_str())
+                    && proposal.target.workbook.as_deref() == self.tab().path.as_deref()
+            })
+            .map(|proposal| chrome::ProposalDecision {
+                id: &proposal.id,
+                label: self
+                    .registry
+                    .iter()
+                    .find(|spec| spec.id.0 == proposal.title)
+                    .map_or(proposal.title.as_str(), |spec| spec.name),
+                recovery_required: proposal.status == slate_doc::ProposalStatus::RecoveryRequired,
+            })
+            .collect()
+    }
+
     pub(crate) fn presence_capsules(&mut self, ctx: &egui::Context) -> bool {
         self.ensure_agent_programs();
         self.presence_poll_photo(ctx);
@@ -27,6 +56,16 @@ impl SlateApp {
             .agents
             .iter()
             .filter(|a| a.tab == tab && a.departure.is_none())
+            .collect();
+        let proposals: Vec<_> = live
+            .iter()
+            .map(|a| {
+                if state.active_chat() == Some(a.profile.id.as_str()) {
+                    self.presence_proposal_rows(&a.profile.id)
+                } else {
+                    Vec::new()
+                }
+            })
             .collect();
         let human_ids: Vec<_> = self
             .settings
@@ -97,6 +136,7 @@ impl SlateApp {
             busy: false,
             messages: &messages[0].0,
             message_total: messages[0].1,
+            proposals: &[],
             draft: self_thread.map_or("", |c| c.draft.as_str()),
             queued_provider: None,
             model: "",
@@ -132,6 +172,7 @@ impl SlateApp {
                 busy: self.presence.task_busy(&a.profile.id),
                 messages: &messages[index + 1].0,
                 message_total: messages[index + 1].1,
+                proposals: &proposals[index],
                 draft: self
                     .presence_conversation(&a.profile.id)
                     .map_or("", |c| c.draft.as_str()),
@@ -166,6 +207,7 @@ impl SlateApp {
                 busy: false,
                 messages: &messages[1 + live.len() + index].0,
                 message_total: messages[1 + live.len() + index].1,
+                proposals: &[],
                 draft: self
                     .presence_conversation(who)
                     .map_or("", |c| c.draft.as_str()),
@@ -237,7 +279,19 @@ impl SlateApp {
         action: chrome::PresenceAction,
     ) {
         use chrome::PresenceAction::*;
+        if let AcceptProposal { participant, id } | RejectProposal { participant, id } = &action {
+            if !self
+                .presence_proposal_rows(participant)
+                .iter()
+                .any(|p| p.id == id)
+            {
+                self.toast("This proposal is no longer available in this conversation.");
+                return;
+            }
+        }
         let (command, detail) = match action {
+            AcceptProposal { id, .. } => ("presence.accept", serde_json::json!({"id":id})),
+            RejectProposal { id, .. } => ("presence.reject", serde_json::json!({"id":id})),
             Add {
                 name,
                 hat,

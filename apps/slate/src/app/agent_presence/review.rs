@@ -1,15 +1,25 @@
 //! Opt-in production-renderer fixture, paired with the existing SLATE_SHOT harness.
-//! It never contacts a provider or saves workbook/profile preferences.
+//! It never contacts a provider or saves user profile preferences. Proposal
+//! states save only a fresh synthetic workbook inside their capture workspace.
 use super::*;
 use serde_json::json;
 impl SlateApp {
     pub(crate) fn presence_review_fixture(&mut self, ctx: &egui::Context) {
-        if std::env::var_os("SLATE_SHOT").is_none() {
-            return;
-        }
-        let Some(workspace) = std::env::var_os("SLATE_PRESENCE_REVIEW").map(PathBuf::from) else {
+        let Some(workspace) = self
+            .screenshot
+            .as_ref()
+            .and_then(|shot| shot.presence_workspace())
+            .map(std::path::Path::to_path_buf)
+        else {
             return;
         };
+        let state = std::env::var("SLATE_PRESENCE_REVIEW_STATE").unwrap_or_default();
+        let proposal_fixture = matches!(state.as_str(), "proposal" | "proposal-attached");
+        if proposal_fixture {
+            self.screenshot.as_mut().unwrap().set_fixture_status(Err(
+                "Presence proposal fixture has not opened its requested conversation",
+            ));
+        }
         if self.frame_no != 2 {
             // These are ongoing fixture actions, not live-provider evidence.
             if self.doc().name != "Collaborators · native render fixture" {
@@ -51,12 +61,11 @@ impl SlateApp {
             }
             // Fixed renderer states exercise the real UI without provider work
             // or synthetic input. They do not establish interaction acceptance.
-            let state = std::env::var("SLATE_PRESENCE_REVIEW_STATE").unwrap_or_default();
             let selected = match state.as_str() {
-                "chat" => Some((false, 1.0)),
+                "chat" | "proposal" => Some((false, 1.0)),
                 "attached25" => Some((true, 0.25)),
                 "attached80" => Some((true, 0.8)),
-                "attached100" => Some((true, 1.0)),
+                "attached100" | "proposal-attached" => Some((true, 1.0)),
                 "attached200" => Some((true, 2.0)),
                 _ => None,
             };
@@ -100,21 +109,75 @@ impl SlateApp {
                         }
                         if let Err(error) = self.presence_address(ctx, &who) {
                             eprintln!("Presence render fixture state failed: {error}");
+                            if proposal_fixture {
+                                std::process::exit(2);
+                            }
                         }
                     } else {
                         self.presence.chrome.open_chat(&who);
                     }
                 }
             }
+            if proposal_fixture {
+                let status = (|| {
+                    let agent = self
+                        .presence
+                        .agents
+                        .iter()
+                        .find(|a| {
+                            a.tab == tab
+                                && a.departure.is_none()
+                                && a.profile.name == "Dot · render fixture"
+                        })
+                        .ok_or("Presence proposal fixture collaborator is missing")?;
+                    let who = agent.profile.id.as_str();
+                    if self.presence.chrome.active_chat() != Some(who)
+                        || self.presence.chrome.canvas_chat().is_some()
+                            != (state == "proposal-attached")
+                    {
+                        return Err("Presence proposal fixture conversation is not open in the requested position");
+                    }
+                    if state == "proposal-attached"
+                        && (!agent.paused || agent.activity != "listening")
+                    {
+                        return Err("Presence proposal fixture is not paused and listening");
+                    }
+                    if !self
+                        .presence
+                        .conversations
+                        .get(who)
+                        .is_some_and(|c| c.turns.len() >= 4)
+                        || self.presence_proposal_rows(who).len() != 1
+                    {
+                        return Err(
+                            "Presence proposal fixture history or decision card is not ready",
+                        );
+                    }
+                    Ok(())
+                })();
+                self.screenshot.as_mut().unwrap().set_fixture_status(status);
+            }
             return;
         }
+        let previous_tab = self.tab().id;
+        let previous_count = self.tabs.len();
         self.new_tab();
+        if self.tabs.len() != previous_count + 1
+            || self.tab().id == previous_tab
+            || self.tab().path.is_some()
+            || !self.doc().scene.nodes.is_empty()
+        {
+            eprintln!(
+                "SLATE_SHOT presence fixture failed: a fresh untitled tab could not be created"
+            );
+            std::process::exit(2);
+        }
         self.at_home = false;
         self.presenting = None;
         self.portal_chrome.maximized = None;
         self.doc_mut().name = "Collaborators · native render fixture".into();
         self.doc_mut().view.active_view = slate_doc::ViewKind::Board;
-        self.ai.config.workspace_dir = Some(workspace);
+        self.ai.config.workspace_dir = Some(workspace.clone());
         for (command, args) in [
             (
                 "board.objects.create_frame",
@@ -179,6 +242,71 @@ impl SlateApp {
                     session.advance(std::time::Duration::from_millis(50));
                 }
                 session.resolve_ready(|_| true);
+            }
+        }
+        if proposal_fixture {
+            // Only these two opt-in states need saved workbook identity. A
+            // newly reserved directory makes overwriting an existing file
+            // impossible; ordinary save authority and encoding stay shared.
+            let staged = (|| -> Result<(), String> {
+                let directory =
+                    workspace.join(format!("proposal-fixture-{}", atlas_agent::request_id()));
+                std::fs::create_dir(&directory).map_err(|error| error.to_string())?;
+                let path = directory.join("proposal.slate");
+                let lease =
+                    match super::super::Lease::acquire(&path).map_err(|error| error.to_string())? {
+                        super::super::LeaseState::Acquired(lease) => lease,
+                        super::super::LeaseState::Held(_) => {
+                            return Err("Synthetic workbook is already held".into())
+                        }
+                    };
+                super::super::workbook_save::save_while_owned(self.doc(), &lease, &path)
+                    .map_err(|error| error.to_string())?;
+                let tab = self.tab_mut();
+                tab.path = Some(path);
+                tab.lease = Some(lease);
+                let (who, author, session) = self
+                    .presence
+                    .agents
+                    .iter()
+                    .find(|a| a.tab == self.tab().id && a.profile.name == "Dot · render fixture")
+                    .map(|a| {
+                        (
+                            a.profile.id.clone(),
+                            a.profile.name.clone(),
+                            a.binding.session_id.clone(),
+                        )
+                    })
+                    .ok_or("Missing live fixture collaborator")?;
+                let node = self
+                    .doc()
+                    .scene
+                    .nodes
+                    .iter()
+                    .find(|node| matches!(node.kind, slate_doc::NodeKind::Shape(_)))
+                    .ok_or("Missing fixture shape")?;
+                let (target, before) = (node.id, node.rect);
+                let prepared = self.prepare_targeted_command(
+                    "board.objects.move",
+                    &[target.0.to_string()],
+                    &json!({"dx":80,"dy":20}),
+                )?;
+                let status = self.finish_targeted_command(prepared, &author, false, &session)?;
+                let proposal = status
+                    .strip_prefix("staged:")
+                    .ok_or("Fixture move was not staged")?;
+                let pending = self.presence_proposal_rows(&who);
+                if pending.len() != 1
+                    || pending[0].id != proposal
+                    || self.doc().scene.node(target).map(|node| node.rect) != Some(before)
+                {
+                    return Err("Fixture proposal is missing or changed the authored shape".into());
+                }
+                Ok(())
+            })();
+            if let Err(error) = staged {
+                eprintln!("SLATE_SHOT presence proposal fixture failed: {error}");
+                std::process::exit(2);
             }
         }
         self.tab_mut().cam.offset = egui::Vec2::ZERO;

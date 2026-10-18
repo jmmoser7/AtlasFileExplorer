@@ -301,6 +301,7 @@ fn strip_transport(text: &str) -> &str {
                 data.starts_with("Every file you create or change")
             } else if marker == ARTIFACT_GENERATION_MARKER {
                 data.starts_with("Artifact generation profile v1\n")
+                    || data.starts_with("Artifact generation profile v1\r\n")
             } else if marker == GOAL_MARKER {
                 data.starts_with("Goal: ")
             } else if marker == CHAT_MARKER {
