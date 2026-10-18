@@ -74,6 +74,7 @@ impl SlateApp {
 
     pub(crate) fn agent_web_contact(
         &self,
+        ctx: &egui::Context,
         id: NodeId,
         x: f32,
         y: f32,
@@ -90,18 +91,37 @@ impl SlateApp {
             return Err("Target is not a Web portal".into());
         }
         let web = portal.web_ref();
-        let (width, height) = css_size(&web, node.rect);
-        if x < 0.0 || y < 0.0 || x > width as f32 || y > height as f32 {
+        let maximized = self.portal_chrome.maximized == Some(id);
+        let css_rect = self.web_layout_world(id, node.rect, ctx);
+        let (width, height) = css_size(&web, css_rect);
+        if x < 0.0 || y < 0.0 || x >= width as f32 || y >= height as f32 {
             return Err("Input point is outside the page".into());
         }
-        let point = node.rect.rotate_point(
-            [
-                node.rect.x + node.rect.w * x / width as f32,
-                node.rect.y + node.rect.h * y / height as f32,
-            ],
-            node.rotation_deg,
+        let xf = self.board_xf();
+        let frame = if maximized {
+            ctx.screen_rect()
+        } else {
+            xf.rect_w2s(node.rect)
+        };
+        let mut layout = super::super::board_portal_chrome::layout_portal_chrome(
+            frame,
+            self.portal_chrome_collapsed(id),
+            maximized,
+            self.node_resolved_corner(node),
+            xf.z,
         );
-        Ok((f64::from(point[0]), f64::from(point[1])))
+        layout.retract_when_idle(ctx, id, self.web.focused == Some(id));
+        // The Web body and human input use the unrotated screen frame; only
+        // the board hit shape is rotated, so do not rotate this contact point.
+        let point = super::input::screen_point_for_css(&layout, width as f32, height as f32, x, y);
+        if !super::page_owns_point(&layout, point) {
+            return Err("Input point is covered by Web portal chrome".into());
+        }
+        let world = xf.s2w(point);
+        if self.board_pick_node_with_locked(world.x, world.y, true) != Some(id) {
+            return Err("Input point is covered by another board object".into());
+        }
+        Ok((f64::from(world.x), f64::from(world.y)))
     }
 
     pub(crate) fn agent_web_input(&mut self, id: NodeId, input: WebInput) -> Result<(), String> {
@@ -248,6 +268,95 @@ mod tests {
         assert!(h.app.agent_web_focus(id, "request-b").is_err());
         assert!(h.app.agent_web_release_focus("request-a"));
         assert_eq!(h.app.web.focused, None);
+    }
+
+    #[test]
+    fn agent_contact_matches_human_css_mapping_on_rotated_portal() {
+        let mut h = web_board("agent_web_contact_rotated");
+        let host = with_fake_host(&mut h);
+        h.app
+            .paste_web_url("https://example.com/dashboard", egui::Pos2::ZERO);
+        let (id, _) = only_portal(&h);
+        h.app.web_allow_origin(id);
+        h.frame();
+        h.app.web_focus(id);
+        h.app.doc_mut().scene.node_mut(id).unwrap().rotation_deg = 37.0;
+
+        let node = h.app.doc().scene.node(id).unwrap();
+        let web = match &node.kind {
+            NodeKind::Portal(portal) => portal.web_ref(),
+            _ => unreachable!(),
+        };
+        let (width, height) = css_size(&web, node.rect);
+        let xf = h.app.board_xf();
+        let layout = super::super::super::board_portal_chrome::layout_portal_chrome(
+            xf.rect_w2s(node.rect),
+            h.app.portal_chrome_collapsed(id),
+            false,
+            h.app.node_resolved_corner(node),
+            xf.z,
+        );
+        let css = egui::vec2(width as f32 * 0.35, height as f32 * 0.72);
+        let screen = super::super::input::screen_point_for_css(
+            &layout,
+            width as f32,
+            height as f32,
+            css.x,
+            css.y,
+        );
+        assert!(super::page_owns_point(&layout, screen));
+        let expected = xf.s2w(screen);
+        assert_eq!(
+            h.app
+                .board_pick_node_with_locked(expected.x, expected.y, true),
+            Some(id)
+        );
+
+        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(screen)));
+        assert!(host.inputs().iter().any(|event| matches!(
+            event,
+            WebInput::Move { x, y, .. }
+                if (*x - css.x).abs() < 0.1 && (*y - css.y).abs() < 0.1
+        )));
+        let actual = h.app.agent_web_contact(&h.ctx, id, css.x, css.y).unwrap();
+        assert!((actual.0 - f64::from(expected.x)).abs() < 0.01);
+        assert!((actual.1 - f64::from(expected.y)).abs() < 0.01);
+    }
+
+    #[test]
+    fn agent_contact_rejects_the_overlaid_identity_tab() {
+        let mut h = web_board("agent_web_contact_chrome");
+        let _host = with_fake_host(&mut h);
+        h.app
+            .paste_web_url("https://example.com/dashboard", egui::Pos2::ZERO);
+        let (id, _) = only_portal(&h);
+        h.app.web_allow_origin(id);
+        h.frame();
+
+        let node = h.app.doc().scene.node(id).unwrap();
+        let web = match &node.kind {
+            NodeKind::Portal(portal) => portal.web_ref(),
+            _ => unreachable!(),
+        };
+        let (width, height) = css_size(&web, node.rect);
+        let xf = h.app.board_xf();
+        let layout = super::super::super::board_portal_chrome::layout_portal_chrome(
+            xf.rect_w2s(node.rect),
+            h.app.portal_chrome_collapsed(id),
+            false,
+            h.app.node_resolved_corner(node),
+            xf.z,
+        );
+        let bar = layout.bar.expect("Web portal identity tab").center();
+        let (css_x, css_y) =
+            super::super::input::css_point_for_screen(&layout, width as f32, height as f32, bar);
+        assert!(!super::page_owns_point(&layout, bar));
+        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(bar)));
+        let error = h
+            .app
+            .agent_web_contact(&h.ctx, id, css_x, css_y)
+            .unwrap_err();
+        assert!(error.contains("covered by Web portal chrome"));
     }
 
     #[test]

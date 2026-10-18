@@ -44,3 +44,11 @@ Software captures use the production board painter with synthetic fixture
 content; they are not native pointer/GPU or human acceptance. The user's open
 Slate session is protected and must be safely closed before its executable can
 be replaced. No source-write or security-policy exception is introduced.
+
+Image inspection uses bounded displayed-image PNGs rather than returning an
+unchanged image's original file as provider input. Codex attaches those pixels
+through its installed dynamic-tool response schema. The transport adds dependency
+edges to the workspace's existing PNG decoder and already-locked base64 version;
+it changes no package versions, features, toolchain, build profile or output path.
+Tests of this adapter are protocol/transport evidence, separate from a live model
+vision turn.

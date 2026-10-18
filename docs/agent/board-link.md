@@ -160,6 +160,19 @@ describes this dynamic-tool flow as experimental and requires the initialize
 capability `experimentalApi: true`; the existing Client already advertises it.
 Ordinary chat sessions receive no board tools or context.
 
+Successful `presence.read_image`, `portal.atlas.read_file` with `mode: image`,
+and `portal.web.capture` replies attach actual image content to Codex's dynamic
+tool response (`inputImage.imageUrl`), alongside the ordinary text metadata.
+The mailbox still carries only a small artifact locator. The adapter opens
+only host-prepared PNGs directly inside the AI workspace's
+`collaborator-previews`, `portal-previews`, or `portal-captures` directories;
+original source files and arbitrary paths in other tool results are refused.
+Cloud checks precede reads, and PNG decoding and transport have explicit bounds
+(8 MiB encoded, 16 million pixels). A rejected artifact returns a recoverable
+tool error. File-bridge providers receive the artifact locator and use their
+existing image-view tool. The exact installed response schema is retained in
+`target/review/agent-tools-20261018/codex-schema/DynamicToolCallResponse.json`.
+
 Native collaborator model turns default to the local filesystem read-only
 sandbox, independently of the board mutation/autonomy grant. A human may
 separately opt an independent Codex collaborator into provider Full access via

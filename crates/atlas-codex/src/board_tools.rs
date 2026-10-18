@@ -3,6 +3,8 @@
 use super::*;
 use atlas_agent::collaborator::{BoardCall, BoardOperation, BoardReply, MAX_BOARD_MESSAGE_BYTES};
 
+mod image_transport;
+
 pub(super) fn tools() -> Value {
     json!([
         {"type":"function","name":"slate_board_read",
@@ -93,7 +95,7 @@ impl PendingCalls {
             match parse_operation(p["tool"].as_str().unwrap_or_default(), args, request.policy) {
                 Ok(operation) => operation,
                 Err(error) => {
-                    return tool_result(client, &event["id"], false, json!({"error":error}))
+                    return tool_result(client, &event["id"], false, json!({"error":error}));
                 }
             };
         let call = BoardCall {
@@ -170,7 +172,7 @@ impl PendingCalls {
             if let Some(error) = error {
                 tool_result(client, &pending.rpc_id, false, json!({"error":error}))?;
             } else if let Some(reply) = reply {
-                tool_result(client, &pending.rpc_id, reply.success, reply.result)?;
+                tool_reply(client, &pending.rpc_id, &pending.call.operation, reply)?;
             } else {
                 i += 1;
                 continue;
@@ -242,6 +244,32 @@ fn tool_result(
     result: Value,
 ) -> Result<(), String> {
     client.write(json!({"id":id,"result":{"contentItems":[{"type":"inputText", "text":serde_json::to_string(&result).unwrap_or_default()}],"success":success}}))
+}
+
+fn tool_reply(
+    client: &mut Client,
+    id: &Value,
+    operation: &BoardOperation,
+    reply: BoardReply,
+) -> Result<(), String> {
+    let items = match image_transport::content_items(
+        &client.cwd,
+        client.board_cloud_guard,
+        operation,
+        reply.success,
+        &reply.result,
+    ) {
+        Ok(items) => items,
+        Err(error) => {
+            return tool_result(
+                client,
+                id,
+                false,
+                json!({"error":error,"result":reply.result}),
+            );
+        }
+    };
+    client.write(json!({"id":id,"result":{"contentItems":items,"success":reply.success}}))
 }
 
 #[cfg(test)]

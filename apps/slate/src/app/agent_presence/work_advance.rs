@@ -18,7 +18,7 @@ impl SlateApp {
             let mut cancelled_approval = None;
             if board_visible && a.tab == active_tab && a.departure.is_none() {
                 if !pointer_press && !a.paused {
-                    if let Some(reply) = self.advance_presence_portal_call(&mut a, elapsed) {
+                    if let Some(reply) = self.advance_presence_portal_call(ctx, &mut a, elapsed) {
                         let _ = self.presence.links.reply(&a.dir, reply);
                     }
                 }

@@ -6,6 +6,32 @@ use super::*;
 #[derive(Clone, Copy, PartialEq)]
 pub(super) struct PointerSample(f32, f32, u8);
 
+pub(super) fn screen_point_for_css(
+    layout: &PortalChromeLayout,
+    css_width: f32,
+    css_height: f32,
+    x: f32,
+    y: f32,
+) -> Pos2 {
+    let page = layout.body;
+    Pos2::new(
+        page.left() + page.width() * x / css_width.max(1.0),
+        page.top() + page.height() * y / css_height.max(1.0),
+    )
+}
+
+pub(super) fn css_point_for_screen(
+    layout: &PortalChromeLayout,
+    css_width: f32,
+    css_height: f32,
+    point: Pos2,
+) -> (f32, f32) {
+    let page = layout.body;
+    let u = ((point.x - page.left()) / page.width().max(1.0)).clamp(0.0, 1.0);
+    let v = ((point.y - page.top()) / page.height().max(1.0)).clamp(0.0, 1.0);
+    (u * css_width, v * css_height)
+}
+
 impl WebRuntime {
     pub(super) fn note_page_input(&mut self) {
         self.last_page_input = Some(Instant::now());
@@ -70,10 +96,7 @@ impl SlateApp {
 
         let (css_w, css_h) = css_size(web, css_rect);
         let p = pointer.unwrap_or(page.center());
-        let u = ((p.x - page.left()) / page.width().max(1.0)).clamp(0.0, 1.0);
-        let v = ((p.y - page.top()) / page.height().max(1.0)).clamp(0.0, 1.0);
-        let x = u * css_w as f32;
-        let y = v * css_h as f32;
+        let (x, y) = css_point_for_screen(layout, css_w as f32, css_h as f32, p);
 
         let mut events = Vec::new();
         let mut buttons = self.web.pointer_down;

@@ -444,6 +444,8 @@ name = "atlas-codex"
 version = "1.0.0"
 dependencies = [
  "atlas-agent",
+ "base64 0.22.1",
+ "png",
  "serde",
  "serde_json",
 ]

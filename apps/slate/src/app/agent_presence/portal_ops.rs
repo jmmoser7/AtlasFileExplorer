@@ -30,6 +30,7 @@ pub(super) struct PortalOp {
     command: String,
     arguments: Value,
     observer: String,
+    contact: Option<(f64, f64)>,
     text_rx: Option<mpsc::Receiver<Result<Value, String>>>,
     image_rx: Option<mpsc::Receiver<Result<PathBuf, String>>>,
     image_path: Option<PathBuf>,
@@ -58,7 +59,7 @@ pub(super) fn recognizes(command: &str) -> bool {
 impl SlateApp {
     pub(super) fn begin_presence_portal_call(
         &mut self,
-        _ctx: Option<&egui::Context>,
+        ctx: Option<&egui::Context>,
         a: &mut Collaborator,
         call: &BoardCall,
     ) -> Result<Option<Value>, String> {
@@ -147,12 +148,20 @@ impl SlateApp {
                 .ok_or("Highlight needs one relative locator")?;
             self.agent_atlas_validate_locator(locator)?;
         }
-        let (x, y) = if command == "portal.web.click" || command == "portal.web.scroll" {
-            self.agent_web_contact(id, page_coord(arguments, "x")?, page_coord(arguments, "y")?)?
+        let contact = if command == "portal.web.click" || command == "portal.web.scroll" {
+            Some(self.agent_web_contact(
+                ctx.ok_or("Pointer portal actions need the live board context")?,
+                id,
+                page_coord(arguments, "x")?,
+                page_coord(arguments, "y")?,
+            )?)
         } else {
+            None
+        };
+        let (x, y) = contact.unwrap_or_else(|| {
             let (x, y) = node.rect.center();
             (f64::from(x), f64::from(y))
-        };
+        });
         let motion = self
             .presence
             .roster
@@ -167,6 +176,7 @@ impl SlateApp {
             command: command.clone(),
             arguments: arguments.clone(),
             observer: a.profile.name.clone(),
+            contact,
             text_rx: None,
             image_rx: None,
             image_path: None,
@@ -184,6 +194,7 @@ impl SlateApp {
 
     pub(super) fn advance_presence_portal_call(
         &mut self,
+        ctx: &egui::Context,
         a: &mut Collaborator,
         elapsed: Duration,
     ) -> Option<BoardReply> {
@@ -263,6 +274,36 @@ impl SlateApp {
                     return Ok(None);
                 }
             }
+            if op.command == "portal.web.click" || op.command == "portal.web.scroll" {
+                let contact = self.agent_web_contact(
+                    ctx,
+                    op.portal,
+                    page_coord(&op.arguments, "x")?,
+                    page_coord(&op.arguments, "y")?,
+                )?;
+                let previous = op
+                    .contact
+                    .ok_or("Portal pointer contact was not prepared")?;
+                let distance =
+                    ((previous.0 - contact.0).powi(2) + (previous.1 - contact.1).powi(2)).sqrt();
+                if distance > 0.25 {
+                    let motion = self
+                        .presence
+                        .roster
+                        .session_mut(&a.motion)
+                        .ok_or("Collaborator presence ended")?;
+                    let target = WorldPoint {
+                        x: contact.0,
+                        y: contact.1,
+                    };
+                    witness::enqueue_motion(motion, &op.portal.0.to_string(), target, target)?;
+                    op.contact = Some(contact);
+                    op.started = false;
+                    a.activity = "approaching".into();
+                    a.status = "Portal moved · repositioning before input".into();
+                    return Ok(None);
+                }
+            }
             self.execute_portal_operation(&mut op)
         })();
         match result {
@@ -311,7 +352,7 @@ impl SlateApp {
                     .map(PathBuf::from)
                     .ok_or("Establish the AI workspace before capturing a page")?;
                 self.agent_web_capture(op.portal, &dir.join("portal-captures"))
-                    .map(|p| p.map(|path| json!({"image_path":path})))
+                    .map(|p| p.map(|path| json!({"image_source":path})))
             }
             "portal.web.navigate" => {
                 let url = op.arguments["url"]
