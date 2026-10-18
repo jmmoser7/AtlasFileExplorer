@@ -135,7 +135,7 @@ pub(super) fn add(
     ui.add_space(8.0);
     let choices: Vec<_> = providers
         .iter()
-        .filter(|provider| matches!(provider.id, "codex" | "cursor" | "dot"))
+        .filter(|provider| matches!(provider.id, "codex" | "cursor" | "dot" | "local"))
         .collect();
     if !state.workspace_ready {
         ui.label(
@@ -149,6 +149,11 @@ pub(super) fn add(
         ui.add_space(6.0);
     }
     for provider in choices.iter().copied() {
+        let label = if matches!(provider.id, "dot" | "local") {
+            "Dot"
+        } else {
+            provider.label
+        };
         let (rect, _) =
             ui.allocate_exact_size(Vec2::new(ui.available_width(), 42.0), Sense::hover());
         let response = ui.interact(
@@ -161,11 +166,7 @@ pub(super) fn add(
             },
         );
         response.widget_info(|| {
-            egui::WidgetInfo::labeled(
-                egui::WidgetType::Button,
-                state.workspace_ready,
-                provider.label,
-            )
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, state.workspace_ready, label)
         });
         if response.hovered() {
             ui.painter().rect_filled(rect, 10, palette.card_hover);
@@ -182,14 +183,14 @@ pub(super) fn add(
         chrome::label(
             ui,
             Rect::from_min_max(egui::pos2(rect.left() + 42.0, rect.top()), rect.max),
-            provider.label,
+            label,
             14.0,
             palette.ink,
             egui::Align2::LEFT_CENTER,
         );
         if response.clicked() {
             actions.push(PresenceAction::Add {
-                name: provider.label.into(),
+                name: label.into(),
                 hat: "cap".into(),
                 provider: provider.id.into(),
             });

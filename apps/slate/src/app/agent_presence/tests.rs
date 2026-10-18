@@ -330,9 +330,23 @@ fn immediate_second_send_cannot_replace_a_live_request_binding() {
     h.app.send_presence_message(&who, "First task").unwrap();
     let request = h.app.presence.agents[0].request.clone();
     let binding = h.app.presence.agents[0].binding.clone();
-    assert!(h.app.send_presence_message(&who, "Second task").is_err());
+    h.app.send_presence_message(&who, "Second task").unwrap();
     assert_eq!(h.app.presence.agents[0].request, request);
     assert_eq!(h.app.presence.agents[0].binding, binding);
+    assert_eq!(
+        h.app
+            .presence
+            .conversations
+            .get(&who)
+            .unwrap()
+            .turns
+            .iter()
+            .filter(|turn| {
+                turn.role == "user" && turn.text == "Second task" && turn.status == "queued"
+            })
+            .count(),
+        1
+    );
     h.app.stop_presence(&who, true).unwrap();
     assert!(h.app.presence.agents[0].grant.is_none());
     assert!(!h.app.presence.agents[0].inflight);

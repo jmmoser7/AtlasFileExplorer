@@ -154,6 +154,14 @@ fn capsules_ui(
                 state.open_chat(p.id);
             }
         }
+        if state.canvas_anchor.is_none()
+            && matches!(
+                state.expansion.as_ref(),
+                Some(Expansion::Chat(id) | Expansion::Profile(id)) if id == p.id
+            )
+        {
+            state.anchor = rect;
+        }
         x += width;
         if index + 1 < participants.len() {
             ui.painter().line_segment(
@@ -169,6 +177,9 @@ fn capsules_ui(
         Pos2::new(roster.right() - 38.0, roster.top() + 4.0),
         Pos2::new(roster.right() - 4.0, roster.bottom() - 4.0),
     );
+    if matches!(state.expansion.as_ref(), Some(Expansion::Add)) {
+        state.anchor = add;
+    }
     ui.set_clip_rect(clip.intersect(roster));
     ui.painter().line_segment(
         [
@@ -190,9 +201,6 @@ fn capsules_ui(
         state.toggle(Expansion::Add, add);
     }
     ui.set_clip_rect(clip);
-    if !state.anchor.is_positive() {
-        state.anchor = roster;
-    }
     if ui.ctx().input(|i| i.key_pressed(egui::Key::Escape)) {
         if state.model_menu_open {
             state.model_menu_open = false;

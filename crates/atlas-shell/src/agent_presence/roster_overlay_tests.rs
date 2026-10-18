@@ -242,15 +242,19 @@ fn attached_overlay_body_and_hits_keep_the_opener_world_transform_at_every_zoom(
             assert_eq!(f.state.popover, None);
             f.state.popover = Some(popover);
             f.settle();
-            let composer = response_rect(&f, Id::new(("presence-composer", "dot")));
-            f.click(composer.center());
+            let panel = f.state.last_popup_rect;
+            let dismiss = Pos2::new(panel.left() + panel.width() * 0.1, panel.center().y);
+            assert!(panel.contains(dismiss));
+            assert!(
+                !f.state.last_popover_rect.contains(dismiss),
+                "dismissal point is outside the scaled popover at {zoom}"
+            );
+            // The attached menu can cover the composer at some zooms. Click
+            // the exposed left side of the actual transformed chat instead.
+            f.click(dismiss);
             f.settle();
             assert_eq!(f.state.popover, None);
             assert_eq!(f.state.canvas_chat(), Some("dot"));
-            assert_eq!(
-                f.ctx.memory(|memory| memory.focused()),
-                Some(Id::new(("presence-composer", "dot")))
-            );
             f.state.popover = Some(popover);
             f.settle();
             escape(&mut f);

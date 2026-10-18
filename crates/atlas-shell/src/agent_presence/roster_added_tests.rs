@@ -13,6 +13,42 @@ fn adapter_history_ranges_share_the_canonical_pagination_and_attached_limit() {
 }
 
 #[test]
+fn dropdown_tracks_roster_segments_after_first_use_and_resize() {
+    let mut f = Fixture::new();
+    f.settle();
+    let icon = visual::screen_response(&f, Id::new(("presence-chat", "dot")))
+        .0
+        .center();
+    f.click(icon);
+    assert_eq!(f.state.active_chat(), Some("dot"));
+    f.settle();
+    let agent_name = visual::screen_response(&f, Id::new(("presence-profile", "dot"))).0;
+    assert!((f.state.last_popup_rect.right() - agent_name.right()).abs() < 1.0);
+    let prior_right = agent_name.right();
+    f.click(agent_name.center());
+    assert_eq!(f.state.active_chat(), Some("dot"));
+    f.screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1500.0, 720.0));
+    let out = f.settle();
+    let moved_name = visual::screen_response(&f, Id::new(("presence-profile", "dot"))).0;
+    assert!(moved_name.right() > prior_right + 150.0);
+    assert!((f.state.last_popup_rect.right() - moved_name.right()).abs() < 1.0);
+
+    let you = text_rect(&out, "You").unwrap();
+    f.click(you.center());
+    assert_eq!(f.state.expansion, Some(Expansion::Profile("self".into())));
+    f.settle();
+    let human_name = visual::screen_response(&f, Id::new(("presence-profile", "self"))).0;
+    assert!((f.state.last_popup_rect.right() - human_name.right()).abs() < 1.0);
+
+    let add = visual::screen_response(&f, Id::new("presence-add")).0;
+    f.click(add.center());
+    let out = f.settle();
+    assert!(text_rect(&out, "Add an agent").is_some());
+    let add = visual::screen_response(&f, Id::new("presence-add")).0;
+    assert!((f.state.last_popup_rect.right() - add.right()).abs() < 1.0);
+}
+
+#[test]
 fn busy_chat_keeps_the_composer_live_and_shows_only_public_progress() {
     let mut f = Fixture::new();
     f.busy = true;

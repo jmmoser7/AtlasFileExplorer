@@ -981,9 +981,7 @@ impl SlateApp {
     // ---------- the keyboard front-end ----------
 
     pub(crate) fn hotkeys(&mut self, ctx: &egui::Context) {
-        // egui swallows Ctrl+V before it becomes a Key event, and it emits
-        // Paste only when the clipboard has text. Track the chord here so a
-        // copied image or file still reaches `board.paste`.
+        // Route the native bitmap-only Ctrl+V edge to focused chat or the board.
         let focused = ctx.input(|i| i.focused);
         let mut paste_edge = self.take_paste_chord_edge(focused);
         if self.presence_poll_attachments(ctx, paste_edge.is_some()) {

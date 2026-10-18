@@ -174,7 +174,7 @@ impl Fixture {
                 egui::Area::new(Id::new("presence-acceptance"))
                     .order(egui::Order::Foreground)
                     .pivot(Align2::RIGHT_TOP)
-                    .fixed_pos(Pos2::new(1268.0, 20.0))
+                    .fixed_pos(Pos2::new(self.screen.right() - 12.0, 20.0))
                     .show(ctx, |ui| {
                         ui.set_max_width(620.0);
                         actions = participant_capsules(

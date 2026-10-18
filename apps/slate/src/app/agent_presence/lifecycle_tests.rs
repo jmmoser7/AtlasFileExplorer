@@ -469,6 +469,9 @@ fn human_text_patch_sends_the_complete_message_and_agent_or_layout_patches_do_no
         1,
         "agent and layout patches must not enqueue another message"
     );
+    h.app
+        .set_presence_paused(&who, false, controls::PauseCause::Human)
+        .unwrap();
     h.app.patch_nodes(&[node], |node| {
         let slate_doc::scene::NodeKind::Text(text) = &mut node.kind else {
             panic!("expected authored text")

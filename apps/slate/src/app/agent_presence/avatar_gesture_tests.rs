@@ -209,7 +209,7 @@ fn actual_avatar_press_double_click_close_escape_and_wheel_keep_the_canvas_contr
         // Actual widget responses and their existing layer transform own the
         // control points; no hand-made close/composer hit geometry.
         let [close, composer] = [
-            Id::new(("conversation-more", f.who.as_str())),
+            Id::new(("conversation-close", f.who.as_str())),
             Id::new(("presence-composer", f.who.as_str())),
         ]
         .map(|id| {

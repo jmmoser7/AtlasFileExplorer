@@ -13,30 +13,22 @@ pub(super) fn run() {
     let parent = f.who.clone();
     f.settle();
     let out = f.click(Id::new("presence-add"));
-    has(&out, "Add a collaborator");
+    has(&out, "Add an agent");
     let out = f.hats_ready();
-    let add = f.enclosure(&out, required(&out, "Add a collaborator"), 40.0);
-    for text in [
-        "Codex",
-        "Cursor",
-        "Dot / local",
-        "Add collaborator",
-        "Connect people…",
-    ] {
+    let add = f.enclosure(&out, required(&out, "Add an agent"), 40.0);
+    for text in ["Codex", "Cursor", "Dot"] {
         assert!(add.contains_rect(required_in(&out, text, add)));
     }
-    has(&out, "edits begin as proposals");
-    has(&out, "Save this workbook");
+    assert!(label(&out, "Name", add).is_none());
+    assert!(label(&out, "Add collaborator", add).is_none());
     f.save(
         "management-add",
         out,
-        json!({"panel":rect_json(add),"joinActivated":false}),
+        json!({"panel":rect_json(add),"harnessPicker":true}),
     );
-    let out = f.settle();
-    click_text_in(&mut f, &out, "Dot / local", add);
     let before = ids(&f);
     let out = f.settle();
-    click_text(&mut f, &out, "Add collaborator");
+    let out = click_text_in(&mut f, &out, "Dot", add);
     let added: Vec<_> = ids(&f).difference(&before).cloned().collect();
     assert_eq!(added.len(), 1, "real Add must create exactly one identity");
     let who = added[0].clone();
@@ -49,6 +41,10 @@ pub(super) fn run() {
             .unwrap();
     assert_eq!(joined.profile.provider, "local");
     assert!(!joined.grant.as_ref().unwrap().mutation_autonomy);
+    assert_eq!(
+        f.h.app.presence.chrome.active_chat(),
+        Some(added[0].as_str())
+    );
     let first_grant = joined.binding.grant_id.clone();
     let thread = f.h.app.presence.conversations.edit(&who).unwrap();
     thread.push(

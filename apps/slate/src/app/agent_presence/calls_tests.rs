@@ -17,6 +17,7 @@ fn add(h: &mut Harness, name: &str) -> String {
 
 fn invoke(h: &mut Harness, command: &str, arguments: serde_json::Value) -> BoardReply {
     let mut agent = h.app.presence.agents.remove(0);
+    std::fs::create_dir_all(&agent.dir).unwrap();
     agent.request = "scoped-action-request".into();
     h.app
         .presence
@@ -36,7 +37,10 @@ fn invoke(h: &mut Harness, command: &str, arguments: serde_json::Value) -> Board
             arguments,
         },
     };
-    let reply = h.app.presence_call(&mut agent, &call).unwrap();
+    let reply = h
+        .app
+        .presence_call_with_context(&h.ctx, &mut agent, &call)
+        .unwrap();
     h.app.presence.agents.insert(0, agent);
     reply
 }
@@ -63,7 +67,9 @@ fn opted_in_collaborator_saves_current_authored_board_text() {
     let tab = h.app.tab().id;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     h.app.save_doc_to(tab, path.clone());
-    while !h.app.asset_save_rx.is_empty() && std::time::Instant::now() < deadline {
+    while (h.app.asset_saves_pending.contains(&tab) || !h.app.asset_save_rx.is_empty())
+        && std::time::Instant::now() < deadline
+    {
         h.app.poll_asset_saves(&h.ctx);
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
@@ -115,7 +121,9 @@ fn opted_in_collaborator_saves_current_authored_board_text() {
     let reply = invoke(&mut h, "app.save", json!({}));
     assert!(reply.success, "{:?}", reply.result);
     assert_eq!(reply.result["status"], "save_requested");
-    while !h.app.asset_save_rx.is_empty() && std::time::Instant::now() < deadline {
+    while (h.app.asset_saves_pending.contains(&tab) || !h.app.asset_save_rx.is_empty())
+        && std::time::Instant::now() < deadline
+    {
         h.app.poll_asset_saves(&h.ctx);
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
@@ -163,7 +171,7 @@ fn scoped_collaborator_feedback_is_local_bounded_and_does_not_open_ui() {
 }
 
 #[test]
-fn explicit_stop_keeps_consent_for_fresh_join_and_revoke_removes_it() {
+fn explicit_stop_and_retirement_keep_consent_for_fresh_join_and_revoke_removes_it() {
     let mut h = host();
     let who = add(&mut h, "Consented collaborator");
     let profile = h.app.presence.agents[0].profile.clone();
@@ -191,6 +199,7 @@ fn explicit_stop_keeps_consent_for_fresh_join_and_revoke_removes_it() {
 
     h.app.stop_presence(&who, false).unwrap();
     assert_eq!(h.app.settings.agent_consent_policies.len(), 1);
+    h.app.retire_presence(&who, "bow").unwrap();
     h.app.join_presence(profile.clone(), None).unwrap();
     let rebound = &h.app.presence.agents[0];
     assert_ne!(rebound.binding.session_id, old.session_id);
@@ -208,6 +217,7 @@ fn explicit_stop_keeps_consent_for_fresh_join_and_revoke_removes_it() {
 
     h.app.stop_presence(&who, true).unwrap();
     assert!(h.app.settings.agent_consent_policies.is_empty());
+    h.app.retire_presence(&who, "bow").unwrap();
     h.app.join_presence(profile, None).unwrap();
     let grant = h.app.presence.agents[0].grant.as_ref().unwrap();
     assert!(!grant.mutation_autonomy);
@@ -249,6 +259,7 @@ fn codex_full_access_is_opt_in_rebound_per_session_and_revoked() {
             .provider_full_access
     );
     h.app.stop_presence(&who, false).unwrap();
+    h.app.retire_presence(&who, "bow").unwrap();
     h.app.join_presence(profile.clone(), None).unwrap();
     let rebound_session = h.app.presence.agents[0].binding.session_id.clone();
     assert_ne!(first_session, rebound_session);
