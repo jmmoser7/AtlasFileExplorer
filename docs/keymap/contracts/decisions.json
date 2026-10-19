@@ -2248,11 +2248,11 @@
           "decided": "2026-08-15"
         },
         "D09": {
-          "behavior": "No second frame — each selected shape keeps its own silhouette. The alignment bars retain their positions: one button pitch beyond align.frame_outset (20 px) outside the left union edge, and one pitch beyond the bottom stringer clearance (STRINGER_GAP × zoom). Only the distribution stems reflect outward, keeping the two clusters' hit areas separate even for tiny selections. Quiet theme surfaces, ink outlines and directional arrow glyphs match the reference without its background text. Hover: icon invert + action name beyond the whole cluster. No ghost outlines, axis guide or numeric readout.",
+          "behavior": "No second frame — each selected shape keeps its own silhouette. The alignment bars retain their positions: one button pitch beyond align.frame_outset (20 px) outside the left union edge, and one pitch beyond the bottom stringer clearance (STRINGER_GAP × zoom). Only the distribution stems reflect outward, keeping the two clusters' hit areas separate even for tiny selections. Quiet theme surfaces, ink outlines and directional arrow glyphs match the reference without its background text. Hover: icon invert + action name beyond the whole cluster. No ghost outlines, axis guide or numeric readout. When current property-menu hit boxes or selected-host wire reach would overlap, move the entire cluster outward until its live buttons are clear; paint and hit testing consume the same resulting layout.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-10-14"
+          "decided": "2026-10-19"
         },
         "D10": {
           "behavior": "PointingHand over an enabled icon. Transform resize/rotate cursors yield.",
@@ -5331,11 +5331,11 @@
           "decided": "2026-09-26"
         },
         "D02": {
-          "behavior": "Crop stays on until Off is chosen in the Corners panel, Enter, Esc, or a tool other than Select. It is not a sticky drawing tool. A finished crop gesture joins repeat-last (P0.4): afterwards, a Space tap or Enter while idle re-enters crop mode on whatever image is selected then, however crop was first entered.",
+          "behavior": "Crop stays on until Enter, Esc, or a tool other than Select. Selection is retained; the property squircle/notch menu is hidden during crop. A finished crop gesture joins repeat-last (P0.4): afterwards, a Space tap or Enter while idle re-enters crop mode on whatever image is selected then, however crop was first entered.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-10-19"
         },
         "D03": {
           "behavior": "Ordinary image edge cropping retains existing frame semantics. Inside-crop dragging pans pixels behind the window. A closed-shape image fill keeps its exact clip, holes, frame, rotation and stroke fixed; crop grips scale the source uniformly at or above minimum cover. Double-click enters the same crop mode, with dim ghost pixels outside the mask.",
@@ -5380,18 +5380,18 @@
           "decided": "2026-09-24"
         },
         "D09": {
-          "behavior": "Crop brackets and bars remain live; full-picture ghost extends outside the crop window. A crop handle or image-body press reaches the crop gesture immediately and retains selection/palette. Shape-fill crop shows content grips independently of the fixed mask.",
+          "behavior": "Crop brackets and bars remain live; full-picture ghost extends outside the crop window. A crop handle or image-body press reaches the crop gesture immediately and retains selection. While crop is active, squircle and notch menus, their temporary image cutout, and their hit regions are suppressed immediately. Shape-fill crop shows content grips independently of the fixed mask.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-10-11"
+          "decided": "2026-10-19"
         },
         "D10": {
-          "behavior": "Hit zones are screen-space and never smaller than HIT_SLOP_PX (8), like other board handles (canvas_scale::hit_px). A corner is a disc of radius CROP_ARM_PX + CROP_HIT_PAD_PX (16 at 1:1) around the corner point. An edge is a band of half-width CROP_BAR_THICK_PX / 2 + CROP_HIT_PAD_PX (6.5, floored to 8) along the whole side, not only the painted bar. Both reach outside the box. Hovering a zone shows its cursor: left and right use the horizontal resize cursor, top and bottom the vertical, corners the diagonals.",
+          "behavior": "Hit zones use canvas_scale::hit_px with the ordinary 8px floor. Corners use CROP_ARM_PX + CROP_HIT_PAD_PX; edges use CROP_BAR_THICK_PX / 2 + CROP_HIT_PAD_PX along the full side. On a small screen-space host, paint and hit reach shrink together so neighboring handles remain distinct and the interior remains available for content panning. Hovering each handle shows its resize cursor.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-10-19"
         },
         "D11": {
           "behavior": "Pointer-up writes one journal group: the grabbed image's new frame and Crop, and the same Crop on every other selected croppable image, each frame resized so its own picture stays put. An unchanged drag adds no undo step. Undo restores every image in that group. Every path that sends this image to an agent uses only the visible crop window. The hidden part of the source file is omitted.",
@@ -5408,11 +5408,11 @@
           "decided": "2026-09-24"
         },
         "D13": {
-          "behavior": "Crop on paints Photoshop crop chrome: a white corner bracket on each corner and a short white bar across the middle of each side, each with a dark edge. Ordinary resize handles hide on those images until crop turns off. The fillet stays in the same Corners squircle.",
+          "behavior": "Crop on paints white corner brackets and short white edge bars, each with a dark edge. Ordinary resize handles and property squircle/notch menus hide until crop turns off. Crop paint and hit sizes adapt together on small images; the Corners entry returns after exiting crop.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-24"
+          "decided": "2026-10-19"
         },
         "D14": {
           "behavior": "Crop persists through save and export. Dropping an image into a closed rectangle, ellipse, polygon or closed path replaces its fill with a linked image at centered minimum cover, retaining exact mask/holes, outline, transform and shape text. Source layers and filters travel with the image. Ordinary move consumes the source; Alt retains it. One undo restores both.",

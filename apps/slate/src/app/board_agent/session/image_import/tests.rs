@@ -2,6 +2,8 @@ use super::*;
 use crate::app::tests::Harness;
 use serde_json::json;
 
+mod isolation;
+
 fn host(tag: &str) -> (Harness, NodeId, PathBuf) {
     let mut h = Harness::new(tag);
     h.app.leave_home();

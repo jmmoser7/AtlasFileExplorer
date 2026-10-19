@@ -1,5 +1,16 @@
-//! Preserved image result actions and range-selection gesture.
+//! Image crop, save and result actions, including range selection.
 use super::*;
+
+pub(super) const CROP: CommandSpec = spec(
+    "board.crop",
+    "Board",
+    "Crop selected image",
+    "C with one or more croppable images selected (Board view)",
+    Some(Chord::bare(Key::C)),
+    Repeat::Repeatable,
+    BOARD_SEL,
+    &["mask"],
+);
 
 pub(super) const COPY: CommandSpec = spec(
     "portal.agent.result.copy",
@@ -20,6 +31,16 @@ pub(super) const SAVE: CommandSpec = spec(
     Repeat::Never,
     BOARD,
     &["save images", "batch name", "album"],
+);
+pub(super) const IMAGE_SAVE: CommandSpec = spec(
+    "board.image.save_as",
+    "Board",
+    "Save image as",
+    "Right-click an image → Save image as…; save its displayed crop, filters and paint to a new numbered file",
+    None,
+    Repeat::Never,
+    BOARD,
+    &["save photo", "save picture", "export image"],
 );
 pub(super) const CANVAS: CommandSpec = spec(
     "portal.agent.result.copy_to_canvas",

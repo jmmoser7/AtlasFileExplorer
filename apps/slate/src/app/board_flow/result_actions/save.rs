@@ -9,12 +9,44 @@ mod tests;
 mod worker;
 
 #[derive(Clone)]
+enum SaveTarget {
+    Results(ResultAddress),
+    BoardImage {
+        tab: u64,
+        node: Box<Node>,
+        source: PathBuf,
+    },
+}
+
+#[derive(Clone)]
 struct SaveSnapshot {
-    address: ResultAddress,
+    target: SaveTarget,
     doc: slate_doc::SlateDoc,
     nodes: Vec<Node>,
     workbook: Option<PathBuf>,
     extensions: Vec<String>,
+}
+
+impl SaveTarget {
+    fn valid(&self, workbook: &Option<PathBuf>, app: &SlateApp) -> bool {
+        if &app.tab().path != workbook {
+            return false;
+        }
+        match self {
+            SaveTarget::Results(address) => app.result_address_valid(address),
+            SaveTarget::BoardImage { tab, node, source } => {
+                app.tab().id == *tab
+                    && app.doc().scene.node(node.id) == Some(node.as_ref())
+                    && app.image_item_path(node.id).as_ref() == Some(source)
+            }
+        }
+    }
+}
+
+impl SaveSnapshot {
+    fn valid(&self, app: &SlateApp) -> bool {
+        self.target.valid(&self.workbook, app)
+    }
 }
 
 struct BatchSave {
@@ -29,12 +61,18 @@ struct SavePick {
     destination: Option<PathBuf>,
 }
 
+struct SaveWork {
+    target: SaveTarget,
+    workbook: Option<PathBuf>,
+    receiver: Receiver<Result<Vec<PathBuf>, String>>,
+}
+
 #[derive(Default)]
 pub(super) struct SaveController {
     pub(super) opener: Option<egui::LayerId>,
     naming: Option<BatchSave>,
     picker: Option<FilePicker<SavePick>>,
-    worker: Option<Receiver<Result<usize, String>>>,
+    worker: Option<SaveWork>,
 }
 
 impl SlateApp {
@@ -55,12 +93,7 @@ impl SlateApp {
         _ctx: &egui::Context,
         address: ResultAddress,
     ) -> bool {
-        let state = &self.agents.flow.results.save;
-        if state.naming.is_some()
-            || state.picker.as_ref().is_some_and(FilePicker::is_open)
-            || state.worker.is_some()
-        {
-            self.toast("Finish the current image save first.");
+        if !self.image_save_ready() {
             return false;
         }
         let (doc, nodes) = self.result_payload(&address);
@@ -73,12 +106,105 @@ impl SlateApp {
             .map(|node| worker::preferred_extension(&doc, workbook.as_deref(), node))
             .collect();
         let snapshot = SaveSnapshot {
-            address,
+            target: SaveTarget::Results(address),
             doc,
             nodes,
             workbook,
             extensions,
         };
+        self.begin_image_save(snapshot)
+    }
+
+    pub(crate) fn board_image_save_available(&self, id: NodeId) -> bool {
+        matches!(
+            self.doc().scene.node(id).map(|n| &n.kind),
+            Some(NodeKind::Image(_))
+        ) && self
+            .image_item_path(id)
+            .is_some_and(|path| slate_doc::media_kind(&path) == slate_doc::MediaKind::Image)
+    }
+
+    pub(super) fn dispatch_board_image_save(
+        &mut self,
+        ctx: &egui::Context,
+        detail: Option<&str>,
+    ) -> bool {
+        let node = match detail {
+            Some(id) => id.parse::<u64>().ok().map(NodeId),
+            None => self
+                .board_sel
+                .iter()
+                .copied()
+                .find(|id| self.board_image_save_available(*id)),
+        };
+        node.is_some_and(|node| self.begin_board_image_save(ctx, node))
+    }
+
+    pub(crate) fn begin_board_image_save(&mut self, ctx: &egui::Context, id: NodeId) -> bool {
+        if !self.board_image_save_available(id) {
+            return false;
+        }
+        if let Some(ImageResultId::Output(output)) = self.image_result_id(id) {
+            let Some(binding) = self.result_binding(id) else {
+                return false;
+            };
+            return self.begin_result_save(
+                ctx,
+                ResultAddress {
+                    tab: self.tab().id,
+                    host: id,
+                    binding,
+                    outputs: vec![output],
+                },
+            );
+        }
+        if !self.image_save_ready() {
+            return false;
+        }
+        let Some(snapshot) = self.board_image_save_snapshot(id) else {
+            return false;
+        };
+        self.begin_image_save(snapshot)
+    }
+
+    fn board_image_save_snapshot(&self, id: NodeId) -> Option<SaveSnapshot> {
+        let original = self.doc().scene.node(id)?.clone();
+        let source = self.image_item_path(id)?;
+        let mut image = self.image_for_selected_result(id)?;
+        image.agent = None;
+        image.result_layers.clear();
+        let mut node = original.clone();
+        node.kind = NodeKind::Image(image);
+        let mut doc = slate_doc::SlateDoc::new("image save");
+        doc.items = self.doc().items.clone();
+        let workbook = self.tab().path.clone();
+        let extension = worker::preferred_extension(&doc, workbook.as_deref(), &node);
+        Some(SaveSnapshot {
+            target: SaveTarget::BoardImage {
+                tab: self.tab().id,
+                node: Box::new(original),
+                source,
+            },
+            doc,
+            nodes: vec![node],
+            workbook,
+            extensions: vec![extension],
+        })
+    }
+
+    fn image_save_ready(&mut self) -> bool {
+        let state = &self.agents.flow.results.save;
+        if state.naming.is_some()
+            || state.picker.as_ref().is_some_and(FilePicker::is_open)
+            || state.worker.is_some()
+        {
+            self.toast("Finish the current image save first.");
+            return false;
+        }
+        true
+    }
+
+    fn begin_image_save(&mut self, snapshot: SaveSnapshot) -> bool {
         if snapshot.nodes.len() > 1 {
             let opener = self
                 .agents
@@ -142,7 +268,7 @@ impl SlateApp {
             .and_then(|picker| picker.poll(ctx));
         if let Some(picked) = picked {
             if let Some(destination) = picked.destination {
-                if self.result_address_valid(&picked.snapshot.address) {
+                if picked.snapshot.valid(self) {
                     let destinations = if let Some(names) = picked.names {
                         picked
                             .snapshot
@@ -162,21 +288,27 @@ impl SlateApp {
                     };
                     let (tx, rx) = crossbeam_channel::bounded(1);
                     let repaint = ctx.clone();
-                    let multiple = picked.snapshot.nodes.len() > 1;
+                    let snapshot = picked.snapshot;
+                    let target = snapshot.target.clone();
+                    let workbook = snapshot.workbook.clone();
                     match std::thread::Builder::new()
                         .name("slate-save-images".into())
                         .spawn(move || {
-                            let result = worker::save(&picked.snapshot, &destinations, multiple);
+                            let result = worker::save(&snapshot, &destinations);
                             let _ = tx.send(result);
                             repaint.request_repaint();
                         }) {
-                        Ok(_) => self.agents.flow.results.save.worker = Some(rx),
+                        Ok(_) => {
+                            self.agents.flow.results.save.worker = Some(SaveWork {
+                                target,
+                                workbook,
+                                receiver: rx,
+                            })
+                        }
                         Err(error) => self.toast(format!("Could not start image save: {error}")),
                     }
                 } else {
-                    self.toast(
-                        "The selected image results changed while the save dialog was open.",
-                    );
+                    self.toast("The selected image changed while the save dialog was open.");
                 }
             }
         }
@@ -187,7 +319,7 @@ impl SlateApp {
             .save
             .worker
             .as_ref()
-            .and_then(|rx| match rx.try_recv() {
+            .and_then(|work| match work.receiver.try_recv() {
                 Ok(result) => Some(result),
                 Err(crossbeam_channel::TryRecvError::Disconnected) => {
                     Some(Err("Image save stopped before completion.".into()))
@@ -195,25 +327,41 @@ impl SlateApp {
                 Err(crossbeam_channel::TryRecvError::Empty) => None,
             });
         if let Some(result) = finished {
-            self.agents.flow.results.save.worker = None;
-            match result {
-                Ok(count) => self.toast(format!(
-                    "Saved {count} image{}.",
-                    if count == 1 { "" } else { "s" }
-                )),
-                Err(error) => self.toast(error),
+            let work = self.agents.flow.results.save.worker.take().unwrap();
+            if work.target.valid(&work.workbook, self) {
+                match result {
+                    Ok(paths) => match paths.as_slice() {
+                        [path] => self.toast(format!(
+                            "Saved image as {}.",
+                            path.file_name()
+                                .unwrap_or(path.as_os_str())
+                                .to_string_lossy()
+                        )),
+                        _ => self.toast(format!(
+                            "Saved {} images to {}.",
+                            paths.len(),
+                            paths
+                                .first()
+                                .and_then(|path| path.parent())
+                                .unwrap_or_else(|| std::path::Path::new("."))
+                                .display()
+                        )),
+                    },
+                    Err(error) => self.toast(error),
+                }
             }
         }
         let Some(mut batch) = self.agents.flow.results.save.naming.take() else {
             return false;
         };
-        if !self.result_address_valid(&batch.snapshot.address) {
+        if !batch.snapshot.valid(self) {
             return false;
         }
-        let images = self.agent_images(batch.snapshot.address.host);
-        let thumbnails: Vec<_> = batch
-            .snapshot
-            .address
+        let SaveTarget::Results(address) = &batch.snapshot.target else {
+            return false;
+        };
+        let images = self.agent_images(address.host);
+        let thumbnails: Vec<_> = address
             .outputs
             .iter()
             .map(|output| {

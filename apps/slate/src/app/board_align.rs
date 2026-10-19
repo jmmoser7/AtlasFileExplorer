@@ -14,7 +14,7 @@ use super::SlateApp;
 use atlas_commands::CommandId;
 use atlas_shell::theme::Palette;
 use atlas_shell::{icons::Icon, selection_tools::alignment};
-use eframe::egui::{self, Color32, CursorIcon, Pos2, Rect};
+use eframe::egui::{self, Color32, CursorIcon, Pos2, Rect, Vec2};
 use slate_doc::scene::{NodeKind, WorldRect};
 use slate_doc::NodeId;
 
@@ -282,7 +282,73 @@ impl SlateApp {
         }
         let members = self.alignable_selection();
         let bounds = self.board_group_bounds()?;
-        Some(layout_for(xf.rect_w2s(bounds), members.len(), xf.z))
+        let mut layout = layout_for(xf.rect_w2s(bounds), members.len(), xf.z);
+        // The current property owner publishes its live screen-space hit boxes
+        // before board input. Move the whole cluster, never individual buttons.
+        let mut occupied = self.shape_properties.chrome_hits.clone();
+        occupied.sort_by(|a, b| a.bottom().total_cmp(&b.bottom()));
+        for occupied in &occupied {
+            if layout
+                .chrome
+                .bottom
+                .iter()
+                .any(|r| r.expand(alignment::HIT_PAD_PX).intersects(*occupied))
+            {
+                let top = layout
+                    .chrome
+                    .bottom
+                    .iter()
+                    .map(Rect::top)
+                    .fold(f32::INFINITY, f32::min);
+                let delta = Vec2::new(
+                    0.0,
+                    occupied.bottom() + alignment::ICON_GAP_PX + alignment::HIT_PAD_PX - top,
+                );
+                layout
+                    .chrome
+                    .bottom
+                    .iter_mut()
+                    .for_each(|r| *r = r.translate(delta));
+            }
+        }
+        // The outward wire reach is intentionally generous. Keep the left
+        // cluster outside that reach on the selected hosts that offer ports.
+        let wire_left = members
+            .iter()
+            .filter_map(|(id, _, _)| self.doc().scene.node(*id))
+            .filter(|n| {
+                self.wire_host(n).offers_ports() && super::board_wire::wire_ports_fit(n.rect, xf.z)
+            })
+            .flat_map(|n| self.wire_host(n).ports())
+            .map(|port| xf.w2s(Pos2::from(port.point)))
+            .filter(|point| {
+                layout.chrome.left.iter().any(|r| {
+                    point.y >= r.top() - super::board_wire::grip_hit_out_radius(xf.z)
+                        && point.y <= r.bottom() + super::board_wire::grip_hit_out_radius(xf.z)
+                })
+            })
+            .map(|point| point.x - super::board_wire::grip_hit_out_radius(xf.z))
+            .fold(f32::INFINITY, f32::min);
+        let right = layout
+            .chrome
+            .left
+            .iter()
+            .map(Rect::right)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let dx = (wire_left - alignment::ICON_GAP_PX - alignment::HIT_PAD_PX - right).min(0.0);
+        layout
+            .chrome
+            .left
+            .iter_mut()
+            .for_each(|r| *r = r.translate(Vec2::new(dx, 0.0)));
+        for (i, hit) in layout.hits.iter_mut().enumerate() {
+            hit.rect = if i < 4 {
+                layout.chrome.bottom[i]
+            } else {
+                layout.chrome.left[i - 4]
+            };
+        }
+        Some(layout)
     }
 
     /// Screen hit on an enabled icon. `None` when the widget is hidden.

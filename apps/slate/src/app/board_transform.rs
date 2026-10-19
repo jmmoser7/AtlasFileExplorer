@@ -211,36 +211,6 @@ impl SlateApp {
         slate_doc::geom::corner_grip_edge(node, chamfer)
     }
 
-    /// The topmost selected host whose corner grip is under `screen`, with
-    /// the polyline vertex that grip sets. Corner grips ride the segments
-    /// and curve grips sit on the vertices, so where their reaches overlap
-    /// the nearer one takes the press (a tie goes to the vertex).
-    pub(crate) fn fillet_grip_hit_at(&self, screen: Pos2) -> Option<(NodeId, Option<usize>)> {
-        let xf = self.board_xf();
-        self.doc()
-            .scene
-            .nodes
-            .iter()
-            .rev()
-            .filter(|n| self.board_sel.contains(&n.id))
-            .find_map(|n| {
-                let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
-                let (vertex, grip) = self
-                    .corner_grips(n, &xf)
-                    .into_iter()
-                    .filter(|(_, grip)| board_handles::hit_test_fillet_grip(screen, &geom, *grip))
-                    .min_by(|a, b| a.1.distance(screen).total_cmp(&b.1.distance(screen)))?;
-                let reach = grip.distance(screen);
-                if self
-                    .curve_grip_distance(n.id, screen)
-                    .is_some_and(|d| d <= reach)
-                {
-                    return None;
-                }
-                Some((n.id, vertex))
-            })
-    }
-
     /// The other selected hosts one corner grip edits alongside `id`.
     pub(crate) fn corner_grip_peers(&self, id: NodeId) -> Vec<Node> {
         self.board_sel
@@ -394,72 +364,6 @@ impl SlateApp {
             }
         }
         true
-    }
-
-    fn selection_allows_rotation(&self) -> bool {
-        self.board_sel.iter().any(|id| {
-            self.doc()
-                .scene
-                .node(*id)
-                .is_some_and(Self::node_allows_rotation)
-        })
-    }
-
-    /// Topmost bounding-box chrome under `screen`. `None` node id = the
-    /// multi-selection group box.
-    pub(crate) fn transform_hit_at(
-        &self,
-        screen: Pos2,
-    ) -> Option<(Option<NodeId>, board_handles::BoardHitTarget)> {
-        let xf = self.board_xf();
-        if let Some(id) = self.tiny_body_owns_pointer(screen) {
-            return Some((Some(id), board_handles::BoardHitTarget::Body));
-        }
-        if self.agent_grip_owns(screen, &xf)
-            || self.polygon_sides_glyph_at(screen, &xf).is_some()
-            || self.fillet_grip_hit_at(screen).is_some()
-        {
-            return None;
-        }
-        if let Some((id, hit)) = self.chat_south_resize(screen, &xf) {
-            return Some((Some(id), hit));
-        }
-        if self.board_sel.len() >= 2 && !self.selection_all_simple_lines() {
-            if let Some(gb) = self.board_group_bounds() {
-                let geom = board_handles::selection_geom(&xf, gb, 0.0);
-                if let Some(hit) =
-                    board_handles::hit_test_chrome(screen, &geom, self.selection_allows_rotation())
-                {
-                    return Some((None, hit));
-                }
-            }
-        }
-        for n in self.doc().scene.nodes.iter().rev() {
-            if !self.node_offers_bbox_transform(n) {
-                continue;
-            }
-            let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
-            if let Some(vertex) = self.polygon_rotate_at(n, screen, &xf) {
-                return Some((Some(n.id), board_handles::BoardHitTarget::Rotate(vertex)));
-            }
-            let polygon =
-                matches!(&n.kind, NodeKind::Shape(s) if s.shape == ShapeKind::RegularPolygon);
-            if let Some(hit) = board_handles::hit_test_chrome(
-                screen,
-                &geom,
-                !polygon && Self::node_allows_rotation(n),
-            ) {
-                let world = xf.s2w(screen);
-                if polygon
-                    && matches!(&n.kind, NodeKind::Shape(s)
-                    if !super::board_path::hit_path_node(n, s, world.x, world.y, xf.z))
-                {
-                    continue;
-                }
-                return Some((Some(n.id), hit));
-            }
-        }
-        None
     }
 
     /// Body under the pointer, excluding edge / rotate chrome and the

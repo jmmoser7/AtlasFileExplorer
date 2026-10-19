@@ -128,8 +128,10 @@ pub(super) fn panel_buttons(
             .fixed_pos(play.union(count_rect).min)
             .constrain(false)
             .movable(false)
+            .sense(Sense::hover())
             .fade_in(false)
             .show(ctx, |ui| {
+                ctx.move_to_top(ui.layer_id());
                 ui.set_clip_rect(app.canvas_rect);
                 ui.add_enabled_ui(enabled, |ui| {
                     captures |=
@@ -140,6 +142,9 @@ pub(super) fn panel_buttons(
     }
     (captures, requested_panel, close_requested)
 }
+
+#[cfg(test)]
+mod tests;
 
 pub(in crate::app::board_properties) fn panel_kind(panel: Option<Panel>) -> chrome::ImagePanelKind {
     match panel {

@@ -692,8 +692,11 @@ is searchable.
 - **P1.wire.flow-datum** (user, 17 October 2026): typed generator inputs use
   a fixed top datum and pitch in board units, independent of host height.
   The output shares the first input's datum, so aligned image trains keep
-  straight wires across differently sized cards. Saved `Side` + `t` values
-  remain port identities; `WireHost` resolves the new position for paint,
+  straight wires across differently sized cards. An ordinary source image's
+  right output uses that same top datum before it acquires generator inputs;
+  a source too short to contain the output rail offers no new ports.
+  Saved `Side` + `t` values remain port identities; `WireHost` resolves the
+  new position for paint,
   picking, routing and export. Chat header/history rails and 3D View retain
   their dedicated geometry. Shared shell chrome clips smooth circular
   recesses into the host around the colored discs; labels sit above wires.

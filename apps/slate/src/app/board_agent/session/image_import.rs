@@ -246,8 +246,10 @@ impl SlateApp {
     fn known_image_import_current(&self, identity: &Identity) -> bool {
         !self.tab().read_only
             && !self.at_home
+            && self.tab().id == identity.tab
+            && self.tab().path == identity.workbook
             && self
-                .known_image_import(identity.node)
+                .known_image_import_for_output(identity.node, &identity.output, &identity.request)
                 .is_some_and(|work| work.identity == *identity)
             && self.agents.cancelled_generations.get(&identity.node) != Some(&identity.request)
     }

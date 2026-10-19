@@ -2,6 +2,7 @@
 
 use super::*;
 
+mod chrome;
 mod gesture_owner;
 mod handles;
 mod transform;

@@ -85,7 +85,7 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_handles.rs"
-ceiling = 884
+ceiling = 703
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -139,11 +139,6 @@ ceiling = 1279
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
-file = "apps/slate/src/app/board_transform.rs"
-ceiling = 559
-reason = "Slate app; extract one concern per module"
-
-[[entry]]
 file = "apps/slate/src/app/board_trim.rs"
 ceiling = 1163
 reason = "Slate app; extract one concern per module"
@@ -180,12 +175,12 @@ reason = "Slate board interpreter; split on banner seams"
 
 [[entry]]
 file = "apps/slate/src/app/commands.rs"
-ceiling = 2344
+ceiling = 2303
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/dispatch.rs"
-ceiling = 1486
+ceiling = 1482
 reason = "Slate app; extract one concern per module"
 
 [[entry]]

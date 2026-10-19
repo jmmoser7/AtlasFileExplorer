@@ -1,0 +1,37 @@
+{
+  "scope": "Nine October19 reports only; moderate; existing owners; isolated from concurrent chat.",
+  "baseCommit": "f32767dfeb3a02bed30d0b22bcc59111564d6612",
+  "branch": "codex/suggestion-box-20261019",
+  "originalReportsArchived": 0,
+  "validation": {
+    "format": "PASS: cargo fmt --all -- --check (exit0)",
+    "diff": "PASS: git -c core.whitespace=cr-at-eol diff --check",
+    "rustTests": "NOT RUN: prerequisite Windows build helpers denied execution; attempted wire test command exited101 before tests. Raw target/suggestion-wire-check.log retained. No retry/configuration relocation performed.",
+    "nativeUI": "UNTESTED: native desktop reserved to the other working chat; no application binary from this branch built or driven.",
+    "documentUI": "PASS for document only: nine cases visible, crop instructions expand, verdict controls disabled before build-confirmed run."
+  },
+  "authoredTestFilters": {
+    "wire_host::rail_tests": "Original image output uses shared top datum; short offers and saved anchors are preserved.",
+    "collapsed_generate": "Collapsed Play uses the existing hover-only parent and button owner.",
+    "image_import::tests": "Completion validates captured output identity independently of displayed album pick.",
+    "first_press_image_drag": "Select body drag can claim the canvas on first press without a selection click.",
+    "transform_stack_order": "Per-node front-to-back handles/body; a covered rear resize cannot win.",
+    "small_selection_alignment": "Alignment paint/input share clearance from current property controls and wire reach.",
+    "crop": "Crop suppresses temporary image UI and shrinks paint/hit reach together on tiny hosts.",
+    "board_flow::result_actions::save::tests": "Ordinary and generated images use the existing picker/compositor, with exact snapshots and source protection.",
+    "board_portal::capture::output::tests": "Unique publication numbers collisions atomically; completed saves report final paths.",
+    "board::board_menu::tests": "Save as appears in applicable image context recipes and preserves the clicked target."
+  },
+  "independentReview": {
+    "intent": "Original9 reports, recorded steps and screenshot reviewed before implementation by acceptance_image_ui.",
+    "source": "Dedicated read-only secondary review compared fixes to original user outcomes. The hard-link-only Windows save defect was identified and corrected using existing MoveFileExW owner without replacement.",
+    "acceptance": "No source review or authored tests establish native/provider/user acceptance."
+  },
+  "knownLimits": [
+    "Two real overlapping generation submissions still need correlated request/input/count/stop/output observations; the concrete fix covers dropped import completion after album focus changes.",
+    "Existing rfd save picker has no public overwrite-prompt option. Atomic publication will not overwrite; native collision prompt behavior remains to be evaluated. Final toast now gives actual published filename.",
+    "Edited composites use the existing PNG/JPEG/WebP pipeline. No new source decoder support was added.",
+    "Crop handles and selection alignment need exact-build native checks at actual display scales."
+  ],
+  "reportPolicy": "All9 reports remain active. feedback/README.md and .cursor/rules/feedback-archive.mdc already govern evidence-preserving archival; age alone never closes a report."
+}

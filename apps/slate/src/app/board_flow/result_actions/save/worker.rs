@@ -42,8 +42,7 @@ pub(super) fn preferred_extension(
 pub(super) fn save(
     snapshot: &SaveSnapshot,
     destinations: &[PathBuf],
-    multiple: bool,
-) -> Result<usize, String> {
+) -> Result<Vec<PathBuf>, String> {
     if destinations.len() != snapshot.nodes.len() {
         return Err("The image selection changed.".into());
     }
@@ -92,15 +91,6 @@ pub(super) fn save(
             if sources.contains(&canonical) {
                 return Err("Choose a new filename; linked source images are kept intact.".into());
             }
-            if multiple {
-                return Err(format!(
-                    "{} already exists. Choose another base name or folder.",
-                    destination
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                ));
-            }
         }
         let extension = destination
             .extension()
@@ -111,21 +101,21 @@ pub(super) fn save(
             return Err("Choose PNG, JPEG, or WebP for the image filename.".into());
         }
     }
+    let mut published = Vec::with_capacity(destinations.len());
     for ((node, source), destination) in snapshot.nodes.iter().zip(&sources).zip(destinations) {
         let NodeKind::Image(image) = &node.kind else {
             unreachable!()
         };
         let same_format = source.extension().map(|e| e.to_ascii_lowercase())
             == destination.extension().map(|e| e.to_ascii_lowercase());
+        let draft = output::Draft::reserve(destination.clone())?;
         if original_pixels(node, image) && same_format {
-            let draft = output::Draft::reserve(destination.clone())?;
             std::fs::copy(source, draft.path())
                 .map_err(|e| format!("Could not save image: {e}"))?;
-            draft.commit()?;
         } else {
             let rgba =
                 crate::app::image_composite::composite_rgba(&snapshot.doc, node, image, source)
-                    .ok_or("Could not render the image and its paint layers.")?;
+                    .ok_or("Could not render the image and its paint layers. PNG, JPEG and WebP sources are supported.")?;
             let jpeg = destination
                 .extension()
                 .and_then(|e| e.to_str())
@@ -135,7 +125,8 @@ pub(super) fn save(
                     "This image has transparency. Save it as PNG or WebP to preserve it.".into(),
                 );
             }
-            output::write_still(
+            output::encode_still(
+                &draft,
                 destination,
                 &CapturedFrame {
                     generation: 0,
@@ -147,6 +138,7 @@ pub(super) fn save(
                 },
             )?;
         }
+        published.push(draft.commit_unique()?);
     }
-    Ok(destinations.len())
+    Ok(published)
 }

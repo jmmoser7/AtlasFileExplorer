@@ -1,0 +1,27 @@
+{
+  "schema": "slate-acceptance-document-qa/v1",
+  "checkedAt": "2026-10-19T23:42:55.183928+00:00",
+  "scope": "Document schema, generated HTML and existing renderer state logic only; no native Slate execution or source-fix test result.",
+  "catalogHash": "ebd5c3352f6327c303d6dc8b937ff39bb9ebacb9c586f3d0c75d690b0a309fe6",
+  "reports": 9,
+  "cases": 9,
+  "checks": 60,
+  "embeddedOriginalAttachments": 1,
+  "checksPerformed": [
+    "Catalog covers exactly all nine original report IDs with unique case/check IDs.",
+    "Generated HTML parses, embeds original attachment, contains complete catalog, and has no renderer placeholders.",
+    "Generated application JavaScript syntax parses.",
+    "Existing renderer state functions initialize all nine cases and reports Untested with no results, unconfirmed build and unlocked context.",
+    "Synthetic form-state checks preserve incomplete-context gating and blocked/fail precedence; synthetic states were never exported as user observations.",
+    "Browser computer-use inspection: all nine cases visible; crop steps expand; verdict selectors disabled before a build-confirmed run. This verifies the document only."
+  ],
+  "candidate": {
+    "available": false,
+    "sha256": "",
+    "binaryPath": "",
+    "nativeDelivery": "pending"
+  },
+  "nativeCasesExecuted": 0,
+  "userAcceptancesRecorded": 0,
+  "sourceAndHeadlessImplementationEvidence": "Source fixes and independent review completed in isolated branch codex/suggestion-box-20261019 based on f32767df. cargo fmt --all -- --check and CRLF-aware diff checks passed. Targeted Windows cargo test --locked --release -p slate-doc wire_host::rail_tests --lib --jobs 4 exited 101 before tests: quote, proc-macro2, libm and serde_core build helpers could not execute (OS error 5). Raw log: target/suggestion-wire-check.log. No Slate test, native UI or provider success is claimed. Native desktop remains reserved to the other working chat. All application acceptance checks remain Untested."
+}

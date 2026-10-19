@@ -193,7 +193,7 @@ impl SlateApp {
             {
                 self.dispatch_media_intake(ctx, command, detail.as_deref())
             }
-            command if command.starts_with("portal.agent.result.") => {
+            command if Self::image_action_command(command) => {
                 self.dispatch_image_result_action(ctx, command, detail.as_deref())
             }
             "board.model_display" => self.dispatch_model_display(detail.as_deref()),

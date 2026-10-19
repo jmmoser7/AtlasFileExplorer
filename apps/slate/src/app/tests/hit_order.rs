@@ -153,3 +153,57 @@ fn a_picture_on_a_focused_folder_map_is_dragged() {
     );
     assert_eq!(h.app.doc().scene.node(atlas).unwrap().rect, frame);
 }
+
+/// The press arrives together with the first hover event: no selection or
+/// warm-up hover is needed before the picture follows the pointer.
+#[test]
+fn unselected_image_moves_on_first_press_drag_and_one_undo_restores_it() {
+    let mut h = board("first_press_image_drag");
+    let image = image_over(&mut h, WorldRect::new(-200.0, -150.0, 400.0, 300.0));
+    h.app.board_osnap.enabled = false;
+    h.app.board_smart_guides = false;
+    h.app.board_snap_grid = false;
+    h.frame();
+    h.frame();
+    assert!(h.app.board_sel.is_empty());
+    let before = h.app.doc().scene.node(image).unwrap().rect;
+    let (_, start) = center_of(&h, image);
+    crop_pointer(&mut h, start, Some(true));
+    crop_pointer(&mut h, start + EVec2::new(30.0, 20.0), None);
+    crop_pointer(&mut h, start + EVec2::new(60.0, 40.0), None);
+    crop_pointer(&mut h, start + EVec2::new(60.0, 40.0), Some(false));
+    let after = h.app.doc().scene.node(image).unwrap().rect;
+    let z = h.app.board_xf().z;
+    assert!(
+        (after.x - before.x - 60.0 / z).abs() < 0.1,
+        "{before:?} -> {after:?}"
+    );
+    assert!((after.y - before.y - 40.0 / z).abs() < 0.1);
+    assert_eq!((after.w, after.h), (before.w, before.h));
+    assert!(h.app.board_sel.contains(&image));
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.node(image).unwrap().rect, before);
+}
+
+#[test]
+fn front_body_occludes_rear_resize_but_front_corner_keeps_its_priority() {
+    let mut h = board("transform_stack_order");
+    let rear = image_over(&mut h, WorldRect::new(-200.0, -150.0, 400.0, 300.0));
+    let front = image_over(&mut h, WorldRect::new(-300.0, -250.0, 400.0, 300.0));
+    h.frame();
+    h.frame();
+    let xf = h.app.board_xf();
+    let rear_rect = h.app.doc().scene.node(rear).unwrap().rect;
+    let at_rear_corner = xf.w2s(Pos2::new(rear_rect.x, rear_rect.y));
+    assert!(matches!(h.app.transform_hit_at(at_rear_corner),
+        Some((Some(id), board_handles::BoardHitTarget::Body)) if id == front));
+
+    // The front corner is inside the rear picture. Its visible resize
+    // affordance still wins, even though the rear body is also under it.
+    h.app.patch_nodes(&[front], |n| {
+        n.rect = WorldRect::new(0.0, 0.0, 160.0, 120.0)
+    });
+    let at_front_corner = xf.w2s(Pos2::ZERO);
+    assert!(matches!(h.app.transform_hit_at(at_front_corner),
+        Some((Some(id), board_handles::BoardHitTarget::Resize(board_handles::ResizeHandle::Nw))) if id == front));
+}

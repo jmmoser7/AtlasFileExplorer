@@ -59,6 +59,17 @@ pub(crate) fn capture_path(doc_path: Option<&Path>, node: NodeId, extension: &st
 
 /// Called by the new capture worker. Publish only a fully encoded image.
 pub(crate) fn write_still(path: &Path, frame: &CapturedFrame) -> Result<(), String> {
+    let draft = Draft::reserve(path.to_path_buf())?;
+    encode_still(&draft, path, frame)?;
+    draft.commit().map(|_| ())
+}
+
+/// The one still encoder, shared by capture saves and numbered image exports.
+pub(crate) fn encode_still(
+    draft: &Draft,
+    path: &Path,
+    frame: &CapturedFrame,
+) -> Result<(), String> {
     let format = match path
         .extension()
         .and_then(|e| e.to_str())
@@ -72,7 +83,6 @@ pub(crate) fn write_still(path: &Path, frame: &CapturedFrame) -> Result<(), Stri
         _ => return Err("Use PNG, JPEG, or WebP for a still capture.".into()),
     };
     validate_pixels(&frame.rgba, frame.w, frame.h)?;
-    let draft = Draft::reserve(path.to_path_buf())?;
     if format == image::ImageFormat::Jpeg {
         let file = std::fs::File::create(draft.path()).map_err(|e| e.to_string())?;
         let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(file, 92);
@@ -99,7 +109,7 @@ pub(crate) fn write_still(path: &Path, frame: &CapturedFrame) -> Result<(), Stri
         )
         .map_err(|e| e.to_string())?;
     }
-    draft.commit().map(|_| ())
+    Ok(())
 }
 
 /// Legacy explicit bakes/export callers remain synchronous; their one PNG

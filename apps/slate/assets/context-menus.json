@@ -18,6 +18,7 @@
         "board.to_back",
         "sep:stack",
         "board.open_file",
+        "board.image.save_as",
         "board.crop",
         "menu.layers",
         "menu.tags",
@@ -40,6 +41,7 @@
         "board.to_back",
         "sep:stack",
         "board.open_file",
+        "board.image.save_as",
         "board.crop",
         "menu.layers",
         "menu.tags",
@@ -341,6 +343,7 @@
       "entries": [
         "heading:multi",
         "board.shape.edit",
+        "board.image.save_as",
         "sep:header",
         "board.to_front",
         "board.to_back",
@@ -362,6 +365,7 @@
       "entries": [
         "heading:multi",
         "board.shape.edit",
+        "board.image.save_as",
         "sep:header",
         "board.to_front",
         "board.to_back",
@@ -586,6 +590,11 @@
     "board.crop": {
       "label": "Crop image",
       "icon": "crop",
+      "shortcut": ""
+    },
+    "board.image.save_as": {
+      "label": "Save image as…",
+      "icon": "image",
       "shortcut": ""
     },
     "board.open_location": {

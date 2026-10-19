@@ -3,7 +3,7 @@
 use super::*;
 
 impl SlateApp {
-    /// A painted grip or tiny body keeps its native canvas drag even when
+    /// A painted grip or object body keeps its native canvas drag even when
     /// last frame's overlapping strip/stringer was egui's press target.
     /// Claim only after the drag threshold; normal clicks keep their owner.
     pub(super) fn canvas_grip_drag_response(
@@ -41,7 +41,9 @@ impl SlateApp {
                     || self.arrow_size_handle_under(p)
                     || (self.board_tool == BoardTool::Select
                         && !self.curve_subselect_under(p)
-                        && self.tiny_body_owns_pointer(p).is_some()))
+                        && (self.tiny_body_owns_pointer(p).is_some()
+                            || (ctx.layer_id_at(p) == Some(ui.layer_id())
+                                && self.transform_hit_at(p).is_some()))))
         });
         if owns_origin && ctx.dragged_id() != Some(response.id) {
             ctx.set_dragged_id(response.id);

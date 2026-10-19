@@ -32,6 +32,10 @@ pub(super) struct ResultController {
 }
 
 impl SlateApp {
+    pub(crate) fn image_action_command(command: &str) -> bool {
+        command == "board.image.save_as" || command.starts_with("portal.agent.result.")
+    }
+
     pub(crate) fn result_popup_rect(&self) -> Option<Rect> {
         self.agents.flow.results.popup_rect
     }
@@ -347,6 +351,9 @@ impl SlateApp {
         command: &str,
         detail: Option<&str>,
     ) -> bool {
+        if command == "board.image.save_as" {
+            return self.dispatch_board_image_save(ctx, detail);
+        }
         let address = detail
             .and_then(|s| serde_json::from_str::<ResultAddress>(s).ok())
             .or_else(|| {
