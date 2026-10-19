@@ -204,8 +204,8 @@ impl PreviewJob {
         let xf = BoardXf {
             center: screen.center(),
             offset: egui::vec2(
-                (self.bounds.x + self.bounds.w * 0.5) as f32,
-                (self.bounds.y + self.bounds.h * 0.5) as f32,
+                self.bounds.x + self.bounds.w * 0.5,
+                self.bounds.y + self.bounds.h * 0.5,
             ),
             z: self.size[0] as f32 / self.bounds.w,
         };

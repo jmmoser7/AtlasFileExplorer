@@ -30,6 +30,9 @@ pub(super) fn show(
     message_height: f32,
     actions: &mut Vec<PresenceAction>,
 ) {
+    // Native label selection can consume the same events while rows paint.
+    let select_all_key = RosterState::transcript_key_requested(ui.ctx(), egui::Key::A);
+    let copy_all = state.copy_transcript_requested(ui.ctx(), p.id);
     let total = p.message_total;
     let mut offset = *state.history_offsets.entry(p.id.into()).or_insert(0);
     let paged = !attached && total > 64;
@@ -168,10 +171,29 @@ pub(super) fn show(
         });
     let composer_focused =
         ui.memory(|memory| memory.focused()) == Some(Id::new(("presence-composer", p.id)));
-    let transcript_hovered = ui.rect_contains_pointer(scroll.inner_rect);
-    let select_all = ui.input(|input| input.modifiers.command && input.key_pressed(egui::Key::A))
-        && transcript_hovered
-        && !composer_focused;
+    // Selectable text sits in transformed child Areas. Those are the top hit
+    // layer while hovered, so egui's normal hit-test says the enclosing scroll
+    // viewport is not hovered. Resolve the pointer in this UI's coordinates
+    // instead; this keeps Ctrl+A scoped to the transcript without stealing the
+    // composer/header shortcuts.
+    let transcript_hovered =
+        ui.input(|input| input.pointer.interact_pos())
+            .is_some_and(|pointer| {
+                let transform = ui
+                    .ctx()
+                    .layer_transform_to_global(ui.layer_id())
+                    .unwrap_or_default();
+                let top = ui.ctx().layer_id_at(pointer);
+                let owned_layer = top == Some(ui.layer_id())
+                    || p.messages.iter().any(|message| {
+                        top == Some(egui::LayerId::new(
+                            ui.layer_id().order,
+                            Id::new(("presence-message-text", p.id, message.id)),
+                        ))
+                    });
+                owned_layer && scroll.inner_rect.contains(transform.inverse() * pointer)
+            });
+    let select_all = select_all_key && transcript_hovered && !composer_focused;
     if select_all && !p.messages.is_empty() {
         ui.input_mut(|input| {
             input.consume_key(egui::Modifiers::COMMAND, egui::Key::A);
@@ -182,7 +204,6 @@ pub(super) fn show(
         native.store(ui.ctx());
         ui.ctx().request_repaint();
     }
-    let copy_all = state.copy_transcript_requested(ui.ctx(), p.id);
     if copy_all {
         ui.input_mut(|input| {
             input.consume_key(egui::Modifiers::COMMAND, egui::Key::C);

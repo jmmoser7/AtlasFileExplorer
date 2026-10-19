@@ -53,13 +53,15 @@ impl SlateApp {
         &self,
         caller: &Collaborator,
         grant: &CollaboratorGrant,
-        explicit: &[String],
-        offset: usize,
-        limit: usize,
-        text_cursor: Option<usize>,
-        text_limit: Option<usize>,
-        text_generation: Option<&str>,
+        job: &ReadJob,
     ) -> Result<Value, String> {
+        let explicit = job
+            .participant_ids
+            .as_deref()
+            .ok_or("Choose a participant read")?;
+        let (offset, limit) = (job.offset, job.limit);
+        let (text_cursor, text_limit) = (job.text_cursor, job.text_limit);
+        let text_generation = job.text_generation.as_deref();
         if explicit.iter().any(|id| {
             self.presence
                 .helper_results

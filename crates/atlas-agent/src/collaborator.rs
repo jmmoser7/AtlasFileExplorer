@@ -228,17 +228,16 @@ impl BoardCall {
                 if *offset > 1_000_000 || !(1..=8).contains(limit) {
                     return Err("Participant read pagination exceeds protocol limits.");
                 }
-                if text_cursor.is_some() || text_limit.is_some() || text_generation.is_some() {
-                    if participant_ids.len() != 1
+                if (text_cursor.is_some() || text_limit.is_some() || text_generation.is_some())
+                    && (participant_ids.len() != 1
                         || text_cursor.unwrap_or_default() > 1_000_000
                         || !(4..=4096).contains(&text_limit.unwrap_or(4096))
                         || text_generation.is_none()
-                        || text_generation.as_deref().is_some_and(|id| !valid_id(id))
-                    {
-                        return Err(
+                        || text_generation.as_deref().is_some_and(|id| !valid_id(id)))
+                {
+                    return Err(
                             "Participant text pages require one participant and valid UTF-8 cursor fields.",
                         );
-                    }
                 }
                 participant_ids
             }

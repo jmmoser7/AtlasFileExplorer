@@ -226,19 +226,23 @@ impl SlateApp {
         };
         let allowed = self.web.has_consent(&origin);
         let label = if allowed { "Revoke site" } else { "Allow site" };
-        let response = egui::Area::new(egui::Id::new(("web_consent", id.0)))
-            .fixed_pos(rect.min)
-            .order(egui::Order::Foreground)
-            .show(ui.ctx(), |ui| {
-                ui.set_min_size(rect.size());
-                ui.set_max_size(rect.size());
-                ui.spacing_mut().button_padding *= layout.zoom;
-                ui.add_sized(
-                    rect.size(),
-                    egui::Button::new(egui::RichText::new(label).size(11.0 * layout.zoom)),
-                )
-            })
-            .inner
+        let mut control_ui = egui::Ui::new(
+            ui.ctx().clone(),
+            ui.id().with(("web_consent", id.0)),
+            egui::UiBuilder::new()
+                .layer_id(ui.layer_id())
+                .max_rect(rect),
+        );
+        control_ui.set_style(ui.style().clone());
+        control_ui.set_clip_rect(ui.clip_rect());
+        let ui = &mut control_ui;
+        ui.spacing_mut().button_padding *= layout.zoom;
+        ui.spacing_mut().interact_size *= layout.zoom;
+        let response = ui
+            .put(
+                rect,
+                egui::Button::new(egui::RichText::new(label).size(11.0 * layout.zoom)),
+            )
             .on_hover_text(format!(
                 "{} {origin} for this workbook. This is separate from agent Full access.",
                 if allowed { "Block" } else { "Allow" }

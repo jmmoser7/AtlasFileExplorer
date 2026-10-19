@@ -26,8 +26,8 @@ pub(super) struct WitnessedCommand {
 }
 
 pub(super) enum WitnessAction {
-    Board(PreparedBoardCommand),
-    Relay(messaging::PreparedRelay),
+    Board(Box<PreparedBoardCommand>),
+    Relay(Box<messaging::PreparedRelay>),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum WitnessPurpose {
@@ -69,7 +69,7 @@ impl WitnessedCommand {
         Self {
             purpose: WitnessPurpose::Interaction,
             call,
-            action: WitnessAction::Relay(relay),
+            action: WitnessAction::Relay(Box::new(relay)),
             steps: Vec::new(),
             index: 0,
             previews: HashMap::new(),
@@ -200,7 +200,7 @@ impl WitnessedCommand {
         Ok(Self {
             purpose: WitnessPurpose::Autonomous,
             call,
-            action: WitnessAction::Board(prepared),
+            action: WitnessAction::Board(Box::new(prepared)),
             steps,
             index,
             previews: HashMap::new(),

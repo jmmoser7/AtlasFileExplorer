@@ -6,7 +6,7 @@ use std::sync::Arc;
 pub(super) enum Source {
     Pixels(Arc<egui::ColorImage>),
     Adjusted(Arc<egui::ColorImage>, slate_doc::scene::ImageAdjust, usize),
-    Stroke(Node, f32),
+    Stroke(Box<Node>, f32),
 }
 impl Source {
     pub(super) fn pixels(self) -> Result<egui::ColorImage, String> {
@@ -102,7 +102,10 @@ pub(super) fn remember(
     if let NodeKind::Shape(shape) = &node.kind {
         if shape.path.is_some() {
             if let Some((_, gpu)) = app.brush_stamps.get(&app.stroke_cache_id(node.id)) {
-                sources.insert(gpu.tex.id(), Source::Stroke(node.clone(), gpu.wanted_pixel));
+                sources.insert(
+                    gpu.tex.id(),
+                    Source::Stroke(Box::new(node.clone()), gpu.wanted_pixel),
+                );
             }
         }
     }

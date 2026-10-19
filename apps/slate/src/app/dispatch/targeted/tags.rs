@@ -6,6 +6,7 @@ use slate_doc::{
 };
 
 const MAX_TAG_TARGETS: usize = 64;
+type TagEdits = (Vec<slate_doc::TagCommand>, Vec<SceneCmd>, Vec<NodeId>);
 
 pub(super) fn recognizes(command: &str) -> bool {
     matches!(
@@ -47,7 +48,7 @@ pub(super) fn prepare(
     command: &str,
     ids: &[NodeId],
     args: &Value,
-) -> Result<(Vec<slate_doc::TagCommand>, Vec<SceneCmd>, Vec<NodeId>), String> {
+) -> Result<TagEdits, String> {
     prepare::validate_keys(args, schema::arguments(command)?)?;
     if ids.len() > MAX_TAG_TARGETS {
         return Err("Tag actions are limited to 64 board targets".into());

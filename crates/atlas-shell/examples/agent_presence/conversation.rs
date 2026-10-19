@@ -387,6 +387,7 @@ impl eframe::App for Preview {
                 activity: &[],
                 attachments: &[],
                 messages: &messages[i],
+                copy_messages: None,
                 message_total: self.threads.get(&p.id).map_or(0, Vec::len),
                 proposals: &[],
                 draft: self.drafts.get(&p.id).map_or("", String::as_str),

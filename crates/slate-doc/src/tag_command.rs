@@ -77,12 +77,10 @@ impl TagCommand {
         if items.is_empty() || doc.group(group).is_none() {
             return None;
         }
-        let after = tag
-            .map(|id| {
-                let (facet, tag) = doc.tag(id)?;
-                (facet.id == group).then(|| tag.clone())
-            })
-            .flatten();
+        let after = tag.and_then(|id| {
+            let (facet, tag) = doc.tag(id)?;
+            (facet.id == group).then(|| tag.clone())
+        });
         if tag.is_some() && after.is_none() {
             return None;
         }

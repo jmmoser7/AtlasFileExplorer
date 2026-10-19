@@ -114,13 +114,26 @@ impl RosterState {
         self.selected_transcripts.contains(id)
             && ctx.memory(|memory| memory.focused())
                 != Some(eframe::egui::Id::new(("presence-composer", id)))
-            && ctx.input(|input| {
-                (input.key_pressed(eframe::egui::Key::C) && input.modifiers.command)
-                    || input
+            && (Self::transcript_key_requested(ctx, eframe::egui::Key::C)
+                || ctx.input(|input| {
+                    input
                         .events
                         .iter()
                         .any(|event| matches!(event, eframe::egui::Event::Copy))
+                }))
+    }
+    pub(super) fn transcript_key_requested(
+        ctx: &eframe::egui::Context,
+        key: eframe::egui::Key,
+    ) -> bool {
+        ctx.input(|input| {
+            input.events.iter().any(|event| {
+                matches!(event,
+                    eframe::egui::Event::Key {key: pressed, pressed: true, modifiers, ..}
+                        if *pressed == key && modifiers.command
+                )
             })
+        })
     }
     pub fn close_chat(&mut self) {
         self.model_menu_open = false;

@@ -42,14 +42,20 @@ fn transcript_ctrl_a_selects_and_ctrl_c_copies_all_turns_with_attachment_caption
         command(egui::Key::A, egui::Modifiers::COMMAND),
     ]);
     assert!(f.state.selected_transcripts.contains("dot"));
-    f.frame(vec![
-        egui::Event::PointerMoved(text.center()),
-        egui::Event::MouseWheel {
-            unit: egui::MouseWheelUnit::Point,
-            delta: Vec2::new(0.0, 36.0),
-            modifiers: egui::Modifiers::NONE,
-        },
-    ]);
+    let out = f
+        .frame(vec![
+            egui::Event::PointerMoved(text.center()),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: Vec2::new(0.0, 36.0),
+                modifiers: egui::Modifiers::NONE,
+            },
+        ])
+        .1;
+    assert!(
+        text_rect(&out, &f.message_text).is_some(),
+        "wheel input keeps transcript text painted"
+    );
     assert!(f.state.selected_transcripts.contains("dot"));
     let out = f
         .frame(vec![command(egui::Key::C, egui::Modifiers::COMMAND)])

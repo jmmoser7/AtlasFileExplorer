@@ -27,55 +27,50 @@ pub(super) struct ReadJob {
 impl ReadJob {
     pub(super) fn new(call: BoardCall, generation: u64) -> Result<Self, String> {
         let text_page = text_page::TextPage::parse(&call, generation)?;
-        let (node_ids, participant_ids, offset, limit, text_cursor, text_limit, text_generation): (
-            &[String],
-            Option<Vec<String>>,
-            usize,
-            usize,
-            Option<usize>,
-            Option<usize>,
-            Option<String>,
-        ) = match &call.operation {
-            BoardOperation::Read {
-                node_ids,
-                offset,
-                limit,
-            } => (node_ids, None, *offset, *limit, None, None, None),
-            BoardOperation::ReadParticipants {
-                participant_ids,
-                offset,
-                limit,
-                text_cursor,
-                text_limit,
-                text_generation,
-            } => (
-                &[][..],
-                Some(participant_ids.clone()),
-                *offset,
-                *limit,
-                *text_cursor,
-                *text_limit,
-                text_generation.clone(),
-            ),
-            BoardOperation::Invoke {
-                command, targets, ..
-            } if command == "presence.read_image" && targets.len() == 1 => {
-                (targets, None, 0, 1, None, None, None)
-            }
-            BoardOperation::Invoke {
-                command, targets, ..
-            } if command == "presence.read_text" && targets.len() == 1 => {
-                (targets, None, 0, 1, None, None, None)
-            }
-            BoardOperation::Invoke {
-                command, targets, ..
-            } if command == "presence.preview" => (targets, None, 0, 1, None, None, None),
-            _ => {
-                return Err(
-                    "Choose one explicit image, authored text node, or frame preview".into(),
-                )
-            }
-        };
+        let (node_ids, participant_ids, offset, limit, text_cursor, text_limit, text_generation) =
+            match &call.operation {
+                BoardOperation::Read {
+                    node_ids,
+                    offset,
+                    limit,
+                } => (node_ids.as_slice(), None, *offset, *limit, None, None, None),
+                BoardOperation::ReadParticipants {
+                    participant_ids,
+                    offset,
+                    limit,
+                    text_cursor,
+                    text_limit,
+                    text_generation,
+                } => (
+                    &[][..],
+                    Some(participant_ids.clone()),
+                    *offset,
+                    *limit,
+                    *text_cursor,
+                    *text_limit,
+                    text_generation.clone(),
+                ),
+                BoardOperation::Invoke {
+                    command, targets, ..
+                } if command == "presence.read_image" && targets.len() == 1 => {
+                    (targets.as_slice(), None, 0, 1, None, None, None)
+                }
+                BoardOperation::Invoke {
+                    command, targets, ..
+                } if command == "presence.read_text" && targets.len() == 1 => {
+                    (targets.as_slice(), None, 0, 1, None, None, None)
+                }
+                BoardOperation::Invoke {
+                    command, targets, ..
+                } if command == "presence.preview" => {
+                    (targets.as_slice(), None, 0, 1, None, None, None)
+                }
+                _ => {
+                    return Err(
+                        "Choose one explicit image, authored text node, or frame preview".into(),
+                    )
+                }
+            };
         let explicit = node_ids
             .iter()
             .map(|id| {
@@ -294,18 +289,9 @@ impl SlateApp {
                         Err(error) => BoardReply::error(&job.call, &error),
                     });
                 }
-                if let Some(participant_ids) = &job.participant_ids {
+                if job.participant_ids.is_some() {
                     let grant = a.grant.as_ref().unwrap();
-                    let result = self.participant_page(
-                        a,
-                        grant,
-                        participant_ids,
-                        job.offset,
-                        job.limit,
-                        job.text_cursor,
-                        job.text_limit,
-                        job.text_generation.as_deref(),
-                    );
+                    let result = self.participant_page(a, grant, &job);
                     a.activity = "working".into();
                     return Some(match result {
                         Ok(value) => BoardReply {

@@ -332,7 +332,6 @@ pub(super) fn show(
             .show(&ctx, &mut paint);
         None
     };
-    drop(paint);
     if let Some(area) = editor_area {
         app.occupy_result_chrome(owner, area);
     }
