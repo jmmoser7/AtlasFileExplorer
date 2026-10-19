@@ -469,6 +469,10 @@ mod tests {
         let point = SlateApp::web_consent_control_rect(&layout)
             .unwrap()
             .center();
+        assert!(h.app.canvas_rect.contains(point));
+        // Prime egui's hover/widget pass before the press. This mirrors the
+        // per-origin control test and keeps the click as real pointer input.
+        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(point)));
         for pressed in [true, false] {
             h.frame_with(|i| {
                 i.events.push(egui::Event::PointerMoved(point));
