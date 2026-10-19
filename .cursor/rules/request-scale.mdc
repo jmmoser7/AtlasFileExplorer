@@ -1,0 +1,50 @@
+---
+description: Classify requests before work and match scope, delegation, and validation to their scale
+alwaysApply: true
+---
+
+# Request scale and proportionate effort
+
+Before investigation, implementation, or delegation, classify the request as
+**focused**, **moderate**, or **difficult**. State the class and intended checks
+briefly in the first update; this is a decision, not an approval ceremony.
+Classify by the requested outcome, uncertainty, affected owners, and risk.
+
+- **Focused:** a small, bounded tweak in an existing owner, such as randomizing
+  existing departures. Inspect that owner, make the smallest complete change,
+  and check the behavior. Usually minutes; no new subsystem or broad investigation.
+- **Moderate:** a surgical update to specific functionality touching a small
+  class of tools or a few related owners. Use a short plan, inspect their shared
+  contracts, and check the affected interactions and immediate consumers.
+- **Difficult:** a large or uncertain batch, such as processing a full week's
+  bug reports, a substantial integration, or a cross-system redesign. Use a
+  task ledger, staged execution, independent review, and integration checks.
+  Overnight or longer work can be appropriate; elapsed time is not the goal.
+
+- Focused work normally stays with one implementer. Use a small helper only
+  for a concrete benefit or mandatory gate; avoid review swarms and recursive
+  health checks. Moderate work uses narrow delegation where it saves time.
+  Difficult work can use multiple agents with distinct ownership and, for
+  substantial UI work, a reviewer protecting the user's design intent.
+- Match capability and reasoning using the existing [handoff guidance](../agents/health-check.md#handoff);
+  escalate on evidence, not by default.
+- Every class stays within the requested outcome and reuses existing owners.
+  Do not add adjacent features or frameworks. Record optional ideas separately.
+- Security, persistence, or data-loss risks require targeted safeguards;
+  they do not automatically justify a broad suite, refactor, or expanded scope.
+- Reclassify only when evidence reveals necessary complexity or material risk;
+  explain the finding before expanding work. Self-added features are not evidence.
+
+## Validation budget
+
+- Documentation-only edits: check the diff, links, and rule consistency; no build.
+- Focused code: use the smallest meaningful existing test/check and, for visible
+  changes, a targeted visual check. Add tests only for meaningful behavioral risk.
+- Moderate code: check affected packages and relevant interaction regressions.
+- Difficult work: run integrated validation at coherent milestones on final code.
+- A full workspace suite is not the default for each edit or a focused request.
+  Broaden only for demonstrated dependency impact, unresolved failures, an explicit
+  request, or a mandatory integration/release gate. Existing CI and specific
+  safety/contract checks still apply; do not disable or bypass them.
+- Finish cheap checks and review before expensive runs. Reuse valid results;
+  repeat green checks only after a relevant change or new concern. Stop when done.

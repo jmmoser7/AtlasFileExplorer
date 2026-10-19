@@ -1,5 +1,12 @@
 # Agent instructions — Atlas ecosystem (native)
 
+## Request scale and effort
+
+Before starting each request, apply
+[request-scale.mdc](.cursor/rules/request-scale.mdc). It owns the **focused /
+moderate / difficult** classification and the corresponding implementation,
+delegation, and validation budget. This applies in local, cloud, and review work.
+
 ## Governing documents
 
 **`CONSTITUTION.md` (repo root) is the project's governing law** — read it
@@ -110,6 +117,10 @@ kit files with `cargo xtask kits` (also inside `cargo test --workspace`).
 Read `docs/windows-builds.md` before Windows setup, builds, or execution-block
 diagnostics. It owns the MSVC setup and managed-machine audit/retry workflow.
 Distribution signing and end-user approval guidance lives in `docs/distribution.md`.
+
+The commands below are full integration/release checks, not the default after
+every edit. Select task checks using [request-scale.mdc](.cursor/rules/request-scale.mdc);
+retain mandatory CI and the specific checks required for affected functionality.
 
 ```powershell
 cargo test --workspace
