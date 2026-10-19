@@ -367,7 +367,8 @@ impl SlateApp {
         }
         self.peel_sheet(ui, &xf, pointer);
         let agent_capture = self.agent_shelf_captures(&xf, pointer);
-        let page_capture = self.web_input_frame(ui, &xf, pointer);
+        let page_capture =
+            !(popup_capture || presence_capture) && self.web_input_frame(ui, &xf, pointer);
         let external_capture = page_capture || self.atlas_input_frame(ui, &xf, pointer);
         // The shelf still receives the wheel. A drag moves the train card
         // unless a text field is the action under the pointer.

@@ -1,5 +1,94 @@
 //! Actual Slate input routing with a focused chat composer and a live canvas.
 use super::*;
+use crate::app::tests::{only_portal, with_fake_host};
+
+#[test]
+fn foreground_chat_owns_input_over_a_focused_web_page() {
+    let mut f = Gesture::new(1.0);
+    f.h.app.presence.chrome.open_chat(&f.who);
+    for _ in 0..3 {
+        f.paint();
+    }
+    let host = with_fake_host(&mut f.h);
+    f.h.app
+        .paste_web_url("https://example.com/dashboard", Pos2::ZERO);
+    let (id, _) = only_portal(&f.h);
+    f.h.app.web_allow_origin(id);
+    f.paint();
+    f.h.app.web_focus(id);
+    f.h.app.portal_chrome.maximized = Some(id);
+    f.paint();
+
+    let composer_id = Id::new(("presence-composer", f.who.as_str()));
+    let composer = f.h.ctx.read_response(composer_id).unwrap();
+    let to_global =
+        f.h.ctx
+            .layer_transform_to_global(composer.layer_id)
+            .unwrap_or_default();
+    let point = (to_global * composer.rect).center();
+    host.0.borrow_mut().inputs.clear();
+    f.input(|input| {
+        input.events.extend([
+            egui::Event::PointerMoved(point),
+            egui::Event::PointerButton {
+                pos: point,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]);
+    });
+    f.paint();
+    f.input(|input| {
+        input.events.push(egui::Event::PointerButton {
+            pos: point,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+    });
+    f.paint();
+    f.input(|input| input.events.push(egui::Event::Text("chat text".into())));
+    f.paint();
+    assert!(
+        host.inputs().is_empty(),
+        "chat pointer and text reached the page"
+    );
+
+    // Composer focus remains authoritative when the pointer leaves the popup.
+    let outside = f.h.app.canvas_rect.left_center() + Vec2::new(80.0, 0.0);
+    f.input(|input| {
+        input.events.extend([
+            egui::Event::PointerMoved(outside),
+            egui::Event::Text("still chat".into()),
+        ]);
+    });
+    f.paint();
+    assert!(
+        host.inputs()
+            .iter()
+            .all(|event| matches!(event, crate::app::board_web::WebInput::Move { .. })),
+        "composer text reached the page after pointer exit"
+    );
+    assert!(
+        host.inputs()
+            .iter()
+            .any(|event| matches!(event, crate::app::board_web::WebInput::Move { .. })),
+        "ordinary pointer input outside the popup was blocked"
+    );
+
+    // With egui focus released, browser keyboard input flows again.
+    f.h.ctx
+        .memory_mut(|memory| memory.surrender_focus(composer_id));
+    f.input(|input| input.events.push(egui::Event::Text("page text".into())));
+    f.paint();
+    assert!(
+        host.inputs()
+            .iter()
+            .any(|event| matches!(event, crate::app::board_web::WebInput::Text('p'))),
+        "ordinary page keyboard input was blocked"
+    );
+}
 
 #[test]
 fn transcript_shortcuts_precede_board_commands_without_claiming_board_or_composer_keys() {

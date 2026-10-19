@@ -2,15 +2,50 @@
 
 ## Current execution status
 
-The global website, same-request focus-transfer and brush-preview repairs now
-pass local all-target release Clippy. Seven focused Codex session tests also
-pass, including public command-name progress without tool payloads or private
-reasoning. Local contract auditing built successfully but Windows refused to
-execute `target/debug/xtask.exe` (OS error 5); no audit pass is claimed. The
-scoped source is being frozen for hosted tests and one native release rebuild.
-The 224-node recovery remains retained; native acceptance, merge and release
-are still pending. The checkpoints below describe earlier builds, not this
-new source.
+At 23:40 UTC, native build `0f8545168a6be530dc5557085abd40b4de7a3373` ran the saved Workflow workbook and was closed normally after a native Save. Its executable SHA256 is
+`845677D2292969A940D123E501FF51862B0BCC08154F6D1470EEF26EBC6F5930`; it is
+50,786,816 bytes, built at `2026-10-19T21:59:35.0181130Z`. The human explicitly
+enabled **Allow all websites** at 23:14:17 UTC; the machine-local setting is
+saved true. Root saved the current workbook through Slate's native Save at
+23:40:40 UTC (298,389 bytes). `native-before-transport-preservation.json` confirms
+243 nodes, all 74 original nodes unchanged, and both original linked items
+exactly unchanged. The screenshot `native-saved-before-compact-repair.png`
+records that save.
+
+The resumed request `req-30324-1792451920700994200-2` has bodies in all eight
+new frames. Native evidence includes a real Google results capture after
+click/type/Enter, an EPA Trees and Vegetation text read and capture, an EPA
+Measuring Heat Islands capture, and an EPA cool-roof capture. The retained
+Measuring page text response is identical to the trees-page response, so the
+measurement text read is unverified; the cool-roof text read was empty with an
+intermittent focus error. The first slide preview is 1200×675 for 1600×900
+bounds, but its low-contrast generated-image caption overlaps the image edge.
+The remaining seven slides still need final preview pixels and visual review.
+The retained board note records three exact Atlas fixture reads/highlights; the
+exact returned-locator receipts are not independently retained in the public
+replies inspected here. The recovered generator record honestly reports a
+previous wide/count-two run as failed with one 1672×941 output; this pass reused
+that image and did not start another generation.
+
+Native drawing evidence includes the smooth/join comparisons, a 10-stroke
+schematic batch, and an eraser comparison whose pixels show the before/after
+strokes with a swept central gap. The image's authored note claims the brush
+marks are absent despite the visible orange pixels; treat that note as stale,
+not as a preview failure. The public transcript Ctrl+A/copy/paste round trip
+passed with 18,209 characters, including the original/latest task and assistant
+history, and remained unsent. Ordinary range selection/steering still hits a
+confirmed chat/Web input-routing defect, and compact-size transport needs a
+fresh native build. A helper finished a public outcome of about 1,200
+characters, but pagination delivery/retrieval is incomplete.
+
+CI 170 for test-only commit `f32767df` and Windows installer 148 are green;
+`evidence.json` records 3,896 Linux tests and 3,963 Windows tests passed, with
+the Windows preview artifact packaged. This is source/CI evidence, not native
+acceptance or a release. Global permission navigation/revocation, an exact
+measurement-page text read, direct Atlas locator receipts, full helper paging,
+all eight final preview pixels, and fresh-build chat/compact checks remain open.
+No complete-workflow, merge, or release acceptance is claimed. The checkpoints
+below describe earlier builds and remain historical.
 
 At 17:39 EDT, the native continuation on build `9379…F087` had progressed to
 224 nodes and populated the eight slide bodies. Its public feedback confirms

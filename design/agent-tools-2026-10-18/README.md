@@ -85,17 +85,24 @@ including the original workbook, recovery-preservation record, source fixtures,
 and build/test logs. Software captures use the production board painter with
 synthetic fixture content; they are not native pointer/GPU or human acceptance.
 The current native run uses `target/release/slate.exe`, SHA256
-`9379FD4B6ADBB7233C41EF2A7B88915E7FEFC166E8F20B8AE2B798DD6EC5F087`,
-50,784,768 bytes, built at `2026-10-19T20:27:08.9361116Z`. Its production
-source is `02803131`; `8d4c20b1` additionally corrects two test fixtures.
-Local all-target release Clippy and 65 shared presence tests passed. Hosted
-verification of the corrected app fixtures remains pending.
-The saved checkpoint contains 193 nodes, with all 74 original nodes and both
-original linked items exactly unchanged.
-Eight new slide frames exist, but their bodies and the complete workflow remain
-unfinished. This binary includes the maximized-portal scheduler repair and
-saved inactive-conversation access; their actual native workflow is in progress.
-No source-write or security-policy exception is introduced.
+`845677D2292969A940D123E501FF51862B0BCC08154F6D1470EEF26EBC6F5930`,
+50,786,816 bytes, built at `2026-10-19T21:59:35.0181130Z`. Its production
+source is `0f854516`; `f32767df` corrects a synthetic pointer fixture only.
+Snapshot `f32767df` passed hosted CI 170 (3,896 Linux tests, zero failures,
+93 ignored) and Windows installer 148 (3,963 tests, zero failures, 111 ignored).
+The verified preview package is retained as artifact `12226939743`; it is not
+published yet. The human enabled global Website access, and the preference is
+saved true. No permission was automated.
+
+The latest native Save preserved 243 nodes, all 74 original nodes exactly
+unchanged, and both original linked items unchanged. All eight slide bodies are
+populated. The run exercised real Web captures, native drawing and the recovered
+1672×941 generated image, with no additional paid generation. One duplicated
+source-text response remains unverified. A complete helper result exists, but
+parent-side text paging and final pixels for all eight slides are unfinished.
+Whole-transcript Ctrl+A/copy/paste passed; ordinary range selection and steering
+exposed foreground chat input reaching the focused Web portal. That routing fix
+and a compact BoardLink reply fix are awaiting a combined native rebuild.
 
 Image inspection uses bounded displayed-image PNGs rather than returning an
 unchanged image's original file as provider input. Codex attaches those pixels
@@ -105,7 +112,9 @@ it changes no package versions, features, toolchain, build profile or output pat
 Tests of this adapter are protocol/transport evidence, separate from a live model
 vision turn.
 
-The desktop is unlocked. Google and EPA origin approval remains a human action;
-no approval has been automated. The evaluation cases remain Untested for this
+Google and EPA were individually allowed by the human before the explicit
+global opt-in. Desktop availability is checked before native input; a mouse
+jiggler is user-managed and does not establish that the desktop is unlocked.
+The evaluation cases remain Untested for this
 binary until their recorded native steps are completed. Compilation and the
 partial research board are not complete workflow acceptance.
