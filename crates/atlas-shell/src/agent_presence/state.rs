@@ -20,6 +20,7 @@ pub(super) struct Edit {
     pub name: String,
     pub message: String,
     pub last_draft: String,
+    pub composer_height: f32,
 }
 pub struct RosterState {
     pub(super) font_family: Option<eframe::egui::FontFamily>,

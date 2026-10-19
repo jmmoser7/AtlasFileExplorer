@@ -45,7 +45,10 @@ pub(super) fn show(
         }
         occupied += 110.0;
     }
-    let composer_height = (COMPOSER_MAX_HEIGHT + if attached { 18.0 } else { 30.0 })
+    let editor_height = state.edits.get(p.id).map_or(44.0, |edit| {
+        edit.composer_height.clamp(44.0, COMPOSER_MAX_HEIGHT)
+    });
+    let composer_height = (editor_height + if attached { 18.0 } else { 30.0 })
         + if p.attachments.is_empty() || p.human {
             0.0
         } else {
@@ -140,7 +143,7 @@ pub(super) fn show(
                     .max_rect(composer_rect)
                     .layout(egui::Layout::top_down(egui::Align::Min)),
                 |ui| {
-                    egui::ScrollArea::vertical()
+                    let output = egui::ScrollArea::vertical()
                         .id_salt(("presence-composer-scroll", p.id))
                         .min_scrolled_height(44.0)
                         .max_height(COMPOSER_MAX_HEIGHT)
@@ -155,8 +158,13 @@ pub(super) fn show(
                                     .hint_text(egui::RichText::new("Message").color(palette.sub))
                                     .desired_rows(2),
                             )
-                        })
-                        .inner
+                        });
+                    let height = output.inner_rect.height();
+                    if edit.composer_height != height {
+                        edit.composer_height = height;
+                        ui.ctx().request_repaint();
+                    }
+                    output.inner
                 },
             )
             .inner;
