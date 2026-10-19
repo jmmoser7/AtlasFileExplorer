@@ -195,7 +195,8 @@
       "steps": [
         "Ask the agent to add/open the test Web portal on the board, then leave it at that board position during the following interactions.",
         "Ask the agent to inspect the live portal, navigate to a benign page, type into a test field, click, scroll, send a key, and capture the displayed state.",
-        "Repeat a read and an input action with the portal maximized; move the human pointer during the action and restore the board afterward."
+        "Repeat a read and an input action with the portal maximized; move the human pointer during the action and restore the board afterward.",
+        "Open Agent settings → Website access. The human enables Allow all websites once; ask the agent to visit a different HTTP(S) origin, then save/reopen Slate and repeat without individual approvals. Turn global access off and check existing individually permitted sites and a newly unpermitted page."
       ],
       "checks": [
         {
@@ -217,6 +218,10 @@
         {
           "id": "maximized-work",
           "expected": "Pending reads and page calls finish in maximized view. The avatar reaches the actual page contact through the same fitted host transform; visible work stays witnessed and human input retains priority."
+        },
+        {
+          "id": "global-web-policy",
+          "expected": "The explicit per-user global choice persists across Slate workbooks and restart, permits new HTTP(S) sites for registered agent browsing, and is clearly separate from provider and source-file access. Disabling it releases unpermitted live pages and their focus while retaining individual site grants. No permission is carried by .slate files or exports."
         }
       ]
     },
@@ -484,12 +489,12 @@
   ],
   "candidateBuild": {
     "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/target/release/slate.exe",
-    "size": 50812416,
-    "modified_utc": "2026-10-19T19:21:42.7657348Z",
-    "version": "19 October native motion/preview/consent repair, production source 1eb9d605; test fixture eb4e8f81",
-    "sha256": "4C0489F6BF5E764FE2991D03EAC0E826385892ACCCCA0E49EEBB9AD5551DBE6E",
+    "size": 50784768,
+    "modified_utc": "2026-10-19T20:27:08.9361116Z",
+    "version": "19 October maximized-portal and saved-chat repair, production source 02803131; test fixtures 8d4c20b1",
+    "sha256": "9379FD4B6ADBB7233C41EF2A7B88915E7FEFC166E8F20B8AE2B798DD6EC5F087",
     "tested_interactively": false,
     "available": true
   },
-  "automatedEvidence": "Local Windows motion replay-cap regression and all-target release Clippy passed. Production build succeeded; exact executable metadata is recorded above. The 193-node native checkpoint preserves all 74 original nodes unchanged; eight slide bodies remain unfinished. The continuation exposed a further maximized-portal scheduler defect; that repair and saved inactive-chat access are in progress and are not in this executable. Human Google/EPA origin approvals remain pending. Every interactive verdict remains blank; automated results never prefill a native verdict. Retained evidence: target/review/research-workflow-20261019."
+  "automatedEvidence": "Source 8d4c20b1 passed all hosted CI jobs and the Windows installer build: Linux workspace 3887 passed, Windows workspace 3954 passed, zero failures. The resulting PR package is an artifact, not a published release. Native build 9379 reopened the saved board and both Google and EPA load after human approval. The actual agent task is running; its cross-portal focus failure and the user-requested global Web permission are being repaired. These new changes require focused checks and a new native build. Interactive verdicts remain blank. Retained evidence: target/review/research-workflow-20261019."
 }

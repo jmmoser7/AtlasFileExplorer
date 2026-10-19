@@ -114,3 +114,13 @@ pub(super) fn remember(
     }
     Ok(true)
 }
+
+pub(super) fn stamp_pending(app: &SlateApp, node: &Node) -> bool {
+    let NodeKind::Shape(shape) = &node.kind else {
+        return false;
+    };
+    shape.path.is_some()
+        && shape.stroke.paints_as_stamp()
+        && !shape.stroke.is_none()
+        && !app.brush_stamps.contains_key(&app.stroke_cache_id(node.id))
+}

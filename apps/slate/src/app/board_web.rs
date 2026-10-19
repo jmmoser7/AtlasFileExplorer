@@ -29,6 +29,7 @@ use super::board_portal_chrome::{layout_portal_chrome, PortalChromeLayout};
 use super::SlateApp;
 
 mod agent_access;
+mod consent;
 mod layout;
 use layout::css_size;
 
@@ -489,15 +490,6 @@ struct SourcePoll {
     mtime: Option<SystemTime>,
 }
 
-/// `web-consent.json` in the per-user Atlas data folder.
-#[derive(serde::Serialize, serde::Deserialize)]
-struct SavedConsent {
-    #[serde(default)]
-    version: u32,
-    #[serde(default)]
-    workbooks: HashMap<String, HashSet<String>>,
-}
-
 /// Board-wide web portal state. One per app, not per portal.
 pub struct WebRuntime {
     views: HashMap<NodeId, WebView>,
@@ -509,6 +501,8 @@ pub struct WebRuntime {
     /// per-user Atlas data folder. None in tests and tools.
     consent_file: Option<std::path::PathBuf>,
     saved_consent: HashMap<String, HashSet<String>>,
+    /// Explicit user choice applying to remote Web origins on this device.
+    allow_all_websites: bool,
     /// The active workbook and its saved origins, swapped only on change so
     /// the per-frame check never allocates.
     consent_workbook: Option<std::path::PathBuf>,
@@ -567,6 +561,7 @@ impl Default for WebRuntime {
             consent: HashSet::new(),
             consent_file: None,
             saved_consent: HashMap::new(),
+            allow_all_websites: false,
             consent_workbook: None,
             workbook_consent: HashSet::new(),
             focused: None,
@@ -705,84 +700,6 @@ impl WebRuntime {
     /// How many webviews currently hold a pool slot.
     pub fn live_count(&self) -> usize {
         self.views.values().filter(|v| v.live).count()
-    }
-
-    pub fn has_consent(&self, origin: &str) -> bool {
-        self.consent.contains(origin) || self.workbook_consent.contains(origin)
-    }
-
-    /// Permit one origin: for this session, and for the active saved workbook
-    /// in later sessions. Local state only — never a journal command, never
-    /// saved into the workbook (D32).
-    pub fn grant_consent(&mut self, origin: impl Into<String>) {
-        let origin = origin.into();
-        self.consent.insert(origin.clone());
-        if let Some(key) = self.consent_key() {
-            self.workbook_consent.insert(origin.clone());
-            self.saved_consent.entry(key).or_default().insert(origin);
-            self.save_consent();
-        }
-    }
-
-    pub fn revoke_consent(&mut self, origin: &str) {
-        self.consent.remove(origin);
-        if let Some(key) = self.consent_key() {
-            self.workbook_consent.remove(origin);
-            if let Some(origins) = self.saved_consent.get_mut(&key) {
-                origins.remove(origin);
-            }
-            self.save_consent();
-        }
-    }
-
-    /// Keep grants across sessions in `path`, loading what is already there.
-    pub fn use_consent_file(&mut self, path: std::path::PathBuf) {
-        self.saved_consent = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<SavedConsent>(&bytes).ok())
-            .map(|saved| saved.workbooks)
-            .unwrap_or_default();
-        self.consent_file = Some(path);
-        self.workbook_consent = self.saved_for_active();
-    }
-
-    /// Follow the active tab. Cheap when unchanged.
-    pub fn set_consent_workbook(&mut self, workbook: Option<&std::path::Path>) {
-        if self.consent_workbook.as_deref() == workbook {
-            return;
-        }
-        self.consent_workbook = workbook.map(std::path::Path::to_path_buf);
-        self.workbook_consent = self.saved_for_active();
-    }
-
-    fn consent_key(&self) -> Option<String> {
-        self.consent_file.as_ref()?;
-        Some(
-            self.consent_workbook
-                .as_ref()?
-                .to_string_lossy()
-                .into_owned(),
-        )
-    }
-
-    fn saved_for_active(&self) -> HashSet<String> {
-        self.consent_key()
-            .and_then(|key| self.saved_consent.get(&key).cloned())
-            .unwrap_or_default()
-    }
-
-    fn save_consent(&self) {
-        let Some(path) = &self.consent_file else {
-            return;
-        };
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let saved = SavedConsent {
-            version: 1,
-            workbooks: self.saved_consent.clone(),
-        };
-        let _ = atlas_ai::agent::atomic_write_json(path, &saved);
     }
 
     fn generation(&mut self) -> u64 {

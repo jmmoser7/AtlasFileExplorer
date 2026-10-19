@@ -237,3 +237,29 @@ pub(super) const WEB_REVOKE_ORIGIN: CommandSpec = spec(
     BOARD,
     &["revoke origin", "block site", "forget website consent"],
 );
+
+pub(super) const WEB_ALLOW_ALL_SITES: CommandSpec = spec(
+    "portal.web.allow_all_sites", "Preferences", "Allow all websites",
+    "Human global website permission, remembered for this user across all Slate workbooks on this device",
+    None, Repeat::Never, GLOBAL, &["agent web access", "allow any website"],
+);
+pub(super) const WEB_RESTRICT_SITES: CommandSpec = spec(
+    "portal.web.restrict_sites",
+    "Preferences",
+    "Use individual website permissions",
+    "Disable global website permission; retain individual grants and close newly unpermitted pages",
+    None,
+    Repeat::Never,
+    GLOBAL,
+    &["restrict web access", "website permissions"],
+);
+pub(super) const WEB_ACCESS_SETTINGS: CommandSpec = spec(
+    "portal.web.access_settings",
+    "Preferences",
+    "Website access settings",
+    "Open Advanced → Website access, including the persistent Allow all websites choice",
+    None,
+    Repeat::Never,
+    GLOBAL,
+    &["global web access", "website permissions"],
+);

@@ -201,6 +201,7 @@ pub enum PresenceAction {
     },
     ConnectPeople,
     SetupWorkspace,
+    WebsiteAccessSettings,
     Retry {
         id: String,
         message: String,

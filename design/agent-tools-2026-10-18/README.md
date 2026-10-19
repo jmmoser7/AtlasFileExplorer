@@ -85,13 +85,16 @@ including the original workbook, recovery-preservation record, source fixtures,
 and build/test logs. Software captures use the production board painter with
 synthetic fixture content; they are not native pointer/GPU or human acceptance.
 The current native run uses `target/release/slate.exe`, SHA256
-`4C0489F6BF5E764FE2991D03EAC0E826385892ACCCCA0E49EEBB9AD5551DBE6E`,
-50,812,416 bytes, built at `2026-10-19T19:21:42.7657348Z`. Its production
-source is `1eb9d605`; `eb4e8f81` additionally corrects a test fixture's clock.
-The saved checkpoint contains 193 nodes, with all 74 original nodes unchanged.
+`9379FD4B6ADBB7233C41EF2A7B88915E7FEFC166E8F20B8AE2B798DD6EC5F087`,
+50,784,768 bytes, built at `2026-10-19T20:27:08.9361116Z`. Its production
+source is `02803131`; `8d4c20b1` additionally corrects two test fixtures.
+Local all-target release Clippy and 65 shared presence tests passed. Hosted
+verification of the corrected app fixtures remains pending.
+The saved checkpoint contains 193 nodes, with all 74 original nodes and both
+original linked items exactly unchanged.
 Eight new slide frames exist, but their bodies and the complete workflow remain
-unfinished. The run exposed a further scheduler defect when a Web portal is
-maximized; that repair and saved inactive-conversation access are in progress.
+unfinished. This binary includes the maximized-portal scheduler repair and
+saved inactive-conversation access; their actual native workflow is in progress.
 No source-write or security-policy exception is introduced.
 
 Image inspection uses bounded displayed-image PNGs rather than returning an

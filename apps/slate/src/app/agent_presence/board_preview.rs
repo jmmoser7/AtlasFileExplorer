@@ -5,7 +5,7 @@ use atlas_shell::frame_raster::FrameRaster;
 use egui::{ClippedPrimitive, Id, LayerId, Order, Ui, UiBuilder};
 use serde_json::{json, Value};
 use slate_doc::scene::{Node, NodeKind, PortalKind, WorldRect};
-use std::{collections::HashMap, sync::mpsc};
+use std::{collections::HashMap, sync::mpsc, time::Instant};
 mod preflight;
 #[cfg(test)]
 mod tests;
@@ -15,6 +15,7 @@ const MAX_NODES: usize = 512;
 const MAX_EDGE: usize = 1200;
 const MAX_TRIANGLES: usize = 100_000;
 const NODES_PER_FRAME: usize = 4;
+const STAMP_WAIT_LIMIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 pub(super) struct PreviewJob {
     nodes: Vec<Node>,
@@ -28,6 +29,8 @@ pub(super) struct PreviewJob {
     pub(super) result: Option<Value>,
     needs_sources: bool,
     unavailable: usize,
+    stamp_wait_spent: std::time::Duration,
+    stamp_wait_since: Option<Instant>,
 }
 
 impl PreviewJob {
@@ -163,6 +166,8 @@ impl PreviewJob {
             result: None,
             needs_sources,
             unavailable: 0,
+            stamp_wait_spent: std::time::Duration::ZERO,
+            stamp_wait_since: None,
         })
     }
 
@@ -227,6 +232,7 @@ impl PreviewJob {
         );
         let tiled = app.brush_tiles_enabled;
         app.brush_tiles_enabled = false;
+        let mut waiting_for_stamp = false;
         let painted = (|| -> Result<(), String> {
             for _ in 0..NODES_PER_FRAME {
                 let Some(node) = self.nodes.get(self.next) else {
@@ -257,9 +263,43 @@ impl PreviewJob {
                     self.next += 1;
                     continue;
                 }
+                let keep_shapes =
+                    ctx.graphics(|g| g.get(layer).map_or(0, |list| list.all_entries().count()));
                 app.paint_board_node(&ui, &painter, &xf, node, false);
                 if !textures::remember(app, ctx, &xf, node, &mut self.textures)? {
                     self.unavailable += 1;
+                }
+                if textures::stamp_pending(app, node) {
+                    let since = *self.stamp_wait_since.get_or_insert_with(Instant::now);
+                    if self.stamp_wait_spent + since.elapsed() >= STAMP_WAIT_LIMIT {
+                        self.stamp_wait_spent += since.elapsed();
+                        self.stamp_wait_since = None;
+                        self.unavailable += 1;
+                        self.next += 1;
+                    } else {
+                        waiting_for_stamp = true;
+                    }
+                    let shapes = ctx.graphics_mut(|graphics| {
+                        graphics
+                            .get_mut(layer)
+                            .map(|list| {
+                                std::mem::take(list)
+                                    .all_entries()
+                                    .take(keep_shapes)
+                                    .cloned()
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default()
+                    });
+                    self.primitives.extend(ctx.tessellate(shapes, 1.0));
+                    if waiting_for_stamp {
+                        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+                        break;
+                    }
+                    continue;
+                }
+                if let Some(since) = self.stamp_wait_since.take() {
+                    self.stamp_wait_spent += since.elapsed();
                 }
                 self.next += 1;
             }
@@ -289,7 +329,7 @@ impl PreviewJob {
         if triangles > MAX_TRIANGLES {
             return Err("Preview geometry limit reached; choose a smaller frame".into());
         }
-        if self.next < self.nodes.len() {
+        if waiting_for_stamp || self.next < self.nodes.len() {
             ctx.request_repaint();
             return Ok(false);
         }

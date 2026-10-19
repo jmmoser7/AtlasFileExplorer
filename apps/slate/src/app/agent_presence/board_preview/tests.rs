@@ -432,3 +432,4 @@ fn existing_read_owner_rejects_stale_preview_and_cancels_on_stop() {
     h.app.stop_presence(&who, false).unwrap();
     assert!(h.app.presence.agents[0].read.is_none());
 }
+mod stamped;

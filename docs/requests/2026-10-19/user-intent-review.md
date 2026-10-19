@@ -2,6 +2,66 @@
 
 ## Current execution status
 
+The global website, same-request focus-transfer and brush-preview repairs now
+pass local all-target release Clippy. Seven focused Codex session tests also
+pass, including public command-name progress without tool payloads or private
+reasoning. Local contract auditing built successfully but Windows refused to
+execute `target/debug/xtask.exe` (OS error 5); no audit pass is claimed. The
+scoped source is being frozen for hosted tests and one native release rebuild.
+The 224-node recovery remains retained; native acceptance, merge and release
+are still pending. The checkpoints below describe earlier builds, not this
+new source.
+
+At 17:39 EDT, the native continuation on build `9379…F087` had progressed to
+224 nodes and populated the eight slide bodies. Its public feedback confirms
+Google click/type/Enter and EPA #81 scrolling; the cross-portal focus errors
+identified a same-task lease-transfer bug. The app exited at 17:33:38 EDT with
+`0xC0000005` in `igxelpicd64.dll`, no Rust panic, and empty stderr. The report
+does not identify the triggering command; no renderer cause is claimed.
+The report and 17:32:34 recovery checkpoint are retained under
+`native-9379-crash-2133` and `native-9379-recovery-checkpoint-2132.json`.
+`native-9379-recovery-preservation.json` confirms all 74 original node IDs
+remain, with no unexplained changes, and both linked items unchanged after
+path resolution. Recovery expands 400 f32 values in generic JSON, so exact
+serialized equality remains to be checked after a native Save.
+
+The user's global website request is a moderate refinement: one explicit,
+per-user **Allow all websites** setting across Slate workbooks on this device,
+using the existing machine-local consent owner. It is exposed through Agent
+settings → Website access and Advanced, with registered human commands.
+DRY review approved the owner extraction and D32/D35 refinement. The first
+all-target release Clippy pass succeeded; focused Web tests, the additional
+same-task focus repair, and native retesting remain pending. A separate
+preview defect skipped valid recovered brush strokes before asynchronous
+rasters were ready while reporting completion; that owner is being repaired
+to wait through a bounded interval and report omissions honestly.
+
+At 17:11 EDT (21:11 UTC), hosted validation of `8d4c20b1` is green:
+Windows compilation, Linux Clippy, and Linux workspace tests (3,887 passed,
+zero failed, 93 ignored). The separate Windows installer workflow 146 passed
+3,954 workspace tests with zero failures and 111 ignored, built and verified
+the suite, and uploaded artifact `windows-preview` / `12221157897`, version
+`1.0.0-preview.146`. This PR artifact is not a published release. Exact
+provenance is retained in `green-validation-8d4c20b1.json` under the evidence
+directory. Both corrected fixtures passed. The human enabled Google, and root
+verified its real search page through native accessibility and foreground
+pixels. EPA remains at its visible maximized Allow site control awaiting the
+human. These checks do not establish that the Slate agent has read either
+source or completed the research task; native acceptance remains incomplete.
+
+At 20:27 UTC, the optimized native build of source `02803131` completed and
+reopened the saved workbook. Its executable is 50,784,768 bytes, SHA256
+`9379FD4B6ADBB7233C41EF2A7B88915E7FEFC166E8F20B8AE2B798DD6EC5F087`,
+modified `2026-10-19T20:27:08.9361116Z`. Local all-target release Clippy and
+65 shared presence tests passed. Hosted CI passed Windows compilation and
+Linux Clippy, but failed two Slate fixtures among 2,049 passing cases. The
+fixtures used an incomplete synthetic Ctrl modifier and failed to admit the
+fake Web host after maximizing; test-only corrections are in `8d4c20b1`,
+awaiting verification. The new binary contains the maximized-portal scheduler
+and saved inactive-chat repairs. Google is visibly maximized with Allow site
+available; human approval remains pending. No complete native workflow,
+presentation, merge, or release is claimed.
+
 At 19:54 UTC, the root restored the normal board, saved through Ctrl+S
 (confirmed by the native “Workbook saved” toast), and closed Slate normally
 for replacement. The exact 245,952-byte checkpoint is retained as

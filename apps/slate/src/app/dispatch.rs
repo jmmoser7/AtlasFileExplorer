@@ -486,9 +486,7 @@ impl SlateApp {
                 true
             }
             "portal.web.source" => self.web_source_command(detail.as_deref()),
-            "portal.web.allow_origin" | "portal.web.revoke_origin" => {
-                self.web_consent_command(id.0)
-            }
+            command if self.web_consent_command(command) => true,
             "portal.web.home" => self.web_home_selected(),
             "portal.web.reload" => self.web_reload_selected(),
             "portal.web.back" => self.web_history_step(false),

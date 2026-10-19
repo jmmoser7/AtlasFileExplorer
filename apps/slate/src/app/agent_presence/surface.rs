@@ -435,6 +435,7 @@ impl SlateApp {
             ),
             ConnectPeople => ("presence.people", serde_json::json!({})),
             SetupWorkspace => ("presence.workspace", serde_json::json!({})),
+            WebsiteAccessSettings => ("portal.web.access_settings", serde_json::json!({})),
             Pause { id, paused } => (
                 "presence.pause",
                 serde_json::json!({"id":id,"paused":paused}),

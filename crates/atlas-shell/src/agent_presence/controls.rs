@@ -322,6 +322,10 @@ fn advanced(
         });
     }
     ui.small("This live session only. Unrelated chats stay outside its scope.");
+    if ui.button("Website access…").clicked() {
+        actions.push(PresenceAction::WebsiteAccessSettings);
+        state.popover = None;
+    }
     ui.separator();
     if ui.button("Copy @identity").clicked() {
         actions.push(PresenceAction::CopyIdentity { id: p.id.into() });
