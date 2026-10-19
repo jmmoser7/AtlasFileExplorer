@@ -3,6 +3,55 @@ use super::*;
 use slate_doc::scene::WorldRect;
 
 impl SlateApp {
+    /// Change only the local grant for this portal's remote origin.
+    /// Revocation also closes the page so the denied origin stops running.
+    pub(crate) fn set_web_portal_consent(&mut self, id: NodeId, allow: bool) -> Option<String> {
+        let node = self.doc().scene.node(id)?;
+        let NodeKind::Portal(portal) = &node.kind else {
+            return None;
+        };
+        let origin = web_origin(&portal.source.as_ref()?.locator)?;
+        if allow {
+            self.web.grant_consent(origin.clone());
+        } else {
+            self.web.revoke_consent(&origin);
+            self.release_web_host(id);
+        }
+        Some(origin)
+    }
+
+    /// Human command palette action for revoking the selected Web portal.
+    pub(crate) fn web_revoke_selected_origin(&mut self) -> bool {
+        let Some(id) = self.selected_web_portal() else {
+            return false;
+        };
+        match self.set_web_portal_consent(id, false) {
+            Some(origin) => {
+                self.toast(format!("{origin} blocked for this workbook"));
+                true
+            }
+            None => {
+                self.toast("Local pages have no website permission to revoke");
+                false
+            }
+        }
+    }
+
+    pub(crate) fn web_consent_command(&mut self, command: &str) -> bool {
+        match command {
+            "portal.web.allow_origin" => self.web_allow_selected_origin(),
+            "portal.web.revoke_origin" => self.web_revoke_selected_origin(),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn web_source_command(&mut self, detail: Option<&str>) -> bool {
+        match detail.map(str::trim).filter(|source| !source.is_empty()) {
+            Some(source) => self.web_bind_source_for_selection(source),
+            None => self.web_pick_source_for_selection(),
+        }
+    }
+
     pub(crate) fn build_bound_web(&self, rect: WorldRect, path: &Path) -> Node {
         let locator = web_source_locator(self.tab().path.as_deref(), path);
         let title = path
@@ -32,7 +81,7 @@ impl SlateApp {
         self.require_agent_web(id)?;
         let origin = web_origin(target).ok_or("Navigation requires a web URL")?;
         if !self.web.has_consent(&origin) {
-            return Err("That origin has not been allowed for this workbook; ask the human to allow it first".into());
+            return Err(web_consent_denial(id, &origin));
         }
         if !self.web.host.navigate(id, target) {
             return Err("The portal has no live page to navigate".into());
@@ -48,7 +97,7 @@ impl SlateApp {
         let source = portal.source.as_ref().ok_or("Web portal has no source")?;
         if let Some(origin) = web_origin(&source.locator) {
             if !self.web.has_consent(&origin) {
-                return Err("The Web portal origin has not been allowed for this workbook".into());
+                return Err(web_consent_denial(id, &origin));
             }
         }
         if let Some(origin) = self
@@ -58,7 +107,7 @@ impl SlateApp {
             .and_then(|url| web_origin(&url))
         {
             if !self.web.has_consent(&origin) {
-                return Err("The current page origin is not allowed for this workbook".into());
+                return Err(web_consent_denial(id, &origin));
             }
         }
         Ok(())
@@ -129,7 +178,7 @@ impl SlateApp {
         let source = portal.source.as_ref().ok_or("Web portal has no source")?;
         if let Some(origin) = web_origin(&source.locator) {
             if !self.web.has_consent(&origin) {
-                return Err("The portal origin is no longer allowed".into());
+                return Err(web_consent_denial(id, &origin));
             }
         }
         if self.web.focused != Some(id)
@@ -206,10 +255,55 @@ impl SlateApp {
     }
 }
 
+fn web_consent_denial(id: NodeId, origin: &str) -> String {
+    format!(
+        "Web portal {id:?} needs human consent for {origin}. Click Allow site on that portal's tab; provider Full access is a separate grant and does not allow this page."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::app::tests::{only_portal, web_board, with_fake_host};
+
+    #[test]
+    fn agent_web_denial_points_to_human_portal_consent_without_granting_it() {
+        let mut h = web_board("agent_web_consent_denial");
+        let _host = with_fake_host(&mut h);
+        h.app
+            .paste_web_url("https://example.com/dashboard", egui::Pos2::ZERO);
+        let (id, _) = only_portal(&h);
+
+        let error = h.app.agent_web_check_scope(id).unwrap_err();
+
+        assert!(error.contains("https://example.com"));
+        assert!(error.contains(&format!("{id:?}")));
+        assert!(error.contains("human consent"));
+        assert!(error.contains("Full access is a separate grant"));
+        assert!(error.contains("Click Allow site on that portal's tab"));
+        assert!(!h.app.web.has_consent("https://example.com"));
+    }
+
+    #[test]
+    fn selected_portal_consent_commands_allow_and_revoke_without_scene_mutations() {
+        let mut h = web_board("agent_web_consent_controls");
+        let _host = with_fake_host(&mut h);
+        h.app
+            .paste_web_url("https://example.com/dashboard", egui::Pos2::ZERO);
+        let (id, _) = only_portal(&h);
+        h.app.board_sel.insert(id);
+        let journal_len = h.app.tab().journal.undo_depth();
+
+        assert!(h.app.web_allow_selected_origin());
+        assert!(h.app.web.has_consent("https://example.com"));
+        assert!(h.app.web_revoke_selected_origin());
+        assert!(!h.app.web.has_consent("https://example.com"));
+        assert_eq!(h.app.tab().journal.undo_depth(), journal_len);
+        assert!(matches!(
+            h.app.doc().scene.node(id).map(|node| &node.kind),
+            Some(NodeKind::Portal(_))
+        ));
+    }
 
     #[test]
     fn agent_focus_is_visible_cancelable_and_yields_to_human_contents_focus() {

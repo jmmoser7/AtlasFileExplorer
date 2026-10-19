@@ -29,7 +29,14 @@ pub use constructors::ALIAS_CHORDS;
 use constructors::{ctrl_shift, shift, spec};
 /// Canonical command table: group by category for the reference UI;
 /// keep historical documentation rows first, dispatchable additions after.
+#[rustfmt::skip]
 pub static SPECS: &[CommandSpec] = &[
+    agent_tools::TAG_CREATE,
+    agent_tools::TAG_ASSIGN,
+    agent_tools::TAG_UNASSIGN,
+    agent_tools::BOARD_PREVIEW,
+    agent_tools::WEB_ALLOW_ORIGIN,
+    agent_tools::WEB_REVOKE_ORIGIN,
     agent_tools::DRAW,
     agent_tools::PORTAL,
     agent_tools::ATLAS_LIST,
@@ -620,16 +627,7 @@ pub static SPECS: &[CommandSpec] = &[
         BOARD,
         &["choose page", "bind url", "choose dashboard"],
     ),
-    spec(
-        "portal.web.allow_origin",
-        "Board",
-        "Web portal: allow this origin",
-        "Portal sidebar; permits one remote origin for this workbook. Local trust only — never journaled or saved",
-        None,
-        Repeat::Never,
-        BOARD,
-        &["allow origin", "trust host", "permit site"],
-    ),
+
     spec(
         "portal.web.home",
         "Board",

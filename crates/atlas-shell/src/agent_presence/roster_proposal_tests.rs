@@ -211,7 +211,8 @@ fn pending_cards_scroll_while_the_attached_composer_remains_reachable_at_all_zoo
                     let pressed = decision_trace(&f, &proposal);
                     let released_actions = f.frame(pointer(button.center(), false)).0;
                     let released = decision_trace(&f, &proposal);
-                    assert!(released_actions.contains(&PresenceAction::AcceptProposal {
+                    assert!(
+                        released_actions.contains(&PresenceAction::AcceptProposal {
                             participant: "dot".into(),
                             id: proposal.clone(),
                         }),

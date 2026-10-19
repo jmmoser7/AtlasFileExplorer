@@ -19,7 +19,7 @@ fn invoke(h: &mut Harness, command: &str, arguments: serde_json::Value) -> Board
     let mut agent = h.app.presence.agents.remove(0);
     std::fs::create_dir_all(&agent.dir).unwrap();
     agent.request = atlas_agent::request_id();
-    agent.sequences = 0;
+    agent.sequences.clear();
     agent.calls = 0;
     h.app
         .presence
@@ -45,6 +45,43 @@ fn invoke(h: &mut Harness, command: &str, arguments: serde_json::Value) -> Board
         .unwrap();
     h.app.presence.agents.insert(0, agent);
     reply
+}
+
+#[test]
+fn high_task_sequences_are_tracked_without_bitmask_aliasing() {
+    let mut h = host();
+    add(&mut h, "Long workflow");
+    let mut agent = h.app.presence.agents.remove(0);
+    std::fs::create_dir_all(&agent.dir).unwrap();
+    agent.request = atlas_agent::request_id();
+    agent.grant.as_mut().unwrap().max_actions = MAX_TASK_ACTIONS;
+    h.app
+        .presence
+        .roster
+        .session_mut(&agent.motion)
+        .unwrap()
+        .begin_request(id(&agent.request).unwrap())
+        .unwrap();
+    let call = BoardCall {
+        id: atlas_agent::request_id(),
+        session: agent.binding.clone(),
+        request_id: agent.request.clone(),
+        sequence: 257,
+        operation: BoardOperation::Read {
+            node_ids: vec![],
+            offset: 0,
+            limit: 1,
+        },
+    };
+    assert!(h.app.presence_call(&mut agent, &call).is_none());
+    let duplicate = h.app.presence_call(&mut agent, &call).unwrap();
+    assert!(!duplicate.success);
+    assert!(duplicate.result["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("Duplicate"));
+    assert_eq!(agent.calls, 1);
+    h.app.presence.agents.insert(0, agent);
 }
 
 #[test]

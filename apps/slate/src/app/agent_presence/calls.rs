@@ -38,16 +38,18 @@ impl SlateApp {
                         matches!(w.purpose, witness::WitnessPurpose::ApprovedProposal(_))
                     }))
                 || (a.paused
-                    && matches!(&call.operation, BoardOperation::Invoke { command, .. } if !matches!(command.as_str(), "presence.read_image" | "presence.read_text")))
+                    && matches!(&call.operation, BoardOperation::Invoke { command, .. } if !matches!(command.as_str(), "presence.read_image" | "presence.read_text" | "presence.preview")))
             {
                 return Err("Board is inactive or collaborator paused".into());
             }
-            if a.calls >= usize::from(grant.max_actions)
-                || (a.sequences & (1u128 << call.sequence)) != 0
-            {
-                return Err("Action budget exhausted or duplicate sequence".into());
+            if a.calls >= usize::from(grant.max_actions) {
+                return Err(
+                    "Task action budget exhausted; send Continue for a fresh task budget.".into(),
+                );
             }
-            a.sequences |= 1u128 << call.sequence;
+            if !a.sequences.insert(call.sequence) {
+                return Err("Duplicate board call sequence".into());
+            }
             a.calls += 1;
             a.last_active = Instant::now();
             match &call.operation {
@@ -68,7 +70,7 @@ impl SlateApp {
                     }
                     if matches!(
                         command.as_str(),
-                        "presence.read_image" | "presence.read_text"
+                        "presence.read_image" | "presence.read_text" | "presence.preview"
                     ) {
                         self.begin_presence_read(a, call)?;
                         return Ok(None);

@@ -1,7 +1,7 @@
 //! Stable-id, attributed commands for workbook tag metadata (Article VI).
 
 use crate::scene::{CmdAuthor, NodeKind};
-use crate::{GroupId, SlateDoc, Tag, TagGroup, TagId};
+use crate::{GroupId, ItemId, SlateDoc, Tag, TagGroup, TagId};
 
 /// One tag addition, or its exact inverse. Preparing a command does not
 /// mutate the document; successful application advances id allocators only.
@@ -12,9 +12,14 @@ pub struct TagCommand {
     tag: Tag,
     created_group: Option<String>,
     adding: bool,
+    assignments: Vec<(ItemId, GroupId, Option<Tag>, Option<Tag>)>,
 }
 
 impl TagCommand {
+    pub fn set_author(&mut self, author: CmdAuthor) {
+        self.author = author;
+    }
+
     /// Without an explicit facet, each UI tag gets its own group. Tags in
     /// one facet are exclusive; independent tags must combine on one item.
     pub fn prepare_add(
@@ -46,6 +51,71 @@ impl TagCommand {
             },
             created_group,
             adding: true,
+            assignments: Vec::new(),
+        })
+    }
+
+    /// Prepare a reversible linked-item tag assignment or removal.
+    pub fn prepare_assignment(
+        doc: &SlateDoc,
+        item: ItemId,
+        group: GroupId,
+        tag: Option<TagId>,
+        author: CmdAuthor,
+    ) -> Option<Self> {
+        Self::prepare_assignments(doc, &[item], group, tag, author)
+    }
+
+    /// Prepare one reversible metadata command for a batch of linked items.
+    pub fn prepare_assignments(
+        doc: &SlateDoc,
+        items: &[ItemId],
+        group: GroupId,
+        tag: Option<TagId>,
+        author: CmdAuthor,
+    ) -> Option<Self> {
+        if items.is_empty() || doc.group(group).is_none() {
+            return None;
+        }
+        let after = tag
+            .map(|id| {
+                let (facet, tag) = doc.tag(id)?;
+                (facet.id == group).then(|| tag.clone())
+            })
+            .flatten();
+        if tag.is_some() && after.is_none() {
+            return None;
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        let mut assignments = Vec::with_capacity(items.len());
+        for item_id in items {
+            if !seen.insert(*item_id) {
+                return None;
+            }
+            let item = doc.item(*item_id)?;
+            let before = match item.assignments.get(&group) {
+                Some(id) => {
+                    let (facet, assigned) = doc.tag(*id)?;
+                    if facet.id != group {
+                        return None;
+                    }
+                    Some(assigned.clone())
+                }
+                None => None,
+            };
+            if before.as_ref().map(|tag| tag.id) == after.as_ref().map(|tag| tag.id) {
+                return None;
+            }
+            assignments.push((*item_id, group, before, after.clone()));
+        }
+        let tag_snapshot = after.clone().or_else(|| assignments.first()?.2.clone())?;
+        Some(Self {
+            author,
+            group,
+            tag: tag_snapshot,
+            created_group: None,
+            adding: false,
+            assignments,
         })
     }
 
@@ -54,15 +124,50 @@ impl TagCommand {
     }
 
     pub fn inverted(&self) -> Self {
-        Self {
-            adding: !self.adding,
-            ..self.clone()
+        let mut inverse = self.clone();
+        if !inverse.assignments.is_empty() {
+            inverse.assignments.reverse();
+            for (_, _, before, after) in &mut inverse.assignments {
+                std::mem::swap(before, after);
+            }
+        } else {
+            inverse.adding = !inverse.adding;
         }
+        inverse
     }
 
     /// All-or-nothing: stale ids, changed metadata, or references added
     /// since creation refuse undo. The caller must surface that failure.
     pub fn apply(&self, doc: &mut SlateDoc) -> bool {
+        if !self.assignments.is_empty() {
+            for (item_id, group, before, after) in &self.assignments {
+                let Some(item) = doc.item(*item_id) else {
+                    return false;
+                };
+                if item.assignments.get(group).copied() != before.as_ref().map(|tag| tag.id) {
+                    return false;
+                }
+                for snapshot in [before, after].into_iter().flatten() {
+                    if doc
+                        .tag(snapshot.id)
+                        .is_none_or(|(facet, tag)| facet.id != *group || tag != snapshot)
+                    {
+                        return false;
+                    }
+                }
+            }
+            for (item_id, group, _, after) in &self.assignments {
+                let Some(item) = doc.items.iter_mut().find(|item| item.id == *item_id) else {
+                    return false;
+                };
+                if let Some(tag) = after {
+                    item.assignments.insert(*group, tag.id);
+                } else {
+                    item.assignments.remove(group);
+                }
+            }
+            return true;
+        }
         if self.adding {
             self.apply_add(doc)
         } else {
@@ -207,6 +312,74 @@ mod tests {
         let before = doc.clone();
         assert!(!cmd.inverted().apply(&mut doc));
         assert_eq!(doc, before);
+    }
+
+    #[test]
+    fn linked_assignment_and_removal_are_reversible_and_preflight_stale_state() {
+        let mut doc = SlateDoc::new("Tags");
+        let group = doc.add_group("Layer");
+        let first = doc.add_tag(group, "First", [0, 1, 2]).unwrap();
+        let second = doc.add_tag(group, "Second", [3, 4, 5]).unwrap();
+        let item = doc.add_item("image.png".into(), "image.png", 0, 0, "key");
+        let assign = TagCommand::prepare_assignment(
+            &doc,
+            item,
+            group,
+            Some(first),
+            CmdAuthor::Agent("a".into()),
+        )
+        .unwrap();
+        assert!(assign.apply(&mut doc));
+        let replace = TagCommand::prepare_assignment(
+            &doc,
+            item,
+            group,
+            Some(second),
+            CmdAuthor::Agent("a".into()),
+        )
+        .unwrap();
+        assert!(replace.apply(&mut doc));
+        assert!(replace.inverted().apply(&mut doc));
+        assert_eq!(
+            doc.item(item).unwrap().assignments.get(&group),
+            Some(&first)
+        );
+        let remove =
+            TagCommand::prepare_assignment(&doc, item, group, None, CmdAuthor::Agent("a".into()))
+                .unwrap();
+        assert!(remove.apply(&mut doc));
+        let stale = remove.inverted();
+        doc.assign(item, second);
+        let before = doc.clone();
+        assert!(!stale.apply(&mut doc));
+        assert_eq!(doc, before);
+    }
+
+    #[test]
+    fn linked_assignment_preparation_rejects_missing_or_wrong_facet_tags() {
+        let mut doc = SlateDoc::new("Tags");
+        let group = doc.add_group("Layer");
+        let other = doc.add_group("Other");
+        let wrong = doc.add_tag(other, "Wrong facet", [0, 0, 0]).unwrap();
+        let item = doc.add_item("image.png".into(), "image.png", 0, 0, "key");
+        doc.items[0].assignments.insert(group, TagId(999));
+        assert!(TagCommand::prepare_assignment(
+            &doc,
+            item,
+            group,
+            None,
+            CmdAuthor::Agent("test".into()),
+        )
+        .is_none());
+        doc.items[0].assignments.insert(group, wrong);
+        assert!(TagCommand::prepare_assignment(
+            &doc,
+            item,
+            group,
+            None,
+            CmdAuthor::Agent("test".into()),
+        )
+        .is_none());
     }
 
     #[test]

@@ -147,7 +147,7 @@ impl SlateApp {
         a.chat_only = a.paused;
         a.request = request.clone();
         a.helper_outcome = None;
-        a.sequences = 0;
+        a.sequences.clear();
         a.calls = 0;
         a.seen_running = false;
         a.last_event = None;

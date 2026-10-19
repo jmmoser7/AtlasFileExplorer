@@ -134,6 +134,7 @@ impl SlateApp {
             focused,
             xf.z,
         );
+        self.paint_web_consent_control(ui, &layout, node.id, portal);
     }
 
     pub(crate) fn paint_web_portal_in_rect(
@@ -204,6 +205,71 @@ impl SlateApp {
         }
     }
 
+    /// A compact consent action in the Web identity tab keeps the human's
+    /// origin decision on the portal that needs it (D35).
+    fn paint_web_consent_control(
+        &mut self,
+        ui: &egui::Ui,
+        layout: &PortalChromeLayout,
+        id: NodeId,
+        portal: &PortalNode,
+    ) {
+        let Some(rect) = Self::web_consent_control_rect(layout) else {
+            return;
+        };
+        let Some(origin) = portal
+            .source
+            .as_ref()
+            .and_then(|source| web_origin(&source.locator))
+        else {
+            return;
+        };
+        let allowed = self.web.has_consent(&origin);
+        let label = if allowed { "Revoke site" } else { "Allow site" };
+        let response = egui::Area::new(egui::Id::new(("web_consent", id.0)))
+            .fixed_pos(rect.min)
+            .order(egui::Order::Foreground)
+            .show(ui.ctx(), |ui| {
+                ui.set_min_size(rect.size());
+                ui.set_max_size(rect.size());
+                ui.spacing_mut().button_padding *= layout.zoom;
+                ui.add_sized(
+                    rect.size(),
+                    egui::Button::new(egui::RichText::new(label).size(11.0 * layout.zoom)),
+                )
+            })
+            .inner
+            .on_hover_text(format!(
+                "{} {origin} for this workbook. This is separate from agent Full access.",
+                if allowed { "Block" } else { "Allow" }
+            ));
+        if response.clicked() {
+            self.board_sel.clear();
+            self.board_sel.insert(id);
+            let command = if allowed {
+                "portal.web.revoke_origin"
+            } else {
+                "portal.web.allow_origin"
+            };
+            self.dispatch(ui.ctx(), atlas_commands::CommandId(command), None);
+        }
+    }
+
+    fn web_consent_control_rect(layout: &PortalChromeLayout) -> Option<Rect> {
+        let bar = layout.bar?;
+        let size = egui::vec2(
+            (76.0 * layout.zoom).min(bar.width() * 0.24),
+            (bar.height() - 4.0 * layout.zoom).max(0.0),
+        );
+        Some(Rect::from_min_size(
+            egui::pos2(
+                layout.maximize.left() - size.x - 4.0 * layout.zoom,
+                bar.top() + 2.0 * layout.zoom,
+            ),
+            size,
+        ))
+    }
+
     /// Every failure says itself in the frame rather than blanking it (D30).
     fn paint_web_empty_state(
         &self,
@@ -226,7 +292,8 @@ impl SlateApp {
             ),
             WebState::Blocked { origin } => (
                 format!("{origin} is not permitted yet"),
-                "Allow this origin in the Portal inspector".into(),
+                "Click Allow site on this tab. Website access is separate from agent Full access."
+                    .into(),
             ),
             WebState::Missing { locator } => ("Source is missing".to_string(), locator.clone()),
             WebState::Failed { reason } => ("Page could not load".to_string(), reason.clone()),
@@ -266,6 +333,50 @@ impl SlateApp {
                     fade(self.palette().sub),
                 );
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::tests::{only_portal, web_board, with_fake_host};
+
+    #[test]
+    fn portal_tab_control_allows_and_revokes_only_after_human_clicks() {
+        let mut h = web_board("web_portal_local_consent");
+        let _host = with_fake_host(&mut h);
+        h.app
+            .paste_web_url("https://example.com/dashboard", egui::Pos2::ZERO);
+        let (id, _) = only_portal(&h);
+        h.app.set_web_portal_consent(id, false);
+        h.app.board_sel.insert(id);
+        let node = h.app.doc().scene.node(id).unwrap();
+        let xf = h.app.board_xf();
+        let layout = super::super::super::board_portal_chrome::layout_portal_chrome(
+            xf.rect_w2s(node.rect),
+            false,
+            false,
+            h.app.node_resolved_corner(node),
+            xf.z,
+        );
+        let point = SlateApp::web_consent_control_rect(&layout)
+            .unwrap()
+            .center();
+        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(point)));
+
+        for allowed in [true, false] {
+            for pressed in [true, false] {
+                h.frame_with(|i| {
+                    i.events.push(egui::Event::PointerButton {
+                        pos: point,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    })
+                });
+            }
+            assert_eq!(h.app.web.has_consent("https://example.com"), allowed);
         }
     }
 }

@@ -118,6 +118,9 @@ impl SlateApp {
             "board.open_location" => self.open_selected_file_location(),
             "board.tags.add" => self.dispatch_tag_add(detail.as_deref()),
             "board.tags.visibility" => self.dispatch_tag_visibility(detail.as_deref()),
+            "board.tags.create" | "board.tags.assign" | "board.tags.unassign" => {
+                return self.dispatch_targeted_human_with_context(ctx, id.0, detail.as_deref());
+            }
             "portal.agent.run" => self.dispatch_image_generate(detail.as_deref()),
             command if command.starts_with("portal.artifact.") => {
                 self.dispatch_artifact(command, detail.as_deref())
@@ -482,14 +485,10 @@ impl SlateApp {
                 self.set_board_tool(board::BoardTool::Split);
                 true
             }
-            "portal.web.source" => match detail.as_deref().map(str::trim).filter(|s| !s.is_empty())
-            {
-                // Agents and the command palette can pass a URL or path; humans
-                // without a detail get the file picker (GP11 / D14 / D27).
-                Some(source) => self.web_bind_source_for_selection(source),
-                None => self.web_pick_source_for_selection(),
-            },
-            "portal.web.allow_origin" => self.web_allow_selected_origin(),
+            "portal.web.source" => self.web_source_command(detail.as_deref()),
+            "portal.web.allow_origin" | "portal.web.revoke_origin" => {
+                self.web_consent_command(id.0)
+            }
             "portal.web.home" => self.web_home_selected(),
             "portal.web.reload" => self.web_reload_selected(),
             "portal.web.back" => self.web_history_step(false),

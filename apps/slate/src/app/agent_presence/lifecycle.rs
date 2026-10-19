@@ -145,7 +145,7 @@ impl SlateApp {
             conversation_ids: conversations,
             mutation_autonomy: false,
             helper_limit: 4,
-            max_actions: 128,
+            max_actions: DEFAULT_TASK_ACTIONS,
         };
         let mut provider_full_access = false;
         if parent.is_none() {
@@ -182,7 +182,7 @@ impl SlateApp {
             grant.readable_sources.retain(|s| s != own_chats::OWN_CHATS);
             grant.conversation_ids = pg.conversation_ids.clone();
             grant.helper_limit = 0;
-            grant.max_actions = pg.max_actions.min(32);
+            grant.max_actions = pg.max_actions.min(MAX_HELPER_TASK_ACTIONS);
             if !pg.allows_helper(&grant) {
                 let _ = self.presence.roster.leave(&motion);
                 return Err("Helper exceeds parent scope".into());
@@ -232,7 +232,7 @@ impl SlateApp {
             grant: Some(grant),
             dir,
             request: String::new(),
-            sequences: 0,
+            sequences: HashSet::new(),
             calls: 0,
             paused: false,
             resume_task: false,

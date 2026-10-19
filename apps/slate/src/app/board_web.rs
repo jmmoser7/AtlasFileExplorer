@@ -1890,13 +1890,7 @@ impl SlateApp {
     /// Permit the selected portal's origin and let it load (D32). Local state,
     /// never journaled — which is why this is not a `SceneCmd`.
     pub(crate) fn web_allow_origin(&mut self, id: NodeId) -> Option<String> {
-        let node = self.doc().scene.node(id)?;
-        let NodeKind::Portal(p) = &node.kind else {
-            return None;
-        };
-        let origin = web_origin(&p.source.as_ref()?.locator)?;
-        self.web.grant_consent(origin.clone());
-        Some(origin)
+        self.set_web_portal_consent(id, true)
     }
 
     /// Bind or rebind a locator. One journaled `Patch`; the cached poster goes

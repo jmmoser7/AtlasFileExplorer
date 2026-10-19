@@ -24,7 +24,12 @@ impl SlateApp {
                 }
                 if let Some(reply) =
                     if !pointer_press && (!a.paused || (a.chat_only && a.work.is_none())) {
-                        self.advance_presence_read(&mut a, &mut read_budget, elapsed)
+                        self.advance_presence_read_with_context(
+                            Some(ctx),
+                            &mut a,
+                            &mut read_budget,
+                            elapsed,
+                        )
                     } else {
                         None
                     }

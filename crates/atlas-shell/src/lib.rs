@@ -59,6 +59,7 @@ mod dock_plate;
 pub mod feedback;
 pub mod file_picker;
 pub mod folder_map;
+pub mod frame_raster;
 pub mod grid_fade;
 pub mod history_ui;
 pub mod home;

@@ -27,6 +27,8 @@ mod approved_fences;
 
 #[path = "crop_tests.rs"]
 mod crop;
+#[path = "descriptor_style_tests.rs"]
+mod descriptor_styles;
 
 #[test]
 fn mentions_resolve_exact_names_and_disambiguate_by_identity() {

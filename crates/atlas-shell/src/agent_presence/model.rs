@@ -56,6 +56,8 @@ pub struct Participant<'a> {
     pub busy: bool,
     /// The bounded slice selected by RosterState::message_range.
     pub messages: &'a [ConversationMessage<'a>],
+    /// Full public history only on an explicit copy frame; never rendered.
+    pub copy_messages: Option<&'a [ConversationMessage<'a>]>,
     /// Public task progress, already filtered by the application adapter.
     pub activity: &'a [PublicActivity<'a>],
     /// Locally pending composer attachments; source ownership stays in the app.

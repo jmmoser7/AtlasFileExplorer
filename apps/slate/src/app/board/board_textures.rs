@@ -78,7 +78,7 @@ impl SlateApp {
     /// through `item_texture`. A live hover or slider scrub filters the
     /// thumbnail so the frame stays cheap. A committed adjustment filters the
     /// sharp preview once, when that decode is resident.
-    pub(super) fn board_texture(
+    pub(crate) fn board_texture(
         &mut self,
         ctx: &egui::Context,
         node_id: NodeId,

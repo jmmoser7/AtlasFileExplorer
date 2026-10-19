@@ -10,7 +10,17 @@ pub(super) const DISPLAY: CommandSpec = spec(
     None,
     Repeat::Never,
     BOARD,
-    &["arctic", "clay", "hidden line", "diagram", "material id", "z-buffer", "depth", "shaded", "viewport display"],
+    &[
+        "arctic",
+        "clay",
+        "hidden line",
+        "diagram",
+        "material id",
+        "z-buffer",
+        "depth",
+        "shaded",
+        "viewport display",
+    ],
 );
 
 pub(super) const MATERIALS: CommandSpec = spec(

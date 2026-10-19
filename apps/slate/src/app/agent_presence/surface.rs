@@ -1,6 +1,26 @@
 //! Application data adapter for the shared participant/conversation surface.
 use super::*;
 
+fn conversation_messages<'a>(
+    conversation: &'a conversation::Conversation,
+) -> Vec<chrome::ConversationMessage<'a>> {
+    conversation
+        .turns
+        .iter()
+        .map(|turn| chrome::ConversationMessage {
+            id: &turn.id,
+            text: &turn.text,
+            outgoing: turn.role == "user",
+            system: turn.role == "system",
+            status: &turn.status,
+            attachment_count: conversation
+                .message_images
+                .get(&turn.request)
+                .map_or(0, Vec::len),
+        })
+        .collect()
+}
+
 impl SlateApp {
     /// Borrow display metadata only. The staging owner performs the real
     /// applicability, replay, permission and journal checks when a human decides.
@@ -81,12 +101,12 @@ impl SlateApp {
             .iter()
             .map(|p| format!("human:{}", p.id))
             .collect();
-        let messages: Vec<(Vec<_>, usize)> = std::iter::once("self")
+        let messages: Vec<(Vec<_>, usize, Option<Vec<_>>)> = std::iter::once("self")
             .chain(live.iter().map(|a| a.profile.id.as_str()))
             .chain(human_ids.iter().map(String::as_str))
             .map(|id| {
                 if state.active_chat() != Some(id) {
-                    return (Vec::new(), 0);
+                    return (Vec::new(), 0, None);
                 }
                 self.presence_conversation(id)
                     .map(|c| {
@@ -106,7 +126,10 @@ impl SlateApp {
                                     .map_or(0, Vec::len),
                             })
                             .collect();
-                        (rows, total)
+                        let copy_rows = state
+                            .copy_transcript_requested(ctx, id)
+                            .then(|| conversation_messages(c));
+                        (rows, total, copy_rows)
                     })
                     .unwrap_or_default()
             })
@@ -185,6 +208,7 @@ impl SlateApp {
             attachments: &[],
             messages: &messages[0].0,
             message_total: messages[0].1,
+            copy_messages: messages[0].2.as_deref(),
             proposals: &[],
             draft: self_thread.map_or("", |c| c.draft.as_str()),
             queued_provider: None,
@@ -224,6 +248,7 @@ impl SlateApp {
                 attachments: &attachments[index],
                 messages: &messages[index + 1].0,
                 message_total: messages[index + 1].1,
+                copy_messages: messages[index + 1].2.as_deref(),
                 proposals: &proposals[index],
                 draft: self
                     .presence_conversation(&a.profile.id)
@@ -262,6 +287,7 @@ impl SlateApp {
                 attachments: &[],
                 messages: &messages[1 + live.len() + index].0,
                 message_total: messages[1 + live.len() + index].1,
+                copy_messages: messages[1 + live.len() + index].2.as_deref(),
                 proposals: &[],
                 draft: self
                     .presence_conversation(who)

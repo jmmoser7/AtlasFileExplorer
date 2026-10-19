@@ -12,7 +12,6 @@ fn retrying_stopped_image_message_preserves_the_composed_text_and_image_draft() 
     image::RgbaImage::from_pixel(2, 3, image::Rgba([140, 80, 30, 255]))
         .save(&draft_image)
         .unwrap();
-
     let old_request = "stopped-image-request";
     let message_id = {
         let conversation = h.app.presence.conversations.edit(&who).unwrap();
@@ -31,7 +30,6 @@ fn retrying_stopped_image_message_preserves_the_composed_text_and_image_draft() 
     };
 
     h.app.presence_retry_message(&who, &message_id).unwrap();
-
     let conversation = h.app.presence_conversation(&who).unwrap();
     assert_eq!(conversation.draft, "Keep my separate draft");
     assert_eq!(conversation.draft_images, vec![draft_image]);
@@ -141,6 +139,127 @@ fn readable_board_descriptors_include_names_and_authored_programs_without_source
     assert_eq!(value["program"]["instruction"], "A small blue landscape");
     assert!(value["program"].get("conversation").is_none());
     assert!(h.app.presence_conversation(&who).is_none());
+}
+
+#[test]
+fn generator_job_metadata_is_visible_without_conversation_access() {
+    let mut h = host();
+    add(&mut h);
+    let first_source = h.base.join("first.png");
+    let source = h.base.join("generated-result.png");
+    let mut agent: slate_doc::scene::AgentPortalRef = serde_json::from_value(serde_json::json!({
+        "provider":"comfy",
+        "session":"generator-session",
+        "view":"images",
+        "instruction":"A small blue landscape"
+    }))
+    .unwrap();
+    agent.image.aspect = atlas_agent::Aspect::Wide;
+    agent.image.count = 3;
+    let node = h.app.doc_mut().scene.build_node(
+        slate_doc::WorldRect::new(12.0, 18.0, 360.0, 202.5),
+        slate_doc::NodeKind::Image(slate_doc::scene::ImageNode::generated(agent)),
+    );
+    let id = node.id;
+    h.app.add_nodes(vec![node]);
+    let item = h.app.doc_mut().add_item(
+        source.clone(),
+        "generated-result.png",
+        2048,
+        0,
+        "generated-key",
+    );
+    let session = atlas_agent::AgentSession {
+        request: "run-42".into(),
+        status: atlas_agent::AgentStatus::Idle,
+        bundle: atlas_agent::ImageBundle {
+            images: vec![
+                atlas_agent::ImageOutput {
+                    id: "earlier".into(),
+                    source: h.base.join("earlier.png").to_string_lossy().into_owned(),
+                    request: "run-41".into(),
+                    ..Default::default()
+                },
+                atlas_agent::ImageOutput {
+                    id: "first".into(),
+                    source: first_source.to_string_lossy().into_owned(),
+                    request: "run-42".into(),
+                    ..Default::default()
+                },
+                atlas_agent::ImageOutput {
+                    id: "second".into(),
+                    source: source.to_string_lossy().into_owned(),
+                    request: "run-42".into(),
+                    ..Default::default()
+                },
+            ],
+        },
+        ..Default::default()
+    };
+    h.app.set_agent_session_for_test(id, session);
+    for (output_path, size) in [(&first_source, [640, 480]), (&source, [1024, 768])] {
+        let path = slate_doc::scene::resolve_source(
+            h.app.tab().path.as_deref(),
+            &output_path.to_string_lossy(),
+        );
+        let key = crate::app::preview::linked_image_key(&path, "shown");
+        let pixels = eframe::egui::ColorImage::new(size, eframe::egui::Color32::WHITE);
+        let tex = h.ctx.load_texture(
+            format!("generator-result-{}", key),
+            pixels.clone(),
+            eframe::egui::TextureOptions::LINEAR,
+        );
+        h.app.preview_cache.insert(
+            key,
+            crate::app::preview::PreviewEntry {
+                tex,
+                bytes: pixels.pixels.len() * 4,
+                pixels: std::sync::Arc::new(pixels),
+                px: crate::app::preview::PX_EXACT,
+                last_used: 0,
+            },
+        );
+    }
+    let grant = h.app.presence.agents[0].grant.as_ref().unwrap();
+    let value = h
+        .app
+        .presence_object_descriptor(h.app.doc().scene.node(id).unwrap(), grant);
+    assert_eq!(value["program"]["job"]["request"], "run-42");
+    assert_eq!(value["program"]["job"]["status"], "complete");
+    assert_eq!(value["program"]["job"]["output_count"], 2);
+    assert_eq!(value["program"]["job"]["dimensions_status"], "exact");
+    assert_eq!(
+        value["program"]["job"]["output_dimensions"][0]["width"],
+        640
+    );
+    assert_eq!(
+        value["program"]["job"]["output_dimensions"][1]["height"],
+        768
+    );
+    assert_eq!(
+        value["program"]["job"]["display_dimensions"]["width"],
+        360.0
+    );
+    assert_eq!(
+        value["program"]["job"]["registered_output"]["item_id"],
+        item.0
+    );
+    assert_eq!(value["program"]["job"]["registered_output"]["bytes"], 2048);
+    assert!(value["program"].get("conversation").is_none());
+    assert!(value["program"].get("reply").is_none());
+
+    h.app.preview_cache.clear();
+    let value = h
+        .app
+        .presence_object_descriptor(h.app.doc().scene.node(id).unwrap(), grant);
+    assert_eq!(value["program"]["job"]["dimensions_status"], "unknown");
+    assert_eq!(
+        value["program"]["job"]["output_dimensions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
 }
 
 #[test]

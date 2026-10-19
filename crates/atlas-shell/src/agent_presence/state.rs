@@ -1,5 +1,5 @@
 use eframe::egui::{Pos2, Rect};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Expansion {
@@ -39,6 +39,7 @@ pub struct RosterState {
     pub(super) roster_scroll: f32,
     pub(super) last_painted_pass: Option<u64>,
     pub(super) history_offsets: HashMap<String, usize>,
+    pub(super) selected_transcripts: HashSet<String>,
 }
 impl Default for RosterState {
     fn default() -> Self {
@@ -60,6 +61,7 @@ impl Default for RosterState {
             roster_scroll: 0.0,
             last_painted_pass: None,
             history_offsets: HashMap::new(),
+            selected_transcripts: HashSet::new(),
         }
     }
 }
@@ -104,7 +106,21 @@ impl RosterState {
             total,
             self.history_offsets.get(id).copied().unwrap_or(0),
             self.canvas_chat() == Some(id),
+            self.selected_transcripts.contains(id),
         )
+    }
+    /// The adapter may borrow all user-visible turns for exactly the copy frame.
+    pub fn copy_transcript_requested(&self, ctx: &eframe::egui::Context, id: &str) -> bool {
+        self.selected_transcripts.contains(id)
+            && ctx.memory(|memory| memory.focused())
+                != Some(eframe::egui::Id::new(("presence-composer", id)))
+            && ctx.input(|input| {
+                (input.key_pressed(eframe::egui::Key::C) && input.modifiers.command)
+                    || input
+                        .events
+                        .iter()
+                        .any(|event| matches!(event, eframe::egui::Event::Copy))
+            })
     }
     pub fn close_chat(&mut self) {
         self.model_menu_open = false;
