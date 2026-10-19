@@ -149,6 +149,38 @@ fn scoped_preview_renders_production_frame_shape_and_text_without_mutating_board
 }
 
 #[test]
+fn preview_poll_stays_ready_after_consuming_worker_result() {
+    let (mut h, _, frame_id) = fixture();
+    let call = preview_call(&h, vec![frame_id.0.to_string()]);
+    let grant = h.app.presence.agents[0].grant.as_ref().unwrap().clone();
+    let mut job = PreviewJob::new(&h.app, &grant, &call).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut completed = false;
+
+    while Instant::now() < deadline {
+        let mut poll = None;
+        let _ = h.ctx.run(Default::default(), |ctx| {
+            poll = Some(job.poll(&mut h.app, ctx, &grant));
+        });
+        if poll.expect("egui poll ran").unwrap() {
+            completed = true;
+            break;
+        }
+        std::thread::yield_now();
+    }
+
+    assert!(completed, "preview worker completed before deadline");
+    assert!(job.result.is_some());
+
+    let mut repeated_poll = None;
+    let _ = h.ctx.run(Default::default(), |ctx| {
+        repeated_poll = Some(job.poll(&mut h.app, ctx, &grant));
+    });
+    assert!(repeated_poll.expect("egui poll ran").unwrap());
+    assert!(job.result.is_some());
+}
+
+#[test]
 fn preview_constructor_refuses_unscoped_members_missing_image_source_and_invalid_bounds() {
     let (mut h, _, frame_id) = fixture();
     let member = h.app.doc().scene.nodes[1].id;

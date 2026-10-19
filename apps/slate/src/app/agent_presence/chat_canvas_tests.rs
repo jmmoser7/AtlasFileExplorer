@@ -22,10 +22,20 @@ fn transcript_shortcuts_precede_board_commands_without_claiming_board_or_compose
             .layer_transform_to_global(text.layer_id)
             .unwrap_or_default();
     let text_rect_global = text_to_global * text.rect;
-    let point = text_to_global * text.rect.center();
-    let composer_id = Id::new(("presence-composer", f.who.as_str()));
-    let focus_before = f.h.ctx.memory(|memory| memory.focused());
-    let layer_under_point_before = f.h.ctx.layer_id_at(point);
+    let expansion =
+        f.h.ctx
+            .read_response(Id::new("presence-expansion"))
+            .unwrap();
+    let expansion_to_global =
+        f.h.ctx
+            .layer_transform_to_global(expansion.layer_id)
+            .unwrap_or_default();
+    let visible_text = text_rect_global.intersect(expansion_to_global * expansion.rect);
+    assert!(
+        visible_text.is_positive(),
+        "message selection band is visible in chat"
+    );
+    let point = visible_text.center();
     let key = |key| egui::Event::Key {
         key,
         physical_key: None,
@@ -44,13 +54,7 @@ fn transcript_shortcuts_precede_board_commands_without_claiming_board_or_compose
     );
     assert!(
         f.h.app.presence.chrome.transcript_selected(&f.who),
-        "chat Ctrl+A must select the hovered transcript before native Copy; active_chat={:?}, focus_before={focus_before:?}, focus_after={:?}, composer_id={composer_id:?}, text_layer={:?}, layer_under_point_before={layer_under_point_before:?}, layer_under_point_after={:?}, text_rect_local={:?}, text_rect_global={text_rect_global:?}, point={point:?}, point_inside_text={}",
-        f.h.app.presence.chrome.active_chat(),
-        f.h.ctx.memory(|memory| memory.focused()),
-        text.layer_id,
-        f.h.ctx.layer_id_at(point),
-        text.rect,
-        text.rect.contains(text.rect.center()),
+        "Ctrl+A on the visible selectable message row must select the transcript"
     );
     let out = f.h.frame_output(|i| i.events.push(egui::Event::Copy));
     assert!(

@@ -112,7 +112,9 @@ impl SlateApp {
             self.node_resolved_corner(node),
             xf.z,
         );
-        layout.retract_when_idle(ui.ctx(), node.id, self.web.focused == Some(node.id));
+        if !self.web_consent_pending(portal) {
+            layout.retract_when_idle(ui.ctx(), node.id, self.web.focused == Some(node.id));
+        }
         self.paint_web_portal_in_rect(ui, painter, node, portal, &layout, xf.z);
         let visiting = self.web_visiting_label(node.id, portal);
         let focused = self.web.focused == Some(node.id);
@@ -207,7 +209,7 @@ impl SlateApp {
 
     /// A compact consent action in the Web identity tab keeps the human's
     /// origin decision on the portal that needs it (D35).
-    fn paint_web_consent_control(
+    pub(crate) fn paint_web_consent_control(
         &mut self,
         ui: &egui::Ui,
         layout: &PortalChromeLayout,
@@ -257,6 +259,14 @@ impl SlateApp {
             };
             self.dispatch(ui.ctx(), atlas_commands::CommandId(command), None);
         }
+    }
+
+    pub(crate) fn web_consent_pending(&self, portal: &PortalNode) -> bool {
+        portal
+            .source
+            .as_ref()
+            .and_then(|source| web_origin(&source.locator))
+            .is_some_and(|origin| !self.web.has_consent(&origin))
     }
 
     fn web_consent_control_rect(layout: &PortalChromeLayout) -> Option<Rect> {
@@ -383,5 +393,41 @@ mod tests {
             }
             assert_eq!(h.app.web.has_consent("https://example.com"), allowed);
         }
+    }
+
+    #[test]
+    fn maximized_denied_web_portal_keeps_its_consent_control_available() {
+        let mut h = web_board("web_maximized_pending_consent");
+        let _host = with_fake_host(&mut h);
+        h.app
+            .paste_web_url("https://example.com/dashboard", egui::Pos2::ZERO);
+        let (id, _) = only_portal(&h);
+        h.app.set_web_portal_consent(id, false);
+        h.app.web_maximize(id);
+        h.frame_with(|_| {});
+
+        let layout = super::super::super::board_portal_chrome::layout_for_portal(
+            PortalKind::Web,
+            h.app.canvas_rect,
+            false,
+            true,
+            slate_doc::scene::Corner::Square,
+            1.0,
+        );
+        let point = SlateApp::web_consent_control_rect(&layout)
+            .expect("maximized web chrome has a consent slot")
+            .center();
+        for pressed in [true, false] {
+            h.frame_with(|i| {
+                i.events.push(egui::Event::PointerMoved(point));
+                i.events.push(egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                });
+            });
+        }
+        assert!(h.app.web.has_consent("https://example.com"));
     }
 }

@@ -187,6 +187,12 @@ impl PreviewJob {
         {
             return Err("Preview object permission was revoked".into());
         }
+        // The read owner can keep polling after the worker finishes while the
+        // collaborator's witnessed motion reaches its ready phase. Preserve
+        // the consumed result instead of reading the closed channel again.
+        if self.result.is_some() {
+            return Ok(true);
+        }
         if let Some(rx) = &self.rx {
             return match rx.try_recv() {
                 Ok(result) => {
