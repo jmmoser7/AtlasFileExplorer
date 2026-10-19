@@ -133,6 +133,6 @@ impl SlateApp {
                 });
             }
         }
-        self.depart_presence(who, "bow", completed)
+        self.depart_presence(who, chrome::RANDOM_DEPARTURE, completed)
     }
 }

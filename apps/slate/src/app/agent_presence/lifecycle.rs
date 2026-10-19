@@ -443,12 +443,14 @@ impl SlateApp {
         completed_helper: bool,
     ) -> Result<(), String> {
         self.stop_presence_with(who, true, false, !completed_helper)?;
+        let portal_available =
+            style == chrome::RANDOM_DEPARTURE && self.presence_departure_portal_rect().is_some();
         let descendants = self.presence.descendants(who);
         let ids: Vec<_> = self
             .presence
             .agents
             .iter()
-            .filter(|a| descendants.contains(&a.profile.id))
+            .filter(|a| descendants.contains(&a.profile.id) && a.departure.is_none())
             .map(|a| {
                 (
                     a.profile.id.clone(),
@@ -463,7 +465,8 @@ impl SlateApp {
                 .iter_mut()
                 .find(|a| a.profile.id == who)
                 .unwrap();
-            a.departure = Some((Instant::now(), style.into(), p));
+            let style = self.presence.departures.resolve(style, portal_available);
+            a.departure = Some((Instant::now(), style, p));
             a.profile.retired = true;
             a.activity = "retire".into();
             let _ = self.presence.roster.retire(&id(&who)?);

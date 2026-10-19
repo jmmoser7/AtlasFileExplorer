@@ -51,7 +51,7 @@ impl Default for RosterState {
             canvas_anchor: None,
             requested_provider: None,
             workspace_ready: true,
-            retirement: "bow".into(),
+            retirement: super::RANDOM_DEPARTURE.into(),
             last_popup_rect: Rect::NOTHING,
             last_popover_rect: Rect::NOTHING,
             model_menu_open: false,

@@ -8,6 +8,8 @@ mod calls;
 #[path = "lifecycle_consent_tests.rs"]
 mod consent;
 pub(super) mod delivery;
+#[path = "lifecycle_departure_tests.rs"]
+mod departures;
 #[path = "participant_read_tests.rs"]
 mod participant_reads;
 

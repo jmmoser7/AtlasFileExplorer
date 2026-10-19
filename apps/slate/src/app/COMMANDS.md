@@ -963,6 +963,7 @@ a no-op and never resends a task. `presence.schedule` arms a bounded live-board
 schedule; reopening does not restore a running job or grant.
 
 Advanced access uses `presence.grant`, `presence.file_inputs` and `presence.own_chats` independently. The last permits only conversations created by that live agent after an actual witnessed or accepted commit. It defaults off and does not grant unrelated conversations, file inputs or Full access. `presence.helper` adds a scoped temporary helper; `presence.clone` copies configuration into a fresh identity. `presence.retire` revokes work before its farewell; `presence.restore` restores identity/history with fresh authority.
+Farewells default to **Surprise me**: a random cycle of the available exits without immediate repeats. Portal exits participate only while a portal is visible. A specific farewell can still be selected; completed helpers use the same randomized sequence, and reduced motion retains its gentle fade.
 
 The targeted collaborator catalog includes `board.objects.create_train`, `board.objects.create_generator` and `board.objects.place_images`. Construction does not start a provider, import arbitrary files or change grants. Existing `portal.agent.run` starts an eligible generator separately. `presence.read_image` prepares one explicitly permitted source through the existing image-input pool; ordinary board reads remain bounded metadata. All authored board changes keep the normal journal, proposal, stale-input and witnessed-motion checks.
 

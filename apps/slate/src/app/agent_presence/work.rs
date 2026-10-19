@@ -51,7 +51,7 @@ impl SlateApp {
             .map(|a| a.profile.id.clone())
             .collect();
         for who in vanished {
-            let _ = self.retire_presence(&who, "bow");
+            let _ = self.retire_presence(&who, chrome::RANDOM_DEPARTURE);
         }
         let mut calls = Vec::new();
         let mut ended = Vec::new();
@@ -371,7 +371,16 @@ impl SlateApp {
             .presence
             .agents
             .iter()
-            .flat_map(|a| [a.motion.as_str(), a.profile.id.as_str()])
+            .flat_map(|a| {
+                [a.motion.as_str(), a.profile.id.as_str()]
+                    .into_iter()
+                    .chain(
+                        a.work
+                            .iter()
+                            .flat_map(|w| w.drawing_helpers().map(|(id, _)| id)),
+                    )
+            })
+            .chain(self.presence.drawing_farewells.ids())
             .collect();
         self.presence.painter.retain(&ids);
         self.presence.refresh_held(active_tab);

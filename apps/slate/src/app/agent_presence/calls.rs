@@ -115,7 +115,7 @@ impl SlateApp {
                         if let Err(error) =
                             self.send_presence_message_from(&who, task, Some(&a.profile.name))
                         {
-                            let _ = self.retire_presence(&who, "bow");
+                            let _ = self.retire_presence(&who, chrome::RANDOM_DEPARTURE);
                             return Err(error);
                         }
                         return Ok(Some(
