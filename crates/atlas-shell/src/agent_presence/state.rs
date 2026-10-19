@@ -40,6 +40,7 @@ pub struct RosterState {
     pub(super) last_painted_pass: Option<u64>,
     pub(super) history_offsets: HashMap<String, usize>,
     pub(super) selected_transcripts: HashSet<String>,
+    pub(super) transcript_target: Option<(String, Rect, Vec<eframe::egui::LayerId>)>,
 }
 impl Default for RosterState {
     fn default() -> Self {
@@ -62,6 +63,7 @@ impl Default for RosterState {
             last_painted_pass: None,
             history_offsets: HashMap::new(),
             selected_transcripts: HashSet::new(),
+            transcript_target: None,
         }
     }
 }
@@ -134,6 +136,39 @@ impl RosterState {
                 )
             })
         })
+    }
+    /// Route these keys before an app's global command dispatch. The transcript
+    /// keeps the events and performs selection/copy during its normal paint.
+    pub fn captures_transcript_shortcut(&self, ctx: &eframe::egui::Context) -> bool {
+        let Some(id) = self.active_chat() else {
+            return false;
+        };
+        if ctx.memory(|m| m.focused()) == Some(eframe::egui::Id::new(("presence-composer", id))) {
+            return false;
+        }
+        self.copy_transcript_requested(ctx, id)
+            || (self.transcript_hovered(ctx)
+                && (Self::transcript_key_requested(ctx, eframe::egui::Key::A)
+                    || Self::transcript_key_requested(ctx, eframe::egui::Key::C)
+                    || ctx.input(|i| {
+                        i.events
+                            .iter()
+                            .any(|e| matches!(e, eframe::egui::Event::Copy))
+                    })))
+    }
+    pub(super) fn transcript_hovered(&self, ctx: &eframe::egui::Context) -> bool {
+        let Some((id, rect, layers)) = &self.transcript_target else {
+            return false;
+        };
+        self.active_chat() == Some(id.as_str())
+            && ctx
+                .input(|i| i.pointer.interact_pos())
+                .is_some_and(|point| {
+                    rect.contains(point)
+                        && ctx
+                            .layer_id_at(point)
+                            .is_some_and(|layer| layers.contains(&layer))
+                })
     }
     pub fn close_chat(&mut self) {
         self.model_menu_open = false;

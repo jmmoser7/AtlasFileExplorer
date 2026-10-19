@@ -2,6 +2,8 @@ use super::{controls, hats, model::*, state::*, ui as chrome, PresencePainter};
 use crate::theme::Palette;
 use eframe::egui::{self, Align2, Id, Pos2, Rect, Sense, Ui, Vec2};
 
+const COMPOSER_MAX_HEIGHT: f32 = 96.0;
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn show(
     ui: &mut Ui,
@@ -43,7 +45,7 @@ pub(super) fn show(
         }
         occupied += 110.0;
     }
-    let composer_height = (if attached { 62.0 } else { 74.0 })
+    let composer_height = (COMPOSER_MAX_HEIGHT + if attached { 18.0 } else { 30.0 })
         + if p.attachments.is_empty() || p.human {
             0.0
         } else {
@@ -127,15 +129,37 @@ pub(super) fn show(
     ui.horizontal_top(|ui| {
         ui.add_space(8.0);
         let edit = state.edits.entry(p.id.into()).or_default();
-        let response = ui.add_sized(
-            Vec2::new((width - if p.human { 74.0 } else { 104.0 }).max(60.0), 44.0),
-            egui::TextEdit::multiline(&mut edit.message)
-                .id(Id::new(("presence-composer", p.id)))
-                .frame(false)
-                .font(chrome::font(ui, if attached { 14.0 } else { 17.0 }))
-                .hint_text(egui::RichText::new("Message").color(palette.sub))
-                .desired_rows(2),
+        let composer_width = (width - if p.human { 74.0 } else { 104.0 }).max(60.0);
+        let composer_rect = Rect::from_min_size(
+            ui.next_widget_position(),
+            Vec2::new(composer_width, COMPOSER_MAX_HEIGHT),
         );
+        let response = ui
+            .scope_builder(
+                egui::UiBuilder::new()
+                    .max_rect(composer_rect)
+                    .layout(egui::Layout::top_down(egui::Align::Min)),
+                |ui| {
+                    egui::ScrollArea::vertical()
+                        .id_salt(("presence-composer-scroll", p.id))
+                        .min_scrolled_height(44.0)
+                        .max_height(COMPOSER_MAX_HEIGHT)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            ui.set_width(composer_width);
+                            ui.add(
+                                egui::TextEdit::multiline(&mut edit.message)
+                                    .id(Id::new(("presence-composer", p.id)))
+                                    .frame(false)
+                                    .font(chrome::font(ui, if attached { 14.0 } else { 17.0 }))
+                                    .hint_text(egui::RichText::new("Message").color(palette.sub))
+                                    .desired_rows(2),
+                            )
+                        })
+                        .inner
+                },
+            )
+            .inner;
         if response.changed() {
             edit.last_draft = edit.message.clone();
             actions.push(PresenceAction::Draft {

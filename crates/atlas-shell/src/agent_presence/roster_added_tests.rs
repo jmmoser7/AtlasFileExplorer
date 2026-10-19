@@ -126,6 +126,48 @@ fn focused_composer_paste_preserves_multiline_utf8_and_sends_through_existing_ac
 }
 
 #[test]
+fn long_multiline_composer_stays_bounded_and_keeps_send_and_transcript_visible() {
+    let mut f = Fixture::new();
+    f.screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(640.0, 480.0));
+    f.open_chat("dot");
+    let composer = visual::screen_response(&f, Id::new(("presence-composer", "dot")))
+        .0
+        .center();
+    f.click(composer);
+
+    let pasted = (0..64)
+        .map(|line| format!("Task line {line}: inspect the image and verify the labels."))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let actions = f.frame(vec![egui::Event::Paste(pasted.clone())]).0;
+    assert!(actions.contains(&PresenceAction::Draft {
+        id: "dot".into(),
+        text: pasted.clone(),
+    }));
+    assert_eq!(f.drafts["dot"], pasted);
+
+    let out = f.settle();
+    let panel = f.state.last_popup_rect;
+    let send = visual::screen_response(&f, Id::new(("presence-send", "dot"))).0;
+    assert!(
+        panel.height() <= 480.0,
+        "chat grew past its compact bound: {panel:?}"
+    );
+    assert!(
+        panel.contains_rect(send),
+        "send control escaped the chat: {send:?}"
+    );
+    assert!(
+        f.screen.contains_rect(send),
+        "send control is below the window: {send:?}"
+    );
+    assert!(
+        text_rect(&out, &f.message_text).is_some(),
+        "transcript lost its viewport"
+    );
+}
+
+#[test]
 fn new_agent_dialog_only_picks_a_harness_then_emits_the_existing_add_action() {
     let mut f = Fixture::new();
     f.state.toggle(

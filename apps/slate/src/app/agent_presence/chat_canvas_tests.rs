@@ -2,6 +2,76 @@
 use super::*;
 
 #[test]
+fn transcript_shortcuts_precede_board_commands_without_claiming_board_or_composer_keys() {
+    let mut f = Gesture::new(1.0);
+    f.h.app.presence.chrome.open_chat(&f.who);
+    for _ in 0..3 {
+        f.paint();
+    }
+    let message =
+        f.h.app
+            .presence_conversation(&f.who)
+            .unwrap()
+            .turns
+            .last()
+            .unwrap();
+    let text_id = Id::new(("presence-message-text", f.who.as_str(), message.id.as_str()));
+    let text = f.h.ctx.read_response(text_id.with("text")).unwrap();
+    let point =
+        f.h.ctx
+            .layer_transform_to_global(text.layer_id)
+            .unwrap_or_default()
+            * text.rect.center();
+    let key = |key| egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::COMMAND,
+    };
+    f.input(|i| {
+        i.modifiers = egui::Modifiers::COMMAND;
+        i.events
+            .extend([egui::Event::PointerMoved(point), key(egui::Key::A)]);
+    });
+    assert!(
+        f.h.app.board_sel.is_empty(),
+        "chat Ctrl+A must not select the board"
+    );
+    let out = f.h.frame_output(|i| i.events.push(egui::Event::Copy));
+    assert!(
+        out.platform_output.commands.iter().any(|command| matches!(
+            command, egui::OutputCommand::CopyText(text)
+                if text.contains("Recent request") && text.contains("Recent answer")
+        )),
+        "native Copy must include both speakers"
+    );
+    let board = f.h.app.canvas_rect.left_center() + Vec2::new(40.0, 0.0);
+    f.input(|i| {
+        i.modifiers = egui::Modifiers::COMMAND;
+        i.events
+            .extend([egui::Event::PointerMoved(board), key(egui::Key::A)]);
+    });
+    assert!(
+        f.h.app.board_sel.contains(&f.underlay),
+        "an open chat must not steal board Ctrl+A"
+    );
+    f.h.app.board_sel.retain(|id| *id == f.underlay);
+    f.h.ctx
+        .memory_mut(|m| m.request_focus(Id::new(("presence-composer", f.who.as_str()))));
+    f.paint();
+    f.input(|i| {
+        i.modifiers = egui::Modifiers::COMMAND;
+        i.events.push(key(egui::Key::A));
+    });
+    assert_eq!(
+        f.h.app.board_sel.len(),
+        1,
+        "composer Ctrl+A stays in its text editor"
+    );
+}
+
+#[test]
 fn focused_chat_remains_open_while_the_human_pans_the_board() {
     let mut f = Gesture::new(1.0);
     f.h.app.presence.chrome.open_chat(&f.who);

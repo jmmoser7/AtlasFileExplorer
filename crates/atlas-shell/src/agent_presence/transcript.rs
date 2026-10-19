@@ -176,23 +176,23 @@ pub(super) fn show(
     // viewport is not hovered. Resolve the pointer in this UI's coordinates
     // instead; this keeps Ctrl+A scoped to the transcript without stealing the
     // composer/header shortcuts.
-    let transcript_hovered =
-        ui.input(|input| input.pointer.interact_pos())
-            .is_some_and(|pointer| {
-                let transform = ui
-                    .ctx()
-                    .layer_transform_to_global(ui.layer_id())
-                    .unwrap_or_default();
-                let top = ui.ctx().layer_id_at(pointer);
-                let owned_layer = top == Some(ui.layer_id())
-                    || p.messages.iter().any(|message| {
-                        top == Some(egui::LayerId::new(
-                            ui.layer_id().order,
-                            Id::new(("presence-message-text", p.id, message.id)),
-                        ))
-                    });
-                owned_layer && scroll.inner_rect.contains(transform.inverse() * pointer)
-            });
+    let transform = ui
+        .ctx()
+        .layer_transform_to_global(ui.layer_id())
+        .unwrap_or_default();
+    state.transcript_target = Some((
+        p.id.into(),
+        transform * scroll.inner_rect,
+        std::iter::once(ui.layer_id())
+            .chain(p.messages.iter().map(|message| {
+                egui::LayerId::new(
+                    ui.layer_id().order,
+                    Id::new(("presence-message-text", p.id, message.id)),
+                )
+            }))
+            .collect(),
+    ));
+    let transcript_hovered = state.transcript_hovered(ui.ctx());
     let select_all = select_all_key && transcript_hovered && !composer_focused;
     if select_all && !p.messages.is_empty() {
         ui.input_mut(|input| {

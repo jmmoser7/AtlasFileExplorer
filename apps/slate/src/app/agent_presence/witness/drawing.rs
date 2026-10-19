@@ -365,7 +365,9 @@ impl DrawingRun {
         sample: MotionSample,
         mut visit: impl FnMut(BrushPathSample<'_>),
     ) {
-        if self.smooth.is_some()
+        // Eraser lanes carry the swept route but no InkStroke entries.
+        if self.erase.is_some()
+            || self.smooth.is_some()
             || !matches!(sample.phase, MotionPhase::Work | MotionPhase::ReadyToCommit)
         {
             return;
