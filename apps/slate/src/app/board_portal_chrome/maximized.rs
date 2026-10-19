@@ -32,10 +32,8 @@ impl SlateApp {
             self.node_resolved_corner(&node),
             1.0,
         );
-        if portal.kind == PortalKind::Web {
-            if !self.web_consent_pending(&portal) {
-                layout.retract_when_idle(ui.ctx(), id, self.web.focused == Some(id));
-            }
+        if portal.kind == PortalKind::Web && !self.web_consent_pending(&portal) {
+            layout.retract_when_idle(ui.ctx(), id, self.web.focused == Some(id));
         }
         let pointer = ui.ctx().pointer_latest_pos();
         let restore = ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
