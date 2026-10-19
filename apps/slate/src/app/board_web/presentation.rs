@@ -355,6 +355,7 @@ mod tests {
         let (id, _) = only_portal(&h);
         h.app.set_web_portal_consent(id, false);
         h.app.board_sel.insert(id);
+        h.frame_with(|_| {});
         let node = h.app.doc().scene.node(id).unwrap();
         let xf = h.app.board_xf();
         let layout = super::super::super::board_portal_chrome::layout_portal_chrome(

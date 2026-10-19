@@ -1,5 +1,4 @@
 use super::*;
-
 #[test]
 fn retrying_stopped_image_message_preserves_the_composed_text_and_image_draft() {
     let mut h = host();
