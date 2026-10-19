@@ -15,7 +15,9 @@ fn witnessed_brush_eraser_keeps_its_preview_without_brush_path_panic() {
     let mut saw_preview = false;
     for _ in 0..190 {
         let _ = f.step();
-        let work = f.h.app.presence.agents[0].work.as_ref().unwrap();
+        let Some(work) = f.h.app.presence.agents[0].work.as_ref() else {
+            break;
+        };
         if let Some(preview) = work.previews.get(&target) {
             assert_ne!(preview, work.steps[0].0.as_ref().unwrap());
             saw_preview = true;

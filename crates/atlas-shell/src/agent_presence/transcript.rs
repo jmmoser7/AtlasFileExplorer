@@ -198,11 +198,7 @@ pub(super) fn show(
         ui.input_mut(|input| {
             input.consume_key(egui::Modifiers::COMMAND, egui::Key::A);
         });
-        state.selected_transcripts.insert(p.id.into());
-        let mut native = egui::text_selection::LabelSelectionState::load(ui.ctx());
-        native.clear_selection();
-        native.store(ui.ctx());
-        ui.ctx().request_repaint();
+        state.select_transcript(ui.ctx(), p.id);
     }
     if copy_all {
         ui.input_mut(|input| {

@@ -38,6 +38,10 @@ fn transcript_shortcuts_precede_board_commands_without_claiming_board_or_compose
         f.h.app.board_sel.is_empty(),
         "chat Ctrl+A must not select the board"
     );
+    assert!(
+        f.h.app.presence.chrome.transcript_selected(&f.who),
+        "chat Ctrl+A must select the hovered transcript before native Copy"
+    );
     let out = f.h.frame_output(|i| i.events.push(egui::Event::Copy));
     assert!(
         out.platform_output.commands.iter().any(|command| matches!(

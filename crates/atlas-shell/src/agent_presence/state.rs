@@ -125,6 +125,9 @@ impl RosterState {
                         .any(|event| matches!(event, eframe::egui::Event::Copy))
                 }))
     }
+    pub fn transcript_selected(&self, id: &str) -> bool {
+        self.selected_transcripts.contains(id)
+    }
     pub(super) fn transcript_key_requested(
         ctx: &eframe::egui::Context,
         key: eframe::egui::Key,
@@ -138,24 +141,38 @@ impl RosterState {
             })
         })
     }
-    /// Route these keys before an app's global command dispatch. The transcript
-    /// keeps the events and performs selection/copy during its normal paint.
-    pub fn captures_transcript_shortcut(&self, ctx: &eframe::egui::Context) -> bool {
-        let Some(id) = self.active_chat() else {
+    /// Route these keys before an app's global command dispatch. Select All is
+    /// applied here so the same intent is visible to this frame's copy path.
+    pub fn captures_transcript_shortcut(&mut self, ctx: &eframe::egui::Context) -> bool {
+        let Some(id) = self.active_chat().map(str::to_owned) else {
             return false;
         };
-        if ctx.memory(|m| m.focused()) == Some(eframe::egui::Id::new(("presence-composer", id))) {
+        if ctx.memory(|m| m.focused())
+            == Some(eframe::egui::Id::new(("presence-composer", id.as_str())))
+        {
             return false;
         }
-        self.copy_transcript_requested(ctx, id)
-            || (self.transcript_hovered(ctx)
-                && (Self::transcript_key_requested(ctx, eframe::egui::Key::A)
-                    || Self::transcript_key_requested(ctx, eframe::egui::Key::C)
-                    || ctx.input(|i| {
-                        i.events
-                            .iter()
-                            .any(|e| matches!(e, eframe::egui::Event::Copy))
-                    })))
+        let hovered = self.transcript_hovered(ctx);
+        let select_all = hovered && Self::transcript_key_requested(ctx, eframe::egui::Key::A);
+        if select_all {
+            self.select_transcript(ctx, &id);
+        }
+        let native_copy = hovered
+            && eframe::egui::text_selection::LabelSelectionState::load(ctx).has_selection()
+            && (Self::transcript_key_requested(ctx, eframe::egui::Key::C)
+                || ctx.input(|i| {
+                    i.events
+                        .iter()
+                        .any(|e| matches!(e, eframe::egui::Event::Copy))
+                }));
+        self.copy_transcript_requested(ctx, &id) || select_all || native_copy
+    }
+    pub(super) fn select_transcript(&mut self, ctx: &eframe::egui::Context, id: &str) {
+        self.selected_transcripts.insert(id.into());
+        let mut native = eframe::egui::text_selection::LabelSelectionState::load(ctx);
+        native.clear_selection();
+        native.store(ctx);
+        ctx.request_repaint();
     }
     pub(super) fn transcript_hovered(&self, ctx: &eframe::egui::Context) -> bool {
         let Some((id, rect, layers)) = &self.transcript_target else {

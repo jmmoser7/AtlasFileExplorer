@@ -24,7 +24,7 @@ pub(super) struct InputHold {
     until: f64,
 }
 impl SlateApp {
-    pub(crate) fn presence_captures_shortcut(&self, ctx: &egui::Context) -> bool {
+    pub(crate) fn presence_captures_shortcut(&mut self, ctx: &egui::Context) -> bool {
         self.presence.chrome.captures_transcript_shortcut(ctx)
     }
     /// Accept keeps listening in force; it only dismisses the short press hold.
