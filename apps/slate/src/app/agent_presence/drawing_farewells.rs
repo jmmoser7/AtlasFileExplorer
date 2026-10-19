@@ -59,32 +59,31 @@ impl DrawingFarewells {
             return;
         }
         let key = Id::new((tab, id));
-        if !self.records.contains_key(&key) {
-            if self.records.len() >= MAX_RECORDS {
-                self.evict_oldest();
-            }
-            self.records.insert(
-                key,
-                Record {
-                    id: id.to_owned(),
-                    tab,
-                    position,
-                    hat: hat.to_owned(),
-                    seen: self.frame,
-                    touched: self.frame,
-                    departure: None,
-                },
-            );
+        if let Some(record) = self.records.get_mut(&key) {
+            record.position = position;
+            record.hat.clear();
+            record.hat.push_str(hat);
+            record.seen = self.frame;
+            record.touched = self.frame;
+            // A live avatar has no outstanding farewell.
+            record.departure = None;
+            return;
         }
-        let record = self.records.get_mut(&key).unwrap();
-        record.tab = tab;
-        record.position = position;
-        record.hat.clear();
-        record.hat.push_str(hat);
-        record.seen = self.frame;
-        record.touched = self.frame;
-        // An avatar that is live again has no outstanding farewell.
-        record.departure = None;
+        if self.records.len() >= MAX_RECORDS {
+            self.evict_oldest();
+        }
+        self.records.insert(
+            key,
+            Record {
+                id: id.to_owned(),
+                tab,
+                position,
+                hat: hat.to_owned(),
+                seen: self.frame,
+                touched: self.frame,
+                departure: None,
+            },
+        );
     }
 
     pub(super) fn finish_frame(
