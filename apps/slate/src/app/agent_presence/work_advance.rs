@@ -270,6 +270,14 @@ mod tests {
         h.app.web_allow_origin(portal_id);
         h.frame();
         assert!(h.app.portal_maximize(portal_id));
+        // Let the ordinary Web admission pass see the maximized host rect.
+        // The focused advance loop below does not run app frames or pump the
+        // fake host, so it needs a live page before the call starts.
+        h.frame();
+        assert!(
+            h.app.web.is_live(portal_id),
+            "maximized Web portal must be live before advancing its agent call"
+        );
         h.app.web_blur();
 
         let who = join(&mut h);
