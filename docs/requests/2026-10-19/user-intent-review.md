@@ -15,10 +15,12 @@ records that save.
 The resumed request `req-30324-1792451920700994200-2` has bodies in all eight
 new frames. Native evidence includes a real Google results capture after
 click/type/Enter, an EPA Trees and Vegetation text read and capture, an EPA
-Measuring Heat Islands capture, and an EPA cool-roof capture. The retained
-Measuring page text response is identical to the trees-page response, so the
-measurement text read is unverified; the cool-roof text read was empty with an
-intermittent focus error. The first slide preview is 1200×675 for 1600×900
+Measuring Heat Islands capture, and an EPA cool-roof capture. Reply #114's
+identical text to #104 is correct: its native read targeted portal #79 again,
+and the public ledger misattributed it to #81. A separate read targeted #81,
+but its output has not been fetched and reviewed, so the measurement text read
+remains unverified; there is no evidence here of a stale-WebHost defect. The
+cool-roof text read was empty. The first slide preview is 1200×675 for 1600×900
 bounds, but its low-contrast generated-image caption overlaps the image edge.
 The remaining seven slides still need final preview pixels and visual review.
 The retained board note records three exact Atlas fixture reads/highlights; the

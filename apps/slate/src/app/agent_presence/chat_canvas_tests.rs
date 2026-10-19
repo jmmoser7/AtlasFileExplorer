@@ -26,6 +26,14 @@ fn foreground_chat_owns_input_over_a_focused_web_page() {
             .layer_transform_to_global(composer.layer_id)
             .unwrap_or_default();
     let point = (to_global * composer.rect).center();
+    // Hover first so egui resolves the transformed popup layer before the press.
+    f.input(|input| input.events.push(egui::Event::PointerMoved(point)));
+    f.paint();
+    assert_eq!(
+        f.h.ctx.layer_id_at(point).map(|layer| layer.id),
+        Some(Id::new("collaborator-conversation")),
+        "test pointer must land on the foreground chat after Web maximize"
+    );
     host.0.borrow_mut().inputs.clear();
     f.input(|input| {
         input.events.extend([
@@ -39,6 +47,11 @@ fn foreground_chat_owns_input_over_a_focused_web_page() {
         ]);
     });
     f.paint();
+    assert_eq!(
+        f.h.ctx.memory(|memory| memory.focused()),
+        Some(composer_id),
+        "the real chat composer should receive the click"
+    );
     f.input(|input| {
         input.events.push(egui::Event::PointerButton {
             pos: point,
@@ -48,14 +61,35 @@ fn foreground_chat_owns_input_over_a_focused_web_page() {
         });
     });
     f.paint();
+    assert!(
+        host.0.borrow().keyboard_releases > 0,
+        "focused composer should return native keyboard focus to Slate"
+    );
     f.input(|input| input.events.push(egui::Event::Text("chat text".into())));
     f.paint();
+    assert_eq!(
+        f.h.app.presence_conversation(&f.who).unwrap().draft,
+        "chat text",
+        "typed text should reach the chat draft"
+    );
+    let leaked = host
+        .inputs()
+        .into_iter()
+        .filter(|event| {
+            !matches!(
+                event,
+                crate::app::board_web::WebInput::Move { .. }
+                    | crate::app::board_web::WebInput::Leave
+            )
+        })
+        .collect::<Vec<_>>();
     assert!(
-        host.inputs().is_empty(),
-        "chat pointer and text reached the page"
+        leaked.is_empty(),
+        "pointer/text from foreground chat reached the page: {leaked:?}"
     );
 
     // Composer focus remains authoritative when the pointer leaves the popup.
+    host.0.borrow_mut().inputs.clear();
     let outside = f.h.app.canvas_rect.left_center() + Vec2::new(80.0, 0.0);
     f.input(|input| {
         input.events.extend([
@@ -64,6 +98,11 @@ fn foreground_chat_owns_input_over_a_focused_web_page() {
         ]);
     });
     f.paint();
+    assert_eq!(
+        f.h.app.presence_conversation(&f.who).unwrap().draft,
+        "chat textstill chat",
+        "keyboard input should continue updating the composer draft after pointer exit"
+    );
     assert!(
         host.inputs()
             .iter()

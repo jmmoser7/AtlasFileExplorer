@@ -357,11 +357,8 @@ impl SlateApp {
         self.lock_models_pressed_outside(ui, &xf, pointer, model_toolbar_captures);
         let now = ui.input(|i| i.time);
         let mut canvas_nav = false;
-        // One web portal may hold the pointer and keyboard (D17/D22). This runs
-        // before the camera because that is the whole point: with the pointer
-        // inside a focused page, the wheel scrolls the page instead of zooming
-        // the board. Its chrome strip and a thin border band stay Slate targets,
-        // so the frame can always be grabbed and released.
+        // A focused page owns wheel input (D17/D22); its chrome and border stay
+        // Slate targets so the frame can still be grabbed and released.
         if !shot_captures {
             self.peel_contents_focus_if_clicked_outside(ui, &xf, pointer);
         }
