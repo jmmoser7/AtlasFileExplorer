@@ -5,6 +5,7 @@
 //! lets the shared presence painter finish the same departure used elsewhere.
 use atlas_agent::presence::WorldPoint;
 use atlas_shell::agent_presence as chrome;
+use eframe::egui::Id;
 use std::collections::HashMap;
 
 const MAX_RECORDS: usize = 512;
@@ -17,6 +18,7 @@ struct Departure {
 
 #[derive(Clone)]
 struct Record {
+    id: String,
     tab: u64,
     position: WorldPoint,
     hat: String,
@@ -28,7 +30,7 @@ struct Record {
 #[derive(Default)]
 pub(super) struct DrawingFarewells {
     frame: u64,
-    records: HashMap<String, Record>,
+    records: HashMap<Id, Record>,
 }
 
 impl DrawingFarewells {
@@ -45,7 +47,7 @@ impl DrawingFarewells {
     }
 
     pub(super) fn ids(&self) -> impl Iterator<Item = &str> {
-        self.records.keys().map(String::as_str)
+        self.records.values().map(|record| record.id.as_str())
     }
 
     pub(super) fn begin_frame(&mut self) {
@@ -56,13 +58,15 @@ impl DrawingFarewells {
         if !position.x.is_finite() || !position.y.is_finite() || id.is_empty() {
             return;
         }
-        if !self.records.contains_key(id) {
+        let key = Id::new((tab, id));
+        if !self.records.contains_key(&key) {
             if self.records.len() >= MAX_RECORDS {
                 self.evict_oldest();
             }
             self.records.insert(
-                id.to_owned(),
+                key,
                 Record {
+                    id: id.to_owned(),
                     tab,
                     position,
                     hat: hat.to_owned(),
@@ -72,7 +76,7 @@ impl DrawingFarewells {
                 },
             );
         }
-        let record = self.records.get_mut(id).unwrap();
+        let record = self.records.get_mut(&key).unwrap();
         record.tab = tab;
         record.position = position;
         record.hat.clear();
@@ -122,7 +126,7 @@ impl DrawingFarewells {
         portal: Option<eframe::egui::Rect>,
     ) -> bool {
         let mut active = false;
-        for (id, record) in &self.records {
+        for record in self.records.values() {
             if record.tab != tab {
                 continue;
             }
@@ -134,7 +138,7 @@ impl DrawingFarewells {
             let animated = presence_painter.paint_world_departure(
                 painter,
                 chrome::AvatarVisual {
-                    id,
+                    id: &record.id,
                     center: xf.w2s(eframe::egui::pos2(
                         record.position.x as f32,
                         record.position.y as f32,
@@ -163,7 +167,7 @@ impl DrawingFarewells {
             .records
             .iter()
             .min_by_key(|(_, record)| record.touched)
-            .map(|(key, _)| key.clone())
+            .map(|(&key, _)| key)
         {
             self.records.remove(&key);
         }
@@ -192,14 +196,17 @@ mod tests {
         farewells.begin_frame();
         assert!(farewells.needs_portal(7));
         farewells.finish_frame(7, 2.0, true, &mut sequence);
-        let record = &farewells.records["copy-a"];
+        let record = &farewells.records[&Id::new((7, "copy-a"))];
         let departure = record.departure.as_ref().unwrap();
         assert_eq!(record.position, point(12.0, 24.0));
         assert_eq!(record.hat, "cap");
         assert_ne!(departure.style, chrome::RANDOM_DEPARTURE);
         let original = (departure.style.clone(), departure.started);
         farewells.finish_frame(7, 3.0, true, &mut sequence);
-        let repeated = farewells.records["copy-a"].departure.as_ref().unwrap();
+        let repeated = farewells.records[&Id::new((7, "copy-a"))]
+            .departure
+            .as_ref()
+            .unwrap();
         assert_eq!((repeated.style.clone(), repeated.started), original);
     }
 
@@ -209,12 +216,17 @@ mod tests {
         let mut sequence = chrome::DepartureSequence::default();
         farewells.begin_frame();
         farewells.observe(1, "one", point(1.0, 2.0), "");
-        farewells.observe(2, "two", point(3.0, 4.0), "");
+        farewells.observe(2, "one", point(3.0, 4.0), "");
+        assert_eq!(
+            farewells.records.len(),
+            2,
+            "copy IDs are scoped to their board"
+        );
         farewells.begin_frame();
         farewells.finish_frame(1, 0.0, false, &mut sequence);
-        assert!(farewells.records["two"].departure.is_none());
+        assert!(farewells.records[&Id::new((2, "one"))].departure.is_none());
         farewells.finish_frame(1, 100.0, false, &mut sequence);
-        assert!(!farewells.records.contains_key("one"));
-        assert!(farewells.records.contains_key("two"));
+        assert!(!farewells.records.contains_key(&Id::new((1, "one"))));
+        assert!(farewells.records.contains_key(&Id::new((2, "one"))));
     }
 }
