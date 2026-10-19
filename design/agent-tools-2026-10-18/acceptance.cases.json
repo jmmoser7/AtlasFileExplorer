@@ -151,11 +151,11 @@
         "agent-tools-2026-10-18"
       ],
       "setup": [
-        "Use a disposable workbook and grant access to a small local fixture folder with distinct filenames and readable contents. Start without an Atlas portal. Preserve the human camera and selection."
+        "Use the recovered 19 October Workflow workbook and grant access only to target/review/research-workflow-20261019/source-fixtures. The exact fixtures are research-brief.txt, presentation-review.txt, and drawing-probe.txt; do not edit them. Start without an Atlas portal and preserve the human camera and selection."
       ],
       "steps": [
-        "Ask the agent to add/open File Atlas on the board, enumerate its fixture folder, identify one named file, highlight it, and read that file.",
-        "Keep analysis running long enough to inspect the target highlight, then complete or cancel the request."
+        "Ask the agent to add/open File Atlas, wait for enumeration, and for each of the three exact returned fixture locators highlight and read that file.",
+        "Keep each analysis active long enough to inspect its highlight, then complete or cancel the request."
       ],
       "checks": [
         {
@@ -207,6 +207,150 @@
         {
           "id": "takeover-revoke",
           "expected": "Human takeover releases agent focus; terminal requests or revocation remove only request-owned focus/highlights, and the board is not repositioned."
+        }
+      ]
+    },
+    {
+      "id": "web-denial-then-human-allow-and-text-read",
+      "group": "Portal access",
+      "title": "A denied Web origin stays unreadable until human consent",
+      "scope": "current",
+      "reports": [
+        "agent-tools-2026-10-18"
+      ],
+      "setup": [
+        "Use a disposable workbook and a benign test page that displays a unique, known text phrase. Record the exact origin and begin with no consent for it."
+      ],
+      "steps": [
+        "Ask the agent to inspect and read the test page, then deny the origin request. Confirm that it cannot read or capture the page.",
+        "Use the human Allow site control for that exact origin, retry the read, and compare the returned text with the phrase visibly rendered by the page."
+      ],
+      "checks": [
+        {
+          "id": "denial-blocks-read",
+          "expected": "Before human consent, denial prevents page text from being read or captured and does not silently grant the origin."
+        },
+        {
+          "id": "human-origin-consent",
+          "expected": "The human Allow site action grants only the recorded origin and the retry reaches the existing live portal."
+        },
+        {
+          "id": "actual-text-read",
+          "expected": "The agent returns the unique text actually displayed by the page; the result is not inferred from its URL, title, or prior context."
+        }
+      ]
+    },
+    {
+      "id": "resume-existing-generator-without-regeneration",
+      "group": "Recovered research workflow",
+      "title": "Existing generator evidence resumes without a new paid run",
+      "scope": "current",
+      "reports": [
+        "agent-tools-2026-10-18"
+      ],
+      "setup": [
+        "Open the recovered 19 October Workflow workbook with its existing generator, job record, and generated image. Do not start a new image-generation request."
+      ],
+      "steps": [
+        "Ask the agent to inventory the current board and inspect the existing generator and output through registered reads and the existing preview."
+      ],
+      "checks": [
+        {
+          "id": "existing-job-status-and-count",
+          "expected": "The reported status and output count match the existing generator record and retained outputs."
+        },
+        {
+          "id": "real-output-dimensions",
+          "expected": "Reported pixel dimensions and aspect match the actual retained generated image, not the display frame or a guessed value."
+        },
+        {
+          "id": "no-new-generation",
+          "expected": "The existing image and evidence remain available, and no new paid generation request is sent."
+        }
+      ]
+    },
+    {
+      "id": "empty-eraser-route-and-undo",
+      "group": "Drawing and agents",
+      "title": "An empty eraser route stays responsive and preserves Undo",
+      "scope": "current",
+      "reports": [
+        "agent-tools-2026-10-18"
+      ],
+      "setup": [
+        "Use a disposable board with completed ink outside a clear empty corridor and retain a separate completed stroke for an Undo check."
+      ],
+      "steps": [
+        "Ask the agent to visibly sweep the eraser through the empty corridor, then erase the separate retained stroke and Undo that erase."
+      ],
+      "checks": [
+        {
+          "id": "empty-route",
+          "expected": "The empty route remains responsive and crash-free, creates no empty ink or scene mutation, and leaves unrelated objects untouched."
+        },
+        {
+          "id": "undo-restores-erased-ink",
+          "expected": "Undo restores the separately erased stroke with its original geometry and style; it does not undo or absorb unrelated work."
+        }
+      ]
+    },
+    {
+      "id": "long-composer-and-transcript-copy-routing",
+      "group": "Chat input",
+      "title": "Long drafts scroll locally and transcript copy avoids board selection",
+      "scope": "current",
+      "reports": [
+        "agent-tools-2026-10-18"
+      ],
+      "setup": [
+        "Use a disposable workbook with a visible board selection and a conversation containing multiple readable transcript messages. Prepare a composer draft of approximately 2,953 UTF-8 bytes."
+      ],
+      "steps": [
+        "Enter the long draft, inspect the composer height and scroll it internally, then focus the transcript and use Ctrl+A followed by native Copy.",
+        "Return focus to the composer and exercise its usual select, copy, and send/newline shortcuts."
+      ],
+      "checks": [
+        {
+          "id": "bounded-composer",
+          "expected": "The composer remains at or below 96 px high and scrolls its own draft without moving the transcript or board."
+        },
+        {
+          "id": "transcript-select-copy",
+          "expected": "Transcript Ctrl+A selects the hovered conversation text, native Copy returns its visible messages, and the existing board selection is unchanged."
+        },
+        {
+          "id": "composer-shortcuts",
+          "expected": "Composer-focused shortcuts continue to act in the composer, including select/copy and the ordinary send/newline behavior."
+        }
+      ]
+    },
+    {
+      "id": "resume-eight-slide-research-deck",
+      "group": "Recovered research workflow",
+      "title": "Resume eight new slides while preserving the recovered deck",
+      "scope": "current",
+      "reports": [
+        "agent-tools-2026-10-18"
+      ],
+      "setup": [
+        "Open the recovered 19 October Workflow workbook. Use the retained original workbook and recovery-preservation record under target/review/research-workflow-20261019 as comparison evidence."
+      ],
+      "steps": [
+        "Inventory the recovered board and budget, then resume the interrupted task from the existing Research and Drafts content rather than duplicating it.",
+        "Finish eight new ordered 1600×900 slides comparing cool roofs and urban tree canopy, retain source notes and revisions, inspect every final slide with presence.preview and actual pixels, then save with app.save."
+      ],
+      "checks": [
+        {
+          "id": "originals-and-evidence-preserved",
+          "expected": "All original and recovered content remains present and unchanged; existing Research/Drafts evidence is retained without duplicate areas or restarted work."
+        },
+        {
+          "id": "eight-new-slides",
+          "expected": "Exactly eight new slides are added in the requested order, each at 1600×900, with the authored styles and comparison content intact."
+        },
+        {
+          "id": "preview-and-save",
+          "expected": "Every final slide is inspected through presence.preview against actual pixels; app.save persists the final order, styling, notes, and original content."
         }
       ]
     },
@@ -296,21 +440,21 @@
     {
       "id": "known-open-native-delivery",
       "group": "Known open",
-      "title": "Native acceptance awaits safe executable delivery",
+      "title": "Confirm the 19 October native candidate before testing",
       "scope": "known-open",
       "reports": [
         "agent-tools-2026-10-18"
       ],
       "setup": [
-        "The current native Slate sessions with PIDs 124720 and 128016 may hold target/release/slate.exe and contain unsaved proposals. Do not terminate them. Await a safely delivered candidate build."
+        "Use the recovered SlateTestPresentation.slate and rebuilt candidate identified below. The production binary is available, but the native workflow has not resumed because Windows is locked. Do not interact with a locked desktop."
       ],
       "steps": [
-        "When a candidate is safely available, record its executable path, version, last-write time, SHA-256, source/build identity, and workbook/fixture before beginning a fresh run."
+        "After the human unlocks, confirm the actual running executable path, modified time, SHA-256 and source identity before beginning a fresh native run. Retain earlier results under their original build identity."
       ],
       "checks": [
         {
           "id": "candidate-available",
-          "expected": "A candidate binary is available without terminating or replacing the protected running sessions; otherwise this case remains Blocked."
+          "expected": "The rebuilt 19 October candidate remains pending until its hash and delivery identity are supplied; do not infer availability from build logs."
         },
         {
           "id": "identity-recorded",
@@ -325,12 +469,12 @@
   ],
   "candidateBuild": {
     "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/target/release/slate.exe",
-    "size": null,
-    "modified_utc": "Pending native delivery",
-    "version": "18 October: drawing and portal candidate; native delivery pending",
-    "sha256": "",
+    "size": 50812416,
+    "modified_utc": "2026-10-19T18:25:12.9064332Z",
+    "version": "19 October workflow repair, source ab8a8aef",
+    "sha256": "DBE3A962A12B025D1995690F5EB3A1CFB8F2567E039114BCCF26B17C85810452",
     "tested_interactively": false,
-    "available": false
+    "available": true
   },
-  "automatedEvidence": "Automation results and the exact source revision are reported on PR 60. Logic checks and retained production-painter software captures are separate from native/GPU/user acceptance. Every case starts Untested for each new build/run; no automated result prefills a verdict."
+  "automatedEvidence": "PR 63 contains the source and automated checks. Build ab8a8aef passed local all-target release Clippy and production compilation; exact executable metadata is recorded above. Native UI testing awaits desktop unlock and every case remains Untested for this build. Retained evidence: target/review/research-workflow-20261019. No automated result prefills a native verdict."
 }

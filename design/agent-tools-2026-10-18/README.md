@@ -16,6 +16,14 @@ for every moving endpoint. The cache is bounded and is discarded on cancel.
 
 ## Acceptance paths
 
+The 19 October native retest resumes the saved and recovered Workflow workbook.
+It preserves the original deck and recovered work, completes the requested
+eight new ordered 1600×900 research slides, retains readable Research/Drafts
+evidence, and reuses the existing generated image and generator record without
+starting a paid generation. The retained Atlas source-fixtures case reads the
+exact returned `research-brief.txt`, `presentation-review.txt`, and
+`drawing-probe.txt` locators; it does not edit those files.
+
 - Draw pen, stamped brush and polyline components. Before commit, the scene and
   journal remain unchanged while visible path prefixes grow at the actual
   drawing contacts. Visit corners and dwell at polyline vertices. No pen-up ink.
@@ -49,6 +57,21 @@ for every moving endpoint. The cache is bounded and is discarded on cancel.
   revocation remove only request-owned focus/highlights.
 - Review actual production-render drawing frames at 50%, 100%, 200% zoom.
   Avatar/hat/prop scale with the canvas and use the approved face and hat fits.
+- Resume the eight-slide research deck from the recovered workbook. Compare the
+  original slides and evidence before and after; verify exact slide dimensions,
+  styling, order, preview pixels, and saved workbook contents.
+- Deny a Web portal origin, confirm the agent cannot read it, then use the
+  human Allow site control for that exact origin and verify an actual text read.
+- Resume inspection of the existing image generator and output. Verify status,
+  output count, actual dimensions, and aspect from the retained result without
+  starting another paid generation.
+- Sweep the eraser through empty board space and verify the route remains
+  responsive and crash-free, creates no empty ink, and leaves Undo behavior
+  correct for the surrounding completed work.
+- Exercise a roughly 2,953-byte composer message. The composer stays at or below
+  96 px and scrolls internally; transcript Ctrl+A and native Copy select/copy
+  transcript text without selecting board content, while ordinary composer
+  shortcuts continue to work.
 
 ## Evidence boundaries
 
@@ -56,13 +79,15 @@ The [interactive evaluation document](acceptance.html) records each case as
 Pass, Fail, Blocked or Untested, with notes and portable result export. Every
 new build starts Untested; automated results never prefill native verdicts.
 
-The pull request records executed unit and headless integration results. Local
-logs and phase metadata are retained under `target/review/agent-tools-20261018`
-and the request-specific motion capture folders under `target/review/`.
-Software captures use the production board painter with synthetic fixture
-content; they are not native pointer/GPU or human acceptance. The user's open
-Slate session is protected and must be safely closed before its executable can
-be replaced. No source-write or security-policy exception is introduced.
+PR 63 records the implementation and automated checks. The retained 19 October
+research workflow evidence is under `target/review/research-workflow-20261019`,
+including the original workbook, recovery-preservation record, source fixtures,
+and build/test logs. Software captures use the production board painter with
+synthetic fixture content; they are not native pointer/GPU or human acceptance.
+The 19 October candidate has been rebuilt, but native delivery and its exact
+binary identity remain pending. Record the candidate hash and build identity
+before starting a fresh native run.
+No source-write or security-policy exception is introduced.
 
 Image inspection uses bounded displayed-image PNGs rather than returning an
 unchanged image's original file as provider input. Codex attaches those pixels
@@ -71,3 +96,7 @@ edges to the workspace's existing PNG decoder and already-locked base64 version;
 it changes no package versions, features, toolchain, build profile or output path.
 Tests of this adapter are protocol/transport evidence, separate from a live model
 vision turn.
+
+The 19 October production candidate is now built (source ab8a8aef; exact identity
+is embedded in the evaluation document). Native workflow testing awaits desktop
+unlock. Its cases remain Untested; compilation is not native acceptance.
