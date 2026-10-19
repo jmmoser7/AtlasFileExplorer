@@ -43,6 +43,17 @@ impl SlateApp {
             // interaction priority until the native view is parked.
             && !native_view_active
             && !ctx.input(|i| i.viewport().minimized.unwrap_or(false));
+        let maximized_portal =
+            self.portal_chrome.maximized.filter(|id| {
+                !self.at_home
+                    && self.doc().view.active_view == slate_doc::ViewKind::Board
+                    && self.presenting.is_none()
+                    && !native_view_active
+                    && !ctx.input(|i| i.viewport().minimized.unwrap_or(false))
+                    && self.doc().scene.node(*id).is_some_and(|node| {
+                        matches!(&node.kind, slate_doc::scene::NodeKind::Portal(_))
+                    })
+            });
         let vanished: Vec<_> = self
             .presence
             .agents
@@ -317,7 +328,15 @@ impl SlateApp {
             }
             self.presence.agents.insert(index, a);
         }
-        self.advance_presence_actions(ctx, board_visible, active_tab, pointer_press, elapsed, now);
+        self.advance_presence_actions(
+            ctx,
+            board_visible,
+            maximized_portal,
+            active_tab,
+            pointer_press,
+            elapsed,
+            now,
+        );
         let helpers: Vec<_> = self
             .presence
             .agents

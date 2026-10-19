@@ -313,18 +313,23 @@ fn header_ui(
         );
     } else {
         let mut x = identity_end;
-        for (glyph, label) in [
-            (chrome::Glyph::Locate, "Find on board"),
-            (
-                if p.paused {
-                    chrome::Glyph::Play
-                } else {
-                    chrome::Glyph::Pause
-                },
-                if p.paused { "Resume" } else { "Pause" },
-            ),
-            (chrome::Glyph::Stop, "Stop task"),
-        ] {
+        let controls: &[(chrome::Glyph, &str)] = if p.inactive {
+            &[(chrome::Glyph::Play, "Resume")]
+        } else {
+            &[
+                (chrome::Glyph::Locate, "Find on board"),
+                (
+                    if p.paused {
+                        chrome::Glyph::Play
+                    } else {
+                        chrome::Glyph::Pause
+                    },
+                    if p.paused { "Resume" } else { "Pause" },
+                ),
+                (chrome::Glyph::Stop, "Stop task"),
+            ]
+        };
+        for (glyph, label) in controls.iter().copied() {
             let r = Rect::from_min_size(
                 Pos2::new(x, header.center().y - slot * 0.5),
                 Vec2::splat(slot),
@@ -346,6 +351,10 @@ fn header_ui(
                 actions.push(match label {
                     "Find on board" => PresenceAction::Locate { id: p.id.into() },
                     "Stop task" => PresenceAction::Cancel { id: p.id.into() },
+                    "Resume" if p.inactive => PresenceAction::Pause {
+                        id: p.id.into(),
+                        paused: false,
+                    },
                     _ => PresenceAction::Pause {
                         id: p.id.into(),
                         paused: !p.paused,
@@ -354,7 +363,7 @@ fn header_ui(
             }
             x += slot + 3.0;
         }
-        if !attached {
+        if !attached && !p.inactive {
             let r = Rect::from_min_size(
                 Pos2::new(x, header.center().y - 15.0),
                 Vec2::new(34.0, 30.0),
@@ -432,7 +441,7 @@ fn header_ui(
             }
         }
     }
-    if !p.human && !attached {
+    if !p.human && !p.inactive && !attached {
         let more = Rect::from_center_size(
             Pos2::new(right - 47.0, header.center().y),
             Vec2::splat(24.0),

@@ -64,6 +64,12 @@ impl SlateApp {
                 self.paint_slate_portal(ui, &painter, &xf, &node, &portal);
             }
         }
+        let presence_xf = fit_xf(node.rect, layout.body);
+        let presence_painter = painter.with_clip_rect(layout.body);
+        if self.enscape_shown_node().is_none() {
+            self.paint_presence_proposals(ui, &presence_painter, &presence_xf, Some(&node.rect));
+            self.paint_presence(&presence_painter, &presence_xf);
+        }
         let visiting = self.web_visiting_label(id, &portal);
         self.paint_portal_identity_chrome(ui, &layout, id, &portal, visiting.as_deref());
         if portal.kind == PortalKind::Web {

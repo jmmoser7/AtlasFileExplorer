@@ -270,11 +270,12 @@ impl SlateApp {
             .collaborators
             .iter()
             .filter(|p| {
-                !self
-                    .presence
-                    .agents
-                    .iter()
-                    .any(|a| a.profile.id == p.id && a.departure.is_none())
+                p.retired
+                    && !self
+                        .presence
+                        .agents
+                        .iter()
+                        .any(|a| a.profile.id == p.id && a.departure.is_none())
             })
             .cloned()
             .collect();

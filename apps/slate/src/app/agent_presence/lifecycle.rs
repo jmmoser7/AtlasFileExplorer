@@ -3,6 +3,22 @@ use super::*;
 const SPAWN_CLEARANCE: f64 = 64.0;
 
 impl SlateApp {
+    pub(super) fn ensure_saved_presence_joined(&mut self, who: &str) -> Result<(), String> {
+        if self.presence.agents.iter().any(|agent| {
+            agent.profile.id == who && agent.tab == self.tab().id && agent.departure.is_none()
+        }) {
+            return Ok(());
+        }
+        let profile = self
+            .settings
+            .collaborators
+            .iter()
+            .find(|profile| profile.id == who && !profile.retired)
+            .cloned()
+            .ok_or("This collaborator is retired; restore it from Advanced first")?;
+        self.join_presence(profile, None)
+    }
+
     pub(super) fn join_presence(
         &mut self,
         profile: StoredAgent,

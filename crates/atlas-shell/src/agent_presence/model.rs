@@ -43,6 +43,8 @@ pub struct Participant<'a> {
     pub status: &'a str,
     pub provider: &'a str,
     pub human: bool,
+    /// Saved identity with no live runtime in this process.
+    pub inactive: bool,
     pub paused: bool,
     pub autonomous: bool,
     /// Provider-controlled workspace write access, separate from board grants.

@@ -368,6 +368,7 @@ impl eframe::App for Preview {
                 status: "Native component fixture",
                 provider: &p.provider,
                 human: p.human,
+                inactive: false,
                 paused: p.paused,
                 autonomous: false,
                 full_access: false,

@@ -1,5 +1,47 @@
 # Independent intent review — Slate research presentation workflow — 19 October 2026
 
+## Current execution status
+
+At 19:54 UTC, the root restored the normal board, saved through Ctrl+S
+(confirmed by the native “Workbook saved” toast), and closed Slate normally
+for replacement. The exact 245,952-byte checkpoint is retained as
+`target/review/research-workflow-20261019/native-checkpoint-before-max-repair.slate`.
+The read-only comparison `max-repair-preservation.json` confirms 193 current
+nodes, all 74 original nodes and both original linked items exactly unchanged,
+and one added linked item. Saved inactive-chat and maximized-portal repairs are
+implemented, with compiler and native verification still pending. The focused
+independent review found no blocking ownership or intent issue. No complete
+presentation, native acceptance, merge, or release is claimed.
+
+At 19:35 UTC, the actual app is running the repaired release executable,
+SHA256 `4C0489F6BF5E764FE2991D03EAC0E826385892ACCCCA0E49EEBB9AD5551DBE6E`,
+50,812,416 bytes, built at `2026-10-19T19:21:42.7657348Z`. Production source
+`1eb9d605` contains the bounded 65,536-entry motion replay fence, repeat-poll
+preview repair, and persistent denied-origin consent chrome. Local targeted
+motion-cap testing, all-target release Clippy, and the release build passed.
+Snapshot `eb4e8f81` additionally fixes a test clock; its hosted run passed 2,045
+Slate cases and failed one remaining chat-fixture board-pointer assertion.
+The fixture now chooses a point outside the actual chat rectangle; validation
+is pending. No complete native pass, merge, or release is claimed.
+
+The saved 193-node checkpoint preserves all 74 original nodes. New frames
+165–172, orders 11–18, are 1600×900 and remain unfinished. After reopening,
+saved identities were hidden under Advanced despite not being retired. A fix
+will expose their history and draft in the ordinary roster as inactive; only
+explicit Resume or Send will create a fresh ephemeral session. It must not
+restart old work or restore an old grant.
+
+Native request `req-108616-1792438205929956100-6` started, read the budget,
+then stalled when the human-facing Google portal was maximized. The ordinary
+board-visibility gate also gated pending reads and portal calls. DRY review
+approved separating active maximized-Web work eligibility from ordinary board
+visibility, reusing the existing fitted portal transform and presence painter
+for in-view work. That repair is in progress. The provider ended without board
+edits or new image generation. Google and EPA origin consent still require the
+human; the repaired maximized Google portal visibly offers **Allow site**.
+No permission control was automated. Historical checkpoints below retain their
+original limitations and do not supersede this current incomplete status.
+
 ## Scope and evidence
 
 This is an intent checklist for the reported end-to-end task: produce an eight-slide research presentation using drawing, Web and File Atlas portals, image generation, and chat. It does not claim that the delivered build was inspected or that any case passed.

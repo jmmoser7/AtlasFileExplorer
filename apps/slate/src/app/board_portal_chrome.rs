@@ -797,7 +797,7 @@ pub(crate) fn maximized_host_rect(kind: PortalKind, node: WorldRect, screen: Rec
     }
 }
 
-fn fit_xf(world: WorldRect, dest: Rect) -> BoardXf {
+pub(crate) fn fit_xf(world: WorldRect, dest: Rect) -> BoardXf {
     let z = (dest.width() / world.w.max(1.0)).min(dest.height() / world.h.max(1.0));
     BoardXf {
         center: dest.center(),

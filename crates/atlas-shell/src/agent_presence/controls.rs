@@ -11,6 +11,10 @@ pub(super) fn show(
     header: Rect,
     actions: &mut Vec<PresenceAction>,
 ) {
+    if p.inactive {
+        state.popover = None;
+        return;
+    }
     let Some(
         popover @ (Popover::Advanced | Popover::Retirement | Popover::Provider | Popover::More),
     ) = state.popover

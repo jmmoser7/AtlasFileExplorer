@@ -155,7 +155,8 @@
       ],
       "steps": [
         "Ask the agent to add/open File Atlas, wait for enumeration, and for each of the three exact returned fixture locators highlight and read that file.",
-        "Keep each analysis active long enough to inspect its highlight, then complete or cancel the request."
+        "Keep each analysis active long enough to inspect its highlight, then complete or cancel the request.",
+        "Maximize File Atlas while a read is pending; verify the read finishes without changing source files or the human camera."
       ],
       "checks": [
         {
@@ -173,6 +174,10 @@
         {
           "id": "human-state",
           "expected": "Highlight/read leaves human selection and camera unchanged; stale generations, traversal, out-of-root links, and cloud placeholders are refused."
+        },
+        {
+          "id": "maximized-read",
+          "expected": "A pending authorized read completes while File Atlas is maximized. In-view presence uses the existing portal projection; hiding board chrome does not leave the read indefinitely busy."
         }
       ]
     },
@@ -189,7 +194,8 @@
       ],
       "steps": [
         "Ask the agent to add/open the test Web portal on the board, then leave it at that board position during the following interactions.",
-        "Ask the agent to inspect the live portal, navigate to a benign page, type into a test field, click, scroll, send a key, and capture the displayed state."
+        "Ask the agent to inspect the live portal, navigate to a benign page, type into a test field, click, scroll, send a key, and capture the displayed state.",
+        "Repeat a read and an input action with the portal maximized; move the human pointer during the action and restore the board afterward."
       ],
       "checks": [
         {
@@ -207,6 +213,10 @@
         {
           "id": "takeover-revoke",
           "expected": "Human takeover releases agent focus; terminal requests or revocation remove only request-owned focus/highlights, and the board is not repositioned."
+        },
+        {
+          "id": "maximized-work",
+          "expected": "Pending reads and page calls finish in maximized view. The avatar reaches the actual page contact through the same fitted host transform; visible work stays witnessed and human input retains priority."
         }
       ]
     },
@@ -424,12 +434,17 @@
         "Use a disposable workbook and a test folder granted through the ordinary consent flow. Record the fixture path and tested executable identity."
       ],
       "steps": [
-        "Save and reopen the workbook, inspect the persisted grant and perform a bounded file read; inspect avatars and hats during the same session."
+        "Save and reopen the workbook, inspect the persisted grant and perform a bounded file read; inspect avatars and hats during the same session.",
+        "Close and relaunch Slate with a saved non-retired agent and an unsent draft. Open its normal capsule, inspect history and draft before resuming, then use explicit Resume or Send. Verify retired identities remain in Advanced."
       ],
       "checks": [
         {
           "id": "persisted-grant",
-          "expected": "The intended grant persists across save/reopen and remains scoped to the same root; revocation takes effect."
+          "expected": "Saved human consent policy remains scoped to the same workbook/root. Explicit rejoin creates fresh ephemeral authority under that policy; revocation takes effect."
+        },
+        {
+          "id": "saved-inactive-chat",
+          "expected": "The saved identity is available in the normal roster with history, text and image draft intact, without automatically starting a task. Resume or accepted Send creates a fresh session; no old job or grant is restored. Explicitly retired identities do not rejoin on Send."
         },
         {
           "id": "pr59-hat-clipping",
@@ -446,7 +461,7 @@
         "agent-tools-2026-10-18"
       ],
       "setup": [
-        "Use the recovered SlateTestPresentation.slate and rebuilt candidate identified below. The production binary is available, but the native workflow has not resumed because Windows is locked. Do not interact with a locked desktop."
+        "Use the recovered SlateTestPresentation.slate and rebuilt candidate identified below. Record the exact executable for each run, retaining partial results under their own build identity. Do not interact with a locked desktop."
       ],
       "steps": [
         "After the human unlocks, confirm the actual running executable path, modified time, SHA-256 and source identity before beginning a fresh native run. Retain earlier results under their original build identity."
@@ -454,7 +469,7 @@
       "checks": [
         {
           "id": "candidate-available",
-          "expected": "The rebuilt 19 October candidate remains pending until its hash and delivery identity are supplied; do not infer availability from build logs."
+          "expected": "The candidate exists at the recorded path with the recorded hash and delivery identity; do not infer availability from build logs."
         },
         {
           "id": "identity-recorded",
@@ -470,11 +485,11 @@
   "candidateBuild": {
     "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/target/release/slate.exe",
     "size": 50812416,
-    "modified_utc": "2026-10-19T18:25:12.9064332Z",
-    "version": "19 October workflow repair, source ab8a8aef",
-    "sha256": "DBE3A962A12B025D1995690F5EB3A1CFB8F2567E039114BCCF26B17C85810452",
+    "modified_utc": "2026-10-19T19:21:42.7657348Z",
+    "version": "19 October native motion/preview/consent repair, production source 1eb9d605; test fixture eb4e8f81",
+    "sha256": "4C0489F6BF5E764FE2991D03EAC0E826385892ACCCCA0E49EEBB9AD5551DBE6E",
     "tested_interactively": false,
     "available": true
   },
-  "automatedEvidence": "PR 63 contains the source and automated checks. Build ab8a8aef passed local all-target release Clippy and production compilation; exact executable metadata is recorded above. Native UI testing awaits desktop unlock and every case remains Untested for this build. Retained evidence: target/review/research-workflow-20261019. No automated result prefills a native verdict."
+  "automatedEvidence": "Local Windows motion replay-cap regression and all-target release Clippy passed. Production build succeeded; exact executable metadata is recorded above. The 193-node native checkpoint preserves all 74 original nodes unchanged; eight slide bodies remain unfinished. The continuation exposed a further maximized-portal scheduler defect; that repair and saved inactive-chat access are in progress and are not in this executable. Human Google/EPA origin approvals remain pending. Every interactive verdict remains blank; automated results never prefill a native verdict. Retained evidence: target/review/research-workflow-20261019."
 }

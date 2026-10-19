@@ -245,6 +245,12 @@ impl SlateApp {
             Pause { id, paused } => {
                 if paused {
                     self.set_presence_paused(&id, true, PauseCause::Human)?;
+                } else if !self.presence.agents.iter().any(|agent| {
+                    agent.profile.id == id
+                        && agent.tab == self.tab().id
+                        && agent.departure.is_none()
+                }) {
+                    self.ensure_saved_presence_joined(&id)?;
                 } else {
                     self.presence_resume_chat(&id)?;
                 }

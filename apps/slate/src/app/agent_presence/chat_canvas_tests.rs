@@ -30,7 +30,8 @@ fn transcript_shortcuts_precede_board_commands_without_claiming_board_or_compose
         f.h.ctx
             .layer_transform_to_global(expansion.layer_id)
             .unwrap_or_default();
-    let visible_text = text_rect_global.intersect(expansion_to_global * expansion.rect);
+    let chat_rect = expansion_to_global * expansion.rect;
+    let visible_text = text_rect_global.intersect(chat_rect);
     assert!(
         visible_text.is_positive(),
         "message selection band is visible in chat"
@@ -69,7 +70,14 @@ fn transcript_shortcuts_precede_board_commands_without_claiming_board_or_compose
         )),
         "native Copy must include both speakers"
     );
-    let board = f.h.app.canvas_rect.left_center() + Vec2::new(40.0, 0.0);
+    let canvas = f.h.app.canvas_rect;
+    let board = [
+        canvas.left_center() + Vec2::new(40.0, 0.0),
+        canvas.right_center() - Vec2::new(40.0, 0.0),
+    ]
+    .into_iter()
+    .find(|point| !chat_rect.contains(*point))
+    .expect("the board pointer must be outside the open chat");
     f.input(|i| {
         i.modifiers = egui::Modifiers::COMMAND;
         i.events

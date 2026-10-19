@@ -1398,7 +1398,7 @@ impl SlateApp {
         brush_prof::lap("collect");
         board_path::tiles::paint_rest(self, ui, &painter, &xf, rect, &nodes);
         self.paint_fading_curves(ui, &painter, &xf);
-        self.paint_presence_proposals(ui, &painter, &xf);
+        self.paint_presence_proposals(ui, &painter, &xf, None);
         self.paint_presence(&painter, &xf);
         drop(_nodes_span);
         brush_prof::lap("nodes");

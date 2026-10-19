@@ -84,9 +84,14 @@ research workflow evidence is under `target/review/research-workflow-20261019`,
 including the original workbook, recovery-preservation record, source fixtures,
 and build/test logs. Software captures use the production board painter with
 synthetic fixture content; they are not native pointer/GPU or human acceptance.
-The 19 October candidate has been rebuilt, but native delivery and its exact
-binary identity remain pending. Record the candidate hash and build identity
-before starting a fresh native run.
+The current native run uses `target/release/slate.exe`, SHA256
+`4C0489F6BF5E764FE2991D03EAC0E826385892ACCCCA0E49EEBB9AD5551DBE6E`,
+50,812,416 bytes, built at `2026-10-19T19:21:42.7657348Z`. Its production
+source is `1eb9d605`; `eb4e8f81` additionally corrects a test fixture's clock.
+The saved checkpoint contains 193 nodes, with all 74 original nodes unchanged.
+Eight new slide frames exist, but their bodies and the complete workflow remain
+unfinished. The run exposed a further scheduler defect when a Web portal is
+maximized; that repair and saved inactive-conversation access are in progress.
 No source-write or security-policy exception is introduced.
 
 Image inspection uses bounded displayed-image PNGs rather than returning an
@@ -97,6 +102,7 @@ it changes no package versions, features, toolchain, build profile or output pat
 Tests of this adapter are protocol/transport evidence, separate from a live model
 vision turn.
 
-The 19 October production candidate is now built (source ab8a8aef; exact identity
-is embedded in the evaluation document). Native workflow testing awaits desktop
-unlock. Its cases remain Untested; compilation is not native acceptance.
+The desktop is unlocked. Google and EPA origin approval remains a human action;
+no approval has been automated. The evaluation cases remain Untested for this
+binary until their recorded native steps are completed. Compilation and the
+partial research board are not complete workflow acceptance.

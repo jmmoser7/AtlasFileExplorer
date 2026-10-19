@@ -3,8 +3,7 @@ use super::*;
 use slate_doc::scene::WorldRect;
 
 impl SlateApp {
-    /// Change only the local grant for this portal's remote origin.
-    /// Revocation also closes the page so the denied origin stops running.
+    /// Change the local grant for this portal; revocation also closes the page.
     pub(crate) fn set_web_portal_consent(&mut self, id: NodeId, allow: bool) -> Option<String> {
         let node = self.doc().scene.node(id)?;
         let NodeKind::Portal(portal) = &node.kind else {
@@ -141,6 +140,7 @@ impl SlateApp {
         }
         let web = portal.web_ref();
         let maximized = self.portal_chrome.maximized == Some(id);
+        self.require_maximized_web_input_owner(id)?;
         let css_rect = self.web_layout_world(id, node.rect, ctx);
         let (width, height) = css_size(&web, css_rect);
         if x < 0.0 || y < 0.0 || x >= width as f32 || y >= height as f32 {
@@ -157,23 +157,28 @@ impl SlateApp {
             self.portal_chrome_collapsed(id),
             maximized,
             self.node_resolved_corner(node),
-            xf.z,
+            if maximized { 1.0 } else { xf.z },
         );
         layout.retract_when_idle(ctx, id, self.web.focused == Some(id));
-        // The Web body and human input use the unrotated screen frame; only
-        // the board hit shape is rotated, so do not rotate this contact point.
+        // Page input uses the unrotated screen frame, not the rotated hit shape.
         let point = super::input::screen_point_for_css(&layout, width as f32, height as f32, x, y);
         if !super::page_owns_point(&layout, point) {
             return Err("Input point is covered by Web portal chrome".into());
         }
-        let world = xf.s2w(point);
-        if self.board_pick_node_with_locked(world.x, world.y, true) != Some(id) {
+        let contact_xf = if maximized {
+            super::super::board_portal_chrome::fit_xf(node.rect, layout.body)
+        } else {
+            xf
+        };
+        let world = contact_xf.s2w(point);
+        if !maximized && self.board_pick_node_with_locked(world.x, world.y, true) != Some(id) {
             return Err("Input point is covered by another board object".into());
         }
         Ok((f64::from(world.x), f64::from(world.y)))
     }
 
     pub(crate) fn agent_web_input(&mut self, id: NodeId, input: WebInput) -> Result<(), String> {
+        self.require_maximized_web_input_owner(id)?;
         let portal = self.require_agent_web(id)?;
         let source = portal.source.as_ref().ok_or("Web portal has no source")?;
         if let Some(origin) = web_origin(&source.locator) {
@@ -195,9 +200,9 @@ impl SlateApp {
         Ok(())
     }
 
-    /// Acquire the existing Web input slot without taking board contents or
-    /// OS focus. A human-owned contents slot always wins.
+    /// Acquire Web input without taking board contents or OS focus.
     pub(crate) fn agent_web_focus(&mut self, id: NodeId, request: &str) -> Result<(), String> {
+        self.require_maximized_web_input_owner(id)?;
         self.agent_web_check_scope(id)?;
         if let Some(owner) = self.portals.contents {
             return Err(format!("Portal contents are in human use ({})", owner.0));
@@ -223,8 +228,7 @@ impl SlateApp {
         Ok(())
     }
 
-    /// Release only the lease owned by this request. A human takeover clears
-    /// the lease first and is therefore never blurred here.
+    /// Release only this request's lease; human takeover clears it first.
     pub(crate) fn agent_web_release_focus(&mut self, request: &str) -> bool {
         let Some((id, owner)) = self.web.agent_focus_lease.as_ref() else {
             return false;
@@ -253,6 +257,13 @@ impl SlateApp {
             _ => Err("Target is not a Web portal".into()),
         }
     }
+
+    fn require_maximized_web_input_owner(&self, id: NodeId) -> Result<(), String> {
+        match self.portal_chrome.maximized {
+            Some(owner) if owner != id => Err("Another portal is maximized; restore the board or maximize this Web portal before sending page input".into()),
+            _ => Ok(()),
+        }
+    }
 }
 
 fn web_consent_denial(id: NodeId, origin: &str) -> String {
@@ -273,8 +284,7 @@ mod tests {
         h.app
             .paste_web_url("https://example.com/dashboard", egui::Pos2::ZERO);
         let (id, _) = only_portal(&h);
-        // Pasting a URL is itself human consent. Model a reopened/unapproved
-        // portal explicitly before checking the agent denial path.
+        // Pasting a URL is human consent; model reopened, unapproved pages explicitly.
         assert_eq!(
             h.app.set_web_portal_consent(id, false).as_deref(),
             Some("https://example.com")
@@ -338,8 +348,7 @@ mod tests {
             .iter()
             .any(|event| matches!(event, WebInput::Text('x'))));
 
-        // A human entering the same portal takes the existing focus path and
-        // clears the agent's ownership marker.
+        // Human entry uses the existing focus path and clears agent ownership.
         h.app.web_focus(id);
         assert_eq!(h.app.portals.contents, Some(id));
         assert_eq!(h.app.web.agent_focus_lease, None);
@@ -471,9 +480,7 @@ mod tests {
         h.frame();
         h.app.doc_mut().scene.node_mut(id).unwrap().rect.x = 100_000.0;
         h.frame();
-        // Visibility recorded by the preceding board paint feeds the next
-        // admission pass. Let that cached on-screen observation expire before
-        // asserting that the portal is genuinely offscreen.
+        // Let cached visibility from the preceding paint expire before asserting offscreen.
         h.frame();
         assert!(!h.app.web.is_live(id));
         let camera = h.app.tab().cam;

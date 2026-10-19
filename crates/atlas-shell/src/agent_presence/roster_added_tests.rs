@@ -67,6 +67,76 @@ fn busy_chat_keeps_the_composer_live_and_shows_only_public_progress() {
 }
 
 #[test]
+fn inactive_saved_chat_shows_history_and_resume_without_starting_work() {
+    let mut f = Fixture::new();
+    f.inactive = true;
+    f.status = "Saved · inactive".into();
+    f.drafts
+        .insert("dot".into(), "Continue from my draft".into());
+    f.state.open_chat("dot");
+    let open_actions = f.frame(vec![]).0;
+    assert!(
+        open_actions.is_empty(),
+        "opening chat must not start a session"
+    );
+    let out = f.settle();
+    assert_eq!(f.state.active_chat(), Some("dot"));
+    assert!(text_rect(&out, "Saved · inactive").is_some());
+    assert!(
+        text_rect(&out, &f.message_text).is_some(),
+        "saved history stays readable"
+    );
+
+    let resume = visual::screen_response(&f, Id::new(("dot", "Resume")))
+        .0
+        .center();
+    assert!(f.click(resume).contains(&PresenceAction::Pause {
+        id: "dot".into(),
+        paused: false,
+    }));
+    for label in ["Find on board", "Pause", "Stop task"] {
+        assert!(f.ctx.read_response(Id::new(("dot", label))).is_none());
+    }
+    assert!(f
+        .ctx
+        .read_response(Id::new(("provider-toggle", "dot")))
+        .is_none());
+    assert!(f
+        .ctx
+        .read_response(Id::new(("conversation-more", "dot")))
+        .is_none());
+
+    let send = visual::screen_response(&f, Id::new(("presence-send", "dot")))
+        .0
+        .center();
+    assert!(f.click(send).contains(&PresenceAction::Send {
+        id: "dot".into(),
+        text: "Continue from my draft".into(),
+    }));
+}
+
+#[test]
+fn inactive_image_only_draft_is_visible_sendable_and_retained_by_the_surface() {
+    let mut f = Fixture::new();
+    f.inactive = true;
+    f.status = "Saved · inactive".into();
+    f.attachments = vec!["draft reference.png".into()];
+    f.drafts.insert("dot".into(), String::new());
+    f.state.open_chat("dot");
+    let out = f.settle();
+    assert!(text_rect(&out, "draft reference.png").is_some());
+
+    let send = visual::screen_response(&f, Id::new(("presence-send", "dot")))
+        .0
+        .center();
+    assert!(f.click(send).contains(&PresenceAction::Send {
+        id: "dot".into(),
+        text: String::new(),
+    }));
+    assert_eq!(f.attachments, ["draft reference.png"]);
+}
+
+#[test]
 fn composer_exposes_attachment_picker_and_removable_local_chips() {
     let mut f = Fixture::new();
     f.attachments = vec!["reference.png".into()];

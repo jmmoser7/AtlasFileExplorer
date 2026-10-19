@@ -1,5 +1,25 @@
 //! Durable visible conversation, independent of live presence and vendor sessions.
 use super::*;
+
+pub(super) fn conversation_messages(
+    conversation: &Conversation,
+) -> Vec<chrome::ConversationMessage<'_>> {
+    conversation
+        .turns
+        .iter()
+        .map(|turn| chrome::ConversationMessage {
+            id: &turn.id,
+            text: &turn.text,
+            outgoing: turn.role == "user",
+            system: turn.role == "system",
+            status: &turn.status,
+            attachment_count: conversation
+                .message_images
+                .get(&turn.request)
+                .map_or(0, Vec::len),
+        })
+        .collect()
+}
 mod changes;
 pub(super) use changes::ConversationChange;
 use changes::ConversationRuntime;
@@ -302,6 +322,61 @@ impl Conversation {
 }
 
 impl SlateApp {
+    pub(super) fn presence_draft_attachments(&self, who: &str) -> Vec<chrome::Attachment<'_>> {
+        self.presence_conversation(who)
+            .into_iter()
+            .flat_map(|conversation| &conversation.draft_images)
+            .map(|path| chrome::Attachment {
+                name: path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("Image"),
+            })
+            .collect()
+    }
+
+    pub(super) fn saved_presence_participant<'a>(
+        &'a self,
+        profile: &'a StoredAgent,
+        messages: &'a [chrome::ConversationMessage<'a>],
+        message_total: usize,
+        copy_messages: Option<&'a [chrome::ConversationMessage<'a>]>,
+        attachments: &'a [chrome::Attachment<'a>],
+        status: &'a str,
+    ) -> chrome::Participant<'a> {
+        chrome::Participant {
+            id: &profile.id,
+            name: &profile.name,
+            hat: &profile.hat,
+            status,
+            provider: &profile.provider,
+            human: false,
+            inactive: true,
+            paused: true,
+            autonomous: false,
+            full_access: false,
+            file_inputs: false,
+            own_chats: false,
+            parent_name: None,
+            chats: &[],
+            local_profile: false,
+            photo_texture: None,
+            busy: false,
+            messages,
+            copy_messages,
+            activity: &[],
+            attachments,
+            message_total,
+            proposals: &[],
+            draft: self
+                .presence_conversation(&profile.id)
+                .map_or("", |conversation| conversation.draft.as_str()),
+            queued_provider: None,
+            model: "",
+            models: &[],
+        }
+    }
+
     pub(crate) fn presence_conversation(&self, who: &str) -> Option<&Conversation> {
         self.presence.conversations.get(who)
     }
@@ -321,6 +396,7 @@ impl SlateApp {
             return self.presence_send_human(who, text);
         }
         if who != "self" {
+            self.ensure_saved_presence_joined(who)?;
             let text = if text.trim().is_empty()
                 && self
                     .presence_conversation(who)
