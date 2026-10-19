@@ -56,7 +56,12 @@ fn transcript_shortcuts_precede_board_commands_without_claiming_board_or_compose
         f.h.app.presence.chrome.transcript_selected(&f.who),
         "Ctrl+A on the visible selectable message row must select the transcript"
     );
-    let out = f.h.frame_output(|i| i.events.push(egui::Event::Copy));
+    f.time += 1.0 / 60.0;
+    let time = f.time;
+    let out = f.h.frame_output(|i| {
+        i.time = Some(time);
+        i.events.push(egui::Event::Copy);
+    });
     assert!(
         out.platform_output.commands.iter().any(|command| matches!(
             command, egui::OutputCommand::CopyText(text)
