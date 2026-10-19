@@ -2,8 +2,7 @@
 use super::board::BoardXf;
 use atlas_shell::canvas_scale;
 use eframe::egui::{self, Color32, CursorIcon, Pos2, Rect, Stroke as EStroke, Vec2};
-use slate_doc::geom::CornerGripEdge;
-use slate_doc::scene::WorldRect;
+use slate_doc::{geom::CornerGripEdge, scene::WorldRect};
 
 /// Screen-px half-size of resize handles (matches board.rs).
 #[cfg(test)]
@@ -94,7 +93,7 @@ pub fn selection_geom(xf: &BoardXf, rect: WorldRect, rotation_deg: f32) -> Selec
 
 mod crop;
 #[cfg(test)]
-pub use crop::{crop_handle_at, CROP_ARM_PX, CROP_HIT_PAD_PX};
+pub use crop::{crop_handle_at, CROP_ARM_PX, CROP_BAR_THICK_PX, CROP_HIT_PAD_PX};
 pub use crop::{crop_handle_pick, paint_crop_handles};
 
 #[cfg(test)]

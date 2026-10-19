@@ -6,8 +6,7 @@
 //! through [`SlateApp::dispatch`] — the same entry the canvas palette, the
 //! dock toggles, and the menu bar use, so every input modality drives one
 //! command surface (Constitution Art. VII/VIII). Every dispatched command
-//! pushes a [`HistoryEntry`] (the F2 window's data and the Space/Enter
-//! repeat source).
+//! pushes a [`HistoryEntry`] for F2 and Space/Enter repeat.
 //!
 //! Specially handled (not chord table rows): Space-tap / Enter-idle repeat,
 //! the Esc cancel stack ([`atlas_commands::cancel_target`]), Tab cycling,

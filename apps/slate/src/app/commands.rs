@@ -5,9 +5,8 @@
 //! Commands are data ([`atlas_commands::CommandSpec`]): the reference UI, the
 //! canvas palette, keyboard dispatch (`dispatch.rs`), and the F2 history all
 //! read this one table, so they can never disagree (Constitution Art. VII).
-//! Rows with `chord: None` are documentation for mouse gestures or keys that
-//! are handled specially (Space/Enter repeat, Esc, Tab, arrows) or locally in
-//! the board canvas.
+//! Rows with `chord: None` document mouse gestures or specially handled keys.
+//! Space/Enter repeat, Esc, Tab and arrows are handled locally by the canvas.
 use atlas_commands::{Availability, Chord, CommandId, CommandSpec, Key, Repeat};
 pub use atlas_shell::commands::{CommandEntry, TurboPanState};
 const GLOBAL: Availability = Availability::GLOBAL;
