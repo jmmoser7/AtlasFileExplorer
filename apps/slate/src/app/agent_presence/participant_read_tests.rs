@@ -301,7 +301,7 @@ fn participant_reads_keep_parent_isolation_and_expired_scope_pruning() {
         limit: 8,
         text_cursor: Some(0),
         text_limit: Some(1024),
-        text_generation: None,
+        text_generation: Some(h.app.presence.helper_results[1].request_id.clone()),
     };
     let refused_page = read(&mut h, &page);
     assert!(!refused_page.success);
@@ -392,10 +392,14 @@ fn participant_dispatch_enforces_duplicate_sequences_and_action_limits() {
     duplicate.id = "different-call-same-sequence".into();
     let refused = read(&mut h, &duplicate);
     assert!(!refused.success);
-    assert!(refused.result["error"]
-        .as_str()
-        .unwrap()
-        .contains("duplicate sequence"));
+    assert!(
+        refused.result["error"]
+            .as_str()
+            .unwrap()
+            .contains("Duplicate board call sequence"),
+        "{:?}",
+        refused.result
+    );
     assert_eq!(h.app.presence.agents[0].calls, 1);
     let query = call(&h, 1, vec![], 0);
     assert!(read(&mut h, &query).success);

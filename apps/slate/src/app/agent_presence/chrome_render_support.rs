@@ -401,9 +401,10 @@ pub(super) fn rect_json(rect: Rect) -> serde_json::Value {
     json!([rect.min.x, rect.min.y, rect.max.x, rect.max.y])
 }
 pub(super) fn has(out: &egui::FullOutput, text: &str) {
+    let observed = painted_strings(out);
     assert!(
-        painted_strings(out).iter().any(|s| s.contains(text)),
-        "not painted: {text}"
+        observed.iter().any(|s| s.contains(text)),
+        "not painted: {text}; painted strings: {observed:?}"
     );
 }
 

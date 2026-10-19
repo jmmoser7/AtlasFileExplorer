@@ -273,6 +273,13 @@ mod tests {
         h.app
             .paste_web_url("https://example.com/dashboard", egui::Pos2::ZERO);
         let (id, _) = only_portal(&h);
+        // Pasting a URL is itself human consent. Model a reopened/unapproved
+        // portal explicitly before checking the agent denial path.
+        assert_eq!(
+            h.app.set_web_portal_consent(id, false).as_deref(),
+            Some("https://example.com")
+        );
+        assert!(!h.app.web.has_consent("https://example.com"));
 
         let error = h.app.agent_web_check_scope(id).unwrap_err();
 

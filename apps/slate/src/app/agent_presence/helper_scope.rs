@@ -158,13 +158,16 @@ mod tests {
 
     #[test]
     fn retained_public_result_caps_at_utf8_boundary_and_keeps_original_byte_count() {
-        let source = "🦀".repeat(RETAINED_RESULT_MAX_BYTES / 2 + 1);
+        let source = format!("{}🦀tail", "a".repeat(RETAINED_RESULT_MAX_BYTES - 2));
+        assert!(!source.is_char_boundary(RETAINED_RESULT_MAX_BYTES));
         let (retained, total_bytes, truncated) = retain_public_text(&source);
         assert!(retained.len() <= RETAINED_RESULT_MAX_BYTES);
         assert!(retained.is_char_boundary(retained.len()));
         assert_eq!(total_bytes, source.len());
+        assert_eq!(total_bytes, RETAINED_RESULT_MAX_BYTES + 6);
         assert!(truncated);
-        assert_eq!(retained.len() + 2, total_bytes);
+        assert_eq!(retained.len(), RETAINED_RESULT_MAX_BYTES - 2);
+        assert_eq!(retained, "a".repeat(RETAINED_RESULT_MAX_BYTES - 2));
     }
 
     #[test]

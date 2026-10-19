@@ -91,7 +91,7 @@ fn participant_descriptors_include_slide_order_and_basic_authored_styles() {
         .app
         .presence_object_descriptor(h.app.doc().scene.node(shape_id).unwrap(), grant);
     assert_eq!(shape["z_index"], 1);
-    assert_eq!(shape["opacity"], 0.45);
+    assert!((shape["opacity"].as_f64().unwrap() - 0.45).abs() < 1e-6);
     assert_eq!(shape["style"]["fill"][0], 1);
     assert_eq!(shape["style"]["corner"]["chamfer"]["cut"], 4.0);
     assert_eq!(shape["text_style"]["font"], "Serif");
