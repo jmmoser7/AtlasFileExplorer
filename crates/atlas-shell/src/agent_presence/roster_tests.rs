@@ -332,8 +332,9 @@ fn busy_harness_selection_requires_a_timing_choice_and_same_harness_is_inert() {
 fn editing_emits_a_durable_draft_and_escape_does_not_discard_it() {
     let mut f = Fixture::new();
     f.open_chat("dot");
-    let r = f.state.last_popup_rect;
-    f.click(Pos2::new(r.left() + 80.0, r.bottom() - 44.0));
+    let composer = Id::new(("presence-composer", "dot"));
+    f.click(visual::screen_response(&f, composer).0.center());
+    assert_eq!(f.ctx.memory(|memory| memory.focused()), Some(composer));
     let actions = f
         .frame(vec![egui::Event::Text("Keep these images together".into())])
         .0;
