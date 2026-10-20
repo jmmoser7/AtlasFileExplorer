@@ -350,7 +350,7 @@ fn fillet_grip_screen_round_trips_the_radius_reader() {
 
 #[test]
 fn same_projected_size_has_same_controls_across_world_sizes_and_zoom() {
-    let at = |world_scale, zoom| {
+    let at = |world_scale: f32, zoom: f32| {
         selection_geom(
             &BoardXf {
                 center: Pos2::ZERO,

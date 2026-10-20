@@ -57,13 +57,13 @@ pub(super) fn resize_pick(screen: Pos2, geom: &SelectionGeom) -> Option<(ResizeH
         }
     }
     if let Some(reach) = Domain::Resize.reach(geom.projected_shortest, EDGE_BAND_PX) {
-        for i in 0..4 {
+        for (i, &handle) in EDGES.iter().enumerate() {
             let field = Field::Segment {
                 a: geom.control_corners[i],
                 b: geom.control_corners[(i + 1) % 4],
             };
             if let Some(distance) = field.pick(screen, screen, reach) {
-                consider(EDGES[i], 0.65 + 0.25 * distance);
+                consider(handle, 0.65 + 0.25 * distance);
             }
         }
     }

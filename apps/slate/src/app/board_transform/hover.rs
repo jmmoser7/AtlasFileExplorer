@@ -170,10 +170,9 @@ impl SlateApp {
                             - geom.projected_shortest)
                             * 0.5
                             / xf.z.max(0.001)))
+                && !self.node_controls_buried(n, &xf)
             {
-                if !self.node_controls_buried(n, &xf) {
-                    best = Some((n, board_handles::BoardHitTarget::Body, None));
-                }
+                best = Some((n, board_handles::BoardHitTarget::Body, None));
             }
         }
         best.map(|(node, hit, _)| (Some(node.id), hit))

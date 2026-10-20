@@ -156,6 +156,7 @@ pub fn hit_test_resize_handles(screen: Pos2, geom: &SelectionGeom) -> Option<Res
 }
 
 /// Continuous adaptive chrome: corner discs and full-edge bands.
+#[cfg(test)]
 pub fn hit_test_resize_bands(screen: Pos2, geom: &SelectionGeom) -> Option<ResizeHandle> {
     adaptive::resize_pick(screen, geom).map(|(handle, _)| handle)
 }

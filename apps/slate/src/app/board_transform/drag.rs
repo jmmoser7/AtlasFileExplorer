@@ -321,7 +321,7 @@ impl SlateApp {
             return Vec2::ZERO;
         }
         let i = handle as usize;
-        let anchor = if i % 2 == 0 {
+        let anchor = if i.is_multiple_of(2) {
             geom.corners[i / 2]
         } else {
             geom.edges[i / 2]
