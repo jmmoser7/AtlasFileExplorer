@@ -58,31 +58,13 @@ impl Draft {
     /// A competing save can win a name between attempts; publication then
     /// fails with AlreadyExists and we try the next number with the same draft.
     pub(crate) fn commit_unique(self) -> Result<PathBuf, String> {
-        let stem = self
-            .destination
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy();
-        let (base, first) = stem
-            .rsplit_once('_')
-            .filter(|(_, suffix)| suffix.len() >= 3 && suffix.bytes().all(|b| b.is_ascii_digit()))
-            .and_then(|(base, suffix)| suffix.parse::<u64>().ok().map(|n| (base, n)))
-            .unwrap_or((&stem, 0));
         let mut candidate = self.destination.clone();
-        let mut number = first;
         loop {
             match publish(self.path(), &candidate, false) {
                 Ok(()) => return Ok(candidate),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    number = number
-                        .checked_add(1)
+                    candidate = Self::next_numbered_path(&candidate)
                         .ok_or("The image filename number is too large.")?;
-                    let mut name = std::ffi::OsString::from(format!("{base}_{number:03}"));
-                    if let Some(extension) = self.destination.extension() {
-                        name.push(".");
-                        name.push(extension);
-                    }
-                    candidate.set_file_name(name);
                 }
                 Err(error) => {
                     return Err(format!(
@@ -91,6 +73,35 @@ impl Draft {
                 }
             }
         }
+    }
+
+    /// Advisory only: probe on the save worker, never the frame thread.
+    pub(crate) fn next_available_path(after: &Path) -> Option<PathBuf> {
+        let mut candidate = Self::next_numbered_path(after)?;
+        loop {
+            match std::fs::symlink_metadata(&candidate) {
+                Ok(_) => candidate = Self::next_numbered_path(&candidate)?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Some(candidate)
+                }
+                Err(_) => return None,
+            }
+        }
+    }
+
+    fn next_numbered_path(path: &Path) -> Option<PathBuf> {
+        let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+        let (base, number) = stem
+            .rsplit_once('_')
+            .filter(|(_, suffix)| suffix.len() >= 3 && suffix.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|(base, suffix)| suffix.parse::<u64>().ok().map(|n| (base, n)))
+            .unwrap_or((&stem, 0));
+        let mut name = std::ffi::OsString::from(format!("{base}_{:03}", number.checked_add(1)?));
+        if let Some(extension) = path.extension() {
+            name.push(".");
+            name.push(extension);
+        }
+        Some(path.with_file_name(name))
     }
 }
 

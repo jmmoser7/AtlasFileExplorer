@@ -61,10 +61,16 @@ struct SavePick {
     destination: Option<PathBuf>,
 }
 
+#[derive(Debug)]
+struct SavedImages {
+    paths: Vec<PathBuf>,
+    next_single: Vec<PathBuf>,
+}
+
 struct SaveWork {
     target: SaveTarget,
     workbook: Option<PathBuf>,
-    receiver: Receiver<Result<Vec<PathBuf>, String>>,
+    receiver: Receiver<Result<SavedImages, String>>,
 }
 
 #[derive(Default)]
@@ -73,6 +79,21 @@ pub(super) struct SaveController {
     naming: Option<BatchSave>,
     picker: Option<FilePicker<SavePick>>,
     worker: Option<SaveWork>,
+    next_single: Vec<PathBuf>,
+}
+
+impl SaveController {
+    fn single_save_path(&self, extension: &str) -> PathBuf {
+        self.next_single
+            .iter()
+            .find(|path| {
+                path.extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case(extension))
+            })
+            .cloned()
+            .unwrap_or_else(|| format!("render scene.{extension}").into())
+    }
 }
 
 impl SlateApp {
@@ -233,12 +254,25 @@ impl SlateApp {
         let request = if names.is_some() {
             PickRequest::folder().title("Choose folder for images")
         } else {
-            PickRequest::save()
+            let suggested = self
+                .agents
+                .flow
+                .results
+                .save
+                .single_save_path(&snapshot.extensions[0]);
+            let request = PickRequest::save()
                 .title("Save image as")
-                .file_name(format!("render scene.{}", snapshot.extensions[0]))
+                .file_name(suggested.file_name().unwrap_or_default().to_string_lossy())
                 .filter("PNG", &["png"])
                 .filter("JPEG", &["jpg", "jpeg"])
-                .filter("WebP", &["webp"])
+                .filter("WebP", &["webp"]);
+            match suggested
+                .parent()
+                .filter(|path| !path.as_os_str().is_empty())
+            {
+                Some(directory) => request.directory(directory),
+                None => request,
+            }
         };
         let mut picker = self
             .agents
@@ -330,23 +364,28 @@ impl SlateApp {
             let work = self.agents.flow.results.save.worker.take().unwrap();
             if work.target.valid(&work.workbook, self) {
                 match result {
-                    Ok(paths) => match paths.as_slice() {
-                        [path] => self.toast(format!(
-                            "Saved image as {}.",
-                            path.file_name()
-                                .unwrap_or(path.as_os_str())
-                                .to_string_lossy()
-                        )),
-                        _ => self.toast(format!(
-                            "Saved {} images to {}.",
-                            paths.len(),
-                            paths
-                                .first()
-                                .and_then(|path| path.parent())
-                                .unwrap_or_else(|| std::path::Path::new("."))
-                                .display()
-                        )),
-                    },
+                    Ok(SavedImages { paths, next_single }) => {
+                        if paths.len() == 1 {
+                            self.agents.flow.results.save.next_single = next_single;
+                        }
+                        match paths.as_slice() {
+                            [path] => self.toast(format!(
+                                "Saved image as {}.",
+                                path.file_name()
+                                    .unwrap_or(path.as_os_str())
+                                    .to_string_lossy()
+                            )),
+                            _ => self.toast(format!(
+                                "Saved {} images to {}.",
+                                paths.len(),
+                                paths
+                                    .first()
+                                    .and_then(|path| path.parent())
+                                    .unwrap_or_else(|| std::path::Path::new("."))
+                                    .display()
+                            )),
+                        }
+                    }
                     Err(error) => self.toast(error),
                 }
             }

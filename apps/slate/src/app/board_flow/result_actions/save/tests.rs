@@ -29,7 +29,7 @@ fn batch_save_preserves_pixels_and_numbers_repeated_existing_destinations() {
         h.base.join("render scene_002.png"),
     ];
     assert_eq!(
-        worker::save(&snapshot, &destinations).unwrap(),
+        worker::save(&snapshot, &destinations).unwrap().paths,
         destinations
     );
     for (index, destination) in destinations.iter().enumerate() {
@@ -41,7 +41,7 @@ fn batch_save_preserves_pixels_and_numbers_repeated_existing_destinations() {
     let first_bytes = std::fs::read(&destinations[0]).unwrap();
     let second_bytes = std::fs::read(&destinations[1]).unwrap();
     assert_eq!(
-        worker::save(&snapshot, &destinations).unwrap(),
+        worker::save(&snapshot, &destinations).unwrap().paths,
         [
             h.base.join("render scene_003.png"),
             h.base.join("render scene_004.png"),
@@ -127,11 +127,14 @@ fn ordinary_image_save_keeps_edited_pixels_and_protects_original_source() {
     assert_eq!(
         worker::save(&snapshot, std::slice::from_ref(&destination))
             .unwrap()
+            .paths
             .as_slice(),
         std::slice::from_ref(&destination)
     );
     assert_eq!(
-        worker::save(&snapshot, std::slice::from_ref(&destination)).unwrap(),
+        worker::save(&snapshot, std::slice::from_ref(&destination))
+            .unwrap()
+            .paths,
         [h.base.join("edited_001.png")]
     );
     let actual = image::open(destination).unwrap().to_rgba8();
@@ -204,6 +207,16 @@ fn ordinary_image_picker_runs_the_shared_worker_without_relinking_its_source() {
     let snapshot = h.app.board_image_save_snapshot(id).unwrap();
     let destination = h.base.join("chosen.png");
     adopt_pick(&mut h, snapshot, Some(destination.clone()));
+    finish_save(&mut h);
+    assert_eq!(
+        std::fs::read(destination).unwrap(),
+        std::fs::read(&source).unwrap()
+    );
+    assert_eq!(h.app.doc().scene.node(id), Some(&original));
+    assert_eq!(h.app.image_item_path(id), Some(source));
+}
+
+fn finish_save(h: &mut crate::app::tests::Harness) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while h.app.agents.flow.results.save.worker.is_some() {
         h.app.result_save_input(&h.ctx);
@@ -213,12 +226,6 @@ fn ordinary_image_picker_runs_the_shared_worker_without_relinking_its_source() {
         );
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
-    assert_eq!(
-        std::fs::read(destination).unwrap(),
-        std::fs::read(&source).unwrap()
-    );
-    assert_eq!(h.app.doc().scene.node(id), Some(&original));
-    assert_eq!(h.app.image_item_path(id), Some(source));
 }
 
 #[test]
@@ -234,6 +241,7 @@ fn canvas_copy_uses_the_same_save_pipeline_as_ordinary_images() {
     assert_eq!(
         worker::save(&snapshot, std::slice::from_ref(&destination))
             .unwrap()
+            .paths
             .as_slice(),
         std::slice::from_ref(&destination)
     );
@@ -241,4 +249,61 @@ fn canvas_copy_uses_the_same_save_pipeline_as_ordinary_images() {
         std::fs::read(destination).unwrap(),
         std::fs::read(output.source).unwrap()
     );
+}
+
+#[test]
+fn repeated_single_save_defaults_skip_existing_suffixes_and_keep_cancelled_suggestion() {
+    let (mut h, id, _) = ordinary_image("save-next-default");
+    let snapshot = h.app.board_image_save_snapshot(id).unwrap();
+    assert_eq!(
+        h.app.agents.flow.results.save.single_save_path("png"),
+        PathBuf::from("render scene.png")
+    );
+    for number in [1, 3] {
+        std::fs::write(
+            h.base.join(format!("render scene_{number:03}.png")),
+            b"keep existing",
+        )
+        .unwrap();
+    }
+    let occupied_webp = h.base.join("render scene_004.webp");
+    std::fs::write(&occupied_webp, b"keep existing webp").unwrap();
+    let first = h.base.join("render scene.png");
+    adopt_pick(&mut h, snapshot.clone(), Some(first));
+    finish_save(&mut h);
+    let next = h.app.agents.flow.results.save.single_save_path("png");
+    assert_eq!(next, h.base.join("render scene_002.png"));
+    adopt_pick(&mut h, snapshot.clone(), None);
+    assert_eq!(h.app.agents.flow.results.save.single_save_path("png"), next);
+    adopt_pick(&mut h, snapshot, Some(next.clone()));
+    finish_save(&mut h);
+    assert!(next.is_file());
+    assert_eq!(
+        h.app.agents.flow.results.save.single_save_path("png"),
+        h.base.join("render scene_004.png")
+    );
+    let next_webp = h.app.agents.flow.results.save.single_save_path("webp");
+    assert_eq!(next_webp, h.base.join("render scene_003.webp"));
+    assert!(
+        !next_webp.exists(),
+        "alternate-format suggestion must have been probed"
+    );
+    assert_eq!(std::fs::read(occupied_webp).unwrap(), b"keep existing webp");
+    for number in [1, 3] {
+        assert_eq!(
+            std::fs::read(h.base.join(format!("render scene_{number:03}.png"))).unwrap(),
+            b"keep existing"
+        );
+    }
+}
+
+#[test]
+fn an_unavailable_next_number_does_not_fail_an_already_published_save() {
+    let (h, id, _) = ordinary_image("save-advisory-overflow");
+    let snapshot = h.app.board_image_save_snapshot(id).unwrap();
+    let destination = h.base.join("photo_18446744073709551615.png");
+    let saved = worker::save(&snapshot, std::slice::from_ref(&destination)).unwrap();
+    assert_eq!(saved.paths.as_slice(), std::slice::from_ref(&destination));
+    assert!(saved.next_single.is_empty());
+    assert!(destination.is_file());
 }

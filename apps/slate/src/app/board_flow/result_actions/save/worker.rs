@@ -42,7 +42,7 @@ pub(super) fn preferred_extension(
 pub(super) fn save(
     snapshot: &SaveSnapshot,
     destinations: &[PathBuf],
-) -> Result<Vec<PathBuf>, String> {
+) -> Result<SavedImages, String> {
     if destinations.len() != snapshot.nodes.len() {
         return Err("The image selection changed.".into());
     }
@@ -140,5 +140,17 @@ pub(super) fn save(
         }
         published.push(draft.commit_unique()?);
     }
-    Ok(published)
+    let next_single = match published.as_slice() {
+        [path] => ["png", "jpg", "jpeg", "webp"]
+            .iter()
+            .filter_map(|extension| {
+                output::Draft::next_available_path(&path.with_extension(extension))
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    Ok(SavedImages {
+        paths: published,
+        next_single,
+    })
 }
