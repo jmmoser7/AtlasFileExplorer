@@ -4,6 +4,9 @@ use super::*;
 
 mod album;
 
+#[cfg(test)]
+mod input_tests;
+
 impl SlateApp {
     /// What an agent adds to the picture it makes: the prompt docked along the
     /// bottom, progress, the run button, and squares under the card for every

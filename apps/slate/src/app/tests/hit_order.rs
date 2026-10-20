@@ -12,8 +12,12 @@ fn board(tag: &str) -> Harness {
 }
 
 fn image_over(h: &mut Harness, host: slate_doc::scene::WorldRect) -> NodeId {
-    let path = h.base.join(format!("pic-{}.png", now_nanos()));
-    image::RgbaImage::from_pixel(8, 8, image::Rgba([10, 20, 30, 255]))
+    image_file_over(h, host, "png")
+}
+
+fn image_file_over(h: &mut Harness, host: slate_doc::scene::WorldRect, ext: &str) -> NodeId {
+    let path = h.base.join(format!("pic-{}.{}", now_nanos(), ext));
+    image::RgbImage::from_pixel(8, 8, image::Rgb([10, 20, 30]))
         .save(&path)
         .unwrap();
     let item = h.app.add_paths(std::slice::from_ref(&path))[0];
@@ -183,6 +187,57 @@ fn unselected_image_moves_on_first_press_drag_and_one_undo_restores_it() {
     assert!(h.app.board_sel.contains(&image));
     h.app.board_undo();
     assert_eq!(h.app.doc().scene.node(image).unwrap().rect, before);
+}
+
+#[test]
+fn selected_image_yields_first_drag_to_another_image_in_both_format_orders() {
+    for (first_format, second_format) in [("png", "jpg"), ("jpg", "png")] {
+        let mut h = board("selected_image_first_drag");
+        let first = image_file_over(
+            &mut h,
+            WorldRect::new(-500.0, -150.0, 400.0, 300.0),
+            first_format,
+        );
+        let second = image_file_over(
+            &mut h,
+            WorldRect::new(100.0, -150.0, 400.0, 300.0),
+            second_format,
+        );
+        h.app.board_osnap.enabled = false;
+        h.app.board_smart_guides = false;
+        h.app.board_snap_grid = false;
+        h.app.board_sel.insert(first);
+        h.frame();
+        h.frame();
+        assert!(h.app.shape_properties.panel.is_none());
+        // Undo retains the moved image's selection. The next first drag
+        // must transfer that selection back without needing a preparatory click.
+        for target in [second, first] {
+            let other = if target == first { second } else { first };
+            let other_before = h.app.doc().scene.node(other).unwrap().rect;
+            let before = h.app.doc().scene.node(target).unwrap().rect;
+            let (_, start) = center_of(&h, target);
+            assert!(!h.app.board_sel.contains(&target));
+            crop_pointer(&mut h, start, Some(true));
+            crop_pointer(&mut h, start + EVec2::new(30.0, 20.0), None);
+            crop_pointer(&mut h, start + EVec2::new(60.0, 40.0), None);
+            crop_pointer(&mut h, start + EVec2::new(60.0, 40.0), Some(false));
+            let after = h.app.doc().scene.node(target).unwrap().rect;
+            let z = h.app.board_xf().z;
+            assert!(
+                (after.x - before.x - 60.0 / z).abs() < 0.1,
+                "{before:?} -> {after:?}"
+            );
+            assert!((after.y - before.y - 40.0 / z).abs() < 0.1);
+            assert_eq!((after.w, after.h), (before.w, before.h));
+            assert_eq!(h.app.doc().scene.node(other).unwrap().rect, other_before);
+            assert_eq!(h.app.board_sel.len(), 1);
+            assert!(h.app.board_sel.contains(&target));
+            h.app.board_undo();
+            assert_eq!(h.app.doc().scene.node(target).unwrap().rect, before);
+            h.frame();
+        }
+    }
 }
 
 #[test]

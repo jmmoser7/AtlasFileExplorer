@@ -404,6 +404,8 @@ pub(super) fn show(
         slate_doc::geom::point_in_node_outline(&host, point.x, point.y, 0.0)
     });
     let on_results = app.result_strip_contains(&ctx, id, xf.rect_w2s(host.rect), z);
+    // Only an editor or hosted tool owns outside dismissal; collapsed Select
+    // controls leave that press available for the next object's body drag.
     if !captures {
         if panel.is_some()
             && panel != Some(Panel::Brush)
@@ -416,7 +418,8 @@ pub(super) fn show(
             if !app.shape_properties.edits.is_empty() {
                 app.apply_shape_preview(&ctx, false);
             }
-        } else if app.property_dismiss_press(&ctx).is_some_and(|press| !press)
+        } else if clear_tab
+            && app.property_dismiss_press(&ctx).is_some_and(|press| !press)
             && !on_image
             && !on_results
         {
