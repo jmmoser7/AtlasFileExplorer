@@ -20,7 +20,14 @@ impl SlateApp {
             || !matches!(self.board_tool, BoardTool::Select | BoardTool::DirectSelect)
             || self.property_inline_editor_open()
             || ctx.memory(|m| m.any_popup_open())
-            || !ctx.input(|i| i.pointer.primary_down() && i.pointer.is_decidedly_dragging())
+            || !ctx.input(|i| {
+                i.pointer.primary_down()
+                    && (i.pointer.is_decidedly_dragging()
+                        // Egui excludes the press frame even when coalesced motion
+                        // has already crossed its click-distance threshold.
+                        || (i.pointer.primary_pressed()
+                            && !i.pointer.could_any_button_be_click()))
+            })
         {
             return response;
         }
