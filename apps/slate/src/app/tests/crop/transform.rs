@@ -26,10 +26,8 @@ fn corner_scale_of_an_image_lands_on_a_neighbour_edge() {
 
     let xf = h.app.board_xf();
     let node = h.app.doc().scene.node(id).unwrap().clone();
-    let se = xf.w2s(Pos2::new(
-        node.rect.x + node.rect.w,
-        node.rect.y + node.rect.h,
-    ));
+    let se = h.app.node_interaction_geom(&node, &xf).control_corners[2];
+    let control_offset = xf.s2w(se) - Pos2::from(node.rect.corners_rotated(0.0)[2]);
     let alt = egui::Modifiers {
         alt: true,
         ..Default::default()
@@ -44,7 +42,7 @@ fn corner_scale_of_an_image_lands_on_a_neighbour_edge() {
         ),
         "SE corner starts a resize"
     );
-    let raw = Pos2::new(214.0, 107.0);
+    let raw = Pos2::new(214.0, 107.0) + control_offset;
     h.app.update_gesture_for_test(raw, alt);
     let held = h.app.doc().scene.node(id).unwrap().rect;
     assert!(
@@ -61,10 +59,8 @@ fn corner_scale_of_an_image_lands_on_a_neighbour_edge() {
 
     let xf = h.app.board_xf();
     let node = h.app.doc().scene.node(id).unwrap().clone();
-    let se = xf.w2s(Pos2::new(
-        node.rect.x + node.rect.w,
-        node.rect.y + node.rect.h,
-    ));
+    let se = h.app.node_interaction_geom(&node, &xf).control_corners[2];
+    let control_offset = xf.s2w(se) - Pos2::from(node.rect.corners_rotated(0.0)[2]);
     let mods = egui::Modifiers::NONE;
     h.app.board_drag = h.app.begin_gesture_for_test(se, xf.s2w(se), mods);
     assert!(
@@ -74,7 +70,7 @@ fn corner_scale_of_an_image_lands_on_a_neighbour_edge() {
         ),
         "SE corner starts a resize"
     );
-    let target = Pos2::new(214.0, 107.0);
+    let target = Pos2::new(214.0, 107.0) + control_offset;
     h.app.update_gesture_for_test(target, mods);
     let live = h.app.doc().scene.node(id).unwrap().rect;
     assert!(
@@ -120,7 +116,8 @@ fn dragging_a_pictures_edge_past_its_opposite_mirrors_it() {
     let before = h.app.doc().scene.node(id).unwrap().clone();
     let xf = h.app.board_xf();
     // Off the edge midpoint so a wire grip does not steal the press.
-    let edge = xf.w2s(Pos2::new(200.0, 12.0));
+    let geom = h.app.node_interaction_geom(&before, &xf);
+    let edge = geom.control_corners[1].lerp(geom.control_corners[2], 0.25);
     let mods = egui::Modifiers::default();
     h.app.board_drag = h.app.begin_gesture_for_test(edge, xf.s2w(edge), mods);
     assert!(matches!(
@@ -166,14 +163,22 @@ fn dragging_a_rect_edge_past_its_opposite_still_clamps() {
     h.app.set_board_tool(board::BoardTool::Select);
     h.frame();
     let xf = h.app.board_xf();
-    let edge = xf.w2s(Pos2::new(80.0, 12.0));
+    let geom = h
+        .app
+        .node_interaction_geom(h.app.doc().scene.node(id).unwrap(), &xf);
+    let edge = geom.control_corners[1].lerp(geom.control_corners[2], 0.25);
     let mods = egui::Modifiers::default();
     h.app.board_drag = h.app.begin_gesture_for_test(edge, xf.s2w(edge), mods);
+    assert!(matches!(
+        h.app.board_drag,
+        Some(board::BoardDrag::Resize { handle: 3, .. })
+    ));
     let past = Pos2::new(-60.0, 12.0);
     h.app.update_gesture_for_test(past, mods);
     h.app.end_gesture_for_test(past, Some(xf.w2s(past)), mods);
     let after = h.app.doc().scene.node(id).unwrap().rect;
     assert_eq!(after.x, 0.0, "{after:?}");
+    assert_eq!(after.w, board::MIN_DRAW, "the resize must reach the clamp");
 }
 
 /// Mirror horizontal / vertical flip pictures and paths across the board

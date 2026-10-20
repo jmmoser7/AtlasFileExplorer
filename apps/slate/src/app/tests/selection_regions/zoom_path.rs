@@ -2,6 +2,36 @@
 use super::*;
 
 #[test]
+fn a_settled_wheel_notch_is_applied_once_and_its_inverse_restores_zoom() {
+    let mut h = grip_board("regions_wheel_one_stream");
+    let point = h.app.canvas_rect.center() + EVec2::new(80.0, -40.0);
+    let world = h.app.screen_to_world(point);
+    let mut time = h.ctx.input(|i| i.time);
+    let mut notch = |h: &mut Harness, delta: f32| {
+        for frame in 0..28 {
+            time += 1.0 / 60.0;
+            h.frame_with(|input| {
+                input.time = Some(time);
+                if frame == 0 {
+                    input.events.push(egui::Event::PointerMoved(point));
+                    input.events.push(egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: EVec2::new(0.0, delta),
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                }
+            });
+        }
+        assert_eq!(h.ctx.input(|i| i.smooth_scroll_delta), EVec2::ZERO);
+        assert!(h.app.screen_to_world(point).distance(world) < 0.001);
+    };
+    notch(&mut h, 120.0);
+    assert!((h.app.tab().cam.z - 1.197_217_3).abs() < 0.0001);
+    notch(&mut h, -120.0);
+    assert!((h.app.tab().cam.z - 1.0).abs() < 0.0001);
+}
+
+#[test]
 fn board_wheel_reaches_point_detail_and_wide_overview_while_anchoring_the_pointer() {
     let mut h = grip_board("regions_real_wheel_range");
     let pointer = h.app.canvas_rect.center() + EVec2::new(86.0, -54.0);

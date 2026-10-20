@@ -224,7 +224,7 @@ fn group_box_corner_is_diagonal_resize() {
     let xf = h.app.board_xf();
     let gb = h.app.board_group_bounds().expect("group bounds");
     let geom = board_handles::selection_geom(&xf, gb, 0.0);
-    let hit = h.app.transform_hit_at(geom.corners[0]);
+    let hit = h.app.transform_hit_at(geom.control_corners[0]);
     assert!(
         matches!(
             hit,

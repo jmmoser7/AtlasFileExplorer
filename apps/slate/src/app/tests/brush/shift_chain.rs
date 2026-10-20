@@ -334,11 +334,14 @@ fn brush_shift_after_zooming_away_and_back_rebuilds_the_live_canvas() {
     let p = |x: f32, y: f32| c + EVec2::new(x, y);
     let before = h.app.board_xf();
     let z = h.app.tab().cam.z;
+    let mut time = h.ctx.input(|i| i.time);
     for (at, dy) in [
-        (Pos2::new(300.0, 450.0), 120.0),
-        (Pos2::new(1100.0, 450.0), -120.0),
+        (Pos2::new(300.0, 450.0), 180.0),
+        (Pos2::new(1100.0, 450.0), -180.0),
     ] {
+        time += 1.0 / 60.0;
         capture_frame(&mut h, &mut raster, |inp| {
+            inp.time = Some(time);
             inp.events = vec![
                 egui::Event::PointerMoved(at),
                 egui::Event::MouseWheel {
@@ -348,7 +351,13 @@ fn brush_shift_after_zooming_away_and_back_rebuilds_the_live_canvas() {
                 },
             ];
         });
-        capture_frame(&mut h, &mut raster, |_| {});
+        // Finish this notch before moving its zoom anchor. One idle frame
+        // leaves egui's smoothed wheel backlog only partly consumed.
+        for _ in 0..24 {
+            time += 1.0 / 60.0;
+            capture_frame(&mut h, &mut raster, |inp| inp.time = Some(time));
+        }
+        assert_eq!(h.ctx.input(|i| i.smooth_scroll_delta), EVec2::ZERO);
     }
     let xf = h.app.board_xf();
     assert!((h.app.tab().cam.z - z).abs() < z * 0.01, "zoomed back");

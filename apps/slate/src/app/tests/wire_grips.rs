@@ -2,6 +2,16 @@
 
 use super::*;
 
+/// Wire-action fixtures exercise a fully relevant host through the public
+/// camera path. Tiny/dormant-domain behavior is tested separately below.
+fn zoom_wire_host(h: &mut Harness, id: NodeId) {
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    let focus = h.app.world_to_screen(Pos2::from(rect.center()));
+    assert!(h.app.canvas_rect.contains(focus));
+    h.app.zoom_at(focus, 2.0 / h.app.tab().cam.z);
+    h.frame();
+}
+
 #[test]
 fn nonrectangular_shapes_cannot_start_or_receive_new_wires() {
     use slate_doc::scene::{ShapeKind, Side};
@@ -55,10 +65,11 @@ fn tiny_rectangular_hosts_do_not_offer_overlapping_wire_targets() {
 #[test]
 fn wire_grips_preview_only_the_handle_under_the_pointer() {
     let mut h = web_board("wire_grip_prox");
-    add_rect(&mut h.app, 0.0, 0.0);
+    let id = add_rect(&mut h.app, 0.0, 0.0);
     h.app.board_sel.clear();
     h.app.set_board_tool(board::BoardTool::Select);
     h.frame();
+    zoom_wire_host(&mut h, id);
 
     let xf = h.app.board_xf();
     let n = h.app.doc().scene.nodes[0].clone();
@@ -127,6 +138,7 @@ fn wire_grip_press_beats_edge_resize() {
     h.app.board_sel.clear();
     h.app.set_board_tool(board::BoardTool::Select);
     h.frame();
+    zoom_wire_host(&mut h, id);
 
     let xf = h.app.board_xf();
     let rect = h.app.doc().scene.node(id).unwrap().rect;
@@ -252,6 +264,7 @@ fn a_port_inside_a_slide_frame_still_starts_a_wire() {
     h.app.set_board_tool(board::BoardTool::Select);
     h.app.tab_mut().cam.z = 1.0;
     h.frame();
+    zoom_wire_host(&mut h, id);
 
     let xf = h.app.board_xf();
     let rect = h.app.doc().scene.node(id).unwrap().rect;
@@ -360,6 +373,7 @@ fn wire_drop_on_empty_canvas_keeps_a_free_end() {
     h.app.board_sel.clear();
     h.app.set_board_tool(board::BoardTool::Select);
     h.frame();
+    zoom_wire_host(&mut h, id);
 
     let xf = h.app.board_xf();
     let rect = h.app.doc().scene.node(id).unwrap().rect;

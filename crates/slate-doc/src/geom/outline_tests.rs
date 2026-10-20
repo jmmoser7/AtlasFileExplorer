@@ -72,6 +72,17 @@ fn closed_polyline_corner_treatment_matches_the_drawn_path() {
     });
     assert!(scene.node_outline_distance(id, [0.0, 0.0], 0.01) > 8.0);
     assert_eq!(scene.node_outline_distance(id, [50.0, 50.0], 0.01), 0.0);
+    assert!(
+        point_in_polygon(
+            &node_closed_poly(scene.node(id).unwrap(), 0.01).unwrap(),
+            [1.0, 1.0]
+        ),
+        "trim retains the authored loop so it can preserve corner overrides and tips"
+    );
+    assert!(
+        !scene.node_outline_contains(id, [1.0, 1.0], 0.01),
+        "selection still follows the painted corner through the shared fillet geometry"
+    );
 }
 
 #[test]

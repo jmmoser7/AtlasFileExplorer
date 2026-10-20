@@ -54,7 +54,7 @@ remain bounded editing overlays at extreme zoom; normal rail datums and durable
 wire slot identities remain authoritative in both interpreters.
 
 The independent intent reviewer found no remaining blocker in the final scoped
-source review. Review fixes have retained tests: 24 native selection-region cases,
+source review. Review fixes have retained tests: 25 native selection-region cases,
 14 geometry cases, and focused shared-field, adapter, port-presentation and compact
 rail cases. Their final-source execution results are **pending**. Removed obsolete host-only outward48
 and inverse-zoom assumptions were replaced by approved continuous-field cases;
@@ -139,10 +139,65 @@ Board minimum. Geometry-flattening tolerances, authored dash rules, softness,
 portal input ownership and capability gates retain their existing semantics.
 No new input interpreter or portal host was introduced.
 
-The eight additional native regressions exercise real wheel and camera paths,
+The additional native regressions exercise real wheel and camera paths,
 cursor anchoring, save/reopen at point-detail zoom, stationary tiny resize and
 one-step undo, low-zoom stroke/connector picks, wire snap bands, live-stroke
 feedback, and snap distances. Independent source review found no remaining
 blocker. Scoped formatting and changed-source size ceilings pass; all final
 runtime and Windows packaging results remain pending hosted execution. Native
 computer-use acceptance remains Blocked by the recorded local execution denial.
+
+## Runtime filtration after CI201
+
+CI201 tested synthetic merge `37075c3927f8fcad1d82f9422fa8645ed08a2b83`
+(head `1e146686`, base `2087cc17`). Windows check and Linux all-target Clippy
+passed. The full Linux workspace suite failed four targets: shell 425 passed /
+1 failed, Slate 2089 / 19, slate-doc 363 / 1, and the size audit's stale
+board_handles allowance. All sixteen initial selection-region regressions and
+the document outline cases passed; that subset did not establish resolution.
+Full logs and assertion diagnostics are retained under ignored
+`target/review/selection-hit-20261020/ci201-linux.log` and `ci201-failures.txt`.
+
+Independent intent review identified three production regressions, corrected
+without changing their failing outcome tests:
+
+- Selected members' compact controls could steal movement from an empty group
+  gap. The existing resolver now treats that gap as a move fallback after
+  nonmember candidates, keeping foreground transform priority. A negative
+  regression protects a nonmember's foreground edge at the same fixed probe.
+- An expanded fillet field swallowed a polygon minus glyph's second click.
+  Same-host explicit glyphs now exclude that fillet candidate in the shared
+  hover/press owner. The rapid-repeat test's pointer and expected count stay.
+- Painted fillet samples entered destructive closed-polyline splitting,
+  replacing styled authored vertices. The shared geometry builder now keeps
+  authored path vertices for trim and requests painted fillets specifically
+  for selection outlines. The original style-preservation test stays unchanged.
+
+Remaining fixture corrections preserve their behavioral outcomes: compact
+transform tests press the displayed frame and retain captured authored deltas;
+wire-action fixtures use public zoom to enter Wire relevance and target actual
+offered ports; the transient route fixture preserves the host kind and its
+compact rail datum. The rectangle clamp test additionally requires a real resize
+and the expected minimum, avoiding its earlier no-op pass. Port-label checks
+measure transformed paint rather than raster-ladder font metadata. A symmetric
+control-frame center check permits only 1e-5 screen-pixel f32 roundoff. The
+obsolete size-allowlist row is removed. None of these repairs closes native UI
+acceptance or substitutes a passing subset for the full suite.
+
+CI202 tested synthetic merge `a23d75893eb9c84051eb9566b3c2678a64167990`
+(head `f4439823`, base `2087cc17`). All 24 selection-region cases passed,
+including wheel reachability, camera persistence and the five low-zoom cases.
+The same unrepaired CI201 failures remained, plus a brush camera fixture that
+checked before egui's wheel backlog settled and model-menu clipping beyond the
+old maximum. Windows check and all-target Clippy passed for this snapshot.
+Full logs and diagnostics are retained beside CI201's records as
+`ci202-linux.log` / `ci202-failures.txt`.
+
+Wheel review found that the Board added raw input and its smoothed copy,
+applying a normal notch twice. The camera now consumes the smoothed stream once;
+the existing Ctrl/Command route remains raw because egui separates that stream.
+A real-input case requires one settled +120 notch to reach approximately
+1.1972 times zoom and its inverse to restore the starting zoom. The brush-cache
+case now advances deterministic frame time to settle each notch and uses ±180
+to retain its original >150-pixel displacement and stale-canvas assertions at
+the approved single-event wheel rate. Its 1% zoom-return requirement is retained.

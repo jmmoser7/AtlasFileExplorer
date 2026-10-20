@@ -381,9 +381,10 @@ mod tests {
         let actual = rect(48.0, 36.0);
         let control = control_corners(&actual);
         assert!(control[0].x < actual[0].x);
-        assert_eq!(
-            control[0] + (control[2] - control[0]) * 0.5,
-            Pos2::new(24.0, 18.0)
+        let center = control[0] + (control[2] - control[0]) * 0.5;
+        assert!(
+            center.distance(Pos2::new(24.0, 18.0)) < 1e-5,
+            "symmetric floating-point padding must preserve the center: {center:?}"
         );
         assert_eq!(control_corners(&rect(240.0, 112.0)), rect(240.0, 112.0));
         assert!(body_contains(Pos2::new(7.0, 7.0), &rect(1.0, 1.0)));

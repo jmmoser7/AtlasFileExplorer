@@ -74,8 +74,9 @@ fn alt_edge_scale_copies_and_keeps_the_original() {
 
     let rect = h.app.doc().scene.node(id).unwrap().rect;
     let xf = h.app.board_xf();
-    // Off the edge midpoint so a wire grip does not steal the press.
-    let edge = xf.w2s(Pos2::new(rect.x + rect.w, rect.y + 12.0));
+    // A continuous displayed edge, clear of both corner and wire fields.
+    let geom = board_handles::selection_geom(&xf, rect, 0.0);
+    let edge = geom.control_corners[1].lerp(geom.control_corners[2], 0.2);
     let edge_world = xf.s2w(edge);
     h.app.alt_down = true;
     let drag = h.app.begin_gesture_for_test(
@@ -91,7 +92,7 @@ fn alt_edge_scale_copies_and_keeps_the_original() {
         "Alt on an edge must scale a copy"
     );
     h.app.board_drag = drag;
-    let grown = Pos2::new(rect.x + rect.w + 50.0, rect.y + 12.0);
+    let grown = edge_world + EVec2::new(50.0, 0.0);
     h.app.update_gesture_for_test(
         grown,
         egui::Modifiers {
@@ -138,14 +139,15 @@ fn ctrl_edge_scale_keeps_the_center() {
     let before = h.app.doc().scene.node(id).unwrap().rect;
     let (cx, cy) = before.center();
     let xf = h.app.board_xf();
-    let edge = xf.w2s(Pos2::new(before.x + before.w, before.y + 12.0));
+    let geom = board_handles::selection_geom(&xf, before, 0.0);
+    let edge = geom.control_corners[1].lerp(geom.control_corners[2], 0.2);
     let mods = egui::Modifiers {
         ctrl: true,
         ..Default::default()
     };
     h.app.ctrl_down = true;
     h.app.board_drag = h.app.begin_gesture_for_test(edge, xf.s2w(edge), mods);
-    let grown = Pos2::new(before.x + before.w + 40.0, before.y + 12.0);
+    let grown = xf.s2w(edge) + EVec2::new(40.0, 0.0);
     h.app.update_gesture_for_test(grown, mods);
     h.app.end_gesture_for_test(grown, Some(xf.w2s(grown)), mods);
     let after = h.app.doc().scene.node(id).unwrap().rect;
@@ -171,7 +173,7 @@ fn bbox_chrome_is_live_without_selection() {
     let n = h.app.doc().scene.nodes[0].clone();
     let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
 
-    let hit = h.app.transform_hit_at(geom.edges[1]);
+    let hit = h.app.transform_hit_at(geom.control_edges[1]);
     assert!(
         matches!(
             hit,
@@ -189,9 +191,8 @@ fn bbox_chrome_is_live_without_selection() {
         "outside-corner hover must rotate a shape, got {hit:?}"
     );
 
-    // Press the edge away from the wire-grip midpoint so resize, not a
-    // wire, is the gesture (P1.node.transform).
-    let edge = xf.w2s(Pos2::new(n.rect.x + n.rect.w, n.rect.y + 12.0));
+    // Press the displayed frame away from its corner and wire midpoint.
+    let edge = geom.control_corners[1].lerp(geom.control_corners[2], 0.2);
     let world = xf.s2w(edge);
     let drag = h.app.begin_transform_drag(edge, world);
     assert!(
@@ -255,7 +256,7 @@ fn edge_hover_does_not_arm_a_body_highlight() {
     let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
     let ctx = h.ctx.clone();
     h.app
-        .hover_transform_chrome(Some(geom.edges[1]), &xf, &ctx, false);
+        .hover_transform_chrome(Some(geom.control_edges[1]), &xf, &ctx, false);
     assert!(
         matches!(
             h.app.board_hover_hit,
@@ -263,7 +264,7 @@ fn edge_hover_does_not_arm_a_body_highlight() {
         ),
         "edge hover must still be a resize hit"
     );
-    let world = xf.s2w(geom.edges[1]);
+    let world = xf.s2w(geom.control_edges[1]);
     assert!(
         h.app.hover_preview_target(Some(world)).is_none(),
         "edge hover must not highlight the node like a selection"
@@ -288,8 +289,8 @@ fn body_hover_targets_the_unselected_node() {
     let ctx = h.ctx.clone();
     h.app.hover_transform_chrome(Some(center), &xf, &ctx, false);
     assert!(
-        h.app.board_hover_hit.is_none(),
-        "the interior is not resize chrome"
+        h.app.board_hover_hit == Some(board_handles::BoardHitTarget::Body),
+        "the interior announces moving rather than resize chrome"
     );
     let world = xf.s2w(center);
     assert_eq!(h.app.hover_preview_target(Some(world)), Some(id));

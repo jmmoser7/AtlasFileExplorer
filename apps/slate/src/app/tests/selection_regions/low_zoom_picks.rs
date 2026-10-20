@@ -154,15 +154,27 @@ fn a_live_wire_keeps_its_fourteen_pixel_snap_band_at_overview_zoom() {
     let mut h = grip_board("regions_low_zoom_wire_snap_band");
     let id = card(&mut h, WorldRect::new(0.0, 0.0, 16_384.0, 16_384.0));
     h.app.board_sel.clear();
-    h.app.tab_mut().cam.offset = EVec2::splat(8192.0);
+    let port = h
+        .app
+        .wire_input_host(h.app.doc().scene.node(id).unwrap())
+        .ports()
+        .into_iter()
+        .find(|p| p.side == Side::Right)
+        .unwrap();
+    h.app.tab_mut().cam.offset = EVec2::from(port.point);
     h.frame();
     let focus = h.app.canvas_rect.center();
     for zoom in [0.05, 0.025, 1.0 / 128.0] {
         h.app.zoom_at(focus, zoom / h.app.tab().cam.z);
         let xf = h.app.board_xf();
         let host = h.app.wire_input_host(h.app.doc().scene.node(id).unwrap());
-        let anchor = xf.w2s(Pos2::from(host.anchor(Side::Right, 0.5)));
-        let outward = EVec2::from(host.outward(Side::Right, 0.5));
+        let port = host
+            .ports()
+            .into_iter()
+            .find(|p| p.side == Side::Right)
+            .unwrap();
+        let anchor = xf.w2s(Pos2::from(port.point));
+        let outward = EVec2::from(host.outward(port.side, port.t));
         let inside = xf.s2w(anchor + outward * 13.0);
         let outside = xf.s2w(anchor + outward * 15.5);
         assert!(h.app.canvas_rect.contains(anchor + outward * 13.0));

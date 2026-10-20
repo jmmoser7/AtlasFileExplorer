@@ -405,7 +405,12 @@ impl SlateApp {
         {
             // egui hands a Shift wheel over as a horizontal delta.
             let (scroll, shift) = ui.input(|i| {
-                let d = i.smooth_scroll_delta + i.raw_scroll_delta;
+                // Raw and smoothed deltas describe the same wheel stream.
+                let d = if i.modifiers.ctrl || i.modifiers.command {
+                    i.raw_scroll_delta
+                } else {
+                    i.smooth_scroll_delta
+                };
                 let shift = i.modifiers.shift;
                 (if shift { d.x + d.y } else { d.y }, shift)
             });

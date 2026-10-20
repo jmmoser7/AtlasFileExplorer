@@ -6,13 +6,19 @@ use std::path::Path;
 use std::{collections::HashMap, sync::Arc};
 
 /// The world region of a closed node: a trim clip when it has one, else the
-/// rect (with its corner treatment), ellipse, closed path, or the rotated
-/// box of a text, image, frame, portal, or dock strip.
+/// rect (with its corner treatment), ellipse, authored closed path, or the
+/// rotated box of a text, image, frame, portal, or dock strip. Closed paths
+/// retain authored vertices so trim can preserve their editable corner style.
 pub fn node_closed_poly(n: &Node, tolerance: f32) -> Option<Polygon> {
-    node_closed_poly_with_path(n, tolerance, None)
+    node_closed_poly_with_path(n, tolerance, None, false)
 }
 
-fn node_closed_poly_with_path(n: &Node, tolerance: f32, path: Option<&Path>) -> Option<Polygon> {
+fn node_closed_poly_with_path(
+    n: &Node,
+    tolerance: f32,
+    path: Option<&Path>,
+    paint_path_fillets: bool,
+) -> Option<Polygon> {
     if let Some(clip) = &n.clip {
         let bez = path_data_to_world_bez(clip, n.rect, n.rotation_deg);
         let contours = flatten_contours(&bez, tolerance as f64);
@@ -61,8 +67,11 @@ fn node_closed_poly_with_path(n: &Node, tolerance: f32, path: Option<&Path>) -> 
                     if !path.closed {
                         return None;
                     }
-                    let bez =
-                        path_data_to_world_bez_with_fillet(path, n.rect, n.rotation_deg, s.corner);
+                    let bez = if paint_path_fillets {
+                        path_data_to_world_bez_with_fillet(path, n.rect, n.rotation_deg, s.corner)
+                    } else {
+                        path_data_to_world_bez(path, n.rect, n.rotation_deg)
+                    };
                     let contours = flatten_contours(&bez, tolerance as f64);
                     (!contours.is_empty()).then_some(contours)
                 }
@@ -96,13 +105,13 @@ pub fn point_in_node_outline(host: &Node, px: f32, py: f32, tolerance: f32) -> b
 /// Positive-area silhouette overlap. Shared edges and shared vertices are
 /// adjacency; they must not turn a geometry-distance tie into layer priority.
 pub fn node_outlines_overlap(a: &Node, b: &Node, tolerance: f32) -> bool {
-    let Some(first) = node_closed_poly(a, tolerance) else {
+    let Some(first) = ClosedOutline::new(a, tolerance, None) else {
         return false;
     };
-    let Some(second) = node_closed_poly(b, tolerance) else {
+    let Some(second) = ClosedOutline::new(b, tolerance, None) else {
         return false;
     };
-    positive_intersection(&first, &second, tolerance)
+    positive_intersection(&first.region, &second.region, tolerance)
 }
 
 #[derive(Debug, Clone)]
@@ -113,7 +122,7 @@ struct ClosedOutline {
 
 impl ClosedOutline {
     fn new(node: &Node, tolerance: f32, path: Option<&Path>) -> Option<Self> {
-        let region = node_closed_poly_with_path(node, tolerance, path)?;
+        let region = node_closed_poly_with_path(node, tolerance, path, true)?;
         let mut boundary = region.clone();
         for ring in &mut boundary {
             if let Some(first) = ring.first().copied() {
@@ -299,7 +308,7 @@ impl Scene {
 
 impl OutlineQueries<'_> {
     /// Cached distance to the actual rounded/rotated/trimmed silhouette.
-    /// Uses the same geometry as [`node_closed_poly`]; live edits invalidate it.
+    /// Adds painted path fillets to the authored region; live edits invalidate it.
     pub fn node_outline_distance(&self, id: NodeId, point: [f32; 2], tolerance: f32) -> f32 {
         self.cached_outline(id, tolerance)
             .map_or(f32::INFINITY, |(outline, _)| outline.distance(point))

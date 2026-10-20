@@ -70,13 +70,23 @@ fn typed_port_dots_and_labels_use_projected_relevance_at_both_zoom_extremes() {
     fn collect(shape: &egui::Shape, radii: &mut Vec<f32>, font_sizes: &mut Vec<f32>) {
         match shape {
             egui::Shape::Circle(circle) => radii.push(circle.radius),
-            egui::Shape::Text(text) => font_sizes.extend(
-                text.galley
-                    .job
-                    .sections
+            egui::Shape::Text(text) => {
+                // canvas_text's raster rung can exceed the final painted size.
+                // egui scales the galley rect/mesh, retaining the rung's row/job metadata.
+                let row_bounds = text
+                    .galley
+                    .rows
                     .iter()
-                    .map(|s| s.format.font_id.size),
-            ),
+                    .fold(Rect::NOTHING, |bounds, row| bounds.union(row.rect));
+                let scale = text.galley.rect.height() / row_bounds.height();
+                font_sizes.extend(
+                    text.galley
+                        .job
+                        .sections
+                        .iter()
+                        .map(|s| s.format.font_id.size * scale),
+                );
+            }
             egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect(s, radii, font_sizes)),
             _ => {}
         }
@@ -115,6 +125,11 @@ fn typed_port_dots_and_labels_use_projected_relevance_at_both_zoom_extremes() {
             "unbounded port markers: {radii:?}"
         );
         assert!(!font_sizes.is_empty());
-        assert!(font_sizes.iter().all(|size| *size <= 11.0));
+        assert!(
+            font_sizes
+                .iter()
+                .all(|size| (*size - PORT_LABEL_PX).abs() < 0.001),
+            "painted port labels must stay 11px at zoom {zoom}: {font_sizes:?}"
+        );
     }
 }

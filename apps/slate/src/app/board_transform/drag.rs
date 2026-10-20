@@ -205,7 +205,7 @@ impl SlateApp {
                     },
                 )
             }
-            (None, board_handles::BoardHitTarget::Body) => None,
+            (None, board_handles::BoardHitTarget::Body) => self.move_selection_in_bounds(world),
             (_, board_handles::BoardHitTarget::FilletRadius) => None,
         }
     }
