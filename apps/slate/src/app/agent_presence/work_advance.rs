@@ -149,7 +149,7 @@ mod tests {
     use atlas_agent::presence::WorldPoint;
     use serde_json::json;
 
-    #[path = "../work_advance_web_reply_tests.rs"]
+    #[path = "web_reply.rs"]
     mod web_reply_tests;
 
     fn join(h: &mut crate::app::tests::Harness) -> String {
