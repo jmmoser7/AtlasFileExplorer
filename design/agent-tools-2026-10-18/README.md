@@ -84,25 +84,42 @@ research workflow evidence is under `target/review/research-workflow-20261019`,
 including the original workbook, recovery-preservation record, source fixtures,
 and build/test logs. Software captures use the production board painter with
 synthetic fixture content; they are not native pointer/GPU or human acceptance.
-The current native run uses `target/release/slate.exe`, SHA256
-`845677D2292969A940D123E501FF51862B0BCC08154F6D1470EEF26EBC6F5930`,
-50,786,816 bytes, built at `2026-10-19T21:59:35.0181130Z`. Its production
-source is `0f854516`; `f32767df` corrects a synthetic pointer fixture only.
-Snapshot `f32767df` passed hosted CI 170 (3,896 Linux tests, zero failures,
-93 ignored) and Windows installer 148 (3,963 tests, zero failures, 111 ignored).
-The verified preview package is retained as artifact `12226939743`; it is not
-published yet. The human enabled global Website access, and the preference is
-saved true. No permission was automated.
+The latest available native executable is `target/release/slate.exe`, SHA256
+`0E9764DB21121B206047E254DED6F25BCB748391809DD8A8B330853209C87983`,
+50,848,256 bytes, built at `2026-10-20T01:06:07.0514501Z` from combined
+source `344988a4`. Its actual research continuation and separate suggestion-box
+fixture run were saved and closed normally. Earlier access violations were not
+reproduced; no crash cause or fix is established.
 
-The latest native Save preserved 243 nodes, all 74 original nodes exactly
-unchanged, and both original linked items unchanged. All eight slide bodies are
-populated. The run exercised real Web captures, native drawing and the recovered
-1672×941 generated image, with no additional paid generation. One duplicated
-source-text response remains unverified. A complete helper result exists, but
-parent-side text paging and final pixels for all eight slides are unfinished.
-Whole-transcript Ctrl+A/copy/paste passed; ordinary range selection and steering
-exposed foreground chat input reaching the focused Web portal. That routing fix
-and a compact BoardLink reply fix are awaiting a combined native rebuild.
+The latest research Save preserves 284 nodes, all 74 original nodes and both
+original linked items/tags exactly unchanged. Eight slide frames retain
+1600×900 geometry and orders 11–18. All eight final slide previews were reviewed
+on earlier source `722dc082`, with readable content and complete, zero-omission
+metadata. Their evidence retains that build identity. Atlas analyzed-file
+highlighting, exact file reads, tags, Smooth, Join and Erase were exercised in
+the actual app. The failed count-two image request and its one recovered
+1672×941 output remain visible; no additional paid generation was started.
+
+On `344988a4`, actual Google pixels showed the typed query before Enter and
+matching results afterward. A fresh read-only helper's full 1,199-byte public
+result was paged under one generation, repairing the previous worker-scope
+failure. Editable drawing variants, the parent avatar/hat and temporary helper
+departures were observed. Timed captures show finished paths, not intermediate
+stroke-prefix growth; production-animation tests provide separate logic evidence.
+Compact chat, live public activity and board interaction were observed; the saved
+workbook retains the conversation.
+Ordinary and whole-transcript copy round trips are earlier-build evidence; the
+latest clipboard probe was inconclusive.
+
+Final production source `135a2b81` is pushed and awaits native delivery. Its
+per-call immutable Web capture filenames, live URL replies, transcript ordering,
+first-drag/empty-generator and image-save picker repairs require bounded native
+rechecks. At 02:11 UTC, CI 193 passed Windows compilation and Linux Clippy;
+Linux runtime and installer 171 were running. Earlier `f8507720` passed 3,928
+Linux workspace tests with zero failures and 93 ignored. The local final test
+did not run: Windows denied the new `rfd` build helper with `os error 5`.
+Development approval is pending, and the existing build setup is unchanged.
+PRs 63/64 are draft, unmerged; no final release has been published.
 
 Image inspection uses bounded displayed-image PNGs rather than returning an
 unchanged image's original file as provider input. Codex attaches those pixels
@@ -115,6 +132,6 @@ vision turn.
 Google and EPA were individually allowed by the human before the explicit
 global opt-in. Desktop availability is checked before native input; a mouse
 jiggler is user-managed and does not establish that the desktop is unlocked.
-The evaluation cases remain Untested for this
-binary until their recorded native steps are completed. Compilation and the
-partial research board are not complete workflow acceptance.
+The evaluation cases remain Untested until their recorded native steps are
+completed for the identified build. Automated checks and partial native runs do
+not prefill human verdicts or establish complete workflow acceptance.
