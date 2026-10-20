@@ -262,6 +262,7 @@ impl SlateApp {
                 .single_save_path(&snapshot.extensions[0]);
             let request = PickRequest::save()
                 .title("Save image as")
+                .confirm_overwrite(false)
                 .file_name(suggested.file_name().unwrap_or_default().to_string_lossy())
                 .filter("PNG", &["png"])
                 .filter("JPEG", &["jpg", "jpeg"])

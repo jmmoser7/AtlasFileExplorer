@@ -300,7 +300,7 @@ reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/file_picker.rs"
-ceiling = 1177
+ceiling = 1085
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
