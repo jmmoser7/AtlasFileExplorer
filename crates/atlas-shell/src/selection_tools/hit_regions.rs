@@ -270,7 +270,7 @@ pub fn paint_control_frame(
     if opacity > 0.0 {
         painter.add(egui::Shape::closed_line(
             corners.to_vec(),
-            Stroke::new(1.0, ink.gamma_multiply(opacity * 0.45)),
+            Stroke::new(1.0_f32, ink.gamma_multiply(opacity * 0.45)),
         ));
     }
 }
@@ -281,7 +281,7 @@ pub fn paint_move_header(painter: &egui::Painter, rect: egui::Rect, ink: Color32
         rect,
         4.0,
         ink.gamma_multiply(0.12),
-        Stroke::new(1.0, ink.gamma_multiply(0.6)),
+        Stroke::new(1.0_f32, ink.gamma_multiply(0.6)),
         egui::StrokeKind::Inside,
     );
     crate::canvas_text::text(

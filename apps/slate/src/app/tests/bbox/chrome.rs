@@ -221,11 +221,9 @@ fn fillet_grip_press_beats_edge_band_but_nw_corner_still_resizes() {
     let node = h.app.doc().scene.node(id).unwrap().clone();
     let geom = board_handles::selection_geom(&xf, node.rect, node.rotation_deg);
     let grip = h.app.fillet_grip_at(&node, &xf).expect("visible grip");
-    let overlap = Pos2::new(
-        grip.x,
-        geom.corners[0].y
-            + atlas_shell::canvas_scale::hit_px(board_handles::EDGE_BAND_PX, geom.zoom),
-    );
+    // The fillet now follows the compact control frame; probe the shared
+    // continuous bands, rather than the superseded authored-edge hit slop.
+    let overlap = grip + (geom.corners[3] - geom.corners[0]).normalized() * 3.0;
     assert!(board_handles::hit_test_fillet_grip(overlap, &geom, grip));
     assert!(board_handles::hit_test_resize_bands(overlap, &geom).is_some());
     assert!(matches!(

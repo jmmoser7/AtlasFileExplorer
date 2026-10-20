@@ -103,3 +103,15 @@ The shared primary checkout index hash remained
 `1A24C4CBE899D976D71D38A6401FD2C7F260EEBEF111B1400952BAE7A9E2C575`.
 Its dirty files and the preexisting four acceptance records/native evidence in
 this worktree were neither staged nor committed.
+
+## Hosted validation follow-up
+
+Draft stacked PR65: https://github.com/jmmoser7/AtlasFileExplorer/pull/65.
+CI198 and Windows installer176 checked out synthetic merge
+`7ba59b196e0f2cc3cfc6ebb4f3b64be8246438bb` (head fd31f2a1, base2087cc17).
+CI198 reached the real compiler and found private-module API paths for vector
+booleans, an ambiguous test type, and two explicit-f32 requirements on the newer
+hosted Rust1.99.1. The follow-up uses the existing public vector-ink exports and
+explicit types. The older fillet-priority regression now probes the approved
+compact frame/continuous bands rather than legacy authored-edge slop. No expected
+native outcome was weakened. Hosted results for the correction remain pending.

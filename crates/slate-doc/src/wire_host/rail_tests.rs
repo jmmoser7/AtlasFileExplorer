@@ -238,7 +238,7 @@ fn compact_source_and_revealed_input_rail_share_the_same_output_site() {
 fn compact_rail_fit_is_continuous_at_the_normal_datum_boundary() {
     let mut scene = Scene::default();
     let mut node = source_image(&mut scene, 1.0);
-    let mut previous = None;
+    let mut previous: Option<Vec<f32>> = None;
     for step in 0..=80 {
         node.rect.h = 124.0 + step as f32 * 0.1;
         let host = WireHost::from_node_flow(&node, &crate::agent_inputs::GENERATOR_PORTS);

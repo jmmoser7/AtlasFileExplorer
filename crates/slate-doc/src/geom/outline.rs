@@ -170,7 +170,7 @@ fn area_epsilon(tolerance: f32) -> f64 {
 }
 
 fn positive_intersection(a: &Polygon, b: &Polygon, tolerance: f32) -> bool {
-    vector_ink::trim::boolean_intersection(a, b)
+    vector_ink::boolean_intersection(a, b)
         .iter()
         .any(|polygon| region_area(polygon) > area_epsilon(tolerance))
 }
@@ -398,7 +398,7 @@ impl OutlineQueries<'_> {
             };
             // Canonical pieces distinguish extra disjoint islands from holes.
             (
-                vector_ink::trim::boolean_union(&outline.region, &outline.region),
+                vector_ink::boolean_union(&outline.region, &outline.region),
                 tolerance,
             )
         };
@@ -424,7 +424,7 @@ impl OutlineQueries<'_> {
             let before: f64 = remainder.iter().map(region_area).sum();
             let next: Vec<Polygon> = remainder
                 .iter()
-                .flat_map(|piece| vector_ink::trim::boolean_difference(piece, &outline.region))
+                .flat_map(|piece| vector_ink::boolean_difference(piece, &outline.region))
                 .collect();
             let after: f64 = next.iter().map(region_area).sum();
             if before - after > area_epsilon(tolerance) {
