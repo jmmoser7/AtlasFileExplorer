@@ -18,7 +18,7 @@ suggestion-box acceptance records and native evidence remain outside this commit
 - [x] Independent intent/regression review and scoped Quick health review complete.
 - [ ] Standard Windows release build: attempted, exit 101 (dependency execution blocked).
 - [ ] Exact-build native interactive evaluation: Blocked; no release executable produced.
-- [ ] Commit and push the exact owned paths to GitHub.
+- [x] Commit and push the exact owned paths to GitHub; remote ref verified.
 
 ## Acceptance boundary
 
@@ -91,3 +91,15 @@ After execution approval changes, run the unchanged release build, required
 release workspace suite and contract/kit/size checks, then the nine native paths
 on the exact binary. Record native and user observations separately before marking
 this contract shipped or resolving any original report.
+
+## Git handoff
+
+Implementation commit: `35a0ab93a41071379bd55d070fc09a3878e6cc40`.
+Pushed branch: `codex/selection-hit-integration-20261020` on
+`https://github.com/jmmoser7/AtlasFileExplorer`.
+A documentation-only follow-up records push completion and removes a duplicate
+copy of the build log. Source remains the reviewed implementation above.
+The shared primary checkout index hash remained
+`1A24C4CBE899D976D71D38A6401FD2C7F260EEBEF111B1400952BAE7A9E2C575`.
+Its dirty files and the preexisting four acceptance records/native evidence in
+this worktree were neither staged nor committed.
