@@ -341,9 +341,9 @@ impl SlateApp {
                     .map(Some)
             }
             "portal.atlas.read_file" => self.read_atlas_file(op),
-            "portal.web.read_text" => self
-                .agent_web_text(op.portal)
-                .map(|v| v.map(|text| json!({"text":text}))),
+            "portal.web.read_text" => self.agent_web_text(op.portal).map(|value| {
+                value.map(|text| json!({"text":text,"url":self.agent_web_current_url(op.portal)}))
+            }),
             "portal.web.capture" => {
                 let dir = self
                     .ai
@@ -352,7 +352,11 @@ impl SlateApp {
                     .map(PathBuf::from)
                     .ok_or("Establish the AI workspace before capturing a page")?;
                 self.agent_web_capture(op.portal, &dir.join("portal-captures"), &op.call.id)
-                    .map(|p| p.map(|path| json!({"image_source":path})))
+                    .map(|p| {
+                        p.map(|path| {
+                            json!({"image_source":path,"url":self.agent_web_current_url(op.portal)})
+                        })
+                    })
             }
             "portal.web.navigate" => {
                 let url = op.arguments["url"]

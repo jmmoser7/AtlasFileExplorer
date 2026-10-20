@@ -64,6 +64,10 @@ impl SlateApp {
         self.read_web_text(id)
     }
 
+    pub(crate) fn agent_web_current_url(&self, id: NodeId) -> Option<String> {
+        self.web.host.current_url(id)
+    }
+
     pub(crate) fn agent_web_capture(
         &mut self,
         id: NodeId,
