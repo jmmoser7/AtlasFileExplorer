@@ -357,17 +357,17 @@ impl SlateApp {
         self.lock_models_pressed_outside(ui, &xf, pointer, model_toolbar_captures);
         let now = ui.input(|i| i.time);
         let mut canvas_nav = false;
-        // One web portal may hold the pointer and keyboard (D17/D22). This runs
-        // before the camera because that is the whole point: with the pointer
-        // inside a focused page, the wheel scrolls the page instead of zooming
-        // the board. Its chrome strip and a thin border band stay Slate targets,
-        // so the frame can always be grabbed and released.
+        // A focused page owns wheel input; its chrome stays draggable (D17/D22).
         if !shot_captures {
             self.peel_contents_focus_if_clicked_outside(ui, &xf, pointer);
         }
         self.peel_sheet(ui, &xf, pointer);
         let agent_capture = self.agent_shelf_captures(&xf, pointer);
-        let page_capture = self.web_input_frame(ui, &xf, pointer);
+        if (popup_capture || presence_capture) && ui.input(|i| i.pointer.any_pressed()) {
+            self.web_release_keyboard();
+        }
+        let page_capture =
+            !(popup_capture || presence_capture) && self.web_input_frame(ui, &xf, pointer);
         let external_capture = page_capture || self.atlas_input_frame(ui, &xf, pointer);
         // The shelf still receives the wheel. A drag moves the train card
         // unless a text field is the action under the pointer.

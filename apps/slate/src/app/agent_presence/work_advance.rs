@@ -313,6 +313,55 @@ mod tests {
     }
 
     #[test]
+    fn web_click_sends_primary_button_to_fake_host() {
+        let mut h = web_board("agent_web_click_primary");
+        let host = with_fake_host(&mut h);
+        h.app
+            .paste_web_url("https://example.com/", egui::Pos2::ZERO);
+        let (portal_id, _) = only_portal(&h);
+        h.app.web_allow_origin(portal_id);
+        h.frame();
+        assert!(h.app.portal_maximize(portal_id));
+        h.frame();
+        assert!(h.app.web.is_live(portal_id));
+        h.app.web_blur();
+
+        join(&mut h);
+        let mut a = h.app.presence.agents.remove(0);
+        begin_request(&mut a);
+        h.app
+            .presence
+            .roster
+            .session_mut(&a.motion)
+            .unwrap()
+            .begin_request(id(&a.request).unwrap())
+            .unwrap();
+        let click = call(
+            &a,
+            0,
+            BoardOperation::Invoke {
+                command: "portal.web.click".into(),
+                targets: vec![portal_id.0.to_string()],
+                arguments: json!({"x":32.0,"y":24.0}),
+            },
+        );
+        assert!(h
+            .app
+            .begin_presence_portal_call(Some(&h.ctx), &mut a, &click)
+            .unwrap()
+            .is_none());
+        h.app.presence.agents.insert(0, a);
+
+        advance(&mut h, portal_id);
+        let buttons: Vec<(bool, u8)> = host.sent(|input| match input {
+            crate::app::board_web::WebInput::Down { button, .. } => Some((true, *button)),
+            crate::app::board_web::WebInput::Up { button, .. } => Some((false, *button)),
+            _ => None,
+        });
+        assert_eq!(buttons, vec![(true, 0), (false, 0)]);
+    }
+
+    #[test]
     fn maximized_web_projects_agent_contact_and_paints_the_in_view_witness() {
         let mut h = web_board("maximized_web_presence_projection");
         let _host = with_fake_host(&mut h);

@@ -418,3 +418,75 @@ fn accepted_reply_survives_a_transient_worker_write_failure() {
     wait(|| !dir.join("board-session.json").exists());
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn reply_files_stay_within_the_bridge_byte_limit() {
+    let (dir, session, grant) = fixture();
+    let mut links = BoardLinks::default();
+    links
+        .set_session(&dir, session.clone(), grant, "r".into())
+        .unwrap();
+    wait(|| dir.join("board-session.json").exists());
+    let sent = call(&dir, &session, "large", 0, "r");
+    let mut received = Vec::new();
+    wait(|| {
+        received.extend(links.poll(&dir));
+        !received.is_empty()
+    });
+
+    let result = serde_json::json!({
+        "objects": (0..1200)
+            .map(|id| serde_json::json!({"id":id,"kind":"text","text":"Cooling roof"}))
+            .collect::<Vec<_>>()
+    });
+    let reply = BoardReply {
+        id: sent.id,
+        session_id: session.session_id.clone(),
+        request_id: "r".into(),
+        success: true,
+        result,
+    };
+    let compact = serde_json::to_vec(&reply).unwrap();
+    let pretty = serde_json::to_string_pretty(&reply).unwrap();
+    assert!(compact.len() <= MAX_BOARD_MESSAGE_BYTES as usize);
+    assert!(pretty.len() > MAX_BOARD_MESSAGE_BYTES as usize);
+
+    links.reply(&dir, reply.clone()).unwrap();
+    let path = dir.join("board-replies/large.json");
+    wait(|| path.is_file());
+    let bytes = std::fs::read(&path).unwrap();
+    assert_eq!(bytes, compact);
+    assert!(bytes.len() <= MAX_BOARD_MESSAGE_BYTES as usize);
+    assert_eq!(serde_json::from_slice::<BoardReply>(&bytes).unwrap(), reply);
+
+    received.clear();
+    let sent = call(&dir, &session, "oversized", 1, "r");
+    wait(|| {
+        received.extend(links.poll(&dir));
+        !received.is_empty()
+    });
+
+    let reply = BoardReply {
+        id: sent.id,
+        session_id: session.session_id.clone(),
+        request_id: "r".into(),
+        success: true,
+        result: serde_json::json!({"text":"x".repeat(MAX_BOARD_MESSAGE_BYTES as usize)}),
+    };
+    assert!(serde_json::to_vec(&reply).unwrap().len() > MAX_BOARD_MESSAGE_BYTES as usize);
+    links.reply(&dir, reply).unwrap();
+    let path = dir.join("board-replies/oversized.json");
+    wait(|| path.is_file());
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(bytes.len() <= MAX_BOARD_MESSAGE_BYTES as usize);
+    let bounded: BoardReply = serde_json::from_slice(&bytes).unwrap();
+    assert!(!bounded.success);
+    assert_eq!(
+        bounded.result["error"],
+        "Board result exceeds the response limit; request fewer objects."
+    );
+
+    links.retain(&std::collections::HashSet::new());
+    wait(|| !dir.join("board-session.json").exists());
+    std::fs::remove_dir_all(dir).unwrap();
+}

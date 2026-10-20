@@ -68,7 +68,7 @@ pub(super) fn run(dir: PathBuf, rx: Receiver<Work>, out: Sender<BoardCall>) {
         // cannot monopolize replies for other calls in this request.
         if let Some(reply) = pending_writes.pop_front() {
             let path = dir.join("board-replies").join(format!("{}.json", reply.id));
-            if crate::agent::atomic_write_json(&path, &reply).is_err() {
+            if crate::agent::atomic_write_json_compact(&path, &reply).is_err() {
                 pending_writes.push_back(reply);
             }
         }

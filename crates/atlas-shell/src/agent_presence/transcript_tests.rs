@@ -34,6 +34,7 @@ fn selected_history_stays_bounded_while_copy_can_include_earliest_and_latest_tur
         .map(|(index, text)| ConversationMessage {
             id: text,
             text,
+            at: index as u64,
             outgoing: index % 2 == 0,
             system: false,
             status: "delivered",
@@ -51,6 +52,7 @@ fn conversation_copy_preserves_turn_boundaries_roles_and_attachment_captions() {
         ConversationMessage {
             id: "human",
             text: "Please sort these.",
+            at: 1,
             outgoing: true,
             system: false,
             status: "delivered",
@@ -59,6 +61,7 @@ fn conversation_copy_preserves_turn_boundaries_roles_and_attachment_captions() {
         ConversationMessage {
             id: "reply",
             text: "Done.",
+            at: 2,
             outgoing: false,
             system: false,
             status: "delivered",
@@ -67,6 +70,7 @@ fn conversation_copy_preserves_turn_boundaries_roles_and_attachment_captions() {
         ConversationMessage {
             id: "notice",
             text: "Task complete",
+            at: 3,
             outgoing: false,
             system: true,
             status: "",
@@ -76,5 +80,54 @@ fn conversation_copy_preserves_turn_boundaries_roles_and_attachment_captions() {
     assert_eq!(
         conversation_copy_text("Dot", &messages),
         "You:\nPlease sort these.\n[1 image attached]\n\nDot:\nDone.\n\nNotice:\nTask complete"
+    );
+}
+
+#[test]
+fn completed_reply_follows_later_public_progress_without_dropping_history() {
+    use super::order::{ordered_rows, TranscriptRow};
+    use crate::agent_presence::PublicActivity;
+
+    let messages = [
+        ConversationMessage {
+            id: "question",
+            text: "Sort these",
+            at: 100,
+            outgoing: true,
+            system: false,
+            status: "complete",
+            attachment_count: 0,
+        },
+        ConversationMessage {
+            id: "reply",
+            text: "Done",
+            at: 250,
+            outgoing: false,
+            system: false,
+            status: "complete",
+            attachment_count: 0,
+        },
+    ];
+    let activity = [
+        PublicActivity {
+            label: "Working",
+            text: "Reading files",
+            at: 200,
+        },
+        PublicActivity {
+            label: "Completed",
+            text: "Saved the result",
+            at: 250,
+        },
+    ];
+
+    assert_eq!(
+        ordered_rows(&messages, &activity),
+        [
+            TranscriptRow::Message(0),
+            TranscriptRow::Activity(0),
+            TranscriptRow::Activity(1),
+            TranscriptRow::Message(1),
+        ]
     );
 }

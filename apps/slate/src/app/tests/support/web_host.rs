@@ -12,6 +12,7 @@ pub(crate) struct FakeLog {
     pub(crate) admit_targets: Vec<(slate_doc::NodeId, String)>,
     pub(crate) admit_profiles: Vec<(slate_doc::NodeId, String)>,
     pub(crate) inputs: Vec<board_web::WebInput>,
+    pub(crate) keyboard_releases: usize,
     pub(crate) current_urls: std::collections::HashMap<slate_doc::NodeId, String>,
     pub(crate) navigations: Vec<(slate_doc::NodeId, String)>,
 }
@@ -71,6 +72,9 @@ impl board_web::WebHost for FakeWebHost {
     }
     fn send_input(&mut self, _id: slate_doc::NodeId, input: board_web::WebInput) {
         self.0.borrow_mut().inputs.push(input);
+    }
+    fn release_keyboard(&self) {
+        self.0.borrow_mut().keyboard_releases += 1;
     }
     fn cursor(&self, _id: slate_doc::NodeId) -> Option<egui::CursorIcon> {
         None

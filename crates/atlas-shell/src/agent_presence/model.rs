@@ -11,6 +11,7 @@ pub struct ProviderOption<'a> {
 pub struct ConversationMessage<'a> {
     pub id: &'a str,
     pub text: &'a str,
+    pub at: u64,
     pub outgoing: bool,
     pub system: bool,
     pub status: &'a str,
@@ -22,6 +23,7 @@ pub struct ConversationMessage<'a> {
 pub struct PublicActivity<'a> {
     pub label: &'a str,
     pub text: &'a str,
+    pub at: u64,
 }
 /// A bounded display label for a pending or attached chat item.
 pub struct Attachment<'a> {

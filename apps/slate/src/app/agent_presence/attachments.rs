@@ -102,6 +102,9 @@ impl SlateApp {
         };
         let focused =
             ctx.memory(|m| m.focused()) == Some(egui::Id::new(("presence-composer", who.as_str())));
+        if focused {
+            self.web_release_keyboard();
+        }
         let native_owned =
             native_paste_edge && focused && who != "self" && !who.starts_with("human:");
         let frame_paste = ctx.input(|i| {

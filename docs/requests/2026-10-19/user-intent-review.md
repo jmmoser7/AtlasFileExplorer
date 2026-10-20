@@ -2,15 +2,13 @@
 
 ## Current execution status
 
-The global website, same-request focus-transfer and brush-preview repairs now
-pass local all-target release Clippy. Seven focused Codex session tests also
-pass, including public command-name progress without tool payloads or private
-reasoning. Local contract auditing built successfully but Windows refused to
-execute `target/debug/xtask.exe` (OS error 5); no audit pass is claimed. The
-scoped source is being frozen for hosted tests and one native release rebuild.
-The 224-node recovery remains retained; native acceptance, merge and release
-are still pending. The checkpoints below describe earlier builds, not this
-new source.
+Native task `req-47272-1792455745111395400-2` ran source `722dc0820684d3815b1afb1718b32018164bd0b8`; `native-722-launch.json` records executable SHA256 `074F45A59BD8B098F1969B7235A28E49EA6CE20019D2AA90BC9E26896130D554`, and `build-source-parity-722dc082.json` confirms the build source matched. The task and one ordinary restart each ended in an execute access violation in an unknown module; retained reports are under `native-722-crash` and `native-722-restart-crash`. The active diagnostic run has not reproduced the fault. No source cause is established.
+
+The latest native checkpoint was saved and closed normally with 252 nodes. All 74 original nodes and both original linked items/tags are exactly preserved (`native-722-preservation.json`). The workbook SHA256 is `FD37ADEC8C188B156EC658982CCBFE555F941B2CED84805F418D93F39F79DB5E`. The eight new slide frames' geometry and orders were verified. Final preview evidence is #151 for slide 01, then #81, #84, #87, #90, #93, #96 and #99 for slides 02–08. My pixel review found readable headings/body and no obvious clipping; slide 01's corrected generated artwork has a legible caption below it. Parent-reported preview metadata for all eight is `complete:true` with zero missing textures, unavailable objects or unsupported callbacks. The native task also retained the Atlas analyzed-file highlight (`native-722-atlas-highlight.png`) and visible Smooth, Join, Erase and drawing-batch samples. The accepted count-two generation attempt remains honestly recorded as failed with one recovered 1672×941 image; no new generation was made.
+
+The human-enabled **Allow all websites** setting remains saved. The actual #81 Measuring Heat Islands text read and capture now match that portal. New-origin #228 text and capture were refreshed successfully after the reviewer released human Atlas focus with Escape; no new site approval was needed. An ordinary conversation word selection/copy/paste round trip remained unsent, and steering while working over Web passed. The helper completed a qualified read-only review, but parent retrieval beyond its 512-byte preview was rejected by the bridge worker's stale participant scope. A narrow grant-rebind repair and regression are pending verification. Google click/type/Enter returned dispatch success without visible input changes, so those operations remain unverified.
+
+CI 176 failed because a test fixture omitted the chat area when maximizing; the corrected inline-portal fixture passed its focused local test (one passed, zero failed). Windows compilation and Clippy passed. The diagnostic native run ended idle and was saved/closed normally without reproducing an access violation; the earlier crashes remain unexplained. Remaining gates include fresh helper paging on the repaired build, verified Google input, live drawing presence, save/reopen or presentation-at-rest behavior, and final integration/release review. No complete-workflow, merge, or release acceptance is claimed. The checkpoints below describe earlier builds and remain historical.
 
 At 17:39 EDT, the native continuation on build `9379…F087` had progressed to
 224 nodes and populated the eight slide bodies. Its public feedback confirms

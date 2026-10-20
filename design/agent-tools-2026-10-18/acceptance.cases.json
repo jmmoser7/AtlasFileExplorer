@@ -489,12 +489,12 @@
   ],
   "candidateBuild": {
     "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/target/release/slate.exe",
-    "size": 50784768,
-    "modified_utc": "2026-10-19T20:27:08.9361116Z",
-    "version": "19 October maximized-portal and saved-chat repair, production source 02803131; test fixtures 8d4c20b1",
-    "sha256": "9379FD4B6ADBB7233C41EF2A7B88915E7FEFC166E8F20B8AE2B798DD6EC5F087",
+    "size": 50786816,
+    "modified_utc": "2026-10-19T21:59:35.0181130Z",
+    "version": "19 October global website, focus-transfer and brush-preview repair; production 0f854516, pointer fixture f32767df",
+    "sha256": "845677D2292969A940D123E501FF51862B0BCC08154F6D1470EEF26EBC6F5930",
     "tested_interactively": false,
     "available": true
   },
-  "automatedEvidence": "Source 8d4c20b1 passed all hosted CI jobs and the Windows installer build: Linux workspace 3887 passed, Windows workspace 3954 passed, zero failures. The resulting PR package is an artifact, not a published release. Native build 9379 reopened the saved board and both Google and EPA load after human approval. The actual agent task is running; its cross-portal focus failure and the user-requested global Web permission are being repaired. These new changes require focused checks and a new native build. Interactive verdicts remain blank. Retained evidence: target/review/research-workflow-20261019."
+  "automatedEvidence": "Snapshot f32767df passed hosted CI 170: Linux workspace 3896 passed, 0 failed, 93 ignored; Windows installer 148: 3963 passed, 0 failed, 111 ignored, verified preview package retained as artifact 12226939743. Local compact BoardLink reply regression passed. Chat-over-Web input shield is implemented with focused validation pending. On native production 0f854516, the human enabled global website access; the task saved 243 objects and eight populated frames. All 74 original nodes and both original linked items compare unchanged. Whole public transcript copy round-trip passed; ordinary selection/steering is pending the input repair. The helper produced a full public result, but parent-side paging and all-eight final pixel checks remain incomplete. No complete native acceptance, merge, or release is claimed. Exact build and retained evidence: target/review/research-workflow-20261019."
 }
