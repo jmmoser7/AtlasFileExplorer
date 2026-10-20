@@ -32,7 +32,7 @@ fn media(scene: &mut Scene, class: usize, height: f32) -> Node {
 }
 
 #[test]
-fn media_text_and_artifact_rails_stay_top_justified_across_resize_and_rotation() {
+fn media_text_and_artifact_rails_fit_compact_hosts_and_keep_normal_datums() {
     let mut scene = Scene::default();
     for class in 0..3 {
         for height in [36.0, 120.0, 400.0, 900.0] {
@@ -41,11 +41,13 @@ fn media_text_and_artifact_rails_stay_top_justified_across_resize_and_rotation()
                 node.rotation_deg = rotation;
                 let host = WireHost::from_node(&node);
                 let inputs = crate::agent_inputs::input_ports_of(&node, false);
+                let needed = FLOW_PORT_TOP + (inputs.len() - 1) as f32 * FLOW_PORT_PITCH + 14.0;
+                let scale = (height / needed).min(1.0);
                 for (row, port) in inputs.iter().enumerate() {
                     let expected = node.rect.rotate_point(
                         [
                             node.rect.x,
-                            node.rect.y + FLOW_PORT_TOP + row as f32 * FLOW_PORT_PITCH,
+                            node.rect.y + (FLOW_PORT_TOP + row as f32 * FLOW_PORT_PITCH) * scale,
                         ],
                         rotation,
                     );
@@ -55,7 +57,10 @@ fn media_text_and_artifact_rails_stay_top_justified_across_resize_and_rotation()
                     );
                 }
                 let expected = node.rect.rotate_point(
-                    [node.rect.x + node.rect.w, node.rect.y + FLOW_PORT_TOP],
+                    [
+                        node.rect.x + node.rect.w,
+                        node.rect.y + FLOW_PORT_TOP * scale,
+                    ],
                     rotation,
                 );
                 assert!(
@@ -64,12 +69,8 @@ fn media_text_and_artifact_rails_stay_top_justified_across_resize_and_rotation()
                         expected
                     ) < 0.001
                 );
-                if height < FLOW_PORT_TOP + (inputs.len() - 1) as f32 * FLOW_PORT_PITCH + 14.0 {
-                    assert!(
-                        host.ports().is_empty(),
-                        "an invisible rail must not leave live hit targets"
-                    );
-                }
+                assert!(host.offers_ports());
+                assert_eq!(host.ports().len(), inputs.len() + 1);
             }
         }
     }
@@ -135,7 +136,7 @@ fn view_and_chat_header_semantics_keep_their_distinct_datums() {
 }
 
 #[test]
-fn ordinary_source_output_uses_the_top_datum_and_short_sources_offer_no_ports() {
+fn ordinary_source_output_preserves_normal_datum_and_recovers_compact_ports() {
     let mut scene = Scene::default();
     for height in [12.0, 36.0, 44.0, 120.0, 600.0] {
         for rotation in [0.0, 30.0, 90.0, 180.0] {
@@ -147,7 +148,12 @@ fn ordinary_source_output_uses_the_top_datum_and_short_sources_offer_no_ports() 
                 "an ordinary source has no generator input rail"
             );
             let expected = node.rect.rotate_point(
-                [node.rect.x + node.rect.w, node.rect.y + FLOW_PORT_TOP],
+                [
+                    node.rect.x + node.rect.w,
+                    node.rect.y
+                        + FLOW_PORT_TOP
+                            * (height / (FLOW_PORT_TOP + 2.0 * FLOW_PORT_PITCH + 14.0)).min(1.0),
+                ],
                 rotation,
             );
             assert!(
@@ -157,25 +163,18 @@ fn ordinary_source_output_uses_the_top_datum_and_short_sources_offer_no_ports() 
                 ) < 0.001,
                 "h{height}, r{rotation}"
             );
-            assert_eq!(host.offers_ports(), height >= FLOW_PORT_TOP + 14.0);
-            if host.offers_ports() {
-                let output = host
-                    .ports()
-                    .into_iter()
-                    .find(|port| port.side == Side::Right)
-                    .unwrap();
-                assert_eq!(
-                    output.t,
-                    crate::agent_inputs::OUTPUT_T,
-                    "saved output identity stays stable"
-                );
-                assert!(dist(output.point, expected) < 0.001);
-            } else {
-                assert!(
-                    host.ports().is_empty(),
-                    "short sources leave no invisible port targets"
-                );
-            }
+            assert!(host.offers_ports());
+            let output = host
+                .ports()
+                .into_iter()
+                .find(|port| port.side == Side::Right)
+                .unwrap();
+            assert_eq!(
+                output.t,
+                crate::agent_inputs::OUTPUT_T,
+                "saved output identity stays stable"
+            );
+            assert!(dist(output.point, expected) < 0.001);
         }
     }
 }
@@ -207,8 +206,56 @@ fn ordinary_source_arbitrary_saved_anchors_keep_their_existing_edge_geometry() {
 }
 
 #[test]
+fn compact_source_and_revealed_input_rail_share_the_same_output_site() {
+    let mut scene = Scene::default();
+    for height in [1.0, 12.0, 36.0, 127.99, 128.0, 128.01, 400.0] {
+        for rotation in [0.0, 37.0, 90.0] {
+            let mut node = source_image(&mut scene, height);
+            node.rotation_deg = rotation;
+            let source = WireHost::from_node(&node);
+            let revealed = WireHost::from_node_flow(&node, &crate::agent_inputs::GENERATOR_PORTS);
+            assert_eq!(
+                source.anchor(Side::Right, crate::agent_inputs::OUTPUT_T),
+                revealed.anchor(Side::Right, crate::agent_inputs::OUTPUT_T)
+            );
+            for port in revealed.ports() {
+                let (cx, cy) = node.rect.center();
+                let (x, y) = crate::geom::world_to_local_about(
+                    port.point[0],
+                    port.point[1],
+                    cx,
+                    cy,
+                    rotation,
+                );
+                assert!(x >= node.rect.x - 0.001 && x <= node.rect.x + node.rect.w + 0.001);
+                assert!(y >= node.rect.y - 0.001 && y <= node.rect.y + node.rect.h + 0.001);
+            }
+        }
+    }
+}
+
+#[test]
+fn compact_rail_fit_is_continuous_at_the_normal_datum_boundary() {
+    let mut scene = Scene::default();
+    let mut node = source_image(&mut scene, 1.0);
+    let mut previous = None;
+    for step in 0..=80 {
+        node.rect.h = 124.0 + step as f32 * 0.1;
+        let host = WireHost::from_node_flow(&node, &crate::agent_inputs::GENERATOR_PORTS);
+        let sites = host.ports();
+        let positions: Vec<f32> = sites.iter().map(|p| p.point[1]).collect();
+        if let Some(before) = previous {
+            for (a, b) in positions.iter().zip(before) {
+                assert!((a - b).abs() < 0.11);
+            }
+        }
+        previous = Some(positions);
+    }
+}
+
+#[test]
 fn ordinary_source_to_generator_routes_share_the_top_datum_without_moving_cards() {
-    for source_height in [44.0, 180.0, 700.0] {
+    for source_height in [128.0, 180.0, 700.0] {
         for target_height in [180.0, 600.0] {
             let mut scene = Scene::default();
             let source = source_image(&mut scene, source_height);

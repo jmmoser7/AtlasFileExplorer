@@ -170,18 +170,10 @@ impl WireHost {
         self.ports_enabled && self.flow_sites_fit()
     }
 
-    /// Tiny hosts hide the whole typed rail instead of compressing its rhythm.
-    /// Existing wire identities still resolve at their fixed authored datum.
+    /// Port relevance belongs to the screen-space interaction policy. Small
+    /// authored dimensions alone do not permanently remove ports at high zoom.
     fn flow_sites_fit(&self) -> bool {
-        if self.flow.is_empty() {
-            return !self.image || self.chat || self.rect.h >= FLOW_PORT_TOP + 14.0;
-        }
-        self.chat
-            || self
-                .flow
-                .iter()
-                .any(|p| p.slot == atlas_agent::InputSlot::View)
-            || self.rect.h >= FLOW_PORT_TOP + (self.flow.len() - 1) as f32 * FLOW_PORT_PITCH + 14.0
+        self.rect.w > 0.0 && self.rect.h > 0.0
     }
 
     /// A generator or text block: typed input ports and one output.
@@ -276,14 +268,23 @@ impl WireHost {
 
     /// Resolve known typed slot identities to fixed distances from the top.
     /// The special 3D View rail and arbitrary saved edge attachments retain
-    /// their existing normalized geometry. Tiny hosts overflow the rail;
-    /// compressing it would break alignment between a train's nodes.
+    /// their existing normalized geometry. Compact rails fit continuously;
+    /// normal train cards retain their fixed top datum and pitch.
     fn flow_anchor_t(&self, side: Side, t: f32) -> Option<f32> {
+        // A raster source can reveal generation inputs during a wire drag.
+        // Its output datum must not move when that optional rail is revealed.
+        let rows = self.flow.len().max(if self.image {
+            crate::agent_inputs::GENERATOR_PORTS.len()
+        } else {
+            1
+        });
+        let needed = FLOW_PORT_TOP + (rows - 1) as f32 * FLOW_PORT_PITCH + 14.0;
+        let scale = (self.rect.h / needed).clamp(0.0, 1.0);
         if self.flow.is_empty() {
             return (self.image
                 && side == Side::Right
                 && (t - crate::agent_inputs::OUTPUT_T).abs() < EPS)
-                .then_some(FLOW_PORT_TOP / self.rect.h.max(1.0));
+                .then_some(FLOW_PORT_TOP * scale / self.rect.h.max(f32::EPSILON));
         }
         if self
             .flow
@@ -297,7 +298,9 @@ impl WireHost {
             Side::Left => self.flow.iter().position(|p| (p.t - t).abs() < EPS),
             _ => None,
         };
-        row.map(|row| (FLOW_PORT_TOP + row as f32 * FLOW_PORT_PITCH) / self.rect.h.max(1.0))
+        row.map(|row| {
+            (FLOW_PORT_TOP + row as f32 * FLOW_PORT_PITCH) * scale / self.rect.h.max(f32::EPSILON)
+        })
     }
     pub fn outward(&self, side: Side, t: f32) -> [f32; 2] {
         match &self.kind {

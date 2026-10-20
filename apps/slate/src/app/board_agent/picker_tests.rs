@@ -33,6 +33,7 @@ fn a_resize_records_its_size_and_fit_to_text_forgets_it() {
         id: root,
         before,
         handle: 0,
+        grab_offset: egui::Vec2::ZERO,
         dup: false,
     });
     h.app

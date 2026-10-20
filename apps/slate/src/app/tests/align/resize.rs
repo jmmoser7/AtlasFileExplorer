@@ -19,6 +19,7 @@ fn group_reposition_keeps_member_size() {
         before,
         group_before: gb,
         handle: board_handles::ResizeHandle::E as u8,
+        grab_offset: EVec2::ZERO,
         dup: false,
     });
     let mods = egui::Modifiers {
@@ -91,6 +92,7 @@ fn group_every_handle_scale_and_reposition() {
                 before,
                 group_before: gb,
                 handle,
+                grab_offset: EVec2::ZERO,
                 dup: false,
             });
             let mut mods = egui::Modifiers::default();

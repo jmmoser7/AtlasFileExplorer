@@ -1,19 +1,18 @@
-//! Grasshopper-style align widget: two icon clusters on a multi-selection
-//! (left + bottom — the other two sides duplicate the same actions). The
-//! group bounding-box outline is the selection indicator — this module does
-//! not draw a second frame, and hover does not ghost the result.
-//!
-//! Syntax (target rects) is renderer-free in this file's math helpers.
-//! Shared shell chrome owns the two T-shaped clusters and cached arrow glyphs.
-//! Hit-testing is screen-space (eight fixed squares). Mutations go through
-//! [`SlateApp::patch_nodes`] (Art. VI). See `docs/keymap/contracts/align-widget.md`.
+//! Align/distribute selected nodes using shared left/bottom icon clusters.
+//! Target-rect math is renderer-free; shell owns chrome and cached arrows.
+//! Presses use eight screen-space squares. Mutations use `SlateApp::patch_nodes`.
+//! The group selection outline is not duplicated or ghosted on hover.
+//! See `docs/keymap/contracts/align-widget.md` (Art. VI).
 
 use super::board::{BoardTool, BoardXf};
 use super::board_snap;
 use super::SlateApp;
 use atlas_commands::CommandId;
 use atlas_shell::theme::Palette;
-use atlas_shell::{icons::Icon, selection_tools::alignment};
+use atlas_shell::{
+    icons::Icon,
+    selection_tools::{alignment, hit_regions},
+};
 use eframe::egui::{self, Color32, CursorIcon, Pos2, Rect, Vec2};
 use slate_doc::scene::{NodeKind, WorldRect};
 use slate_doc::NodeId;
@@ -323,15 +322,22 @@ impl SlateApp {
             .filter(|n| {
                 self.wire_host(n).offers_ports() && super::board_wire::wire_ports_fit(n.rect, xf.z)
             })
-            .flat_map(|n| self.wire_host(n).ports())
-            .map(|port| xf.w2s(Pos2::from(port.point)))
-            .filter(|point| {
-                layout.chrome.left.iter().any(|r| {
-                    point.y >= r.top() - super::board_wire::grip_hit_out_radius(xf.z)
-                        && point.y <= r.bottom() + super::board_wire::grip_hit_out_radius(xf.z)
-                })
+            .flat_map(|n| {
+                let reach =
+                    hit_regions::wire_outer_reach(n.rect.w.min(n.rect.h) * xf.z).unwrap_or(0.0);
+                self.wire_host(n)
+                    .ports()
+                    .into_iter()
+                    .map(move |port| (xf.w2s(Pos2::from(port.point)), reach))
             })
-            .map(|point| point.x - super::board_wire::grip_hit_out_radius(xf.z))
+            .filter(|(point, reach)| {
+                layout
+                    .chrome
+                    .left
+                    .iter()
+                    .any(|r| point.y >= r.top() - reach && point.y <= r.bottom() + reach)
+            })
+            .map(|(point, reach)| point.x - reach)
             .fold(f32::INFINITY, f32::min);
         let right = layout
             .chrome

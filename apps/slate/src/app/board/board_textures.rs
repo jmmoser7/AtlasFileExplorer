@@ -338,7 +338,8 @@ impl SlateApp {
             board_handles::paint_fillet_grip(
                 painter,
                 grip,
-                xf.z,
+                atlas_shell::selection_tools::hit_regions::Domain::Resize
+                    .prominence(n.rect.w.min(n.rect.h) * xf.z),
                 select_tint,
                 hot,
                 self.palette().select_fill,

@@ -1472,6 +1472,15 @@ impl SlateApp {
                 }
             }
         }
+        if self.board_sel.len() >= 2
+            && self.board_crop.is_none()
+            && !self.selection_all_simple_lines()
+        {
+            if let Some(bounds) = self.board_group_bounds() {
+                let geom = board_handles::selection_geom(&xf, bounds, 0.0);
+                board_handles::paint_control_frame(&selection_painter, &geom, select_tint);
+            }
+        }
         self.paint_agent_spawn_preview(&painter, &xf);
         self.paint_crosstalk(ui, &painter, &xf);
         self.paint_trim_preview(&painter, &xf);
@@ -2219,97 +2228,7 @@ impl SlateApp {
                 }
             }
             Some(BoardDrag::ModelMeasure { .. }) | Some(BoardDrag::DeckStroke { .. }) => {}
-            Some(BoardDrag::Resize {
-                id, before, handle, ..
-            }) => {
-                let node_id = *id;
-                let handle = *handle;
-                let before_rect = before.rect;
-                let rotation_deg = before.rotation_deg;
-                // A picture dragged past its opposite edge mirrors instead of
-                // clamping (P1.node.transform); other kinds keep the clamp.
-                let mirrors = matches!(before.kind, NodeKind::Image(_))
-                    && slate_doc::mirror::node_mirrors(self.doc(), before);
-                // Corner drags scale proportionally by default; Shift frees
-                // the aspect (distortion). Edge drags are single-axis, with
-                // Shift locking the aspect instead.
-                let is_corner = matches!(handle, 0 | 2 | 4 | 6);
-                let lock_aspect = if is_corner { !mods.shift } else { mods.shift };
-                let from_center = mods.ctrl;
-                let resize = |pointer: Pos2| {
-                    if mirrors {
-                        board_snap::resize_from_handle_mirroring(
-                            before_rect,
-                            pointer,
-                            handle,
-                            MIN_DRAW,
-                            lock_aspect,
-                            from_center,
-                            rotation_deg,
-                        )
-                    } else {
-                        let r = board_snap::resize_from_handle(
-                            before_rect,
-                            pointer,
-                            handle,
-                            MIN_DRAW,
-                            lock_aspect,
-                            from_center,
-                            rotation_deg,
-                        );
-                        (r, [false, false])
-                    }
-                };
-                let (mut r, mut crossed) = resize(world);
-
-                if !mods.alt {
-                    if is_corner {
-                        let rotated = rotation_deg.abs() > f32::EPSILON;
-                        if !rotated && crossed == [false, false] {
-                            let pointer = self.resolve_corner_scale(
-                                world,
-                                before_rect,
-                                r,
-                                handle,
-                                MIN_DRAW,
-                                lock_aspect,
-                                from_center,
-                                &[node_id],
-                            );
-                            (r, crossed) = resize(pointer);
-                        } else {
-                            let pointer =
-                                self.resolve_point_snap(world, &[node_id], None, false, false);
-                            (r, crossed) = resize(pointer);
-                        }
-                    } else if self.board_smart_guides {
-                        let all = self.board_node_rects();
-                        // Past the far edge, the moving edge is the opposite one.
-                        let moving = if crossed[0] || crossed[1] {
-                            (handle + 4) % 8
-                        } else {
-                            handle
-                        };
-                        let edges = board_snap::ResizeSnapEdges::for_handle(moving);
-                        let (snapped, guides) = board_snap::snap_resize_rect_scoped(
-                            r,
-                            &[node_id],
-                            &all,
-                            self.snap_scope(),
-                            edges,
-                        );
-                        r = snapped;
-                        self.board_snap_guides = guides;
-                    }
-                }
-
-                if mirrors {
-                    self.sync_resize_mirror(node_id, crossed);
-                }
-                if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
-                    n.rect = r;
-                }
-            }
+            Some(BoardDrag::Resize { .. }) => self.update_node_resize(world, mods),
             Some(BoardDrag::CropEdge {
                 id,
                 before,
@@ -2379,8 +2298,10 @@ impl SlateApp {
                 before,
                 group_before,
                 handle,
+                grab_offset,
                 ..
             }) => {
+                let world = world + *grab_offset;
                 let ids = ids.clone();
                 let before = before.clone();
                 let gb = *group_before;

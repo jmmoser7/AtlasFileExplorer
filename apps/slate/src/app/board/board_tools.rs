@@ -306,6 +306,8 @@ pub enum BoardDrag {
         id: NodeId,
         before: Node,
         handle: u8,
+        /// Press-time offset from the displayed control to the authored grip.
+        grab_offset: Vec2,
         dup: bool,
     },
     /// Rotating one node from an outside-corner zone.
@@ -339,6 +341,7 @@ pub enum BoardDrag {
         before: Vec<Node>,
         group_before: WorldRect,
         handle: u8,
+        grab_offset: Vec2,
         dup: bool,
     },
     /// Rotating a multi-selection about the group bounding-box center.
@@ -435,8 +438,8 @@ pub enum BoardDrag {
         start_amount: f32,
         /// The pointer's press-time projection onto the grip edge (world).
         press_travel: f32,
-        /// Where the held grip paints: the pointer's live projection onto
-        /// the edge, clamped to it. Only the idle grip rests at the inset.
+        /// Raw live projection. Paint clamps an ordinary grip to its edge;
+        /// a displaced control preserves its press-time offset instead.
         pointer_travel: f32,
         /// Press position (screen) and the farthest the pointer has moved from
         /// it; a release under the drag threshold is a click.

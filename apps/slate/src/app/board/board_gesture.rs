@@ -253,7 +253,7 @@ impl SlateApp {
     }
 
     /// The shared Select body-move path, including group/duplicate policy.
-    fn begin_select_body_drag(
+    pub(crate) fn begin_select_body_drag(
         &mut self,
         hit: NodeId,
         world: Pos2,

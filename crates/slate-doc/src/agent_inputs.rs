@@ -13,9 +13,9 @@ pub use artifact::{
 pub use ports::*;
 #[cfg(test)]
 mod compatibility_tests;
-use ports::{flow_view, model_view_target};
 #[cfg(test)]
-use ports::{GENERATOR_PORTS, TEXT_PORTS};
+use ports::TEXT_PORTS;
+use ports::{flow_view, model_view_target};
 
 use crate::{scene::*, SlateDoc};
 use atlas_agent::{ContextItem, ImageOutput, InputSlot, InputSnapshot};

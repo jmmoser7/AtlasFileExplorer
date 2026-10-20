@@ -59,7 +59,11 @@ pub(super) fn review(ui: &mut egui::Ui, theme: Palette) {
         .map(|(x, y, inward, color)| (Pos2::new(x, host.top() + y), inward, color));
         let notches: Vec<_> = ports
             .iter()
-            .map(|&(center, inward, _)| chrome::MediaPortNotch { center, inward })
+            .map(|&(center, inward, _)| chrome::MediaPortNotch {
+                center,
+                inward,
+                radius: 6.0,
+            })
             .collect();
         canvas_text::text(
             ui.painter(),

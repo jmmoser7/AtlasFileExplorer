@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Selection hit-zone studio</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="identity">
+      <span class="identity-mark" aria-hidden="true">S</span>
+      <div><h1>Selection studio</h1><p>Inspect a press. Tune what wins.</p></div>
+    </div>
+    <div class="header-actions">
+      <span id="proposal-status" class="status">Source baseline</span>
+      <button id="baseline" class="quiet" type="button">Use source values</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="canvas-pane" aria-label="Interactive selection canvas">
+      <div class="scene-toolbar">
+        <label class="inline-field" for="preset"><span>Scene</span>
+          <select id="preset">
+            <option value="single">Single object</option>
+            <option value="overlap">Overlap order</option>
+            <option value="overlap-lab">Overlap torture · mixed sizes</option>
+            <option value="adjacent">Adjacent corner tie</option>
+            <option value="tiny">Tiny targets</option>
+            <option value="scale">Scale ladder · four sizes</option>
+            <option value="crop">Crop handles</option>
+            <option value="wire">Wire crossing</option>
+            <option value="crowded">Crowded canvas</option>
+          </select>
+        </label>
+        <label class="inline-field" for="mode"><span>Mode</span>
+          <select id="mode"><option value="select">Select</option><option value="crop">Crop</option></select>
+        </label>
+        <div class="toolbar-divider" aria-hidden="true"></div>
+        <div class="button-group" aria-label="Scene history">
+          <button id="undo" type="button" title="Undo (Ctrl+Z)">Undo</button>
+          <button id="redo" type="button">Redo</button>
+        </div>
+        <button id="reset" class="quiet toolbar-end" type="button">Reset scene</button>
+        <button id="center-view" class="quiet" type="button">Center selection</button>
+      </div>
+
+      <div class="view-toolbar">
+        <div class="view-options" aria-label="Canvas overlays">
+          <label class="check"><input id="zones" type="checkbox" checked>Hit zones</label>
+          <label class="check"><input id="labels" type="checkbox" checked>Labels</label>
+          <label class="check"><input id="show-chrome" type="checkbox" checked>Selection chrome</label>
+        </div>
+        <label class="inline-field" for="tiny-strategy"><span>Hit rules</span>
+          <select id="tiny-strategy"><option value="adaptive">Adaptive regions · proposal</option><option value="semantic">Protected points · previous</option><option value="expanded">Expanded controls · previous</option><option value="source">Slate source profile</option></select>
+        </label>
+        <label class="zoom-control" for="zoom"><span>Zoom</span>
+          <input id="zoom" type="range" min="-700" max="700" value="0" step="1">
+          <output id="zoom-value" for="zoom">100%</output>
+        </label>
+      </div>
+
+      <div id="stage-wrap">
+        <canvas id="stage" width="1200" height="800" tabindex="0"
+          aria-label="Selection test canvas. Drag bodies to move, edges or corners to resize, and outside corners to rotate.">
+          Your browser needs canvas support to display the selection studio.
+        </canvas>
+      </div>
+
+      <div class="stage-help">
+        <p>Drag a body to move; edges or corners to resize; outside corners to rotate. <kbd>Alt</kbd> bypasses angle snapping. <kbd>Shift</kbd>-click adds to selection.
+          <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes. <kbd>Esc</kbd> cancels.</p>
+        <span class="coordinate-label">Board-space preview</span>
+      </div>
+      <div id="notice" role="status" aria-live="polite">Choose a scene, then move the pointer over an object to inspect its targets.</div>
+    </section>
+
+    <aside class="inspector" aria-label="Scene controls and hit diagnostics">
+      <section class="inspector-section diagnostics">
+        <div class="section-heading"><h2>Under the pointer</h2><span class="live-dot" aria-hidden="true"></span></div>
+        <p class="section-description">Green: body · Blue: resize/fillet · Pink: rotate · Amber: wire · Purple: controls</p>
+        <dl>
+          <div><dt>Winning target</dt><dd id="target">None</dd></div>
+          <div><dt>Contenders</dt><dd id="contenders">Move over the canvas</dd></div>
+          <div><dt>Gesture</dt><dd id="gesture">Idle</dd></div>
+        </dl>
+        <button id="scan" class="full-width" type="button">Scan hit zones</button>
+        <div id="scan-results" aria-live="polite"></div>
+        <div id="scale-ladder" aria-label="Interaction prominence by object"></div>
+      </section>
+
+      <section class="inspector-section">
+        <div class="section-heading"><h2>Objects</h2><button id="add" class="small" type="button">Add object</button></div>
+        <div id="objects" aria-label="Scene objects"></div>
+        <div class="object-actions">
+          <button id="front" type="button">Bring to front</button>
+          <button id="back" type="button">Send to back</button>
+        </div>
+        <div class="dimensions">
+          <label for="width"><span>Width <small>u</small></span><input id="width" type="number" min="1" max="4000" step="1" value="320"></label>
+          <label for="height"><span>Height <small>u</small></span><input id="height" type="number" min="1" max="4000" step="1" value="240"></label>
+          <label for="angle"><span>Rotation <small>deg</small></span><input id="angle" type="number" min="-180" max="180" step="1" value="0"></label>
+          <label for="radius"><span>Corner radius <small>u</small></span><input id="radius" type="number" min="0" max="2000" step="0.1" value="0"></label>
+        </div>
+      </section>
+
+      <section class="inspector-section">
+        <div class="section-heading"><h2>Hit geometry</h2><span class="section-meta">Preview values</span></div>
+        <p class="section-description">Stacked objects: top move, scale, and rotation zones retain priority; top wires activate only inside the host. Adjacent matching corners: the closer host geometry wins. An exact distance tie uses front order. Select a buried object in Objects to expose its outer frame.</p>
+        <div class="range-field">
+          <label for="corner-hit">Corner hit radius</label><output id="corner-hit-value" for="corner-hit">12</output>
+          <input id="corner-hit" type="range" min="4" max="24" value="12" step="1">
+        </div>
+        <div class="range-field">
+          <label for="edge-hit">Edge hit width</label><output id="edge-hit-value" for="edge-hit">6</output>
+          <input id="edge-hit" type="range" min="2" max="16" value="6" step="1">
+        </div>
+        <div class="range-field">
+          <label for="rotate-hit">Rotation hit radius</label><output id="rotate-hit-value" for="rotate-hit">12</output>
+          <input id="rotate-hit" type="range" min="4" max="24" value="12" step="1">
+        </div>
+        <div class="range-field">
+          <label for="rotate-offset">Rotation corner offset</label><output id="rotate-offset-value" for="rotate-offset">18</output>
+          <input id="rotate-offset" type="range" min="12" max="48" value="18" step="1">
+        </div>
+        <div class="range-field">
+          <label for="hit-slop">Hit slop</label><output id="hit-slop-value" for="hit-slop">8</output>
+          <input id="hit-slop" type="range" min="2" max="16" value="8" step="1">
+        </div>
+        <div class="range-field">
+          <label for="drag-threshold">Drag threshold</label><output id="drag-threshold-value" for="drag-threshold">6</output>
+          <input id="drag-threshold" type="range" min="0" max="12" value="6" step="1">
+        </div>
+        <div class="range-field">
+          <label for="strip-gap">Property strip gap</label><output id="strip-gap-value" for="strip-gap">14</output>
+          <input id="strip-gap" type="range" min="0" max="40" value="14" step="1">
+        </div>
+        <div class="range-field">
+          <label for="bottom-gap">Bottom dimension gap</label><output id="bottom-gap-value" for="bottom-gap">68</output>
+          <input id="bottom-gap" type="range" min="20" max="100" value="68" step="1">
+        </div>
+      </section>
+
+
+      <section class="inspector-section observations">
+        <div class="section-heading"><h2>Record a check</h2><span class="section-meta"><span id="feedback-count">0</span> saved</span></div>
+        <label class="sr-only" for="note">Observation</label>
+        <textarea id="note" rows="3" placeholder="What happened? What should win here?"></textarea>
+        <div class="verdict-actions">
+          <button id="mark-pass" class="pass-button" type="button">Works as expected</button>
+          <button id="mark-fail" type="button">Needs a change</button>
+        </div>
+        <div class="transfer-actions">
+          <button id="export" class="quiet" type="button">Export checks</button>
+          <button id="import" class="quiet" type="button">Import JSON</button>
+        </div>
+        <details id="transfer-panel">
+          <summary>JSON transfer</summary>
+          <label class="sr-only" for="transfer">Studio JSON</label>
+          <textarea id="transfer" rows="6" spellcheck="false" placeholder="Paste studio JSON here."></textarea>
+          <button id="apply-import" class="full-width" type="button">Apply JSON</button>
+        </details>
+      </section>
+
+      <details id="source-details" class="inspector-section source-details">
+        <summary>Source reference</summary>
+        <dl><div><dt>Native baseline</dt><dd>2087</dd></div><div><dt>Preview</dt><dd>175</dd></div></dl>
+        <p>Rotatable image/shape proxies with source-based rotation and top-edge fillet placement. Expanded tiny controls are a proposed strategy; compare with Slate source profile.</p>
+      </details>
+    </aside>
+  </main>
+
+  <footer class="app-footer"><span>Selection hit-zone studio</span><span>Prototype only · native acceptance still required</span></footer>
+  <script src="source-baseline.js"></script>
+  <script src="semantic.js"></script>
+  <script src="adaptive.js"></script>
+  <script src="geometry.js"></script>
+  <script src="engine.js"></script>
+  <script src="render.js"></script>
+  <script src="studio.js"></script>
+</body>
+</html>

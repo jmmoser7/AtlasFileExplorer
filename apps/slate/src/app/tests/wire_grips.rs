@@ -79,11 +79,16 @@ fn wire_grips_preview_only_the_handle_under_the_pointer() {
     );
 }
 
-/// The enlarged grip hit reaches outside the node and stops at the edge.
+/// The continuous outward field reaches beyond the port; the same distant
+/// inward probe belongs to the host rather than its wire.
 #[test]
 fn wire_grip_hit_reaches_outside_the_node_only() {
     let mut h = web_board("wire_grip_outward");
     let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.patch_nodes(&[id], |node| {
+        node.rect.w = 160.0;
+        node.rect.h = 100.0;
+    });
     h.app.board_sel.clear();
     h.app.set_board_tool(board::BoardTool::Select);
     h.frame();
@@ -91,13 +96,13 @@ fn wire_grip_hit_reaches_outside_the_node_only() {
     let xf = h.app.board_xf();
     let rect = h.app.doc().scene.node(id).unwrap().rect;
     let grip = xf.w2s(board_wire::grip_point(rect, slate_doc::scene::Side::Top));
-    let outside = grip + EVec2::new(0.0, -30.0);
-    let inside = grip + EVec2::new(0.0, 30.0);
+    let outside = grip + EVec2::new(0.0, -18.0);
+    let inside = grip + EVec2::new(0.0, 18.0);
 
     assert_eq!(
         h.app.wire_grip_at(outside, &xf).map(|(_, side, _)| side),
         Some(slate_doc::scene::Side::Top),
-        "30 px outside the edge is a grip"
+        "18 px outside the edge is in the continuous outward field"
     );
     assert!(
         h.app.wire_grip_at(inside, &xf).is_none(),
@@ -150,14 +155,12 @@ fn wire_grip_press_beats_edge_resize() {
     );
 }
 
-/// The inner hit grows past 8 px once the camera pulls back, and stays 8 px
-/// when zoomed in. Painted discs still use canvas scale.
+/// Wire relevance tapers with projected host size, replacing inverse-zoom
+/// enlargement. Cursor expansion does not revive a dormant fine control.
 #[test]
-fn wire_grip_hit_grows_when_zoomed_out() {
+fn wire_grip_hit_tapers_when_the_projected_host_shrinks() {
     let mut h = web_board("wire_hit_zoom");
     let id = add_rect(&mut h.app, 0.0, 0.0);
-    // The radius growth applies to ports with enough room for disjoint body
-    // and transform targets; tiny hosts have their own suppression regression.
     h.app.patch_nodes(&[id], |node| {
         node.rect.h = 100.0;
         node.rect.w = 160.0;
@@ -172,21 +175,26 @@ fn wire_grip_hit_grows_when_zoomed_out() {
     let xf = h.app.board_xf();
     let inside = xf.w2s(grip_w) + EVec2::new(0.0, 9.0);
     assert!(
-        h.app.wire_grip_at(inside, &xf).is_none(),
-        "9 px inside the edge is past the zoom-1 disk"
+        h.app.wire_grip_at(inside, &xf).is_some(),
+        "cursor proximity expands the fully relevant field to this probe"
     );
 
     h.app.tab_mut().cam.z = 0.55;
     let xf = h.app.board_xf();
     let inside = xf.w2s(grip_w) + EVec2::new(0.0, 9.0);
+    assert!(
+        h.app.wire_grip_at(inside, &xf).is_none(),
+        "the same 9 px lies outside the less relevant field"
+    );
     assert_eq!(
-        h.app.wire_grip_at(inside, &xf).map(|(_, side, _)| side),
-        Some(slate_doc::scene::Side::Top),
-        "the same 9 px reaches the grown hit"
+        h.app
+            .wire_grip_at(xf.w2s(grip_w), &xf)
+            .map(|(_, side, _)| side),
+        Some(slate_doc::scene::Side::Top)
     );
 }
 
-/// A port the painter has dropped is not a press target.
+/// A dormant projected-size wire domain cannot take a press.
 #[test]
 fn wire_ports_below_the_lod_are_not_hittable() {
     let mut h = web_board("wire_port_lod");
@@ -201,7 +209,7 @@ fn wire_ports_below_the_lod_are_not_hittable() {
     let grip = xf.w2s(board_wire::grip_point(rect, slate_doc::scene::Side::Right));
     assert!(
         h.app.wire_grip_at(grip, &xf).is_none(),
-        "a disc below 1.5 px is not a grip"
+        "a projected host below Wire relevance is not a grip"
     );
 }
 

@@ -1,0 +1,93 @@
+# Approved selection regions — native integration
+
+User approval: “lock this in and apply to the full project then build and push
+to github”, 20 October 2026. The final sandbox establishes the design; it does
+not establish native behavior. The agreed contract is
+`../../keymap/contracts/selection-hit-regions.md`.
+
+Baseline: `2087cc176473f752a8124f37be431dcf41600ef5` (preview.175).
+Branch: `codex/selection-hit-integration-20261020`.
+The normal checkout and its Git index remain untouched. Existing four dirty
+suggestion-box acceptance records and native evidence remain outside this commit.
+
+## Work ledger
+
+- [x] Approval captured; shared pattern, D01–D17 contract and decisions locked.
+- [x] DRY ownership gate approved shared shell hit policy and existing adapters.
+- [x] Native adapters integrated; scoped formatting, source ceilings and JSON checks pass.
+- [x] Independent intent/regression review and scoped Quick health review complete.
+- [ ] Standard Windows release build: attempted, exit 101 (dependency execution blocked).
+- [ ] Exact-build native interactive evaluation: Blocked; no release executable produced.
+- [ ] Commit and push the exact owned paths to GitHub.
+
+## Acceptance boundary
+
+The earlier local build encountered OS error 5 in generated build helpers.
+Keep toolchain, flags, profile, dependencies and normal output directory stable;
+retain diagnostics under ignored `target/review/selection-hit-20261020`.
+An unexecuted native case remains Untested or Blocked. Do not close original
+bug reports or mark this interaction contract shipped from sandbox tests alone.
+
+Native cases: four-size zoom hierarchy; tiny move envelope; continuous edge and
+rotation regions; unchanged top-object move/scale/rotation zones over rear
+objects; interior-only overlapping top wire hits; adjacent corner geometry ties
+in both orders and rotated poses; compact port recovery at high zoom; selected
+buried frame/move label; undo/redo/cancel and native curve/portal exceptions.
+
+## Final implementation and retained review
+
+The shared shell policy owns projected-size smoothstep prominence, dormant fine
+regions, cursor expansion, continuous edges/rotation arcs and control frames.
+Existing native adapters keep authored transform anchors, snapping, modifiers and
+journal ownership. Compact controls capture the difference between displayed
+and actual anchors before resizing. Fillet capture retains its displayed press
+position without jumping. Fully buried unselected controls are suppressed;
+explicit selection can recover a coherent outside frame and clear move header.
+
+Native overlap and adjacent-corner arbitration use one cached document-aware
+geometry owner. It retains rotated/rounded/trimmed silhouettes and linked text-card
+corner defaults; scene generation, source-path revision, item count and tolerance
+bucket invalidate derived data. Broad-phase queries reuse the scene spatial index.
+Hidden nodes and slide frames do not turn a host into a stack. Ordinary and
+revealed raster output rails now agree even on compact hosts. Port paint/cutouts
+remain bounded editing overlays at extreme zoom; normal rail datums and durable
+wire slot identities remain authoritative in both interpreters.
+
+The independent intent reviewer found no remaining blocker in the final scoped
+source review. Review fixes have retained tests: 16 native selection-region cases,
+14 geometry cases, and focused shared-field, adapter, port-presentation and compact
+rail cases. These Rust tests have **not run**. Removed obsolete host-only outward48
+and inverse-zoom assumptions were replaced by approved continuous-field cases;
+selected-connector endpoint editing retains its separate existing contract.
+No report has been closed or archived by this integration.
+
+## Validation evidence
+
+- Scoped `rustfmt --check --edition 2021 --config skip_children=true`: exit 0.
+- Changed Rust physical-line ceilings: pass; no allowlist expansion.
+- Decisions JSON parses; approved D01–D17 and existing entries retained.
+- Approved browser sandbox: 58 Node tests, 58 pass, 0 fail. This is design evidence.
+- Acceptance checklist browser QA: real IAB input locked run identity, saved all
+  39 expectations as Blocked, exported JSON and rendered the checklist. Initial
+  catalog is entirely Untested; this separate run records the build blockage.
+- Standard build: `. ./scripts/_msvc-env.ps1` then
+  `cargo build --locked --release -p slate -p native-file-atlas`: **exit 101**.
+  Quote and serde generated helpers could not execute: Windows OS error 5.
+  Cargo never reached Slate compilation. Later source-review fixes therefore
+  remain uncompiled too; the blocked attempt is not an exact-final-source pass.
+- Toolchain: rustc 1.97.1 (8bab26f4f, 2026-07-14), cargo 1.97.1
+  (c980f4866, 2026-06-30). No toolchain/profile/flags/dependency/output change,
+  cache cleaning, elevation, security change or denial retry was used.
+- CodeIntegrity, AppLocker and Defender readable logs had no matching events in
+  the attempt window. OS error 5 does not identify the enforcing control.
+- Release tests, canonical Cargo contract/kit/size gates, shortcut installation
+  and native UI launch remain unperformed behind this build boundary. No release
+  `slate.exe` exists in this worktree. Do not substitute an older executable.
+
+Retained logs, denied artifact hashes, exported blocked run and browser screenshot:
+[selection-regions/evidence](selection-regions/evidence/).
+User checklist: [selection-regions/index.html](selection-regions/index.html).
+After execution approval changes, run the unchanged release build, required
+release workspace suite and contract/kit/size checks, then the nine native paths
+on the exact binary. Record native and user observations separately before marking
+this contract shipped or resolving any original report.

@@ -1,7 +1,9 @@
 //! Selection handles, hover cursors, and rotate zones for the Board canvas.
 use super::board::BoardXf;
 use atlas_shell::canvas_scale;
+use atlas_shell::selection_tools::hit_regions::{self, Domain, Prominence};
 use eframe::egui::{self, Color32, CursorIcon, Pos2, Rect, Stroke as EStroke, Vec2};
+use hit_regions::distance_to_segment as dist_to_segment;
 use slate_doc::{geom::CornerGripEdge, scene::WorldRect};
 
 /// Screen-px half-size of resize handles (matches board.rs).
@@ -10,21 +12,17 @@ pub const HANDLE_PX: f32 = 5.0;
 /// Painted half-size of the live-corner fillet grip (square, same family as
 /// resize handles).
 pub const FILLET_GRIP_PX: f32 = 1.6;
-/// Half-size of the fillet grip's hit box before slop, and the size whose
-/// legibility decides whether the grip shows at all. Larger than the painted
-/// square so a small grip stays easy to grab.
-pub const FILLET_GRIP_HIT_PX: f32 = 4.0;
 /// World-unit inset of the corner grip along its edge while the corner is
 /// square (and the floor of its resting travel).
 pub const FILLET_GRIP_MIN_INSET_WORLD: f32 = 10.0;
 /// Windows-style corner hit (diagonal resize).
-pub const CORNER_HIT_PX: f32 = 12.0;
+pub const CORNER_HIT_PX: f32 = hit_regions::CORNER_REACH;
 /// Windows-style edge-band hit (axis resize).
-pub const EDGE_BAND_PX: f32 = 6.0;
+pub const EDGE_BAND_PX: f32 = hit_regions::EDGE_REACH;
 /// Radius of the rotate hit zone outside each corner.
-pub const ROTATE_ZONE_PX: f32 = 12.0;
+pub const ROTATE_ZONE_PX: f32 = hit_regions::ROTATE_REACH;
 /// How far outside the corner the rotate affordance sits (screen px).
-pub const ROTATE_OFFSET_PX: f32 = 18.0;
+pub const ROTATE_OFFSET_PX: f32 = hit_regions::ROTATE_OFFSET;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResizeHandle {
@@ -63,35 +61,44 @@ pub enum BoardHitTarget {
 }
 
 pub struct SelectionGeom {
+    /// True projected object geometry. Transform arithmetic always uses this.
     pub corners: [Pos2; 4],
     pub edges: [Pos2; 4],
+    /// Ephemeral interaction frame. Never use it as an authored resize origin.
+    pub control_corners: [Pos2; 4],
+    pub control_edges: [Pos2; 4],
     pub rotate_points: [Pos2; 4],
+    pub projected_shortest: f32,
+    pub prominence: Prominence,
     pub zoom: f32,
 }
 
 pub fn selection_geom(xf: &BoardXf, rect: WorldRect, rotation_deg: f32) -> SelectionGeom {
     let corners_w = rect.corners_rotated(rotation_deg);
     let corners = corners_w.map(|(x, y)| xf.w2s(Pos2::new(x, y)));
-    let edges = [
-        corners[0] + (corners[1] - corners[0]) * 0.5,
-        corners[1] + (corners[2] - corners[1]) * 0.5,
-        corners[2] + (corners[3] - corners[2]) * 0.5,
-        corners[3] + (corners[0] - corners[3]) * 0.5,
-    ];
-    let center = corners[0] + (corners[2] - corners[0]) * 0.5;
-    let rotate_points = corners.map(|c| {
-        let outward = (c - center).normalized();
-        c + outward * canvas_scale::px(ROTATE_OFFSET_PX, xf.z)
-    });
+    let edges = hit_regions::edge_midpoints(&corners);
+    let projected_shortest = hit_regions::shortest_side(&corners);
+    let prominence = Prominence::new(projected_shortest);
+    let control_corners = hit_regions::control_corners(&corners);
+    let control_edges = hit_regions::edge_midpoints(&control_corners);
+    let rotate_points = hit_regions::rotation_points(&control_corners, prominence.rotate);
     SelectionGeom {
         corners,
         edges,
+        control_corners,
+        control_edges,
         rotate_points,
+        projected_shortest,
+        prominence,
         zoom: xf.z,
     }
 }
 
+mod adaptive;
 mod crop;
+#[cfg(test)]
+pub use adaptive::body_geometry_distance;
+pub use adaptive::{body_pick, chrome_bounds, chrome_pick, paint_control_frame, set_control_frame};
 #[cfg(test)]
 pub use crop::{crop_handle_at, CROP_ARM_PX, CROP_BAR_THICK_PX, CROP_HIT_PAD_PX};
 pub use crop::{crop_handle_pick, paint_crop_handles};
@@ -148,45 +155,9 @@ pub fn hit_test_resize_handles(screen: Pos2, geom: &SelectionGeom) -> Option<Res
         .map(|(handle, _)| handle)
 }
 
-fn dist_to_segment(p: Pos2, a: Pos2, b: Pos2) -> f32 {
-    let ab = b - a;
-    let len2 = ab.length_sq();
-    if len2 < 1e-8 {
-        return p.distance(a);
-    }
-    let t = ((p - a).dot(ab) / len2).clamp(0.0, 1.0);
-    (p - (a + ab * t)).length()
-}
-
-/// Windows-window chrome: corners first, then the full edge band.
+/// Continuous adaptive chrome: corner discs and full-edge bands.
 pub fn hit_test_resize_bands(screen: Pos2, geom: &SelectionGeom) -> Option<ResizeHandle> {
-    let corner_handles = [
-        ResizeHandle::Nw,
-        ResizeHandle::Ne,
-        ResizeHandle::Se,
-        ResizeHandle::Sw,
-    ];
-    let corner_hit = canvas_scale::hit_px(CORNER_HIT_PX, geom.zoom);
-    for (i, corner) in geom.corners.iter().enumerate() {
-        if screen.distance(*corner) <= corner_hit {
-            return Some(corner_handles[i]);
-        }
-    }
-    let edge_spans = [
-        (ResizeHandle::N, geom.corners[0], geom.corners[1]),
-        (ResizeHandle::E, geom.corners[1], geom.corners[2]),
-        (ResizeHandle::S, geom.corners[2], geom.corners[3]),
-        (ResizeHandle::W, geom.corners[3], geom.corners[0]),
-    ];
-    let edge_hit = canvas_scale::hit_px(EDGE_BAND_PX, geom.zoom);
-    let mut best: Option<(ResizeHandle, f32)> = None;
-    for (handle, a, b) in edge_spans {
-        let d = dist_to_segment(screen, a, b);
-        if d <= edge_hit && best.map(|(_, bd)| d < bd).unwrap_or(true) {
-            best = Some((handle, d));
-        }
-    }
-    best.map(|(h, _)| h)
+    adaptive::resize_pick(screen, geom).map(|(handle, _)| handle)
 }
 
 /// Resting travel of the corner grip along its edge: the treatment's tangent
@@ -218,26 +189,27 @@ pub fn cursor_along(dir: Vec2) -> CursorIcon {
 }
 
 pub fn hit_test_fillet_grip(screen: Pos2, geom: &SelectionGeom, grip: Pos2) -> bool {
-    let half = (canvas_scale::px(FILLET_GRIP_HIT_PX, geom.zoom) + canvas_scale::HIT_SLOP_PX * 0.5)
-        .max(canvas_scale::HIT_SLOP_PX);
-    Rect::from_center_size(grip, Vec2::splat(half * 2.0)).contains(screen)
+    Domain::Resize
+        .reach(geom.projected_shortest, hit_regions::FILLET_REACH)
+        .and_then(|reach| hit_regions::Field::Disc(grip).pick(screen, screen, reach))
+        .is_some()
 }
 
 pub fn paint_fillet_grip(
     painter: &egui::Painter,
     grip: Pos2,
-    zoom: f32,
+    prominence: f32,
     ink: Color32,
     hot: bool,
     handle_hot: Color32,
 ) {
-    let half = canvas_scale::px(FILLET_GRIP_PX, zoom);
+    let half = FILLET_GRIP_PX * prominence;
     let fill = if hot { handle_hot } else { Color32::WHITE };
     painter.rect(
         Rect::from_center_size(grip, Vec2::splat(half * 2.0)),
         0.0,
         fill,
-        EStroke::new(canvas_scale::px(1.0, zoom), ink),
+        EStroke::new(prominence, ink),
         egui::StrokeKind::Inside,
     );
 }
@@ -259,17 +231,7 @@ pub fn hit_test_chrome(
     geom: &SelectionGeom,
     allow_rotate: bool,
 ) -> Option<BoardHitTarget> {
-    if let Some(handle) = hit_test_resize_bands(screen, geom) {
-        return Some(BoardHitTarget::Resize(handle));
-    }
-    if allow_rotate {
-        for (i, rp) in geom.rotate_points.iter().enumerate() {
-            if screen.distance(*rp) <= canvas_scale::hit_px(ROTATE_ZONE_PX, geom.zoom) {
-                return Some(BoardHitTarget::Rotate(i as u8));
-            }
-        }
-    }
-    None
+    chrome_pick(screen, geom, allow_rotate).map(|(target, _)| target)
 }
 
 /// Resize cursor from the handle's screen-space direction, so arrows stay
@@ -348,355 +310,4 @@ pub fn paint_selection(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn rect_shape() -> slate_doc::scene::ShapeNode {
-        slate_doc::scene::ShapeNode {
-            shape: slate_doc::scene::ShapeKind::Rect,
-            fill: None,
-            stroke: slate_doc::scene::Stroke::default(),
-            corner: slate_doc::scene::Corner::Square,
-            sides: slate_doc::scene::default_regular_sides(),
-            phase_deg: 0.0,
-            flip: false,
-            path: None,
-            text: None,
-        }
-    }
-
-    #[test]
-    fn resize_handles_cover_corners_and_edges() {
-        let xf = BoardXf {
-            center: Pos2::ZERO,
-            offset: Vec2::ZERO,
-            z: 1.0,
-        };
-        let geom = selection_geom(&xf, WorldRect::new(0.0, 0.0, 100.0, 50.0), 0.0);
-        assert!(
-            hit_test_selection(geom.corners[0], &geom)
-                == Some(BoardHitTarget::Resize(ResizeHandle::Nw))
-        );
-        assert!(
-            hit_test_selection(geom.edges[1], &geom)
-                == Some(BoardHitTarget::Resize(ResizeHandle::E))
-        );
-    }
-
-    #[test]
-    fn rotated_node_maps_n_handle_to_horizontal_cursor() {
-        let xf = BoardXf {
-            center: Pos2::ZERO,
-            offset: Vec2::ZERO,
-            z: 1.0,
-        };
-        // Rotated 90° the "N" edge sits on the left/right of the screen, so
-        // its resize cursor must be horizontal, not vertical.
-        let geom = selection_geom(&xf, WorldRect::new(0.0, 0.0, 100.0, 50.0), 90.0);
-        let c = cursor_for_resize(ResizeHandle::N, &geom);
-        assert!(
-            matches!(c, CursorIcon::ResizeEast | CursorIcon::ResizeWest),
-            "expected horizontal resize cursor, got {c:?}"
-        );
-        // Unrotated it stays vertical.
-        let geom0 = selection_geom(&xf, WorldRect::new(0.0, 0.0, 100.0, 50.0), 0.0);
-        assert_eq!(
-            cursor_for_resize(ResizeHandle::N, &geom0),
-            CursorIcon::ResizeNorth
-        );
-    }
-
-    #[test]
-    fn wide_box_corner_uses_diagonal_cursor() {
-        let xf = BoardXf {
-            center: Pos2::ZERO,
-            offset: Vec2::ZERO,
-            z: 1.0,
-        };
-        // A wide group AABB: corner−center is nearly horizontal, but the
-        // cursor must stay 45° (Windows / single-object convention).
-        let geom = selection_geom(&xf, WorldRect::new(0.0, 0.0, 200.0, 40.0), 0.0);
-        assert_eq!(
-            cursor_for_resize(ResizeHandle::Nw, &geom),
-            CursorIcon::ResizeNorthWest
-        );
-        assert_eq!(
-            cursor_for_resize(ResizeHandle::Se, &geom),
-            CursorIcon::ResizeSouthEast
-        );
-        assert_eq!(
-            cursor_for_resize(ResizeHandle::Ne, &geom),
-            CursorIcon::ResizeNorthEast
-        );
-        assert_eq!(
-            cursor_for_resize(ResizeHandle::Sw, &geom),
-            CursorIcon::ResizeSouthWest
-        );
-    }
-
-    #[test]
-    fn edge_band_hits_between_handles() {
-        let xf = BoardXf {
-            center: Pos2::ZERO,
-            offset: Vec2::ZERO,
-            z: 1.0,
-        };
-        let geom = selection_geom(&xf, WorldRect::new(0.0, 0.0, 100.0, 50.0), 0.0);
-        // Midway along the top edge, well outside the N handle square.
-        let on_edge = Pos2::new(25.0, 0.0);
-        assert_eq!(hit_test_resize_bands(on_edge, &geom), Some(ResizeHandle::N));
-        assert_eq!(hit_test_resize_handles(on_edge, &geom), None);
-        assert_eq!(crop_handle_at(geom.edges[0], &geom), Some(ResizeHandle::N));
-        assert_eq!(
-            crop_handle_at(geom.edges[0] + Vec2::new(0.0, -40.0), &geom),
-            None
-        );
-        assert_eq!(
-            crop_handle_at(geom.corners[0], &geom),
-            Some(ResizeHandle::Nw)
-        );
-        assert_eq!(
-            hit_test_chrome(on_edge, &geom, true),
-            Some(BoardHitTarget::Resize(ResizeHandle::N))
-        );
-    }
-
-    #[test]
-    fn crop_hit_zones_center_slop_boundary_and_outside() {
-        let at = |z: f32| {
-            let xf = BoardXf {
-                center: Pos2::ZERO,
-                offset: Vec2::ZERO,
-                z,
-            };
-            selection_geom(&xf, WorldRect::new(0.0, 0.0, 200.0, 150.0), 0.0)
-        };
-        let geom = at(1.0);
-        let corner_reach = canvas_scale::hit_px(CROP_ARM_PX + CROP_HIT_PAD_PX, 1.0);
-        let edge_reach = canvas_scale::hit_px(CROP_BAR_THICK_PX * 0.5 + CROP_HIT_PAD_PX, 1.0);
-        assert!(edge_reach >= canvas_scale::HIT_SLOP_PX);
-
-        // Handle centers.
-        let edges = [
-            ResizeHandle::N,
-            ResizeHandle::E,
-            ResizeHandle::S,
-            ResizeHandle::W,
-        ];
-        let corners = [
-            ResizeHandle::Nw,
-            ResizeHandle::Ne,
-            ResizeHandle::Se,
-            ResizeHandle::Sw,
-        ];
-        for i in 0..4 {
-            assert_eq!(crop_handle_at(geom.edges[i], &geom), Some(edges[i]));
-            assert_eq!(crop_handle_at(geom.corners[i], &geom), Some(corners[i]));
-        }
-
-        // Slop boundary, outside the box: just inside hits, just past misses.
-        let w = Pos2::new(0.0, 75.0);
-        assert_eq!(
-            crop_handle_at(w + Vec2::new(-(edge_reach - 0.25), 0.0), &geom),
-            Some(ResizeHandle::W)
-        );
-        assert_eq!(
-            crop_handle_at(w + Vec2::new(-(edge_reach + 0.25), 0.0), &geom),
-            None
-        );
-        let se = geom.corners[2];
-        let diag = Vec2::splat(std::f32::consts::FRAC_1_SQRT_2);
-        assert_eq!(
-            crop_handle_at(se + diag * (corner_reach - 0.25), &geom),
-            Some(ResizeHandle::Se)
-        );
-        assert_eq!(
-            crop_handle_at(se + diag * (corner_reach + 0.25), &geom),
-            None
-        );
-
-        // Full edge length, far from the painted bar, inside and outside.
-        for y in [corner_reach + 1.0, 40.0, 110.0, 150.0 - corner_reach - 1.0] {
-            assert_eq!(
-                crop_handle_at(Pos2::new(-4.0, y), &geom),
-                Some(ResizeHandle::W)
-            );
-            assert_eq!(
-                crop_handle_at(Pos2::new(4.0, y), &geom),
-                Some(ResizeHandle::W)
-            );
-        }
-
-        // Corners win where a corner and an edge zone overlap.
-        assert_eq!(
-            crop_handle_at(Pos2::new(-3.0, 5.0), &geom),
-            Some(ResizeHandle::Nw)
-        );
-
-        // Zoomed out, the zones keep the screen slop; zoomed in they cover
-        // the bigger painted bar.
-        let small = at(0.25);
-        let w_small = Pos2::new(0.0, 150.0 * 0.25 * 0.5);
-        assert_eq!(
-            crop_handle_at(
-                w_small + Vec2::new(-(canvas_scale::HIT_SLOP_PX - 0.5), 0.0),
-                &small
-            ),
-            Some(ResizeHandle::W)
-        );
-        let big = at(3.0);
-        let bar_edge = canvas_scale::px(CROP_BAR_THICK_PX, 3.0) * 0.5;
-        assert_eq!(
-            crop_handle_at(big.edges[3] + Vec2::new(-bar_edge, 0.0), &big),
-            Some(ResizeHandle::W)
-        );
-    }
-
-    #[test]
-    fn rotate_zone_is_outside_the_corner() {
-        let xf = BoardXf {
-            center: Pos2::ZERO,
-            offset: Vec2::ZERO,
-            z: 1.0,
-        };
-        let geom = selection_geom(&xf, WorldRect::new(0.0, 0.0, 100.0, 50.0), 0.0);
-        assert_eq!(
-            hit_test_chrome(geom.rotate_points[0], &geom, true),
-            Some(BoardHitTarget::Rotate(0))
-        );
-        assert_eq!(
-            hit_test_chrome(geom.rotate_points[0], &geom, false),
-            None,
-            "portals and other non-rotatable kinds must not offer rotate"
-        );
-        // The corner itself stays diagonal resize so aspect keys still apply.
-        assert_eq!(
-            hit_test_chrome(geom.corners[0], &geom, true),
-            Some(BoardHitTarget::Resize(ResizeHandle::Nw))
-        );
-    }
-
-    #[test]
-    fn fillet_radius_clamps_to_short_side() {
-        let rect = WorldRect::new(0.0, 0.0, 80.0, 40.0);
-        let node = slate_doc::scene::Scene::default()
-            .build_node(rect, slate_doc::scene::NodeKind::Shape(rect_shape()));
-        let edge = slate_doc::geom::corner_grip_edge(&node, false).unwrap();
-        let r = edge.amount_for_travel(edge.project([100.0, 100.0]));
-        assert!((r - 20.0).abs() < 1e-4);
-    }
-
-    #[test]
-    fn handle_squares_and_rotate_offset_track_zoom() {
-        let rect = WorldRect::new(0.0, 0.0, 100.0, 50.0);
-        let g1 = selection_geom(
-            &BoardXf {
-                center: Pos2::ZERO,
-                offset: Vec2::ZERO,
-                z: 1.0,
-            },
-            rect,
-            0.0,
-        );
-        let g2 = selection_geom(
-            &BoardXf {
-                center: Pos2::ZERO,
-                offset: Vec2::ZERO,
-                z: 2.0,
-            },
-            rect,
-            0.0,
-        );
-        let a = handle_rects(&g1)[0].1;
-        let b = handle_rects(&g2)[0].1;
-        assert!(
-            (b.width() - a.width() * 2.0).abs() < 1e-3,
-            "handle square froze: {} → {}",
-            a.width(),
-            b.width()
-        );
-        let off1 = g1.rotate_points[0].distance(g1.corners[0]);
-        let off2 = g2.rotate_points[0].distance(g2.corners[0]);
-        assert!(
-            (off2 - off1 * 2.0).abs() < 1e-3,
-            "rotate offset froze: {off1} → {off2}"
-        );
-    }
-
-    #[test]
-    fn fillet_grip_paints_at_40_percent_and_keeps_a_generous_hit() {
-        assert!(
-            (FILLET_GRIP_PX - 0.4 * 4.0).abs() < 1e-6,
-            "painted half-size is 40% of the former 4 units, got {FILLET_GRIP_PX}"
-        );
-        let at = |z: f32| {
-            let xf = BoardXf {
-                center: Pos2::ZERO,
-                offset: Vec2::ZERO,
-                z,
-            };
-            selection_geom(&xf, WorldRect::new(0.0, 0.0, 400.0, 300.0), 0.0)
-        };
-        let grip = Pos2::new(50.0, 0.0);
-        let geom = at(1.0);
-        for off in [
-            Vec2::new(7.5, 0.0),
-            Vec2::new(-7.5, 7.5),
-            Vec2::new(0.0, -7.5),
-        ] {
-            assert!(
-                hit_test_fillet_grip(grip + off, &geom, grip),
-                "the hit box still reaches 8 px at zoom 1 ({off:?})"
-            );
-        }
-        assert!(!hit_test_fillet_grip(
-            grip + Vec2::new(8.5, 0.0),
-            &geom,
-            grip
-        ));
-        let small = at(0.25);
-        assert!(
-            hit_test_fillet_grip(grip + Vec2::new(7.5, 0.0), &small, grip),
-            "zoomed out, the reach never falls under the screen slop"
-        );
-        let big = at(4.0);
-        assert!(hit_test_fillet_grip(
-            grip + Vec2::new(19.5, 0.0),
-            &big,
-            grip
-        ));
-    }
-
-    #[test]
-    fn fillet_grip_screen_round_trips_the_radius_reader() {
-        use slate_doc::scene::WorldRect;
-
-        let xf = BoardXf {
-            center: Pos2::ZERO,
-            offset: Vec2::ZERO,
-            z: 1.0,
-        };
-        for (w, h) in [(100.0, 100.0), (400.0, 100.0), (100.0, 400.0)] {
-            for rot in [0.0, 37.0, 90.0, 180.0] {
-                let rect = WorldRect::new(0.0, 0.0, w, h);
-                let mut node = slate_doc::scene::Scene::default()
-                    .build_node(rect, slate_doc::scene::NodeKind::Shape(rect_shape()));
-                node.rotation_deg = rot;
-                let edge = slate_doc::geom::corner_grip_edge(&node, false).unwrap();
-                let max = w.min(h) * 0.5;
-                for r in [0.0, 8.0, 24.0, (max * 0.45).floor()] {
-                    let travel = corner_grip_rest_travel(&edge, r);
-                    let grip = corner_grip_screen(&xf, &edge, travel);
-                    let world = xf.s2w(grip);
-                    let grab = travel - edge.project([world.x, world.y]);
-                    let read = edge.amount_for_travel(edge.project([world.x, world.y]) + grab);
-                    let expected = r.max(FILLET_GRIP_MIN_INSET_WORLD);
-                    assert!(
-                        (read - expected).abs() < 0.08,
-                        "w={w} h={h} rot={rot} r={r}: anchored read {read}"
-                    );
-                }
-            }
-        }
-    }
-}
+mod tests;

@@ -46,6 +46,7 @@ mod path_edit;
 mod previews;
 mod review;
 mod selection_chrome;
+mod selection_regions;
 mod sheet;
 mod split_gp;
 mod stacking;

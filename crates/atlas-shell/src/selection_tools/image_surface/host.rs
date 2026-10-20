@@ -7,6 +7,8 @@ use std::sync::Mutex;
 pub struct MediaPortNotch {
     pub center: Pos2,
     pub inward: Vec2,
+    /// Matching ephemeral dot radius in screen pixels, before radial clearance.
+    pub radius: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -66,6 +68,7 @@ pub fn media_host_geometry(
             && cached.key.ports.iter().zip(ports).all(|(a, b)| {
                 (a.center - (b.center - origin.to_vec2())).length_sq() < 0.00001
                     && a.inward == b.inward
+                    && a.radius == b.radius
             })
             && match (cached.key.tab, tab) {
                 (None, None) => true,
@@ -107,7 +110,7 @@ pub fn media_host_geometry(
         zoom,
         ppp: ctx.pixels_per_point(),
     };
-    let mut cutouts: Vec<Vec<Pos2>> = ports.iter().map(|port| scallop(*port, zoom)).collect();
+    let mut cutouts: Vec<Vec<Pos2>> = ports.iter().map(|port| scallop(*port)).collect();
     if let Some(mut tab) = tab {
         // Cross the edge by a physical pixel so the subtraction is unambiguous.
         tab.max.y += 1.0 / key.ppp;
@@ -145,9 +148,8 @@ pub fn media_host_geometry(
     geometry
 }
 
-fn scallop(port: MediaPortNotch, zoom: f32) -> Vec<Pos2> {
-    let radius = 8.0 * zoom;
-    let shoulder = 4.0 * zoom;
+fn scallop(port: MediaPortNotch) -> Vec<Pos2> {
+    let (radius, shoulder) = crate::selection_tools::hit_regions::wire_notch_geometry(port.radius);
     let inward = port.inward.normalized();
     let along = Vec2::new(-inward.y, inward.x);
     let point = |x: f32, y: f32| port.center + inward * x + along * y;
@@ -191,20 +193,75 @@ mod tests {
     use super::*;
 
     #[test]
-    fn media_port_scallop_keeps_six_unit_disc_with_two_unit_radial_gap() {
-        let points = scallop(
-            MediaPortNotch {
-                center: Pos2::ZERO,
-                inward: Vec2::X,
-            },
-            1.0,
-        );
+    fn media_port_scallop_keeps_six_pixel_disc_with_two_pixel_radial_gap() {
+        let points = scallop(MediaPortNotch {
+            center: Pos2::ZERO,
+            inward: Vec2::X,
+            radius: 6.0,
+        });
         let inward_extent = points
             .iter()
             .map(|point| point.x)
             .fold(f32::NEG_INFINITY, f32::max);
         assert!((inward_extent - 8.0).abs() < 0.01);
         assert!((inward_extent - 6.0 - 2.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn port_notch_is_screen_sized_and_radius_changes_invalidate_the_cached_host() {
+        let ctx = egui::Context::default();
+        let image = [
+            Pos2::ZERO,
+            Pos2::new(128.0, 0.0),
+            Pos2::new(128.0, 128.0),
+            Pos2::new(0.0, 128.0),
+        ];
+        let notch = MediaPortNotch {
+            center: Pos2::new(0.0, 64.0),
+            inward: Vec2::X,
+            radius: 6.0,
+        };
+        let normal = media_host_geometry(
+            &ctx,
+            Id::new("port-screen-size"),
+            &image,
+            &[notch],
+            None,
+            1.0,
+        );
+        let zoomed = media_host_geometry(
+            &ctx,
+            Id::new("port-screen-size"),
+            &image,
+            &[notch],
+            None,
+            128.0,
+        );
+        assert_eq!(
+            normal.cutouts, zoomed.cutouts,
+            "port cutout must not multiply a screen radius by camera zoom"
+        );
+        let tapered = media_host_geometry(
+            &ctx,
+            Id::new("port-screen-size"),
+            &image,
+            &[MediaPortNotch {
+                radius: 3.0,
+                ..notch
+            }],
+            None,
+            128.0,
+        );
+        assert!(!Arc::ptr_eq(&zoomed.identity, &tapered.identity));
+        assert_ne!(zoomed.cutouts, tapered.cutouts);
+        let extent = |geometry: &MediaHostGeometry| {
+            geometry.cutouts[0]
+                .iter()
+                .map(|p| p.x)
+                .fold(f32::NEG_INFINITY, f32::max)
+        };
+        assert!((extent(&tapered) - 4.0).abs() < 0.01);
+        assert!((extent(&zoomed) - 8.0).abs() < 0.01);
     }
 
     #[test]
@@ -220,6 +277,7 @@ mod tests {
         let ports = [MediaPortNotch {
             center: Pos2::new(0.0, 30.0),
             inward: Vec2::X,
+            radius: 6.0,
         }];
         let tab = Some(super::super::super::blister_tab_rect(host, 1.0, 7));
         let build = || media_host_geometry(&ctx, Id::new("host-test"), &image, &ports, tab, 1.0);

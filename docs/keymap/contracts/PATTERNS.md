@@ -72,7 +72,12 @@ is searchable.
   path is being drawn or directly edited. Those follow the pointer's
   editing, not the path, so they stay screen-constant (Illustrator
   convention; user decision 25 September 2026). The path they edit still
-  scales. A tab on a portal frame is a canvas object, not
+  scales. **Selection-control exception** (user approved 20 October 2026,
+  `selection-hit-regions.md`): ephemeral compact selection frames and pointer
+  hit regions, including transient wire-port dots, matching host cutouts and
+  port-role labels, follow **P1.node.hit-regions** in screen space. They do not
+  change authored content paint, content labels, property strips, dimension
+  stringers, or portal tabs. A tab on a portal frame is a canvas object, not
   window chrome — maximized, that same tab may stay screen-sized because
   it has become window chrome. Linear size is `atlas-shell::canvas_scale::px`
   (fillets, strokes, insets, handles). Type is painted through
@@ -165,7 +170,10 @@ is searchable.
   A rotated resize pins that origin in world space so the grabbed edge
   is the one that moves (local AABB math alone walks the far edge once
   rotation is about the live center; most visible at 180°).
-  For a tiny host whose shorter actual body side is no larger than twice the corner hit radius, the actual body is a move target first; scale is available next, and rotation remains outside the body. This priority does not replace explicit curve grips or Ctrl+Shift curve-segment selection. Rotation uses one pointer-attached, two-headed 90-degree arc cursor; no dashed arc is attached to geometry.
+  Projected-size relevance, compact-host controls, and competing hit regions
+  follow **P1.node.hit-regions**, superseding the previous twice-corner-radius
+  tiny-host cutoff. Rotation uses one pointer-attached, two-headed 90-degree
+  arc cursor; no dashed arc is attached to authored geometry.
   Dragging a mirrorable picture's edge or corner past its opposite mirrors
   it on that local axis (`board_snap::resize_from_handle_mirroring`,
   `slate-doc::mirror`): the rect stays positive and the flip is authored
@@ -204,6 +212,95 @@ is searchable.
   (corners included, same 45° cursor as a single node). Shift+click on
   an unselected node's hover-resize band adds it to the selection
   instead of starting a resize.
+- **P1.node.hit-regions** (user-approved Adaptive regions studio, 20 October
+  2026; contract `selection-hit-regions.md`). This is the shared selection-hit
+  policy. **Owner:** `atlas-shell::selection_tools::hit_regions` owns the
+  relevance/tolerance constants and continuous feature fields. Board handles
+  adapt node capabilities to that owner; `board_transform/hover.rs` arbitrates
+  hosts using real `slate_doc::geom` silhouettes. Hover, press, and any hit-zone
+  visualization consume the same resolved candidate. Do not add a second
+  hand-written policy in a node kind, portal, or paint path.
+
+  **Relevance.** Let `s` be the host's projected shortest local side, in screen
+  pixels, including camera zoom. Each fine domain's prominence is
+  `t*t*(3-2*t)`, where `t = clamp((s-low)/(high-low), 0, 1)`. Its base hit reach
+  is multiplied by prominence. Wires fade first on zoom-out, then
+  resize/fillet, then rotation; move remains available. A fine field with base
+  reach below `minimum_hit` is dormant and cannot intercept hover or press.
+  An authored 1-unit host can regain fine actions when zoomed in; there is no
+  authored-size or zoom-only suppression. Equivalent projected sizes use
+  equivalent tolerances.
+
+  Transient wire-port dots and their host cutouts use the shared domain's
+  bounded screen presentation, rather than multiplying a marker radius by
+  camera zoom. Port-role labels share that prominence and remain bounded;
+  authored text and labels still follow P0.9. Dot and cutout radius come from
+  the same shared owner, while `WireHost` remains authoritative for each
+  actual port site and identity. Tool blisters retain their existing scaling.
+
+  **Fields.** Resize edges are continuous full-edge bands, corners are
+  neighborhoods, rotation uses continuous exterior corner arcs, and eligible
+  wire ports have outward fields. Reach grows with cursor proximity by
+  `1 + cursor_gain * (1 - smoothstep(0, cursor_range, distance_to_feature))`.
+  Partition competing fields by normalized feature distance, retaining the
+  host's move core. Compact control-frame padding is
+  `max(0, (compact_frame-s)/2) * resize_prominence`; the frame follows the
+  host's orientation. This is the named **P0.9 editing-overlay exception**:
+  it supplies coherent regions, never scattered reserve points, and never
+  enlarges or clamps authored geometry or its painted decoration. The fillet
+  follows the top-edge/tangent convention in **P1.node.corner-grip**, adapting
+  its control location with the compact frame. Body selection otherwise keeps
+  **P1.node.select** actual-shape geometry; minimum move reach is pointer slop,
+  not a filled construction-box pick for an unrelated shape.
+
+  **Layers and adjacency.** Positive-area overlap makes front order decisive:
+  the upper host's move, scale, rotation, and fillet fields keep the geometry
+  they have when isolated and take priority over lower hosts. A rear body may
+  not carve them away. A top host with an underlay offers wire hits only when
+  the pointer is strictly inside its visible actual silhouette; outside wire
+  reach yields to transforms/move. Compact top-host ports stay on the actual
+  edge. Merely touching boundaries are adjacency, not overlap. Coincident
+  adjacent corner candidates compare cursor distance to the actual host
+  silhouettes, including rotation and rounded corners; the nearer geometry
+  wins, and exact equality uses front order. Do not use centre distance or
+  construction-box distance. Rear targets covered by higher geometry remain
+  covered and must be reported as such, never counted as reachable because a
+  synthetic point exists. Explicitly selecting a fully buried host reveals
+  one outside frame with a move affordance clear of foreground transform
+  regions. Unselected fully buried controls are suppressed. No point-grid
+  relocation is part of this policy.
+
+  **Gesture and capability boundaries.** The resolved original press owns the
+  gesture through release/cancel, even when the pointer crosses another field,
+  another host, or a prominence threshold. Keep **P0.1–P0.3** and the existing
+  click/drag thresholds, modifier meanings, snaps, transform math, and journal
+  commands. **P1.curve.grips**, **P1.curve.pick**, rectangle/polygon vertex
+  editing, explicit side controls, crop-mask semantics, property controls,
+  and portal-local input keep their own contracts and precedence. Eligibility
+  is not expanded: nonrotatable portals, connectors, dock strips and simple
+  lines do not acquire rotation. Authored port identities, typed inputs, and
+  chat-history rails stay with **P1.wire.ports/flow-datum**. Region layout is
+  derived view state, never saved into the scene or exported as content.
+
+  Named feel values in the shared owner (all lengths are screen pixels):
+
+  | Token | Approved value / range |
+  |-------|------------------------|
+  | `wire_prominence` | shortest side 36–88 |
+  | `resize_prominence` | shortest side 12–48; fillet shares it |
+  | `rotate_prominence` | shortest side 3–16 |
+  | `corner_reach` / `edge_reach` | 7 / 6 |
+  | `rotate_reach` / `rotate_offset` | 9 / 18 |
+  | `wire_reach` / `fillet_reach` | 8 / 9 |
+  | `minimum_hit` | 2, before cursor expansion |
+  | `move_minimum` / `move_core_radius` | 18 / 9 |
+  | `cursor_range` / `cursor_gain` | 42 / 0.65 |
+  | `compact_frame` / `buried_frame_gap` | 72 / 25 |
+
+  This policy supersedes only the earlier tiny-host transform cutoff,
+  inverse-zoom wire-hit growth, and hard wire-size suppression. Native runtime
+  acceptance is recorded by the contract's validation evidence, not inferred
+  from the approved browser prototype.
 - **P1.node.corner-grip** (Select tool; Miro-style, **stated** 25 September
   2026): a **square** grip on every node that `supports_corners` —
   rectangle, regular polygon, line polyline, frame, placed linked-media
@@ -267,12 +364,12 @@ is searchable.
   `SlateApp::node_screen_outline` (`corner_outline` of the resolved corner);
   a 3D viewport's live ring is its contents-focus highlight.
   **Proposals** (implementation detail, not re-litigated per contract):
-  painted half-size `FILLET_GRIP_PX` via
-  `canvas_scale` (P0.9) — 1.6, **stated** 26 September 2026 as 40% of the
-  former 4; the hit box keeps the former half-size `FILLET_GRIP_HIT_PX` plus
-  slop and never falls under `HIT_SLOP_PX` on screen, and the grip drops
-  only when that hit size is illegible (proposal: the shrink does not change
-  the zoom at which the grip hides); hidden in image crop mode and when portal chrome
+  painted half-size `FILLET_GRIP_PX` — 1.6, **stated** 26 September 2026 as 40% of the
+  former 4. The ephemeral square now follows Resize prominence under the named
+  P0.9 editing-overlay exception in P1.node.hit-regions; its bounded screen paint
+  cannot dwarf a tiny authored host at high zoom. Hit reach and dormancy come
+  from that same policy. The authored fillet still scales with the camera.
+  Hidden in image crop mode and when portal chrome
   suppresses the ordinary selection cast; cursor is the two-headed resize
   arrow along the edge; clamp `[0, host maximum]` (half the short side for
   boxes, half the shorter adjacent side for vertices); live preview,
@@ -680,11 +777,10 @@ is searchable.
   + node id. Connectors have no ports. Host eligibility and geometry are owned
   by `slate_doc::WireHost`; both interpreters call `connector_route` with that
   host pose (Art. IV). Implementation: `crates/slate-doc/src/wire_host.rs`.
-- **P1.wire.hit** Port press targets are pointer hits, not painted geometry.
-  At zoom ≥ 1 the inner disk is 8 screen px and the outward half-plane is six
-  times that. Below zoom 1 the inner disk grows as `8 * zoom^-0.35`, capped at
-  14 screen px, and outward reach stays six times the inner disk. A host offers no wire targets when its shorter on-screen dimension is at
-  most four times the inner grip-hit radius. Painted discs still use `canvas_scale::px`. A press inside any node's
+- **P1.wire.hit** Port press relevance, reach, cursor expansion, and overlap
+  arbitration follow **P1.node.hit-regions**, replacing the former inverse-zoom
+  reach and hard short-host cutoff. Painted discs still use
+  `canvas_scale::px`. A press inside any node's
   body does not start a wire from another node's port, unless that body also
   holds the port. A press inside a multi-selection's bounding box moves that
   selection. Polygon vertex rotation halos occlude port targets; hover and
@@ -694,7 +790,12 @@ is searchable.
   The output shares the first input's datum, so aligned image trains keep
   straight wires across differently sized cards. An ordinary source image's
   right output uses that same top datum before it acquires generator inputs;
-  a source too short to contain the output rail offers no new ports.
+  a host too short to contain its rail continuously compresses the shared
+  derived rail to fit, so zoom can restore its ports under
+  **P1.node.hit-regions**. `WireHost` uses
+  `scale = min(1, height / (30 + (rows - 1) * 42 + 14))`, with lengths in board
+  units; an ordinary source output has one row. Normal hosts retain the fixed
+  datum and pitch. This changes derived placement, not saved port identities.
   Saved `Side` + `t` values remain port identities; `WireHost` resolves the
   new position for paint,
   picking, routing and export. Chat header/history rails and 3D View retain

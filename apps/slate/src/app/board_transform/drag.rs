@@ -1,5 +1,6 @@
 //! Transform press routing and rotation gesture arithmetic.
 
+use super::super::{board::MIN_DRAW, board_snap};
 use super::*;
 
 impl SlateApp {
@@ -85,6 +86,8 @@ impl SlateApp {
         match (node, hit) {
             (None, board_handles::BoardHitTarget::Resize(h)) => {
                 let gb = self.board_group_bounds()?;
+                let geom = board_handles::selection_geom(&xf, gb, 0.0);
+                let grab_offset = Self::control_grab_offset(&geom, h, screen, &xf);
                 let before: Vec<Node> = self
                     .board_sel
                     .iter()
@@ -98,6 +101,7 @@ impl SlateApp {
                         before,
                         group_before: gb,
                         handle: h as u8,
+                        grab_offset,
                         dup: true,
                     });
                 }
@@ -107,6 +111,7 @@ impl SlateApp {
                     before,
                     group_before: gb,
                     handle: h as u8,
+                    grab_offset,
                     dup: false,
                 })
             }
@@ -135,6 +140,8 @@ impl SlateApp {
                     return None;
                 }
                 let n = self.doc().scene.node(id).cloned()?;
+                let geom = self.node_interaction_geom(&n, &xf);
+                let grab_offset = Self::control_grab_offset(&geom, h, screen, &xf);
                 if !self.board_sel.contains(&id) {
                     self.board_sel.clear();
                     self.board_sel.insert(id);
@@ -146,6 +153,7 @@ impl SlateApp {
                         id,
                         before,
                         handle: h as u8,
+                        grab_offset,
                         dup: true,
                     });
                 }
@@ -153,6 +161,7 @@ impl SlateApp {
                     id,
                     before: n,
                     handle: h as u8,
+                    grab_offset,
                     dup: false,
                 })
             }
@@ -177,9 +186,147 @@ impl SlateApp {
                     vertex,
                 })
             }
-            (_, board_handles::BoardHitTarget::Body) => None,
+            (Some(id), board_handles::BoardHitTarget::Body) => {
+                let node = self.doc().scene.node(id)?;
+                if node
+                    .rect
+                    .contains_rotated(world.x, world.y, node.rotation_deg)
+                {
+                    return None;
+                }
+                self.begin_select_body_drag(
+                    id,
+                    world,
+                    egui::Modifiers {
+                        alt: self.alt_down,
+                        ctrl: self.ctrl_down,
+                        shift: self.shift_down,
+                        ..Default::default()
+                    },
+                )
+            }
+            (None, board_handles::BoardHitTarget::Body) => None,
             (_, board_handles::BoardHitTarget::FilletRadius) => None,
         }
+    }
+
+    /// Adapt captured selection-control motion to authored resize/snap geometry.
+    pub(crate) fn update_node_resize(&mut self, world: Pos2, mods: egui::Modifiers) {
+        let Some(BoardDrag::Resize {
+            id,
+            before,
+            handle,
+            grab_offset,
+            ..
+        }) = &self.board_drag
+        else {
+            return;
+        };
+        let world = world + *grab_offset;
+        let node_id = *id;
+        let handle = *handle;
+        let before_rect = before.rect;
+        let rotation_deg = before.rotation_deg;
+        // A picture dragged past its opposite edge mirrors instead of
+        // clamping (P1.node.transform); other kinds keep the clamp.
+        let mirrors = matches!(before.kind, NodeKind::Image(_))
+            && slate_doc::mirror::node_mirrors(self.doc(), before);
+        // Corner drags scale proportionally by default; Shift frees
+        // the aspect (distortion). Edge drags are single-axis, with
+        // Shift locking the aspect instead.
+        let is_corner = matches!(handle, 0 | 2 | 4 | 6);
+        let lock_aspect = if is_corner { !mods.shift } else { mods.shift };
+        let from_center = mods.ctrl;
+        let resize = |pointer: Pos2| {
+            if mirrors {
+                board_snap::resize_from_handle_mirroring(
+                    before_rect,
+                    pointer,
+                    handle,
+                    MIN_DRAW,
+                    lock_aspect,
+                    from_center,
+                    rotation_deg,
+                )
+            } else {
+                let r = board_snap::resize_from_handle(
+                    before_rect,
+                    pointer,
+                    handle,
+                    MIN_DRAW,
+                    lock_aspect,
+                    from_center,
+                    rotation_deg,
+                );
+                (r, [false, false])
+            }
+        };
+        let (mut r, mut crossed) = resize(world);
+
+        if !mods.alt {
+            if is_corner {
+                let rotated = rotation_deg.abs() > f32::EPSILON;
+                if !rotated && crossed == [false, false] {
+                    let pointer = self.resolve_corner_scale(
+                        world,
+                        before_rect,
+                        r,
+                        handle,
+                        MIN_DRAW,
+                        lock_aspect,
+                        from_center,
+                        &[node_id],
+                    );
+                    (r, crossed) = resize(pointer);
+                } else {
+                    let pointer = self.resolve_point_snap(world, &[node_id], None, false, false);
+                    (r, crossed) = resize(pointer);
+                }
+            } else if self.board_smart_guides {
+                let all = self.board_node_rects();
+                // Past the far edge, the moving edge is the opposite one.
+                let moving = if crossed[0] || crossed[1] {
+                    (handle + 4) % 8
+                } else {
+                    handle
+                };
+                let edges = board_snap::ResizeSnapEdges::for_handle(moving);
+                let (snapped, guides) = board_snap::snap_resize_rect_scoped(
+                    r,
+                    &[node_id],
+                    &all,
+                    self.snap_scope(),
+                    edges,
+                );
+                r = snapped;
+                self.board_snap_guides = guides;
+            }
+        }
+
+        if mirrors {
+            self.sync_resize_mirror(node_id, crossed);
+        }
+        if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
+            n.rect = r;
+        }
+    }
+
+    fn control_grab_offset(
+        geom: &board_handles::SelectionGeom,
+        handle: board_handles::ResizeHandle,
+        screen: Pos2,
+        xf: &BoardXf,
+    ) -> Vec2 {
+        if geom.corners == geom.control_corners {
+            return Vec2::ZERO;
+        }
+        let i = handle as usize;
+        let anchor = if i % 2 == 0 {
+            geom.corners[i / 2]
+        } else {
+            geom.edges[i / 2]
+        };
+        xf.s2w(anchor) - xf.s2w(screen)
     }
 
     /// Gap inside a multi-selection's box: nothing was picked, so the press

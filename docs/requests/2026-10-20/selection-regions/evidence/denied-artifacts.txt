@@ -1,0 +1,14 @@
+
+FullName         : C:\Users\jmoser\.codex\worktrees\suggestion-box-20261019\AtlasFileExplorer\target\release\build\quote-4e39ef46bbf709f7\build-script-build.exe
+Length           : 253440
+LastWriteTimeUtc : 10/20/2026 10:13:42 PM
+
+Path : C:\Users\jmoser\.codex\worktrees\suggestion-box-20261019\AtlasFileExplorer\target\release\build\quote-4e39ef46bbf709f7\build-script-build.exe
+Hash : 2D18CD59BEB6D5FB22A362AC3AC16A247E68463F10C645A3BBE4475666161E8F
+
+FullName         : C:\Users\jmoser\.codex\worktrees\suggestion-box-20261019\AtlasFileExplorer\target\release\build\serde-8752bc1ff8ce84e8\build-script-build.exe
+Length           : 272896
+LastWriteTimeUtc : 10/20/2026 10:13:43 PM
+
+Path : C:\Users\jmoser\.codex\worktrees\suggestion-box-20261019\AtlasFileExplorer\target\release\build\serde-8752bc1ff8ce84e8\build-script-build.exe
+Hash : 953DB1435867AE5A1A4CF407738AE3493F6DB52CA937F010132A5D07C936F7C8

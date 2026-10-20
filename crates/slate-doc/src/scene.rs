@@ -2701,20 +2701,21 @@ impl Node {
 /// Node IDs must remain unique and stable, including when importing nodes
 /// through the public vector. Prefer journal commands for authored changes.
 ///
-/// [`Scene::scene_gen`], the spatial index and ID lookup are derived — skipped on
-/// serde and ignored by [`PartialEq`].
+/// Generation, geometry/spatial caches and ID lookup are derived, skipped on serde
+/// and ignored by [`PartialEq`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Scene {
     pub nodes: Vec<Node>,
     next_node_id: u64,
     #[serde(default)]
     next_group_key: u64,
-    /// Bumped on every mutation that may change bounds or z-order. Spatial
-    /// index caches key off this (Constitution Art. II / derived state).
+    /// Generation for derived caches; changes with bounds or z-order (Art. II).
     #[serde(skip)]
     scene_gen: u64,
     #[serde(skip)]
     spatial: RefCell<SpatialIndex>,
+    #[serde(skip)]
+    pub(crate) outline_cache: RefCell<crate::geom::OutlineCache>,
     /// Derived lookup only; vector order remains the authored z-order.
     #[serde(skip)]
     node_positions: RefCell<NodePositions>,
@@ -2745,8 +2746,7 @@ impl PartialEq for Scene {
 }
 
 impl Scene {
-    /// Empty scratch scene carrying only this scene's node-ID allocator.
-    /// Use for pure node preparation, then commit ordinary `Add` commands.
+    /// Empty scratch scene carrying only the node-ID allocator; prepare `Add` commands.
     /// It contains no authored nodes, spatial indexes or group allocations;
     /// applying prepared commands still checks collisions against the live
     /// scene. This does not reserve IDs in the live document.

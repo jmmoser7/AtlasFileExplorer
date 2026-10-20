@@ -137,9 +137,14 @@ impl SlateApp {
         {
             return Vec::new();
         }
-        let geom = board_handles::selection_geom(xf, node.rect, node.rotation_deg);
-        let grip_px = atlas_shell::canvas_scale::px(board_handles::FILLET_GRIP_HIT_PX, geom.zoom);
-        if atlas_shell::canvas_scale::too_small(grip_px) {
+        let geom = self.node_interaction_geom(node, xf);
+        if atlas_shell::selection_tools::hit_regions::Domain::Resize
+            .reach(
+                geom.projected_shortest,
+                atlas_shell::selection_tools::hit_regions::FILLET_REACH,
+            )
+            .is_none()
+        {
             return Vec::new();
         }
         self.node_grip_edges(node)
@@ -151,13 +156,38 @@ impl SlateApp {
                         vertex: held,
                         pointer_travel,
                         ..
-                    }) if *id == node.id && *held == vertex => *pointer_travel,
+                    }) if *id == node.id && *held == vertex => {
+                        pointer_travel.clamp(0.0, edge.max_travel)
+                    }
                     _ => board_handles::corner_grip_rest_travel(
                         &edge,
                         self.node_grip_amount(node, vertex),
                     ),
                 };
-                (vertex, board_handles::corner_grip_screen(xf, &edge, travel))
+                let mut point = board_handles::corner_grip_screen(xf, &edge, travel);
+                if vertex.is_none()
+                    && geom.control_corners != geom.corners
+                    && !matches!(&node.kind,NodeKind::Shape(s) if s.shape!=ShapeKind::Rect)
+                {
+                    let top = geom.control_corners[1] - geom.control_corners[0];
+                    point = geom.control_corners[0]
+                        + top.normalized() * (travel * xf.z).max(10.0).min(top.length() / 3.0);
+                    if let Some(BoardDrag::FilletRadius {
+                        id,
+                        vertex: held,
+                        press,
+                        press_travel,
+                        pointer_travel,
+                        ..
+                    }) = &self.board_drag
+                    {
+                        if *id == node.id && *held == vertex {
+                            point = *press
+                                + Vec2::from(edge.dir) * (*pointer_travel - *press_travel) * xf.z;
+                        }
+                    }
+                }
+                (vertex, point)
             })
             .collect()
     }
@@ -239,7 +269,7 @@ impl SlateApp {
             },
             start_amount,
             press_travel,
-            pointer_travel: press_travel.clamp(0.0, edge.max_travel),
+            pointer_travel: press_travel,
             press: screen,
             max_px: 0.0,
         })
@@ -302,7 +332,7 @@ impl SlateApp {
         }) = &mut self.board_drag
         {
             *max_px = max_px.max(moved);
-            *pointer_travel = projected.clamp(0.0, edge.max_travel);
+            *pointer_travel = projected;
         }
     }
 
