@@ -149,6 +149,9 @@ mod tests {
     use atlas_agent::presence::WorldPoint;
     use serde_json::json;
 
+    #[path = "../work_advance_web_reply_tests.rs"]
+    mod web_reply_tests;
+
     fn join(h: &mut crate::app::tests::Harness) -> String {
         h.app.ai.config.workspace_dir = Some(h.base.clone());
         let profile = StoredAgent {
