@@ -34,7 +34,6 @@ fn selected_history_stays_bounded_while_copy_can_include_earliest_and_latest_tur
         .map(|(index, text)| ConversationMessage {
             id: text,
             text,
-            at: index as u64,
             outgoing: index % 2 == 0,
             system: false,
             status: "delivered",
@@ -52,7 +51,6 @@ fn conversation_copy_preserves_turn_boundaries_roles_and_attachment_captions() {
         ConversationMessage {
             id: "human",
             text: "Please sort these.",
-            at: 1,
             outgoing: true,
             system: false,
             status: "delivered",
@@ -61,7 +59,6 @@ fn conversation_copy_preserves_turn_boundaries_roles_and_attachment_captions() {
         ConversationMessage {
             id: "reply",
             text: "Done.",
-            at: 2,
             outgoing: false,
             system: false,
             status: "delivered",
@@ -70,7 +67,6 @@ fn conversation_copy_preserves_turn_boundaries_roles_and_attachment_captions() {
         ConversationMessage {
             id: "notice",
             text: "Task complete",
-            at: 3,
             outgoing: false,
             system: true,
             status: "",
