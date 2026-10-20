@@ -107,7 +107,7 @@ impl SlateApp {
         }
         let (anchors, closed) = self.direct_anchors_of(id)?;
         let bez = bezpath_from_anchors(&anchors, closed);
-        let radius = (SEGMENT_HIT_PX / self.board_xf().z.max(0.05)) as f64;
+        let radius = (SEGMENT_HIT_PX / self.board_xf().z.max(SLATE_BOARD.min)) as f64;
         segment_hit(&bez, to_point(world), radius)
     }
 

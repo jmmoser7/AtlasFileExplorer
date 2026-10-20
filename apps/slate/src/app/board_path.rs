@@ -886,7 +886,7 @@ pub(crate) fn ink_mesh_to_epaint(
 
 /// Screen-consistent pick slop in world units (~4 px at the current zoom).
 pub fn pick_slop_world(zoom: f32) -> f32 {
-    PICK_SLOP_PX / zoom.max(0.05)
+    PICK_SLOP_PX / zoom.max(atlas_core::display::SLATE_BOARD.min)
 }
 
 /// World endpoints of a legacy bbox line (`ShapeKind::Line` + `flip`) or a
@@ -4688,7 +4688,7 @@ fn draft_stroke_ink_ends(
     ends: [Cap; 2],
     soft_edge: f32,
 ) -> (InkMesh, Color32) {
-    let floor = 1.0 / zoom.max(0.05);
+    let floor = 1.0 / zoom.max(atlas_core::display::SLATE_BOARD.min);
     let tips: Vec<PlacedTip> = tips
         .iter()
         .map(|t| PlacedTip {
@@ -4707,7 +4707,7 @@ fn draft_stroke_ink_ends(
         taper: None,
         dash: None,
     };
-    let feather = (FEATHER_PX / zoom.max(0.05)).max(soft_edge);
+    let feather = (FEATHER_PX / zoom.max(atlas_core::display::SLATE_BOARD.min)).max(soft_edge);
     let tolerance = curve_tolerance(zoom);
     let tipped = tips.iter().any(|t| *t != first).then(|| {
         let (rect, mut data) = bezpath_to_path_data(bez, closed);

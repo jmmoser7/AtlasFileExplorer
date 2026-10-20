@@ -54,9 +54,9 @@ remain bounded editing overlays at extreme zoom; normal rail datums and durable
 wire slot identities remain authoritative in both interpreters.
 
 The independent intent reviewer found no remaining blocker in the final scoped
-source review. Review fixes have retained tests: 16 native selection-region cases,
+source review. Review fixes have retained tests: 24 native selection-region cases,
 14 geometry cases, and focused shared-field, adapter, port-presentation and compact
-rail cases. These Rust tests have **not run**. Removed obsolete host-only outward48
+rail cases. Their final-source execution results are **pending**. Removed obsolete host-only outward48
 and inverse-zoom assumptions were replaced by approved continuous-field cases;
 selected-connector endpoint editing retains its separate existing contract.
 No report has been closed or archived by this integration.
@@ -114,4 +114,35 @@ booleans, an ambiguous test type, and two explicit-f32 requirements on the newer
 hosted Rust1.99.1. The follow-up uses the existing public vector-ink exports and
 explicit types. The older fillet-priority regression now probes the approved
 compact frame/continuous bands rather than legacy authored-edge slop. No expected
-native outcome was weakened. Hosted results for the correction remain pending.
+native outcome was weakened. CI199–200 additionally exposed extracted-helper
+visibility, cache-stamp type complexity and newer Clippy diagnostics; these were
+fixed in the owning modules. CI201 for `1e1466861306c55b60a7dedc7c9316993a54cc41`
+passed the Windows workspace check and Linux all-target Clippy; the full Linux
+suite was still running when the next coherent source snapshot was prepared.
+These results do not cover the following camera corrections.
+
+## Actual camera reachability correction
+
+The first native point-scale regression forced `cam.z = 128`, bypassing Slate's
+real 3.5 maximum. That could not establish the user-visible recovery promised by
+the approved studio. Board now consumes `atlas-core::display::SLATE_BOARD`
+(1/128–128, exponential wheel coefficient .0015) through wheel, camera commands,
+fit and workbook restore; compatibility profiles retain their own limits.
+Authored objects and groups already smaller than the creation minimum retain
+their size on the first resize press. Creation still has its original minimum.
+
+Supporting the approved overview range also required correcting old .05/.01
+zoom guards in existing screen/world conversions. Curve and connector picks,
+direct/trim picks, object and guide snaps, live-wire target reach, render AA,
+paint culling, sheet/canvas-strip conversions and portal paint now consume the
+Board minimum. Geometry-flattening tolerances, authored dash rules, softness,
+portal input ownership and capability gates retain their existing semantics.
+No new input interpreter or portal host was introduced.
+
+The eight additional native regressions exercise real wheel and camera paths,
+cursor anchoring, save/reopen at point-detail zoom, stationary tiny resize and
+one-step undo, low-zoom stroke/connector picks, wire snap bands, live-stroke
+feedback, and snap distances. Independent source review found no remaining
+blocker. Scoped formatting and changed-source size ceilings pass; all final
+runtime and Windows packaging results remain pending hosted execution. Native
+computer-use acceptance remains Blocked by the recorded local execution denial.

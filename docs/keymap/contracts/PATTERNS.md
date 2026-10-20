@@ -231,6 +231,14 @@ is searchable.
   authored-size or zoom-only suppression. Equivalent projected sizes use
   equivalent tolerances.
 
+  Board's camera uses `atlas-core::display::SLATE_BOARD`: the approved studio's
+  1/128–128 range and exponential wheel response, anchored at the cursor.
+  Wheel, camera commands, fit, and workbook restore consume that profile.
+  Existing small authored objects retain their size on the first resize press;
+  the creation minimum cannot enlarge an already smaller object. Board pick
+  slop, guide reach, and lane distances retain screen-pixel meaning throughout
+  this range. Compatibility canvas profiles keep their own limits.
+
   Transient wire-port dots and their host cutouts use the shared domain's
   bounded screen presentation, rather than multiplying a marker radius by
   camera zoom. Port-role labels share that prominence and remain bounded;

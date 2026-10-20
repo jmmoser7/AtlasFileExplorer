@@ -192,7 +192,7 @@ pub(crate) fn hit_connector_filtered(
     let (path, stroke) = drawn_connector_with_hosts(path, conn, geometry.host_of);
     let kurbo = connector_path_kurbo(&path);
     let style = board_path::stroke_style_world(&stroke, zoom);
-    let slop = CONNECTOR_PICK_PX / zoom.max(0.05);
+    let slop = CONNECTOR_PICK_PX / zoom.max(atlas_core::display::SLATE_BOARD.min);
     vector_ink::hit_stroke(&kurbo, &style, [wx, wy], slop)
 }
 
@@ -216,7 +216,7 @@ fn wire_blocked_by_node(
     zoom: f32,
     accepts: &dyn Fn(&Node) -> bool,
 ) -> bool {
-    let slop = CONNECTOR_PICK_PX / zoom.max(0.05);
+    let slop = CONNECTOR_PICK_PX / zoom.max(atlas_core::display::SLATE_BOARD.min);
     scene.nodes.iter().any(|n| {
         if !accepts(n) || n.hidden || n.is_frame() || matches!(n.kind, NodeKind::Connector(_)) {
             return false;

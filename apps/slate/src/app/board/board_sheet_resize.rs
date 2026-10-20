@@ -122,7 +122,7 @@ impl SlateApp {
     }
 
     pub(super) fn update_sheet_resize(&mut self, pointer: Pos2) {
-        let z = self.tab().cam.z.max(0.01);
+        let z = self.tab().cam.z.max(ZOOM_MIN);
         let Some(resize) = self.sheet_resize.as_mut() else {
             return;
         };

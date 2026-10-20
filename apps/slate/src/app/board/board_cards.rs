@@ -135,7 +135,7 @@ impl SlateApp {
             return;
         }
         let cols = rows.iter().map(|row| row.len()).max().unwrap_or(1).max(1);
-        let zoom = z.max(0.01);
+        let zoom = z.max(ZOOM_MIN);
         let view = Vec2::new(grid.width() / zoom, grid.height() / zoom);
         let prior = self.sheet_scroll.get(&node).copied().unwrap_or(Vec2::ZERO);
         let (custom_cols, custom_rows) = self.sheet_sizes(node);

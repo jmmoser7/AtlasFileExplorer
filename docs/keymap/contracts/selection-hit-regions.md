@@ -66,7 +66,11 @@ for every mutating path below.
    P1.node.hit-regions at domain boundaries and intermediate sizes; equivalent
    projected sizes must have equivalent fields. At the far end, move remains
    available and dormant fine regions take no input. Zoom the 1×1 host in
-   until eligible wire/resize/rotation actions return.
+   until eligible wire/resize/rotation actions return. Reach the full approved
+   range through wheel and camera commands, rather than forcing a test camera;
+   save/reopen must retain point-detail zoom. A stationary first resize press
+   cannot enlarge an existing object to the creation minimum. At overview zoom,
+   stroke/connector picks and smart-guide distances retain screen-pixel reach.
 2. **GP2 (continuous fields):** on a large selected rectangle, press an edge
    away from its midpoint and drag. Then rotate from several positions along
    the exterior corner arc. Hover/press must agree, without isolated
@@ -114,7 +118,7 @@ for every mutating path below.
 Owner: `atlas-shell::selection_tools::hit_regions` for the shared policy;
 `apps/slate/src/app/board_handles` adapts eligible native controls;
 `apps/slate/src/app/board_transform/hover.rs` resolves competing hosts using
-`slate_doc::geom::node_closed_poly` / `point_in_node_outline` geometry.
+the cached document-aware `slate_doc::geom::OutlineQueries` geometry owner.
 Port resolution stays in `slate-doc::WireHost`, shared by native paint,
 picking, routing, and artifact serialization.
 

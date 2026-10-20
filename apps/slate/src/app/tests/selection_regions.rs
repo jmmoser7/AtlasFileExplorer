@@ -3,7 +3,9 @@ use super::*;
 use board_handles::{BoardHitTarget as Hit, ResizeHandle as Handle};
 use slate_doc::scene::Side;
 
+mod low_zoom_picks;
 mod overlap_filters;
+mod zoom_path;
 
 fn card(h: &mut Harness, rect: WorldRect) -> NodeId {
     let id = add_image_card(&mut h.app, rect.x, rect.y);
@@ -201,9 +203,13 @@ fn a_one_unit_host_recovers_wires_at_large_projected_size_and_loses_them_when_sm
     let id = card(&mut h, WorldRect::new(0.0, 0.0, 1.0, 1.0));
     h.app.board_sel.clear();
     h.frame();
+    let focus = h.app.world_to_screen(Pos2::new(0.5, 0.5));
     for zoom in [0.25, 1.0, 12.0, 128.0] {
-        h.app.tab_mut().cam.z = zoom;
-        h.app.tab_mut().cam.offset = EVec2::splat(0.5);
+        h.app.zoom_at(focus, zoom / h.app.tab().cam.z);
+        assert!(
+            (h.app.tab().cam.z - zoom).abs() < 0.001,
+            "point detail must be reachable through the public zoom path"
+        );
         let xf = h.app.board_xf();
         let host = h.app.wire_host(h.app.doc().scene.node(id).unwrap());
         let point = xf.w2s(Pos2::from(host.anchor(Side::Right, 0.5)));

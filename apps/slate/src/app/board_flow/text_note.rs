@@ -1,6 +1,6 @@
 //! Text-media presentation adapts the shared selection controls.
 use super::*;
-
+use atlas_core::display::SLATE_BOARD;
 impl SlateApp {
     /// A note an agent writes: its newest reply shows in the note itself (the
     /// board paints it), and the prompt docks along the bottom with Run. An
@@ -33,7 +33,7 @@ impl SlateApp {
                     Color32::WHITE,
                     body.width(),
                 );
-                self.fit_agent_note(id, reply, laid.size().y / z.max(0.01));
+                self.fit_agent_note(id, reply, laid.size().y / z.max(SLATE_BOARD.min));
             }
         }
         let hovered = ui

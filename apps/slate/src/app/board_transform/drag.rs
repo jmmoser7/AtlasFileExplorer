@@ -226,6 +226,10 @@ impl SlateApp {
         let node_id = *id;
         let handle = *handle;
         let before_rect = before.rect;
+        let minimum = MIN_DRAW
+            .min(before_rect.w)
+            .min(before_rect.h)
+            .max(f32::EPSILON);
         let rotation_deg = before.rotation_deg;
         // A picture dragged past its opposite edge mirrors instead of
         // clamping (P1.node.transform); other kinds keep the clamp.
@@ -243,7 +247,7 @@ impl SlateApp {
                     before_rect,
                     pointer,
                     handle,
-                    MIN_DRAW,
+                    minimum,
                     lock_aspect,
                     from_center,
                     rotation_deg,
@@ -253,7 +257,7 @@ impl SlateApp {
                     before_rect,
                     pointer,
                     handle,
-                    MIN_DRAW,
+                    minimum,
                     lock_aspect,
                     from_center,
                     rotation_deg,
@@ -272,7 +276,7 @@ impl SlateApp {
                         before_rect,
                         r,
                         handle,
-                        MIN_DRAW,
+                        minimum,
                         lock_aspect,
                         from_center,
                         &[node_id],

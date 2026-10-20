@@ -1,7 +1,7 @@
 //! Generation preview and the agent picture.
 
 use super::*;
-
+use atlas_core::display::SLATE_BOARD;
 mod album;
 
 #[cfg(test)]
@@ -235,7 +235,7 @@ impl SlateApp {
                 painter.ctx(),
                 &reason,
                 egui::FontId::proportional(GENERATOR_CHIP_PX),
-                body.width() / z.max(0.01) - 24.0,
+                body.width() / z.max(SLATE_BOARD.min) - 24.0,
                 usize::MAX,
                 z,
             );

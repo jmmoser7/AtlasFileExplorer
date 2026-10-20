@@ -156,8 +156,8 @@ pub(crate) struct SheetResize {
     pub rows: Vec<f32>,
 }
 
-const ZOOM_MIN: f32 = atlas_core::display::SLATE_CANVAS.min;
-const ZOOM_MAX: f32 = atlas_core::display::SLATE_CANVAS.max;
+const ZOOM_MIN: f32 = atlas_core::display::SLATE_BOARD.min;
+const ZOOM_MAX: f32 = atlas_core::display::SLATE_BOARD.max;
 pub(crate) const MIN_DRAW: f32 = 8.0;
 /// Coalescing window for continuous inspector edits (one undo step).
 const COALESCE: Duration = Duration::from_millis(1500);
@@ -425,7 +425,7 @@ impl SlateApp {
                     if let Some(p) = pointer {
                         self.board_zoom_at(
                             p,
-                            atlas_core::display::SLATE_CANVAS.wheel_factor(scroll),
+                            atlas_core::display::SLATE_BOARD.wheel_factor(scroll),
                         );
                         canvas_nav = true;
                     }
@@ -2305,6 +2305,7 @@ impl SlateApp {
                 let ids = ids.clone();
                 let before = before.clone();
                 let gb = *group_before;
+                let minimum = MIN_DRAW.min(gb.w).min(gb.h).max(f32::EPSILON);
                 let handle = *handle;
                 // Same convention as single-node resize: corners scale
                 // proportionally by default, Shift distorts. Ctrl+Alt+Shift
@@ -2326,7 +2327,7 @@ impl SlateApp {
                         gb,
                         world,
                         handle,
-                        MIN_DRAW,
+                        minimum,
                         lock_aspect,
                         from_center,
                         0.0,
@@ -2336,7 +2337,7 @@ impl SlateApp {
                         gb,
                         proposed,
                         handle,
-                        MIN_DRAW,
+                        minimum,
                         lock_aspect,
                         from_center,
                         &ids,
@@ -2346,7 +2347,7 @@ impl SlateApp {
                     gb,
                     pointer,
                     handle,
-                    MIN_DRAW,
+                    minimum,
                     lock_aspect,
                     from_center,
                     0.0,
