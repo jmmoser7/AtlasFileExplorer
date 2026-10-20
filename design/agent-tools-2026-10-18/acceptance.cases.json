@@ -489,12 +489,12 @@
   ],
   "candidateBuild": {
     "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/target/release/slate.exe",
-    "size": 50786816,
-    "modified_utc": "2026-10-19T21:59:35.0181130Z",
-    "version": "19 October global website, focus-transfer and brush-preview repair; production 0f854516, pointer fixture f32767df",
-    "sha256": "845677D2292969A940D123E501FF51862B0BCC08154F6D1470EEF26EBC6F5930",
+    "size": 50848256,
+    "modified_utc": "2026-10-20T01:06:07.0514501Z",
+    "version": "Last native checkpoint 344988a4; final source 135a2b81 awaits approved local rebuild and bounded native rechecks",
+    "sha256": "0E9764DB21121B206047E254DED6F25BCB748391809DD8A8B330853209C87983",
     "tested_interactively": false,
     "available": true
   },
-  "automatedEvidence": "Snapshot f32767df passed hosted CI 170: Linux workspace 3896 passed, 0 failed, 93 ignored; Windows installer 148: 3963 passed, 0 failed, 111 ignored, verified preview package retained as artifact 12226939743. Local compact BoardLink reply regression passed. Chat-over-Web input shield is implemented with focused validation pending. On native production 0f854516, the human enabled global website access; the task saved 243 objects and eight populated frames. All 74 original nodes and both original linked items compare unchanged. Whole public transcript copy round-trip passed; ordinary selection/steering is pending the input repair. The helper produced a full public result, but parent-side paging and all-eight final pixel checks remain incomplete. No complete native acceptance, merge, or release is claimed. Exact build and retained evidence: target/review/research-workflow-20261019."
+  "automatedEvidence": "Final combined production source 135a2b81 is pushed. At 02:11 UTC on 20 October, CI 193 passed Windows compilation and Linux Clippy; Linux runtime and Windows installer 171 were running. Earlier f8507720 passed 3928 Linux workspace tests, zero failures, 93 ignored. The local final test stopped before tests ran: Windows denied the new rfd build helper (os error 5); development approval is pending. The latest available native binary is 344988a4, saved and normally closed after a 284-node research continuation; all 74 original nodes and both original linked items/tags compare exactly unchanged. Real Google query-before-Enter and results-after-Enter pixels, full 1199-byte helper paging, editable drawing variants, compact chat with retained saved conversation, public progress and helper departures were observed. Timed drawing screenshots do not establish intermediate stroke-prefix growth. Eight final slide previews, Atlas reads/highlighting, tags, ordinary and Ctrl+A transcript copy are retained under earlier native build identities. Final capture/URL, ordering, drag and save-picker repairs still need native rechecks. Earlier crashes remain unexplained. No complete native/human acceptance, merge or published release is claimed. Evidence: target/review/research-workflow-20261019."
 }
