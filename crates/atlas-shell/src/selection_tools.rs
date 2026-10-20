@@ -170,7 +170,7 @@ pub fn button(
 }
 
 mod popup_placement;
-pub use popup_placement::{editor_placement, editor_rect, place_popup, POPUP_MARGIN};
+pub use popup_placement::*;
 
 pub fn panel(ui: &egui::Ui, rect: Rect, zoom: f32, theme: Palette) {
     ui.painter().rect(

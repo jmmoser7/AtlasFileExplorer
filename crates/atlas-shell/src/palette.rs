@@ -125,17 +125,12 @@ pub fn palette_ui(
 
     // Clamp the anchor so the whole popup stays on-screen.
     let est_height = 40.0 + shown as f32 * pt.row_height;
-    let screen = ctx.screen_rect();
-    let pos = Pos2::new(
-        state.anchor.x.clamp(
-            screen.left(),
-            (screen.right() - pt.width).max(screen.left()),
-        ),
-        state.anchor.y.clamp(
-            screen.top(),
-            (screen.bottom() - est_height).max(screen.top()),
-        ),
-    );
+    let pos = crate::selection_tools::fit_popup(
+        Vec2::new(pt.width, est_height),
+        state.anchor,
+        ctx.screen_rect(),
+    )
+    .min;
 
     let area = egui::Area::new(egui::Id::new("atlas_shell_canvas_palette"))
         .fixed_pos(pos)

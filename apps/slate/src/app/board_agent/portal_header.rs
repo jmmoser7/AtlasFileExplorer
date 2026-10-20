@@ -210,7 +210,7 @@ impl SlateApp {
                     model_rect.filter(|_| self.agents.model_menu == Some(node.id))
                 {
                     let mut armed = self.agents.model_menu_armed;
-                    let shown = atlas_shell::menu::anchored(
+                    let shown = atlas_shell::menu::anchored_measured(
                         ui.ctx(),
                         Id::new(("agent-model-menu", node.id.0)),
                         ui.layer_id(),

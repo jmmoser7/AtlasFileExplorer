@@ -201,3 +201,21 @@ A real-input case requires one settled +120 notch to reach approximately
 case now advances deterministic frame time to settle each notch and uses ±180
 to retain its original >150-pixel displacement and stale-canvas assertions at
 the approved single-event wheel rate. Its 1% zoom-return requirement is retained.
+
+The model list remained open in CI202 but a growing label clipped at the viewport
+edge because Area placement knew only its preceding frame's size. The existing
+shared menu owner now offers an opt-in measured wrapper: a disabled invisible
+sizing pass measures natural outer and content bounds separately, then the
+unchanged interactive menu uses that placement. Its model body is immutable,
+uses separate sizing IDs and claims the wheel only in the interactive pass;
+model selection still dispatches once. The command palette's existing clamp
+formula was extracted into the existing shared popup-placement owner and both
+callers reuse it. Source review covers the outer/content padding distinction.
+
+The original clipping/under-title assertions stay, with new shared-menu growth
+and single-selection coverage and an 8-times-zoom right-edge case that requires
+whole visible labels and clicks Terra. This repairs stale-size placement when
+the naturally scaled list fits the viewport. At extreme zoom, text wider than
+the entire viewport retains existing overflow behavior; no font ceiling or new
+horizontal-overflow design is claimed. P0.9 and existing menu-wheel ownership
+remain authoritative. These new cases await hosted runtime execution.

@@ -26,6 +26,24 @@ pub fn editor_placement(
 /// Screen margin a popup keeps from the viewport edge when it is placed.
 pub const POPUP_MARGIN: f32 = 8.0;
 
+/// Fit an anchored popup to its viewport without changing its natural size.
+/// Oversized dimensions keep their leading edge visible for scrolling.
+pub fn fit_popup(size: Vec2, at: Pos2, viewport: Rect) -> Rect {
+    Rect::from_min_size(
+        Pos2::new(
+            at.x.clamp(
+                viewport.left(),
+                (viewport.right() - size.x).max(viewport.left()),
+            ),
+            at.y.clamp(
+                viewport.top(),
+                (viewport.bottom() - size.y).max(viewport.top()),
+            ),
+        ),
+        size,
+    )
+}
+
 fn popup_above(size: Vec2, anchor: Rect, gap: f32) -> Rect {
     Rect::from_min_size(
         Pos2::new(
