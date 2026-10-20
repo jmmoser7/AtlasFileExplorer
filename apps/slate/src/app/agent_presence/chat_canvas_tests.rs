@@ -30,8 +30,8 @@ fn foreground_chat_owns_input_over_a_focused_web_page() {
     f.input(|input| input.events.push(egui::Event::PointerMoved(point)));
     f.paint();
     assert_eq!(
-        f.h.ctx.layer_id_at(point).map(|layer| layer.id),
-        Some(Id::new("collaborator-conversation")),
+        f.h.ctx.layer_id_at(point),
+        Some(composer.layer_id),
         "test pointer must land on the foreground chat after Web maximize"
     );
     host.0.borrow_mut().inputs.clear();

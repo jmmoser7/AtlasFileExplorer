@@ -357,13 +357,15 @@ impl SlateApp {
         self.lock_models_pressed_outside(ui, &xf, pointer, model_toolbar_captures);
         let now = ui.input(|i| i.time);
         let mut canvas_nav = false;
-        // A focused page owns wheel input (D17/D22); its chrome and border stay
-        // Slate targets so the frame can still be grabbed and released.
+        // A focused page owns wheel input; its chrome stays draggable (D17/D22).
         if !shot_captures {
             self.peel_contents_focus_if_clicked_outside(ui, &xf, pointer);
         }
         self.peel_sheet(ui, &xf, pointer);
         let agent_capture = self.agent_shelf_captures(&xf, pointer);
+        if (popup_capture || presence_capture) && ui.input(|i| i.pointer.any_pressed()) {
+            self.web_release_keyboard();
+        }
         let page_capture =
             !(popup_capture || presence_capture) && self.web_input_frame(ui, &xf, pointer);
         let external_capture = page_capture || self.atlas_input_frame(ui, &xf, pointer);
