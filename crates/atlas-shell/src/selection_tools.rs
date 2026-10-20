@@ -10,7 +10,7 @@ use eframe::egui::{self, emath::Rot2, Align2, Color32, Id, Pos2, Rect, Sense, St
 pub mod alignment;
 pub mod capture;
 mod dimensions;
-pub use dimensions::{inline_number, stringer};
+pub use dimensions::{inline_number, stringer, BOTTOM_STRINGER_GAP};
 mod agent_generate;
 mod image_brush;
 #[cfg(test)]

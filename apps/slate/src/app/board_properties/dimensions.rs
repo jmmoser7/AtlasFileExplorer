@@ -183,12 +183,11 @@ pub(super) fn stringer_lane(
     } else {
         Vec2::RIGHT
     };
-    let gap = chrome::STRINGER_GAP
-        + if lane == Vec2::DOWN {
-            chrome::OBJECT_GAP + chrome::BUTTON_SIZE
-        } else {
-            0.0
-        };
+    let gap = if lane == Vec2::DOWN {
+        chrome::BOTTOM_STRINGER_GAP
+    } else {
+        chrome::STRINGER_GAP
+    };
     if outward.dot(lane) < -1e-4 {
         (opposite, -outward * gap)
     } else {
