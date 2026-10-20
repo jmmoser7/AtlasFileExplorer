@@ -10,7 +10,6 @@ pub(super) fn conversation_messages(
         .map(|turn| chrome::ConversationMessage {
             id: &turn.id,
             text: &turn.text,
-            at: turn.at,
             outgoing: turn.role == "user",
             system: turn.role == "system",
             status: &turn.status,
@@ -203,7 +202,7 @@ impl Conversation {
         }
         if terminal {
             for index in self.request_indices(&a.request).to_vec() {
-                if self.turns[index].role != "assistant" && self.turns[index].status != "complete" {
+                if self.turns[index].status != "complete" {
                     self.set_turn_status(index, "complete");
                     changed = true;
                 }
@@ -229,35 +228,15 @@ impl Conversation {
             .collect();
         let old: Vec<_> = old_indices
             .iter()
-            .map(|index| {
-                (
-                    &self.turns[*index].text,
-                    &self.turns[*index].status,
-                    self.turns[*index].at,
-                )
-            })
+            .map(|index| (&self.turns[*index].text, &self.turns[*index].status))
             .collect();
         let status = if terminal { "complete" } else { "streaming" };
-        let completion_at = snapshot.updated_at.max(
-            snapshot
-                .activity
-                .iter()
-                .map(|event| event.at)
-                .max()
-                .unwrap_or(0),
-        );
         if visible.iter().all(|t| t.role == "assistant")
             && old.len() == visible.len()
-            && old.iter().zip(&visible).all(|((text, state, at), t)| {
-                let expected_at = if state.as_str() == "complete" && !(terminal && *at == t.at) {
-                    *at
-                } else if terminal {
-                    t.at.max(completion_at)
-                } else {
-                    t.at
-                };
-                *text == &t.text && state.as_str() == status && *at == expected_at
-            })
+            && old
+                .iter()
+                .zip(&visible)
+                .all(|((text, state), t)| *text == &t.text && state.as_str() == status)
         {
             return self.acknowledge(&a.dir) || changed;
         }
@@ -300,22 +279,7 @@ impl Conversation {
                 author: a.profile.name.clone(),
                 provider: Some(a.profile.provider.clone()),
                 request: a.request.clone(),
-                at: if terminal {
-                    old.get(answer_index)
-                        .filter(|(_, state, _)| state.as_str() == "complete")
-                        .map_or_else(
-                            || turn.at.max(completion_at),
-                            |(_, _, at)| {
-                                if *at == turn.at {
-                                    turn.at.max(completion_at)
-                                } else {
-                                    *at
-                                }
-                            },
-                        )
-                } else {
-                    turn.at
-                },
+                at: turn.at,
                 status: status.into(),
             });
             answer_index += 1;

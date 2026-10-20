@@ -1916,6 +1916,7 @@ impl SlateApp {
         &mut self,
         id: NodeId,
         dir: &std::path::Path,
+        capture_id: Option<&str>,
     ) -> Result<Option<PathBuf>, String> {
         self.absorb_cached_captures();
         let live = self
@@ -1926,10 +1927,10 @@ impl SlateApp {
             .filter(|img| web_frame_has_content(img));
         if let Some(frame) = live {
             self.remember_live_pixels(id, &frame);
-            return self.write_page_png(dir, id, &frame).map(Some);
+            return self.write_page_png(dir, id, &frame, capture_id).map(Some);
         }
         if let Some((frame, at)) = self.take_cached_page_image(id) {
-            let path = self.write_page_png(dir, id, &frame)?;
+            let path = self.write_page_png(dir, id, &frame, capture_id)?;
             self.toast(stale_capture_line(at));
             return Ok(Some(path));
         }
@@ -1999,7 +2000,7 @@ impl SlateApp {
         let Some((frame, at)) = self.take_cached_page_image(id) else {
             return Ok(None);
         };
-        let path = self.write_page_png(dir, id, &frame)?;
+        let path = self.write_page_png(dir, id, &frame, None)?;
         self.toast(stale_capture_line(at));
         Ok(Some(path))
     }
@@ -2174,9 +2175,17 @@ impl SlateApp {
         dir: &std::path::Path,
         id: NodeId,
         frame: &WebFrame,
+        capture_id: Option<&str>,
     ) -> Result<PathBuf, String> {
+        if capture_id.is_some_and(|value| !atlas_agent::collaborator::valid_call_id(value)) {
+            return Err("Invalid Web capture identifier".into());
+        }
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        let path = dir.join(format!("web-{}.png", id.0));
+        let name = capture_id.map_or_else(
+            || format!("web-{}.png", id.0),
+            |capture_id| format!("web-{}-{capture_id}.png", id.0),
+        );
+        let path = dir.join(name);
         super::model3d::write_fast_png(&path, frame, false)?;
         Ok(path)
     }
@@ -3020,6 +3029,48 @@ mod tests {
     }
 
     #[test]
+    fn on_demand_web_captures_are_immutable_and_stable_cache_name_is_unchanged() {
+        let dir = std::env::temp_dir().join(format!(
+            "slate-web-capture-snapshots-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let ctx = egui::Context::default();
+        let app = SlateApp::with_ctx(&ctx, None);
+        let id = NodeId(99);
+        let red = std::sync::Arc::new(egui::ColorImage::new([2, 2], Color32::RED));
+        let blue = std::sync::Arc::new(egui::ColorImage::new([2, 2], Color32::BLUE));
+
+        let first = app
+            .write_page_png(&dir, id, &red, Some("call-one"))
+            .expect("first snapshot");
+        let first_bytes = std::fs::read(&first).expect("first snapshot bytes");
+        let second = app
+            .write_page_png(&dir, id, &blue, Some("call-two"))
+            .expect("second snapshot");
+        assert_ne!(first, second);
+        assert_eq!(std::fs::read(&first).unwrap(), first_bytes);
+        assert_ne!(std::fs::read(&second).unwrap(), first_bytes);
+
+        let stable = app
+            .write_page_png(&dir, id, &blue, None)
+            .expect("stable cache image");
+        assert_eq!(stable, dir.join("web-99.png"));
+
+        let invalid_dir = dir.join("invalid");
+        let escape = app.write_page_png(&invalid_dir, id, &red, Some("../escape"));
+        assert!(escape.is_err(), "malformed capture IDs are rejected");
+        assert!(
+            !invalid_dir.exists(),
+            "validation happens before creating the output directory"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn blank_capture_and_refresh_never_replace_the_last_good_poster() {
         let ctx = egui::Context::default();
         let mut app = SlateApp::with_ctx(&ctx, None);
@@ -3246,7 +3297,9 @@ mod tests {
         let mut page = None;
         while page.is_none() && std::time::Instant::now() < deadline {
             app.web_pump(&ctx);
-            page = app.capture_web_page(id, &out).expect("no hard failure");
+            page = app
+                .capture_web_page(id, &out, None)
+                .expect("no hard failure");
             std::thread::sleep(Duration::from_millis(10));
         }
         let page = page.expect("the run got the kept picture");

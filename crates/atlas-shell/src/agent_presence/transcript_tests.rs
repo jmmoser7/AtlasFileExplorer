@@ -92,7 +92,6 @@ fn completed_reply_follows_later_public_progress_without_dropping_history() {
         ConversationMessage {
             id: "question",
             text: "Sort these",
-            at: 100,
             outgoing: true,
             system: false,
             status: "complete",
@@ -101,7 +100,6 @@ fn completed_reply_follows_later_public_progress_without_dropping_history() {
         ConversationMessage {
             id: "reply",
             text: "Done",
-            at: 250,
             outgoing: false,
             system: false,
             status: "complete",
@@ -112,12 +110,10 @@ fn completed_reply_follows_later_public_progress_without_dropping_history() {
         PublicActivity {
             label: "Working",
             text: "Reading files",
-            at: 200,
         },
         PublicActivity {
             label: "Completed",
             text: "Saved the result",
-            at: 250,
         },
     ];
 
@@ -128,6 +124,97 @@ fn completed_reply_follows_later_public_progress_without_dropping_history() {
             TranscriptRow::Activity(0),
             TranscriptRow::Activity(1),
             TranscriptRow::Message(1),
+        ]
+    );
+    assert_eq!(
+        ordered_rows(&messages[1..], &activity),
+        [
+            TranscriptRow::Activity(0),
+            TranscriptRow::Activity(1),
+            TranscriptRow::Message(0),
+        ]
+    );
+
+    let legacy = [
+        ConversationMessage {
+            id: "old-question",
+            text: "First",
+            outgoing: true,
+            system: false,
+            status: "complete",
+            attachment_count: 0,
+        },
+        ConversationMessage {
+            id: "steering",
+            text: "Keep going",
+            outgoing: true,
+            system: false,
+            status: "steering",
+            attachment_count: 0,
+        },
+        ConversationMessage {
+            id: "old-reply",
+            text: "Done",
+            outgoing: false,
+            system: false,
+            status: "complete",
+            attachment_count: 0,
+        },
+    ];
+    assert_eq!(
+        ordered_rows(&legacy, &activity),
+        [
+            TranscriptRow::Message(0),
+            TranscriptRow::Message(1),
+            TranscriptRow::Activity(0),
+            TranscriptRow::Activity(1),
+            TranscriptRow::Message(2),
+        ]
+    );
+
+    let streaming = [
+        ConversationMessage {
+            id: "old-question",
+            text: "First",
+            outgoing: true,
+            system: false,
+            status: "complete",
+            attachment_count: 0,
+        },
+        ConversationMessage {
+            id: "old-reply",
+            text: "Done",
+            outgoing: false,
+            system: false,
+            status: "complete",
+            attachment_count: 0,
+        },
+        ConversationMessage {
+            id: "next-question",
+            text: "Next",
+            outgoing: true,
+            system: false,
+            status: "complete",
+            attachment_count: 0,
+        },
+        ConversationMessage {
+            id: "partial",
+            text: "Thinking",
+            outgoing: false,
+            system: false,
+            status: "streaming",
+            attachment_count: 0,
+        },
+    ];
+    assert_eq!(
+        ordered_rows(&streaming, &activity),
+        [
+            TranscriptRow::Message(0),
+            TranscriptRow::Message(1),
+            TranscriptRow::Message(2),
+            TranscriptRow::Message(3),
+            TranscriptRow::Activity(0),
+            TranscriptRow::Activity(1),
         ]
     );
 }
