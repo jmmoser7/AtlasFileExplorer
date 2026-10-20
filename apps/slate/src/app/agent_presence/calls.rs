@@ -109,11 +109,22 @@ impl SlateApp {
                             profile,
                             Some((a.profile.id.clone(), a.motion.clone(), scope)),
                         )?;
-                        if let Some(g) = a.grant.as_mut() {
-                            if !g.conversation_ids.contains(&who) {
-                                g.conversation_ids.push(who.clone());
+                        let mut expanded = a.grant.clone().ok_or("Board grant revoked")?;
+                        if !expanded.conversation_ids.contains(&who) {
+                            expanded.conversation_ids.push(who.clone());
+                        }
+                        if !a.request.is_empty() {
+                            if let Err(error) = self.presence.links.set_session(
+                                &a.dir,
+                                a.binding.clone(),
+                                expanded.clone(),
+                                a.request.clone(),
+                            ) {
+                                let _ = self.retire_presence(&who, chrome::RANDOM_DEPARTURE);
+                                return Err(error.to_owned());
                             }
                         }
+                        a.grant = Some(expanded);
                         if let Err(error) =
                             self.send_presence_message_from(&who, task, Some(&a.profile.name))
                         {

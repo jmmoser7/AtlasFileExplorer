@@ -16,7 +16,6 @@ fn foreground_chat_owns_input_over_a_focused_web_page() {
     f.h.app.web_allow_origin(id);
     f.paint();
     f.h.app.web_focus(id);
-    f.h.app.portal_chrome.maximized = Some(id);
     f.paint();
 
     let composer_id = Id::new(("presence-composer", f.who.as_str()));
@@ -26,13 +25,13 @@ fn foreground_chat_owns_input_over_a_focused_web_page() {
             .layer_transform_to_global(composer.layer_id)
             .unwrap_or_default();
     let point = (to_global * composer.rect).center();
-    // Hover first so egui resolves the transformed popup layer before the press.
+    // Hover first so egui resolves the live chat layer before the press.
     f.input(|input| input.events.push(egui::Event::PointerMoved(point)));
     f.paint();
     assert_eq!(
         f.h.ctx.layer_id_at(point),
         Some(composer.layer_id),
-        "test pointer must land on the foreground chat after Web maximize"
+        "test pointer must land on the foreground chat over the live page"
     );
     host.0.borrow_mut().inputs.clear();
     f.input(|input| {
@@ -90,7 +89,22 @@ fn foreground_chat_owns_input_over_a_focused_web_page() {
 
     // Composer focus remains authoritative when the pointer leaves the popup.
     host.0.borrow_mut().inputs.clear();
-    let outside = f.h.app.canvas_rect.left_center() + Vec2::new(80.0, 0.0);
+    let page = f.h.app.doc().scene.node(id).unwrap();
+    let page_rect = f.h.app.board_xf().rect_w2s(page.rect);
+    let chat_rect =
+        f.h.ctx
+            .memory(|memory| memory.area_rect(Id::new("presence-expansion")))
+            .unwrap();
+    let outside = [(0.2, 0.4), (0.8, 0.4), (0.2, 0.75), (0.8, 0.75)]
+        .into_iter()
+        .map(|(x, y)| {
+            egui::pos2(
+                page_rect.left() + page_rect.width() * x,
+                page_rect.top() + page_rect.height() * y,
+            )
+        })
+        .find(|point| f.h.ctx.screen_rect().contains(*point) && !chat_rect.contains(*point))
+        .expect("live page exposes a point outside the foreground chat");
     f.input(|input| {
         input.events.extend([
             egui::Event::PointerMoved(outside),

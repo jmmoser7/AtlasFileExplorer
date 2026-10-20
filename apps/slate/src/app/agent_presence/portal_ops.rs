@@ -365,8 +365,8 @@ impl SlateApp {
             "portal.web.click" => {
                 let x = page_coord(&op.arguments, "x")?;
                 let y = page_coord(&op.arguments, "y")?;
-                self.agent_web_input(op.portal, WebInput::Down { x, y, button: 1 })?;
-                self.agent_web_input(op.portal, WebInput::Up { x, y, button: 1 })?;
+                self.agent_web_input(op.portal, WebInput::Down { x, y, button: 0 })?;
+                self.agent_web_input(op.portal, WebInput::Up { x, y, button: 0 })?;
                 Ok(Some(json!({"status":"clicked","x":x,"y":y})))
             }
             "portal.web.scroll" => {

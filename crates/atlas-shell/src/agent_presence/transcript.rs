@@ -3,6 +3,9 @@ use super::{model::*, state::RosterState, ui as chrome, PresencePainter};
 use crate::theme::Palette;
 use eframe::egui::{self, Align2, Id, Pos2, Rect, RichText, Sense, Ui, Vec2};
 
+mod order;
+use order::{ordered_rows, TranscriptRow};
+
 pub(super) fn history_window(
     total: usize,
     offset: usize,
@@ -91,76 +94,92 @@ pub(super) fn show(
                             );
                         });
                     }
-                    for (index, message) in p.messages.iter().enumerate() {
-                        if message.system {
-                            ui.vertical_centered(|ui| {
-                                let label =
-                                    RichText::new(message.text).size(10.0).color(palette.sub);
-                                ui.label(if state.selected_transcripts.contains(p.id) {
-                                    label.background_color(egui::Color32::from_rgba_unmultiplied(
-                                        75, 135, 220, 52,
-                                    ))
-                                } else {
-                                    label
-                                });
-                            });
-                        } else {
-                            message_row(
-                                ui,
-                                palette,
-                                painter,
-                                p,
-                                message,
-                                now,
-                                reduced,
-                                attached,
-                                state.selected_transcripts.contains(p.id),
-                                actions,
-                            );
-                        }
-                        if index + 1 < p.messages.len() {
-                            ui.add_space(if attached { 16.0 } else { 23.0 });
-                        }
-                    }
                     let activity_start =
                         p.activity
                             .len()
                             .saturating_sub(if attached { 1 } else { 8 });
-                    for activity in p.activity.iter().skip(activity_start) {
-                        let duplicate_commentary = activity.label == "Update"
-                            && p.messages.iter().any(|message| {
-                                !message.outgoing
-                                    && !message.system
-                                    && message.text.trim() == activity.text.trim()
-                            });
-                        if duplicate_commentary
-                            || (activity.label.trim().is_empty() && activity.text.trim().is_empty())
-                        {
-                            continue;
+                    let activity = &p.activity[activity_start..];
+                    let ordered = ordered_rows(p.messages, activity);
+                    for (position, row) in ordered.iter().enumerate() {
+                        match *row {
+                            TranscriptRow::Message(index) => {
+                                let message = &p.messages[index];
+                                if message.system {
+                                    ui.vertical_centered(|ui| {
+                                        let label = RichText::new(message.text)
+                                            .size(10.0)
+                                            .color(palette.sub);
+                                        ui.label(if state.selected_transcripts.contains(p.id) {
+                                            label.background_color(
+                                                egui::Color32::from_rgba_unmultiplied(
+                                                    75, 135, 220, 52,
+                                                ),
+                                            )
+                                        } else {
+                                            label
+                                        });
+                                    });
+                                } else {
+                                    message_row(
+                                        ui,
+                                        palette,
+                                        painter,
+                                        p,
+                                        message,
+                                        now,
+                                        reduced,
+                                        attached,
+                                        state.selected_transcripts.contains(p.id),
+                                        actions,
+                                    );
+                                }
+                                if ordered
+                                    .get(position + 1)
+                                    .is_some_and(|next| matches!(next, TranscriptRow::Message(_)))
+                                {
+                                    ui.add_space(if attached { 16.0 } else { 23.0 });
+                                }
+                            }
+                            TranscriptRow::Activity(index) => {
+                                let activity = &activity[index];
+                                let duplicate_commentary = activity.label == "Update"
+                                    && p.messages.iter().any(|message| {
+                                        !message.outgoing
+                                            && !message.system
+                                            && message.text.trim() == activity.text.trim()
+                                    });
+                                if duplicate_commentary
+                                    || (activity.label.trim().is_empty()
+                                        && activity.text.trim().is_empty())
+                                {
+                                    continue;
+                                }
+                                ui.add_space(if attached { 8.0 } else { 12.0 });
+                                egui::Frame::NONE
+                                    .fill(palette.window)
+                                    .corner_radius(if attached { 10 } else { 14 })
+                                    .inner_margin(egui::Margin::symmetric(10, 7))
+                                    .show(ui, |ui| {
+                                        ui.set_width(ui.available_width());
+                                        let line =
+                                            match (activity.label.trim(), activity.text.trim()) {
+                                                ("", text) => text.to_owned(),
+                                                (label, "") => label.to_owned(),
+                                                (label, text) => format!("{label} · {text}"),
+                                            };
+                                        let response = ui.add(
+                                            egui::Label::new(
+                                                RichText::new(line).size(11.0).color(palette.sub),
+                                            )
+                                            .wrap(),
+                                        );
+                                        response.on_hover_text(format!(
+                                            "{}\n{}",
+                                            activity.label, activity.text
+                                        ));
+                                    });
+                            }
                         }
-                        ui.add_space(if attached { 8.0 } else { 12.0 });
-                        egui::Frame::NONE
-                            .fill(palette.window)
-                            .corner_radius(if attached { 10 } else { 14 })
-                            .inner_margin(egui::Margin::symmetric(10, 7))
-                            .show(ui, |ui| {
-                                ui.set_width(ui.available_width());
-                                let line = match (activity.label.trim(), activity.text.trim()) {
-                                    ("", text) => text.to_owned(),
-                                    (label, "") => label.to_owned(),
-                                    (label, text) => format!("{label} · {text}"),
-                                };
-                                let response = ui.add(
-                                    egui::Label::new(
-                                        RichText::new(line).size(11.0).color(palette.sub),
-                                    )
-                                    .wrap(),
-                                );
-                                response.on_hover_text(format!(
-                                    "{}\n{}",
-                                    activity.label, activity.text
-                                ));
-                            });
                     }
                     for proposal in p.proposals {
                         ui.add_space(if attached { 12.0 } else { 18.0 });

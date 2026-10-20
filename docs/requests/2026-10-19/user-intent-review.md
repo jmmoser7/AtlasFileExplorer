@@ -2,52 +2,13 @@
 
 ## Current execution status
 
-At 23:40 UTC, native build `0f8545168a6be530dc5557085abd40b4de7a3373` ran the saved Workflow workbook and was closed normally after a native Save. Its executable SHA256 is
-`845677D2292969A940D123E501FF51862B0BCC08154F6D1470EEF26EBC6F5930`; it is
-50,786,816 bytes, built at `2026-10-19T21:59:35.0181130Z`. The human explicitly
-enabled **Allow all websites** at 23:14:17 UTC; the machine-local setting is
-saved true. Root saved the current workbook through Slate's native Save at
-23:40:40 UTC (298,389 bytes). `native-before-transport-preservation.json` confirms
-243 nodes, all 74 original nodes unchanged, and both original linked items
-exactly unchanged. The screenshot `native-saved-before-compact-repair.png`
-records that save.
+Native task `req-47272-1792455745111395400-2` ran source `722dc0820684d3815b1afb1718b32018164bd0b8`; `native-722-launch.json` records executable SHA256 `074F45A59BD8B098F1969B7235A28E49EA6CE20019D2AA90BC9E26896130D554`, and `build-source-parity-722dc082.json` confirms the build source matched. The task and one ordinary restart each ended in an execute access violation in an unknown module; retained reports are under `native-722-crash` and `native-722-restart-crash`. The active diagnostic run has not reproduced the fault. No source cause is established.
 
-The resumed request `req-30324-1792451920700994200-2` has bodies in all eight
-new frames. Native evidence includes a real Google results capture after
-click/type/Enter, an EPA Trees and Vegetation text read and capture, an EPA
-Measuring Heat Islands capture, and an EPA cool-roof capture. Reply #114's
-identical text to #104 is correct: its native read targeted portal #79 again,
-and the public ledger misattributed it to #81. A separate read targeted #81,
-but its output has not been fetched and reviewed, so the measurement text read
-remains unverified; there is no evidence here of a stale-WebHost defect. The
-cool-roof text read was empty. The first slide preview is 1200×675 for 1600×900
-bounds, but its low-contrast generated-image caption overlaps the image edge.
-The remaining seven slides still need final preview pixels and visual review.
-The retained board note records three exact Atlas fixture reads/highlights; the
-exact returned-locator receipts are not independently retained in the public
-replies inspected here. The recovered generator record honestly reports a
-previous wide/count-two run as failed with one 1672×941 output; this pass reused
-that image and did not start another generation.
+The latest native checkpoint was saved and closed normally with 252 nodes. All 74 original nodes and both original linked items/tags are exactly preserved (`native-722-preservation.json`). The workbook SHA256 is `FD37ADEC8C188B156EC658982CCBFE555F941B2CED84805F418D93F39F79DB5E`. The eight new slide frames' geometry and orders were verified. Final preview evidence is #151 for slide 01, then #81, #84, #87, #90, #93, #96 and #99 for slides 02–08. My pixel review found readable headings/body and no obvious clipping; slide 01's corrected generated artwork has a legible caption below it. Parent-reported preview metadata for all eight is `complete:true` with zero missing textures, unavailable objects or unsupported callbacks. The native task also retained the Atlas analyzed-file highlight (`native-722-atlas-highlight.png`) and visible Smooth, Join, Erase and drawing-batch samples. The accepted count-two generation attempt remains honestly recorded as failed with one recovered 1672×941 image; no new generation was made.
 
-Native drawing evidence includes the smooth/join comparisons, a 10-stroke
-schematic batch, and an eraser comparison whose pixels show the before/after
-strokes with a swept central gap. The image's authored note claims the brush
-marks are absent despite the visible orange pixels; treat that note as stale,
-not as a preview failure. The public transcript Ctrl+A/copy/paste round trip
-passed with 18,209 characters, including the original/latest task and assistant
-history, and remained unsent. Ordinary range selection/steering still hits a
-confirmed chat/Web input-routing defect, and compact-size transport needs a
-fresh native build. A helper finished a public outcome of about 1,200
-characters, but pagination delivery/retrieval is incomplete.
+The human-enabled **Allow all websites** setting remains saved. The actual #81 Measuring Heat Islands text read and capture now match that portal. New-origin #228 text and capture were refreshed successfully after the reviewer released human Atlas focus with Escape; no new site approval was needed. An ordinary conversation word selection/copy/paste round trip remained unsent, and steering while working over Web passed. The helper completed a qualified read-only review, but parent retrieval beyond its 512-byte preview was rejected by the bridge worker's stale participant scope. A narrow grant-rebind repair and regression are pending verification. Google click/type/Enter returned dispatch success without visible input changes, so those operations remain unverified.
 
-CI 170 for test-only commit `f32767df` and Windows installer 148 are green;
-`evidence.json` records 3,896 Linux tests and 3,963 Windows tests passed, with
-the Windows preview artifact packaged. This is source/CI evidence, not native
-acceptance or a release. Global permission navigation/revocation, an exact
-measurement-page text read, direct Atlas locator receipts, full helper paging,
-all eight final preview pixels, and fresh-build chat/compact checks remain open.
-No complete-workflow, merge, or release acceptance is claimed. The checkpoints
-below describe earlier builds and remain historical.
+CI 176 failed because a test fixture omitted the chat area when maximizing; the corrected inline-portal fixture passed its focused local test (one passed, zero failed). Windows compilation and Clippy passed. The diagnostic native run ended idle and was saved/closed normally without reproducing an access violation; the earlier crashes remain unexplained. Remaining gates include fresh helper paging on the repaired build, verified Google input, live drawing presence, save/reopen or presentation-at-rest behavior, and final integration/release review. No complete-workflow, merge, or release acceptance is claimed. The checkpoints below describe earlier builds and remain historical.
 
 At 17:39 EDT, the native continuation on build `9379…F087` had progressed to
 224 nodes and populated the eight slide bodies. Its public feedback confirms

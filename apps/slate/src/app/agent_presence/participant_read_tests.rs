@@ -95,6 +95,9 @@ fn read(h: &mut Harness, call: &BoardCall) -> BoardReply {
     begin(h, call).unwrap_or_else(|| finish(h))
 }
 
+#[path = "participant_read_helper_binding_tests.rs"]
+mod helper_binding;
+
 #[test]
 fn retained_participants_have_an_independent_cursor_and_direct_provenance_lookup() {
     let (mut h, who) = joined();
