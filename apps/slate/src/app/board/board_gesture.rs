@@ -329,7 +329,7 @@ impl SlateApp {
     /// Keep a picture being resized mirrored on exactly the axes its drag
     /// has crossed. Rebuilt from the gesture-start node, so dragging back
     /// restores it; the release commits one Patch like any resize.
-    pub(super) fn sync_resize_mirror(&mut self, id: NodeId, crossed: [bool; 2]) {
+    pub(crate) fn sync_resize_mirror(&mut self, id: NodeId, crossed: [bool; 2]) {
         let Some(BoardDrag::Resize { before, .. }) = &self.board_drag else {
             return;
         };

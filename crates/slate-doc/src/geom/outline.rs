@@ -179,7 +179,7 @@ fn positive_intersection(a: &Polygon, b: &Polygon, tolerance: f32) -> bool {
 /// A pointer query does work once per generation/bucket, never once per frame.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct OutlineCache {
-    stamp: Option<(u64, usize, i16, Option<(u64, usize)>)>,
+    stamp: Option<OutlineStamp>,
     outlines: HashMap<NodeId, Option<Arc<ClosedOutline>>>,
     overlaps: HashMap<(NodeId, NodeId), bool>,
     neighbors: HashMap<NodeId, Arc<[NodeId]>>,
@@ -188,6 +188,14 @@ pub(crate) struct OutlineCache {
     builds: usize,
     #[cfg(test)]
     intersections: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct OutlineStamp {
+    scene_generation: u64,
+    node_count: usize,
+    tolerance_bucket: i16,
+    source_revision: Option<(u64, usize)>,
 }
 
 impl OutlineCache {
@@ -200,14 +208,14 @@ impl OutlineCache {
         // Drop low mantissa bits: four exact, monotone buckets per octave.
         // Unlike log2/powf, re-bucketing this value cannot round into a neighbor.
         let bucket = (tolerance.to_bits() >> 21) as i16;
-        let stamp = (
-            query.scene.scene_gen(),
-            query.scene.nodes.len(),
-            bucket,
-            query
+        let stamp = OutlineStamp {
+            scene_generation: query.scene.scene_gen(),
+            node_count: query.scene.nodes.len(),
+            tolerance_bucket: bucket,
+            source_revision: query
                 .doc
                 .map(|doc| (doc.item_paths_revision(), doc.items.len())),
-        );
+        };
         if self.stamp != Some(stamp) {
             self.outlines.clear();
             self.overlaps.clear();
