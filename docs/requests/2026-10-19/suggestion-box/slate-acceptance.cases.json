@@ -2,14 +2,14 @@
   "evaluationId": "slate-suggestion-box-2026-10-19-nine-reports",
   "createdLabel": "19 October 2026 / nine-report suggestion batch",
   "candidateBuild": {
-    "available": false,
-    "path": "",
-    "sha256": "",
-    "version": "October 19 suggestion batch; native binary and exact build identity pending",
-    "modified_utc": "",
-    "tested_interactively": false
+    "available": true,
+    "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/target/release/slate.exe",
+    "sha256": "0E9764DB21121B206047E254DED6F25BCB748391809DD8A8B330853209C87983",
+    "version": "Combined source 344988a4; suggestion source d880d960; native failures remain open",
+    "modified_utc": "2026-10-20T01:06:07Z",
+    "tested_interactively": true
   },
-  "automatedEvidence": "Local formatting and CRLF-aware diff checks passed; local Rust execution was denied before tests (OSerror5). HostedCI172 on bce9c679 passed Windows compilation and completed3907tests passed/8failed/93ignored; fixes for the reported behavior/fixture/lint failures are awaiting a new hosted run. implementation-evidence.json retains details. No application native UI or provider success is claimed; every acceptance verdict remains Untested.",
+  "automatedEvidence": "Source checks and agent UI observations are separate from human acceptance. Suggestion source d880d960: CI178 Windows compilation and Clippy PASS; workspace3919 passed/1 failed/93 ignored, with the sole failure owned by the concurrent agent chat. Combined344: CI183 Windows/Clippy PASS; workspace3923 passed/1 failed/93 ignored (size cap in concurrent agent roster tests). Native run01 on executable SHA256 0E9764DB21121B206047E254DED6F25BCB748391809DD8A8B330853209C87983 exercised all9 reports through ordinary Windows UI, including real paired image generation and reopening saved outputs. It confirmed selected-A to first-drag-B/empty-frame failures (115519) and the first-unknown-folder replacement prompt (172555). Other clauses have partial observations, not complete case passes. The raw agent ledger, screenshots and remaining checks are retained in native-evidence/agent-native-run-01.json; implementation-evidence.json records follow-up repairs. Every human verdict starts Untested.",
   "sourceReview": {
     "requestScale": "moderate",
     "immutableIntake": "intake-d615bcc4a0f6.json",
@@ -31,7 +31,7 @@
         "00_window-capture.png"
       ],
       "archived": false,
-      "reviewStatus": "Original intent reviewed; implementation evidence pending; no native or user acceptance recorded",
+      "reviewStatus": "Native partial observations recorded; remaining clauses open; no human acceptance",
       "recordedCommands": [],
       "originalReportSha256": "d8ad6f483929ea67735dadf66368ab01a4814be95b7a816cb5346882bba3665b"
     },
@@ -43,7 +43,7 @@
       "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_112946-bug-in-colapsed-mode-the-play-button\\report.json",
       "attachments": [],
       "archived": false,
-      "reviewStatus": "Original intent reviewed; implementation evidence pending; no native or user acceptance recorded",
+      "reviewStatus": "Native partial observations recorded; remaining clauses open; no human acceptance",
       "recordedCommands": [
         "app.repeat_last"
       ],
@@ -57,7 +57,7 @@
       "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_114206-bug-seems-to-be-a-bug-when-generaati\\report.json",
       "attachments": [],
       "archived": false,
-      "reviewStatus": "Original intent reviewed; implementation evidence pending; no native or user acceptance recorded",
+      "reviewStatus": "Native partial observations recorded; remaining clauses open; no human acceptance",
       "recordedCommands": [],
       "originalReportSha256": "bf1317661e2a2e8081e6519b455946b220652acc72a6ce19b0abb2fe870c72f0"
     },
@@ -69,7 +69,7 @@
       "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_115519-bug-on-first-click-and-drag-of-immag\\report.json",
       "attachments": [],
       "archived": false,
-      "reviewStatus": "Original intent reviewed; implementation evidence pending; no native or user acceptance recorded",
+      "reviewStatus": "Native failure confirmed; repair and exact-build recheck pending; no human acceptance",
       "recordedCommands": [
         "app.repeat_last"
       ],
@@ -83,7 +83,7 @@
       "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_162621-bug-hit-detection-and-trigers-for-ov\\report.json",
       "attachments": [],
       "archived": false,
-      "reviewStatus": "Original intent reviewed; implementation evidence pending; no native or user acceptance recorded",
+      "reviewStatus": "Native partial observations recorded; remaining clauses open; no human acceptance",
       "recordedCommands": [],
       "originalReportSha256": "7b195e3faf3be619407ffc94dae5fb600020d4119f0a10a025cca57bab444b96"
     },
@@ -95,7 +95,7 @@
       "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_163137-bug-on-smaller-objects-there-are-maj\\report.json",
       "attachments": [],
       "archived": false,
-      "reviewStatus": "Original intent reviewed; implementation evidence pending; no native or user acceptance recorded",
+      "reviewStatus": "Native partial observations recorded; remaining clauses open; no human acceptance",
       "recordedCommands": [
         "board.align.middle_v",
         "board.align.top",
@@ -113,7 +113,7 @@
       "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_171417-bug-crop-mode-needs-to-supress-the-s\\report.json",
       "attachments": [],
       "archived": false,
-      "reviewStatus": "Original intent reviewed; implementation evidence pending; no native or user acceptance recorded",
+      "reviewStatus": "Native partial observations recorded; remaining clauses open; no human acceptance",
       "recordedCommands": [],
       "originalReportSha256": "21fe99c8917ba3780017d40d0210ae514f11d9d4b783fe55044d7685a6f32bbf"
     },
@@ -125,7 +125,7 @@
       "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_172108-bug-right-click-on-all-immages-needs\\report.json",
       "attachments": [],
       "archived": false,
-      "reviewStatus": "Original intent reviewed; implementation evidence pending; no native or user acceptance recorded",
+      "reviewStatus": "Native partial observations recorded; remaining clauses open; no human acceptance",
       "recordedCommands": [],
       "originalReportSha256": "7b09135395b109fabad0b5460a215b718ca2e758cee29706ff6640451d40e549"
     },
@@ -137,7 +137,7 @@
       "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_172555-feature-save-immage-as-must-auto-increme\\report.json",
       "attachments": [],
       "archived": false,
-      "reviewStatus": "Original intent reviewed; implementation evidence pending; no native or user acceptance recorded",
+      "reviewStatus": "Native failure confirmed; repair and exact-build recheck pending; no human acceptance",
       "recordedCommands": [],
       "originalReportSha256": "923607ac68a3f213fa801d6822d992a1fa1dec555eae4e76feb7e2d6a94360bd"
     }
@@ -292,12 +292,14 @@
       ],
       "setup": [
         "Use neutral Select mode and an unselected ordinary image, shape and other supported movable element. Avoid an active crop/paint/text/content-edit gesture when checking ordinary body dragging.",
+        "Use both PNG-to-JPEG and JPEG-to-PNG selection changes; repeat after Undo leaves the previous object selected. Include a newly created empty image-generator frame before any result, then the same frame after its first result.",
         "Record the actual tested binary/hash, disposable workbook, display scale, Slate zoom and relevant input/selection state. All verdicts start Untested."
       ],
       "steps": [
         "From clear canvas, press the visible body of an unselected object and move the pointer while keeping the same press held; release.",
         "Repeat while a different object is already selected.",
-        "Click and release without dragging as a comparison; Undo a completed move."
+        "Click and release without dragging as a comparison; Undo a completed move.",
+        "Select an image, arm its hosted Brush without opening the editor, then click empty canvas. Check that dismissal does not paint or alter the scene."
       ],
       "checks": [
         {
@@ -323,6 +325,14 @@
         {
           "id": "regression-3",
           "expected": "Adjacent regression: Dragging does not unexpectedly move a whole unrelated selection or change the stacking order."
+        },
+        {
+          "id": "empty-generator-body",
+          "expected": "The newly created empty generator frame moves by its visible body with the same held press before its first output. After a result appears, body movement keeps the same ownership and one-Undo behavior."
+        },
+        {
+          "id": "hosted-tool-dismissal",
+          "expected": "Clicking outside a hosted Brush while its editor is closed returns to Select and hides the image controls. It adds no ink or move, and Undo has no empty dismissal step to reverse."
         }
       ],
       "limitations": "Element is broad. Record tested node kinds and editing states; this report does not justify stealing gestures from an actively edited text field or entered portal.\nRequired native evidence: Native continuous press/move/release sequence showing an initially unselected body; record initial selection, target kind and resulting geometry.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
@@ -386,17 +396,17 @@
       ],
       "steps": [
         "Hover from each squircle into its menu, then use a menu control.",
-        "Invoke Top, vertical middle and Left alignment from the alignment widget where applicable.",
+        "Invoke Top, vertical middle, Left and horizontal center alignment from the alignment widget where applicable; verify the requested edge or center relationship.",
         "Start a wire from its visible target and cancel or complete it; repeat with a smaller object and at another zoom."
       ],
       "checks": [
         {
           "id": "visual-separation",
-          "expected": "Squircle menus and the alignment widget do not cover one another's visible controls on the tested small objects."
+          "expected": "Squircle menus, dimension labels and the alignment widget do not cover one another's visible controls on the tested small objects."
         },
         {
           "id": "alignment-owner",
-          "expected": "Pressing an alignment control invokes the intended alignment without opening a squircle menu or starting a wire."
+          "expected": "Pressing an alignment control invokes the intended alignment without opening a squircle menu or dimension editor, or starting a wire."
         },
         {
           "id": "wire-owner",
@@ -542,8 +552,8 @@
         "Record the actual tested binary/hash, disposable workbook, display scale, Slate zoom and relevant input/selection state. All verdicts start Untested."
       ],
       "steps": [
-        "Save an image using the normal suggested filename into that folder, then save it again without manually finding a free suffix.",
-        "Repeat with a gap in existing numbered filenames and after saving a different image with the same proposed base name.",
+        "Save an image using the normal suggested filename into that folder, then save it again without manually finding a free suffix. Record both the filename initially proposed by the picker and the final saved filename.",
+        "Repeat with a gap in existing numbered filenames, after saving a different image with the same proposed base name, and after switching to a different supported image format whose matching numbered name already exists.",
         "Cancel one save-picker visit, then try saving again."
       ],
       "checks": [
@@ -573,6 +583,37 @@
         }
       ],
       "limitations": "No exact suffix format, starting number, zero padding, or gap-reuse policy is specified. Any predictable incrementing noncolliding sequence can be evaluated without inventing those rules.\nContent-hash deduplication, automatic removal of identical photos, and a new save-management framework are not requested.\nThe report does not specify whether an explicitly chosen existing filename may be overwritten after human confirmation; the automatic/default flow must avoid that collision.\nRequired native evidence: Native repeated Save image as flow and destination-file inventory before/after, showing suggested/final names and preservation of existing files.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
+    }
+  ],
+  "agentNativeEvaluation": {
+    "ledger": "native-evidence/agent-native-run-01.json",
+    "binarySha256": "0E9764DB21121B206047E254DED6F25BCB748391809DD8A8B330853209C87983",
+    "sourceRevision": "344988a4459e2575b8ae95b39f8bae1a597b359f",
+    "confirmedFailureReports": [
+      "115519",
+      "172555"
+    ],
+    "completeCasePasses": 0,
+    "humanAcceptances": 0,
+    "remainingChecks": [
+      "First-drag/empty-generator/outer-grip native recheck after repairs",
+      "First-unknown-folder collision picker after repair",
+      "Definitive other-frame progress after Stop acknowledgement",
+      "Crop Escape while pointer held (atomic drag API limitation)",
+      "Visible tiny wire grip and alternate zoom",
+      "Generated current-result switching and edited-image picker cancellation"
+    ]
+  },
+  "catalogHash": "f501b9d606469433443f5f7febb3de5f5764d8b5072378f07e33bed34caa5f35",
+  "criteriaRevisions": [
+    {
+      "reason": "Native344 run exposed empty-generator body failure; independent UX review found closed-editor hostedBrush cleanup must be preserved by first-drag repair. Added explicit observable clauses instead of weakening existing ones.",
+      "report": "115519",
+      "previousCheckCount": 60,
+      "currentCheckCount": 62,
+      "originalCatalogHash": "055f51a50bb0050cdce0d919c817fa4a1a1afd7dcb5c91a4d8605904adb2f498",
+      "currentCatalogHash": "f501b9d606469433443f5f7febb3de5f5764d8b5072378f07e33bed34caa5f35",
+      "humanVerdictsCarriedForward": 0
     }
   ]
 }

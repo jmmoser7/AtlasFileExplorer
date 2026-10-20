@@ -43,8 +43,16 @@ fn empty_wired_frame(overlap: bool) -> (Harness, NodeId, NodeId, Option<NodeId>)
     (h, source, generator, behind)
 }
 
-fn drag_body_down(h: &mut Harness, source: NodeId, generator: NodeId, y_fraction: f32) {
-    let source_before = h.app.doc().scene.node(source).unwrap().rect;
+fn drag_body_down(h: &mut Harness, generator: NodeId, y_fraction: f32) {
+    let untouched: Vec<_> = h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .filter(|n| n.id != generator && !matches!(n.kind, NodeKind::Connector(_)))
+        .map(|n| (n.id, n.rect))
+        .collect();
     let before = h.app.doc().scene.node(generator).unwrap().rect;
     let world = Pos2::new(before.x + before.w * 0.5, before.y + before.h * y_fraction);
     let center = h.app.board_xf().w2s(world);
@@ -74,7 +82,9 @@ fn drag_body_down(h: &mut Harness, source: NodeId, generator: NodeId, y_fraction
         "body drag {before:?} -> {after:?}"
     );
     assert_eq!((after.w, after.h), (before.w, before.h));
-    assert_eq!(h.app.doc().scene.node(source).unwrap().rect, source_before);
+    for (id, rect) in untouched {
+        assert_eq!(h.app.doc().scene.node(id).unwrap().rect, rect);
+    }
     assert_eq!(h.app.board_sel, [generator].into_iter().collect());
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
     assert!(
@@ -88,11 +98,11 @@ fn drag_body_down(h: &mut Harness, source: NodeId, generator: NodeId, y_fraction
 
 #[test]
 fn a_new_empty_wired_generator_body_moves_before_its_first_result() {
-    let (mut h, source, generator, _) = empty_wired_frame(false);
+    let (mut h, _, generator, _) = empty_wired_frame(false);
     assert!(h.app.agent_images(generator).is_empty());
     assert!(h.app.image_palette_eligible(generator));
     assert!(h.app.shape_properties.panel.is_none());
-    drag_body_down(&mut h, source, generator, 0.5);
+    drag_body_down(&mut h, generator, 0.5);
 
     // The first output changes pixels, not which owner receives body drags.
     let output = atlas_core::workbook_assets::generated_dir(
@@ -115,12 +125,12 @@ fn a_new_empty_wired_generator_body_moves_before_its_first_result() {
         h.frame();
     }
     assert_eq!(h.app.agent_images(generator).len(), 1);
-    drag_body_down(&mut h, source, generator, 0.5);
+    drag_body_down(&mut h, generator, 0.5);
 }
 
 #[test]
 fn an_empty_front_generator_drags_below_an_overlapping_originals_body() {
-    let (mut h, source, generator, behind) = empty_wired_frame(true);
+    let (mut h, _, generator, behind) = empty_wired_frame(true);
     let behind = behind.unwrap();
     let behind_before = h.app.doc().scene.node(behind).unwrap().rect;
     let frame = h.app.doc().scene.node(generator).unwrap().rect;
@@ -145,7 +155,7 @@ fn an_empty_front_generator_drags_below_an_overlapping_originals_body() {
         Some(generator)
     );
     assert!(h.app.agent_images(generator).is_empty());
-    drag_body_down(&mut h, source, generator, 0.75);
+    drag_body_down(&mut h, generator, 0.75);
     assert_eq!(h.app.doc().scene.node(behind).unwrap().rect, behind_before);
 }
 
