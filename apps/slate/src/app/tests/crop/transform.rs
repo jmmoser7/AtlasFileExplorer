@@ -117,7 +117,7 @@ fn dragging_a_pictures_edge_past_its_opposite_mirrors_it() {
     let xf = h.app.board_xf();
     // Off the edge midpoint so a wire grip does not steal the press.
     let geom = h.app.node_interaction_geom(&before, &xf);
-    let edge = geom.control_corners[1].lerp(geom.control_corners[2], 0.25);
+    let edge = geom.control_corners[1].lerp(geom.control_corners[2], 0.75);
     let mods = egui::Modifiers::default();
     h.app.board_drag = h.app.begin_gesture_for_test(edge, xf.s2w(edge), mods);
     assert!(matches!(

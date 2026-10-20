@@ -2,6 +2,35 @@ use super::SlateApp;
 use eframe::egui::{self, Pos2, Rect};
 
 impl SlateApp {
+    /// Wheel events carry the modifier state at the notch, which can differ
+    /// from the frame snapshot when the chord and wheel arrive together.
+    pub(crate) fn board_wheel_input(input: &egui::InputState) -> (f32, bool) {
+        let modifiers = input
+            .events
+            .iter()
+            .rev()
+            .find_map(|event| match event {
+                egui::Event::MouseWheel { modifiers, .. } => Some(*modifiers),
+                _ => None,
+            })
+            .unwrap_or(input.modifiers);
+        // egui routes modified wheel input into its separate zoom stream;
+        // normal wheel input uses smoothing. Never add the same stream twice.
+        let delta = if modifiers.ctrl || modifiers.command || modifiers.mac_cmd {
+            input.raw_scroll_delta
+        } else {
+            input.smooth_scroll_delta
+        };
+        (
+            if modifiers.shift {
+                delta.x + delta.y
+            } else {
+                delta.y
+            },
+            modifiers.shift,
+        )
+    }
+
     pub(crate) fn zoom_profile_for_view(
         view: slate_doc::ViewKind,
     ) -> atlas_core::display::ZoomProfile {

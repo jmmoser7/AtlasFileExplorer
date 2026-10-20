@@ -63,13 +63,16 @@ fn esc_mid_resize_restores_the_node() {
     let depth = h.app.tab().journal.undo_depth();
     let rect = h.app.doc().scene.node(ids[1]).unwrap().rect;
     let xf = h.app.board_xf();
-    let corner = board_handles::selection_geom(&xf, rect, 0.0).control_corners[2];
-    let from = xf.s2w(corner);
+    let geom = board_handles::selection_geom(&xf, rect, 0.0);
+    // The continuous E edge at quarter height is clear of native Direct
+    // corner controls and the midpoint wire grip.
+    let edge = geom.control_corners[1].lerp(geom.control_corners[2], 0.25);
+    let from = xf.s2w(edge);
     let to = from + egui::vec2(60.0, 40.0);
     hold_drag(&mut h, from, to, egui::Modifiers::NONE);
     assert!(
-        matches!(h.app.board_drag, Some(board::BoardDrag::Resize { .. })),
-        "the corner starts a resize"
+        matches!(h.app.board_drag, Some(board::BoardDrag::Resize { id, handle: 3, .. }) if id == ids[1]),
+        "the continuous E edge starts a resize"
     );
     assert_ne!(scene_nodes(&h), before, "the node resized mid-drag");
     escape_then_release(&mut h, to, egui::Modifiers::NONE);

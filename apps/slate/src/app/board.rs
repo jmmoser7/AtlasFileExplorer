@@ -403,17 +403,7 @@ impl SlateApp {
                 || palette_wheel)
             && !external_capture
         {
-            // egui hands a Shift wheel over as a horizontal delta.
-            let (scroll, shift) = ui.input(|i| {
-                // Raw and smoothed deltas describe the same wheel stream.
-                let d = if i.modifiers.ctrl || i.modifiers.command {
-                    i.raw_scroll_delta
-                } else {
-                    i.smooth_scroll_delta
-                };
-                let shift = i.modifiers.shift;
-                (if shift { d.x + d.y } else { d.y }, shift)
-            });
+            let (scroll, shift) = ui.input(Self::board_wheel_input);
             if scroll.abs() > 0.0 {
                 // Scroll over an unlocked 3D viewport zooms the model, not
                 // the board (Rhino wheel semantics while live).

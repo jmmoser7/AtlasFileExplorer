@@ -306,13 +306,43 @@ fn zoomed_out_packed_selection_moves_instead_of_starting_a_wire() {
         h.app.wire_grip_at(screen, &xf).is_none(),
         "a press inside the selection is not a port"
     );
+    assert_eq!(
+        h.app.transform_hit_at(screen),
+        Some((Some(middle), board_handles::BoardHitTarget::Body)),
+        "a neighboring member's compact cage cannot steal the visible body"
+    );
     let drag = h
         .app
         .begin_gesture_for_test(screen, world, egui::Modifiers::NONE);
     assert!(
-        matches!(drag, Some(board::BoardDrag::Move { .. })),
-        "the group moves"
+        matches!(drag, Some(board::BoardDrag::Move { ref ids, .. })
+            if ids.len() == 9 && h.app.board_sel.iter().all(|id| ids.contains(id))),
+        "the whole group moves"
     );
+}
+
+#[test]
+fn a_foreground_body_inside_a_compact_group_keeps_its_own_move() {
+    let mut h = web_board("wire_group_foreground_move");
+    let a = add_image_card(&mut h.app, 0.0, 0.0);
+    let b = add_image_card(&mut h.app, 84.0, 0.0);
+    let front = add_image_card(&mut h.app, 42.0, 0.0);
+    h.app.board_sel = [a, b].into_iter().collect();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.tab_mut().cam.z = 0.55;
+    h.frame();
+    let rect = h.app.doc().scene.node(front).unwrap().rect;
+    let world = Pos2::from(rect.center());
+    let screen = h.app.board_xf().w2s(world);
+    assert_eq!(
+        h.app.transform_hit_at(screen),
+        Some((Some(front), board_handles::BoardHitTarget::Body))
+    );
+    let drag = h
+        .app
+        .begin_gesture_for_test(screen, world, egui::Modifiers::NONE);
+    assert!(matches!(drag, Some(board::BoardDrag::Move { ref ids, .. }) if ids == &[front]));
+    assert_eq!(h.app.board_sel, [front].into_iter().collect());
 }
 
 /// New wires store no color, so they paint the active theme's wire gray.

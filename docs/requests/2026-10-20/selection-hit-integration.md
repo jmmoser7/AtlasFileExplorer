@@ -218,4 +218,37 @@ whole visible labels and clicks Terra. This repairs stale-size placement when
 the naturally scaled list fits the viewport. At extreme zoom, text wider than
 the entire viewport retains existing overflow behavior; no font ceiling or new
 horizontal-overflow design is claimed. P0.9 and existing menu-wheel ownership
-remain authoritative. These new cases await hosted runtime execution.
+remain authoritative. These new cases passed hosted runtime execution in CI203.
+
+CI203 tested synthetic merge `95973b72eb0fe612708651c27f258edb2bd7bc2f`
+(head `adb825be39617821162ff809553ca79490fcadd0`, base `2087cc17`).
+Windows check and all-target Clippy passed. All 25 selection-region cases,
+shell, document and size/contract suites passed. Slate had 2,113 passing and
+six failing tests; this remains a failed integration check. Full logs and
+diagnostics are retained as `ci203-linux.log` / `ci203-failures.txt`.
+
+The remaining interaction repairs preserve the original required outcomes:
+
+- Wheel routing reads the modifier state carried by the actual wheel event,
+  with the frame snapshot as fallback. Ctrl/Command events arriving before
+  that snapshot use egui's raw zoom stream once. New real-input cases cover
+  Ctrl, Command and macOS Command plus an unchanged zoom after the event tail.
+- A selected member's expanded compact controls no longer steal another
+  selected member's body while inside their group. Actual-host controls,
+  foreground nonmembers and outer group controls retain their owners. The
+  packed-selection test stays unchanged and a negative case protects an
+  unrelated foreground object's Move.
+- A closer active group corner excludes a member fillet in the shared
+  hover/press resolver. Only group corners participate; group edges retain
+  multi-member fillet access. The original diagonal group-resize test stays.
+- The picture mirror test uses the continuous E edge at three-quarter height,
+  clear of its real output rail. Exact E resize, mirror, preview/commit and
+  undo outcomes remain. The Esc test uses the continuous E edge at quarter
+  height, clear of native Direct corners and the midpoint wire grip; it
+  requires the exact node/E resize before restoration and no-journal checks.
+
+The recovery capture assertion also failed in CI203. No source evidence yet
+supports a production change; its unchanged name/scope assertion now reports
+scan issues and runtime state. It remains unresolved pending runtime evidence.
+Native GUI acceptance and the Windows package build remain separate pending
+gates; neither the passing subset nor a compiler check closes them.

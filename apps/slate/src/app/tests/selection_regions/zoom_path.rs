@@ -2,6 +2,40 @@
 use super::*;
 
 #[test]
+fn wheel_event_modifiers_zoom_once_without_a_frame_modifier_snapshot() {
+    for modifiers in [
+        egui::Modifiers::CTRL,
+        egui::Modifiers::COMMAND,
+        egui::Modifiers::MAC_CMD,
+    ] {
+        let mut h = grip_board("regions_wheel_event_chord");
+        let pointer = h.app.canvas_rect.center();
+        let start = h.app.tab().cam.z;
+        h.frame_with(|input| {
+            assert_eq!(input.modifiers, egui::Modifiers::NONE);
+            input.events.push(egui::Event::PointerMoved(pointer));
+            input.events.push(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: EVec2::new(0.0, 40.0),
+                modifiers,
+            });
+        });
+        let expected = start * atlas_core::display::SLATE_BOARD.wheel_factor(40.0);
+        assert!(
+            (h.app.tab().cam.z - expected).abs() < 0.00001,
+            "{modifiers:?}"
+        );
+        for _ in 0..8 {
+            h.frame();
+        }
+        assert!(
+            (h.app.tab().cam.z - expected).abs() < 0.00001,
+            "the zoom tail is not applied twice"
+        );
+    }
+}
+
+#[test]
 fn a_settled_wheel_notch_is_applied_once_and_its_inverse_restores_zoom() {
     let mut h = grip_board("regions_wheel_one_stream");
     let point = h.app.canvas_rect.center() + EVec2::new(80.0, -40.0);

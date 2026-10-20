@@ -11,6 +11,17 @@ impl SlateApp {
         let world = xf.s2w(screen);
         let body = self.board_pick_node(world.x, world.y);
         let glyph = self.polygon_sides_glyph_at(screen, &xf).map(|g| g.id);
+        let group_corner = (self.board_sel.len() >= 2
+            && !self.selection_all_simple_lines()
+            && body.is_none_or(|id| self.board_sel.contains(&id)))
+        .then(|| self.board_group_bounds())
+        .flatten()
+        .and_then(|bounds| {
+            let geom = board_handles::selection_geom(&xf, bounds, 0.0);
+            let (hit, _) =
+                board_handles::chrome_pick(screen, &geom, self.selection_allows_rotation())?;
+            Self::interaction_corner(&geom, hit).map(|p| p.distance(screen))
+        });
         self.doc()
             .scene
             .nodes
@@ -43,9 +54,10 @@ impl SlateApp {
                     .filter(|(_, grip)| board_handles::hit_test_fillet_grip(screen, &geom, *grip))
                     .min_by(|a, b| a.1.distance(screen).total_cmp(&b.1.distance(screen)))?;
                 let reach = grip.distance(screen);
-                if self
-                    .curve_grip_distance(n.id, screen)
-                    .is_some_and(|d| d <= reach)
+                if group_corner.is_some_and(|d| d <= reach)
+                    || self
+                        .curve_grip_distance(n.id, screen)
+                        .is_some_and(|d| d <= reach)
                 {
                     return None;
                 }
@@ -80,7 +92,7 @@ impl SlateApp {
         if let Some((id, hit)) = self.chat_south_resize(screen, &xf) {
             return Some((Some(id), hit));
         }
-        let mut group_gap = false;
+        let mut group_interior = false;
         if self.board_sel.len() >= 2
             && !self.selection_all_simple_lines()
             && body.is_none_or(|id| self.board_sel.contains(&id))
@@ -92,12 +104,14 @@ impl SlateApp {
                 {
                     return Some((None, hit));
                 }
-                group_gap = body.is_none() && gb.contains(world.x, world.y);
+                group_interior = gb.contains(world.x, world.y);
             }
         }
         let mut best: Option<(&Node, board_handles::BoardHitTarget, Option<Pos2>)> = None;
         for n in self.doc().scene.nodes.iter().rev() {
-            if group_gap && self.board_sel.contains(&n.id) {
+            // Other selected members' compact cages cannot steal this body.
+            // The actual host keeps its own transform and body arbitration.
+            if group_interior && self.board_sel.contains(&n.id) && body != Some(n.id) {
                 continue;
             }
             if !self.node_offers_bbox_transform(n) {
@@ -185,7 +199,7 @@ impl SlateApp {
             }
         }
         best.map(|(node, hit, _)| (Some(node.id), hit))
-            .or_else(|| group_gap.then_some((None, board_handles::BoardHitTarget::Body)))
+            .or_else(|| group_interior.then_some((None, board_handles::BoardHitTarget::Body)))
     }
 
     fn interaction_corner(

@@ -68,14 +68,17 @@ fn capture_writer_scanner_and_folder_share_scope_without_touching_human_copies()
             && runtime.busy == 0
     });
     h.app.recovery_shutdown();
-    let names: Vec<_> = store
-        .scan()
-        .unwrap()
-        .entries
-        .into_iter()
-        .map(|entry| entry.name)
-        .collect();
-    assert!(names.iter().any(|name| name == "Synthetic capture only"));
+    let scan = store.scan().unwrap();
+    let names: Vec<_> = scan.entries.into_iter().map(|entry| entry.name).collect();
+    assert!(
+        names.iter().any(|name| name == "Synthetic capture only"),
+        "capture missing: names={names:?}; scan issues={:?}; runtime status={:?}; dirty={}; busy={}; saved={:?}",
+        scan.issues,
+        h.app.recovery.status,
+        h.app.tab().dirty,
+        h.app.recovery.busy,
+        h.app.recovery.last_saved
+    );
     assert!(names.iter().any(|name| name == "Isolated history"));
     let human_entries = human_store.scan().unwrap().entries;
     assert_eq!(human_entries.len(), 1);
