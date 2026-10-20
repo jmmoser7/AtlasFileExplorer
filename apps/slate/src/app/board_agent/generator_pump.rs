@@ -135,7 +135,7 @@ impl SlateApp {
                 && !item.port().takes_text()
                 && slate_doc::agent_inputs::is_web_page(&self.doc().scene, node)
             {
-                match self.capture_web_page(node, &dir)? {
+                match self.capture_web_page(node, &dir, None)? {
                     Some(page) => item.images = vec![page.to_string_lossy().into_owned()],
                     None if allow_stale => {
                         if let Some(page) = self.stale_web_image(node, &dir)? {

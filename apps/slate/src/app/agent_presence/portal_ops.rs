@@ -351,7 +351,7 @@ impl SlateApp {
                     .valid_workspace()
                     .map(PathBuf::from)
                     .ok_or("Establish the AI workspace before capturing a page")?;
-                self.agent_web_capture(op.portal, &dir.join("portal-captures"))
+                self.agent_web_capture(op.portal, &dir.join("portal-captures"), &op.call.id)
                     .map(|p| p.map(|path| json!({"image_source":path})))
             }
             "portal.web.navigate" => {

@@ -68,9 +68,10 @@ impl SlateApp {
         &mut self,
         id: NodeId,
         dir: &Path,
+        capture_id: &str,
     ) -> Result<Option<PathBuf>, String> {
         self.require_agent_web(id)?;
-        self.capture_web_page(id, dir)
+        self.capture_web_page(id, dir, Some(capture_id))
     }
 
     pub(crate) fn agent_web_navigate(&mut self, id: NodeId, target: &str) -> Result<(), String> {

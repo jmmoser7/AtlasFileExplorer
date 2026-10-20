@@ -111,7 +111,6 @@ impl SlateApp {
                             .map(|t| chrome::ConversationMessage {
                                 id: &t.id,
                                 text: &t.text,
-                                at: t.at,
                                 outgoing: t.role == "user",
                                 system: t.role == "system",
                                 status: &t.status,
@@ -147,7 +146,6 @@ impl SlateApp {
                             atlas_agent::AgentActivityKind::ToolFinished => "Completed",
                         },
                         text: &e.text,
-                        at: e.at,
                     })
                     .collect()
             })

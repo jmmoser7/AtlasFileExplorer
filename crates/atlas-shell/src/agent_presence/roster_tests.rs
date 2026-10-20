@@ -67,7 +67,6 @@ impl Fixture {
         let messages = [ConversationMessage {
             id: "reply",
             text: &self.message_text,
-            at: 1,
             outgoing: self.message_outgoing,
             system: false,
             status: "",
@@ -77,12 +76,7 @@ impl Fixture {
         let activity: Vec<_> = self
             .activity
             .iter()
-            .enumerate()
-            .map(|(index, (label, text))| super::super::PublicActivity {
-                label,
-                text,
-                at: index as u64 + 2,
-            })
+            .map(|(label, text)| super::super::PublicActivity { label, text })
             .collect();
         let attachments: Vec<_> = self
             .attachments

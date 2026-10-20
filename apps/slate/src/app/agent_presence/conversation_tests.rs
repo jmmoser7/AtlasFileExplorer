@@ -84,7 +84,6 @@ fn identical_live_updates_keep_both_answers_and_the_original_response_boundary()
         ]
     );
 }
-
 #[test]
 fn same_harness_and_invalid_destination_leave_a_running_request_untouched() {
     let mut h = host();
@@ -430,6 +429,3 @@ fn human_spawn_helper_obeys_the_same_live_capacity_limit_as_provider_calls() {
 
 #[path = "conversation_regressions.rs"]
 mod regressions;
-
-#[path = "conversation_order_tests.rs"]
-mod conversation_order_tests;

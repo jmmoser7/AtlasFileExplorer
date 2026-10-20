@@ -10,24 +10,18 @@ pub(super) fn ordered_rows(
     messages: &[ConversationMessage<'_>],
     activity: &[PublicActivity<'_>],
 ) -> Vec<TranscriptRow> {
-    let mut rows: Vec<_> = messages
-        .iter()
-        .enumerate()
-        .map(|(index, row)| {
-            let completed_reply = !row.outgoing && !row.system && row.status == "complete";
-            (
-                row.at,
-                u8::from(completed_reply),
-                TranscriptRow::Message(index),
-            )
-        })
-        .chain(
-            activity
-                .iter()
-                .enumerate()
-                .map(|(index, row)| (row.at, 0, TranscriptRow::Activity(index))),
-        )
-        .collect();
-    rows.sort_by_key(|(at, tie_order, _)| (*at, *tie_order));
-    rows.into_iter().map(|(_, _, row)| row).collect()
+    let mut rows: Vec<_> = (0..messages.len()).map(TranscriptRow::Message).collect();
+    let latest_prompt = messages.iter().rposition(|message| message.outgoing);
+    let completed_reply = messages.iter().enumerate().rfind(|(index, message)| {
+        latest_prompt.is_none_or(|prompt| *index > prompt)
+            && !message.outgoing
+            && !message.system
+            && message.status == "complete"
+    });
+    let insertion = completed_reply.map_or(rows.len(), |(index, _)| index);
+    rows.splice(
+        insertion..insertion,
+        (0..activity.len()).map(TranscriptRow::Activity),
+    );
+    rows
 }

@@ -349,7 +349,6 @@ impl eframe::App for Preview {
                     .map(|t| chrome::ConversationMessage {
                         id: &t.id,
                         text: &t.text,
-                        at: 0,
                         outgoing: t.outgoing,
                         system: t.system,
                         status: "",
