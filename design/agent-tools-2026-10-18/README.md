@@ -111,12 +111,17 @@ workbook retains the conversation.
 Ordinary and whole-transcript copy round trips are earlier-build evidence; the
 latest clipboard probe was inconclusive.
 
-Final production source `135a2b81` is pushed and awaits native delivery. Its
+Production source `135a2b81` is pushed but failed two runtime regressions. Its
 per-call immutable Web capture filenames, live URL replies, transcript ordering,
 first-drag/empty-generator and image-save picker repairs require bounded native
-rechecks. At 02:11 UTC, CI 193 passed Windows compilation and Linux Clippy;
-Linux runtime and installer 171 were running. Earlier `f8507720` passed 3,928
-Linux workspace tests with zero failures and 93 ignored. The local final test
+rechecks. CI 193 passed Windows compilation and Linux Clippy but had 3,929
+Linux tests pass, two fail and 93 ignored. Follow-ups restore the new Web
+fixture's established live-host/focus handoff and admit threshold-crossing
+movement in the initial primary-press frame through the existing drag owner.
+Both regression assertions remain intact; new validation is pending. At 02:19
+UTC, installer 171 was running Windows workspace tests, with no successful
+package. Earlier `f8507720` passed 3,928 Linux tests, zero failures and 93
+ignored. The local final test
 did not run: Windows denied the new `rfd` build helper with `os error 5`.
 Development approval is pending, and the existing build setup is unchanged.
 PRs 63/64 are draft, unmerged; no final release has been published.

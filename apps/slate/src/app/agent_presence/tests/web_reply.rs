@@ -23,7 +23,10 @@ fn web_read_and_capture_replies_report_the_live_url_after_navigation() {
     let (portal_id, _) = only_portal(&h);
     h.app.web_allow_origin(portal_id);
     h.frame();
+    assert!(h.app.portal_maximize(portal_id));
+    h.frame();
     assert!(h.app.web.is_live(portal_id));
+    h.app.web_blur();
     host.set_current_url(portal_id, current);
 
     let cache_dir = h.base.join("web-still-cache");
