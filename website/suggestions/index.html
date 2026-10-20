@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Help shape Slate. Share an idea, report a problem, or tell us what would make your workspace better.">
+<meta name="theme-color" content="#0e1013">
+<title>Suggestion box — Slate</title>
+<link rel="icon" href="../assets/slate.ico">
+<link rel="stylesheet" href="../assets/theme.css">
+<link rel="stylesheet" href="../styles.css">
+<script src="suggestions.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header page">
+<a class="wordmark" href="../" aria-label="Slate home"><img src="../assets/slate.ico" width="32" height="32" alt="">Slate</a>
+<nav aria-label="Main navigation"><a href="../#download">Download</a><a href="../documentation/">Documentation</a><a href="./" aria-current="page">Suggestion box <span aria-hidden="true">↗</span></a></nav>
+</header>
+<main id="main" class="page suggestions-page">
+<span class="eyebrow">HELP SHAPE SLATE</span>
+<h1>What’s on your mind?</h1>
+<p class="lede">The best improvements start with something real.<br>A task that took too long. A tool you keep reaching for. An idea worth trying.</p>
+<div class="feedback-layout">
+<form class="suggestion-form" action="https://github.com/jmmoser7/AtlasFileExplorer/issues/new" method="get">
+<div class="form-field"><label for="kind">I have…</label><select id="kind"><option value="Suggestion">An idea for Slate</option><option value="Bug">A problem to report</option><option value="Polish">A small improvement</option></select></div>
+<div class="form-field"><label for="title">Give it a short title</label><input id="title" name="title" required maxlength="160" placeholder="What would you like to improve?" autocomplete="off"></div>
+<div class="form-field"><label for="body">Tell us a little more</label><textarea id="body" name="body" required maxlength="1200" aria-describedby="body-hint" placeholder="What were you trying to do? What happened, or what would you like to happen instead?"></textarea><span id="body-hint" class="form-hint">For a problem, include your Slate version and the steps to reproduce it.</span></div>
+<div class="form-actions"><button class="button button-primary" type="submit">Continue on GitHub <span aria-hidden="true">↗</span></button><span class="form-hint">Review your post before submitting.</span></div>
+<p class="form-hint">This opens a draft GitHub issue. You’ll need a GitHub account to post. Published suggestions are public; leave out private files and personal information.</p>
+<noscript><p class="note">You can still use this form without JavaScript. Your title and message will open in GitHub.</p></noscript>
+</form>
+<aside class="feedback-aside" aria-label="More ways to give feedback">
+<h2>A conversation, in the open.</h2>
+<p>See what other people have suggested, add your perspective, or follow an idea you care about.</p>
+<a class="text-link" href="https://github.com/jmmoser7/AtlasFileExplorer/issues">Browse the conversation ↗</a>
+<div class="aside-section"><h2>Show us what happened.</h2><p>Slate’s in-app <strong>Advanced → Suggestion box</strong> can save a local report with screenshots and recorded steps. Attach that report to your GitHub issue after checking its contents.</p><p>The in-app box saves to your computer. It doesn’t submit to this website automatically.</p><a class="text-link" href="../documentation/#feedback">Read the feedback guide ↗</a></div>
+<div class="aside-section"><h2>A little context helps.</h2><p>Describe a real workflow and what gets in your way. For bugs, tell us what you expected, what happened, and how to try it again.</p></div>
+</aside>
+</div>
+</main>
+<footer class="site-footer page"><a class="wordmark" href="../">Slate<span class="footer-dot">.</span></a><span>Local files. Open possibilities.</span><a href="https://github.com/jmmoser7/AtlasFileExplorer">Made in the open ↗</a></footer>
+</body>
+</html>

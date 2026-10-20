@@ -1,0 +1,62 @@
+name: Slate website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - '.github/workflows/pages.yml'
+      - 'crates/atlas-shell/ui-tokens.toml'
+      - 'apps/slate/assets/slate.ico'
+  pull_request:
+    paths:
+      - 'website/**'
+      - '.github/workflows/pages.yml'
+      - 'crates/atlas-shell/ui-tokens.toml'
+      - 'apps/slate/assets/slate.ico'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: slate-pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Build site from native theme
+        run: python website/build.py
+      - name: Check links, assets and markup
+        run: python website/check.py
+      - name: Check suggestion-box JavaScript
+        run: |
+          node --check website/suggestions/suggestions.js
+          node website/check-suggestions.cjs
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: target/slate-site
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - name: Publish Slate
+        id: deployment
+        uses: actions/deploy-pages@v4
+
