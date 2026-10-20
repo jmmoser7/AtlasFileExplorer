@@ -286,6 +286,10 @@ impl SlateApp {
         // The current property owner publishes its live screen-space hit boxes
         // before board input. Move the whole cluster, never individual buttons.
         let mut occupied = self.shape_properties.chrome_hits.clone();
+        if let Some(strip) = self.external_property_strip_rect(xf) {
+            occupied.retain(|hit| !strip.contains_rect(*hit));
+            occupied.push(strip);
+        }
         occupied.sort_by(|a, b| a.bottom().total_cmp(&b.bottom()));
         for occupied in &occupied {
             if layout
@@ -349,6 +353,15 @@ impl SlateApp {
             };
         }
         Some(layout)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn align_button_rect_for_test(&self, action: AlignAction) -> Option<Rect> {
+        self.align_layout(&self.board_xf())?
+            .hits
+            .iter()
+            .find(|hit| hit.action == action)
+            .map(|hit| hit.rect)
     }
 
     /// Screen hit on an enabled icon. `None` when the widget is hidden.

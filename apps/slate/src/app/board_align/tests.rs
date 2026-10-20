@@ -39,16 +39,19 @@ fn small_selection_alignment_clicks_clear_properties_and_wires() {
                 .iter()
                 .map(|id| h.app.doc().scene.node(*id).unwrap().rect)
                 .collect();
+            let input: Vec<_> = ids.iter().copied().zip(before.iter().copied()).collect();
+            let expected = preview_rects(&input, &[], hit.action);
             crop_pointer(&mut h, at, Some(true));
             crop_pointer(&mut h, at, Some(false));
             assert!(h.app.board_drag.is_none());
-            assert!(
-                ids.iter()
-                    .zip(&before)
-                    .any(|(id, r)| h.app.doc().scene.node(*id).unwrap().rect != *r),
-                "one press invokes {:?} at z={zoom}",
-                hit.action
-            );
+            for (id, expected) in expected {
+                assert_eq!(
+                    h.app.doc().scene.node(id).unwrap().rect,
+                    expected,
+                    "one press invokes {:?} at z={zoom}, size={size}, pointer={at:?}",
+                    hit.action
+                );
+            }
             h.app.board_undo();
             for (id, rect) in ids.iter().zip(before) {
                 assert_eq!(
@@ -57,6 +60,31 @@ fn small_selection_alignment_clicks_clear_properties_and_wires() {
                     "one undo restores every member"
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn alignment_buttons_stay_fixed_through_property_strip_reveal() {
+    use crate::app::tests::{add_rect, align_board, select_ids};
+    let mut h = align_board("alignment_during_reveal");
+    let ids = [
+        add_rect(&mut h.app, 0.0, 0.0),
+        add_rect(&mut h.app, 49.0, 37.0),
+    ];
+    select_ids(&mut h.app, &ids);
+    let mut first = None;
+    for frame in 0..16 {
+        h.frame();
+        let layout = h.app.align_layout(&h.app.board_xf()).unwrap();
+        let rects: Vec<_> = layout.hits.iter().map(|hit| hit.rect).collect();
+        if let Some(first) = &first {
+            assert_eq!(
+                &rects, first,
+                "frame{frame}: controls must not move during reveal"
+            );
+        } else {
+            first = Some(rects);
         }
     }
 }

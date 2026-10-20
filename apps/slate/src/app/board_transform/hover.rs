@@ -183,6 +183,9 @@ impl SlateApp {
         let Some((node, hit)) = self.transform_hit_at(p) else {
             return;
         };
+        if hit == board_handles::BoardHitTarget::Body {
+            return;
+        }
         self.board_hover_hit = Some(hit);
         self.board_hover_node = node;
         if wire_grip_hovered {

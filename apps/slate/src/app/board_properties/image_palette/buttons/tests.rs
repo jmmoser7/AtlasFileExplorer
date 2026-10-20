@@ -92,15 +92,28 @@ fn click(h: &mut Harness, point: Pos2) {
 
 #[test]
 fn collapsed_generate_click_dispatches_its_explicit_generator_once() {
-    for size in [180.0, 480.0] {
+    for (size, attached) in [(180.0, false), (680.0, true)] {
         let (mut h, id, primary) = ready_generator(&format!("collapsed-play-{size}"), size);
-        for _ in 0..3 {
+        for _ in 0..12 {
             h.frame();
         }
         assert!(h.app.shape_properties.panel.is_none());
         assert!(h.app.image_agent_has_wired_image_and_prompt(id));
+        assert_eq!(
+            h.app
+                .image_blister_eligible(h.app.doc().scene.node(id).unwrap()),
+            attached
+        );
         let play = collapsed_play(&h, id);
         assert!(h.app.canvas_rect.contains(play));
+        assert_eq!(
+            h.ctx.layer_id_at(play),
+            Some(egui::LayerId::new(
+                chrome::CANVAS_CHROME_ORDER,
+                Id::new(("image_palette_quick_generate", id.0)),
+            )),
+            "the visible Play belongs to its control Area"
+        );
         click(&mut h, play);
         for _ in 0..100 {
             if !h.app.agents.dispatched.is_empty() {
@@ -163,7 +176,7 @@ fn collapsed_generate_is_unavailable_without_a_completed_primary_and_prompt() {
 fn collapsed_generate_refuses_a_read_only_workbook() {
     let (mut h, id, _) = ready_generator("collapsed-play-read-only", 180.0);
     h.app.tab_mut().read_only = true;
-    for _ in 0..3 {
+    for _ in 0..12 {
         h.frame();
     }
     let play = collapsed_play(&h, id);

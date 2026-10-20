@@ -94,8 +94,18 @@ fn reversed_frame_completions_keep_their_owner_when_an_album_pick_changes() {
             Some(&identity.request)
         );
     }
-    assert!(h.app.doc().items.iter().any(|item| item.path == a_path));
-    assert!(h.app.doc().items.iter().any(|item| item.path == b_path));
+    assert!(h
+        .app
+        .doc()
+        .items
+        .iter()
+        .any(|item| h.app.item_path(item.id).as_ref() == Some(&a_path)));
+    assert!(h
+        .app
+        .doc()
+        .items
+        .iter()
+        .any(|item| h.app.item_path(item.id).as_ref() == Some(&b_path)));
     assert_eq!(h.app.doc().scene, scene);
     assert_eq!(h.app.board_sel, selection);
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
@@ -126,7 +136,12 @@ fn pending_completion_stays_with_its_requesting_tab_across_switches() {
     assert!(!h.app.known_image_import_current(&identity));
     h.app.switch_tab(owner_tab);
     h.app.pump_known_agent_image_imports(&h.ctx);
-    assert!(h.app.doc().items.iter().any(|item| item.path == path));
+    assert!(h
+        .app
+        .doc()
+        .items
+        .iter()
+        .any(|item| h.app.item_path(item.id).as_ref() == Some(&path)));
     assert!(h.app.agents.image_imports.completed.contains_key(&identity));
 }
 

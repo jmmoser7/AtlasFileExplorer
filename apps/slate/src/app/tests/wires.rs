@@ -124,8 +124,8 @@ fn a_wire_dropped_on_empty_board_offers_an_agent_chat_train() {
     h.frame();
 
     let xf = h.app.board_xf();
-    let rect = h.app.doc().scene.node(picture).unwrap().rect;
-    let grip = xf.w2s(board_wire::grip_point(rect, Side::Right));
+    let source = h.app.doc().scene.node(picture).unwrap();
+    let grip = xf.w2s(Pos2::from(h.app.wire_host(source).anchor(Side::Right, 0.5)));
     let drop = grip + EVec2::new(280.0, 40.0);
     let nodes = h.app.doc().scene.nodes.len();
     let depth = h.app.tab().journal.undo_depth();

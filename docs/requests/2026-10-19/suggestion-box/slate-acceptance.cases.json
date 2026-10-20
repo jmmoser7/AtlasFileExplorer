@@ -9,7 +9,7 @@
     "modified_utc": "",
     "tested_interactively": false
   },
-  "automatedEvidence": "Source fixes and independent review completed in isolated branch codex/suggestion-box-20261019 based on f32767df. cargo fmt --all -- --check and CRLF-aware diff checks passed. Targeted Windows cargo test --locked --release -p slate-doc wire_host::rail_tests --lib --jobs 4 exited 101 before tests: quote, proc-macro2, libm and serde_core build helpers could not execute (OS error 5). Raw log: target/suggestion-wire-check.log. No Slate test, native UI or provider success is claimed. Native desktop remains reserved to the other working chat. All application acceptance checks remain Untested.",
+  "automatedEvidence": "Local formatting and CRLF-aware diff checks passed; local Rust execution was denied before tests (OSerror5). HostedCI172 on bce9c679 passed Windows compilation and completed3907tests passed/8failed/93ignored; fixes for the reported behavior/fixture/lint failures are awaiting a new hosted run. implementation-evidence.json retains details. No application native UI or provider success is claimed; every acceptance verdict remains Untested.",
   "sourceReview": {
     "requestScale": "moderate",
     "immutableIntake": "intake-d615bcc4a0f6.json",
@@ -185,7 +185,7 @@
           "expected": "Adjacent regression: Creating or moving the wire does not unexpectedly reposition either image card; Undo restores the prior connection or geometry."
         }
       ],
-      "limitations": "Top position has no numeric inset in the report; compare with the existing generated-image flow datum rather than inventing a new offset.\nThe text could be read as card alignment in isolation. The attachment supports wire-anchor alignment, not automatically moving the image cards.\nRequired native evidence: Before/after native viewport captures with ordinary and generated source wires at the same scale; saved connection endpoints when available.\nSource repairs and independent review exist; Windows Rust test execution was denied before tests. Automated checks cannot pass these native/user observations."
+      "limitations": "Top position has no numeric inset in the report; compare with the existing generated-image flow datum rather than inventing a new offset.\nThe text could be read as card alignment in isolation. The attachment supports wire-anchor alignment, not automatically moving the image cards.\nRequired native evidence: Before/after native viewport captures with ordinary and generated source wires at the same scale; saved connection endpoints when available.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
     },
     {
       "id": "sbox-112946-collapsed-generator-play",
@@ -230,7 +230,7 @@
           "expected": "Adjacent regression: Clicking Play does not instead start a card move, select a thumbnail, or open a different tool; normal cancellation/running-state controls remain usable."
         }
       ],
-      "limitations": "Collapsed could mean a closed generator dashboard or a compact card. Record the tested presentation and retain both interpretations if they differ.\nThe report does not specify the provider, input wiring, or failing card size; one successful configuration cannot establish every provider or layout.\nRequired native evidence: Native collapsed-control click and per-card state transition, correlated request/source/settings evidence and completed results; mark provider-blocked coverage separately.\nSource repairs and independent review exist; Windows Rust test execution was denied before tests. Automated checks cannot pass these native/user observations."
+      "limitations": "Collapsed could mean a closed generator dashboard or a compact card. Record the tested presentation and retain both interpretations if they differ.\nThe report does not specify the provider, input wiring, or failing card size; one successful configuration cannot establish every provider or layout.\nRequired native evidence: Native collapsed-control click and per-card state transition, correlated request/source/settings evidence and completed results; mark provider-blocked coverage separately.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
     },
     {
       "id": "sbox-114206-two-generator-isolation",
@@ -280,7 +280,7 @@
           "expected": "Adjacent regression: Board selection, panning and switching between the two cards remain usable while their work overlaps."
         }
       ],
-      "limitations": "Frame may mean an image-generator card or an authored slide frame containing one; start with two generator cards and record containment separately.\nA provider may serialize requests. The report requires reliable independent user flows, not an invented service-level parallelism or throughput guarantee.\nNo concrete shared-state cause can be concluded from this description.\nRequired native evidence: Two overlapping native submissions with correlated frame/session/request IDs, captured input identity and output ownership. Appearance of plausible generated images alone cannot establish isolation.\nSource repairs and independent review exist; Windows Rust test execution was denied before tests. Automated checks cannot pass these native/user observations."
+      "limitations": "Frame may mean an image-generator card or an authored slide frame containing one; start with two generator cards and record containment separately.\nA provider may serialize requests. The report requires reliable independent user flows, not an invented service-level parallelism or throughput guarantee.\nNo concrete shared-state cause can be concluded from this description.\nRequired native evidence: Two overlapping native submissions with correlated frame/session/request IDs, captured input identity and output ownership. Appearance of plausible generated images alone cannot establish isolation.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
     },
     {
       "id": "sbox-115519-first-press-body-drag",
@@ -325,7 +325,7 @@
           "expected": "Adjacent regression: Dragging does not unexpectedly move a whole unrelated selection or change the stacking order."
         }
       ],
-      "limitations": "Element is broad. Record tested node kinds and editing states; this report does not justify stealing gestures from an actively edited text field or entered portal.\nRequired native evidence: Native continuous press/move/release sequence showing an initially unselected body; record initial selection, target kind and resulting geometry.\nSource repairs and independent review exist; Windows Rust test execution was denied before tests. Automated checks cannot pass these native/user observations."
+      "limitations": "Element is broad. Record tested node kinds and editing states; this report does not justify stealing gestures from an actively edited text field or entered portal.\nRequired native evidence: Native continuous press/move/release sequence showing an initially unselected body; record initial selection, target kind and resulting geometry.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
     },
     {
       "id": "sbox-162621-front-back-corner-picking",
@@ -370,7 +370,7 @@
           "expected": "Adjacent regression: Undo restores the correct object's move/scale; no hidden object is modified as a side effect."
         }
       ],
-      "limitations": "The report does not define behavior in transparent pixels or intentionally active editing tools. Test ordinary opaque bodies first and keep transparent/cropped special cases distinct.\nFirst-click body dragging is related to 115519, but passing it does not prove the visible-corner-versus-rear-body case.\nRequired native evidence: Native capture of both inverse overlap arrangements, initial selection/stacking order, and which object's geometry changes.\nSource repairs and independent review exist; Windows Rust test execution was denied before tests. Automated checks cannot pass these native/user observations."
+      "limitations": "The report does not define behavior in transparent pixels or intentionally active editing tools. Test ordinary opaque bodies first and keep transparent/cropped special cases distinct.\nFirst-click body dragging is related to 115519, but passing it does not prove the visible-corner-versus-rear-body case.\nRequired native evidence: Native capture of both inverse overlap arrangements, initial selection/stacking order, and which object's geometry changes.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
     },
     {
       "id": "sbox-163137-small-object-control-separation",
@@ -419,7 +419,7 @@
           "expected": "Adjacent regression: A menu stays open while the pointer travels into its controls; moving controls apart must not create an unusable hover gap."
         }
       ],
-      "limitations": "No failing object size, exact selection, alignment-widget form, or required numeric spacing is supplied. Preserve a native reproduction instead of assigning arbitrary pixel clearances.\nThe issue concerns actual hit zones as well as visible overlap; a screenshot of separated icons alone is insufficient.\nRequired native evidence: Native pointer interactions with menu, alignment and wire targets on the same small-object arrangement, plus object-size/zoom metadata.\nSource repairs and independent review exist; Windows Rust test execution was denied before tests. Automated checks cannot pass these native/user observations."
+      "limitations": "No failing object size, exact selection, alignment-widget form, or required numeric spacing is supplied. Preserve a native reproduction instead of assigning arbitrary pixel clearances.\nThe issue concerns actual hit zones as well as visible overlap; a screenshot of separated icons alone is insufficient.\nRequired native evidence: Native pointer interactions with menu, alignment and wire targets on the same small-object arrangement, plus object-size/zoom metadata.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
     },
     {
       "id": "sbox-171417-crop-control-ownership",
@@ -468,7 +468,7 @@
           "expected": "Adjacent regression: Zooming or changing image size while in crop mode does not reintroduce menu collisions or make the crop impossible to finish."
         }
       ],
-      "limitations": "Very small and the amount of shrinking have no numeric specification. Record the actual successful and failing sizes; shrinking artwork alone while retaining colliding hit areas does not satisfy the report.\nSuppressing image toolbars does not itself define whether every right-click context command should be disabled during crop.\nRequired native evidence: Native crop interaction on both toolbar types and a tiny image, with close view of control sizes and actual drag ownership.\nSource repairs and independent review exist; Windows Rust test execution was denied before tests. Automated checks cannot pass these native/user observations."
+      "limitations": "Very small and the amount of shrinking have no numeric specification. Record the actual successful and failing sizes; shrinking artwork alone while retaining colliding hit areas does not satisfy the report.\nSuppressing image toolbars does not itself define whether every right-click context command should be disabled during crop.\nRequired native evidence: Native crop interaction on both toolbar types and a tiny image, with close view of control sizes and actual drag ownership.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
     },
     {
       "id": "sbox-172108-save-image-as-all-contexts",
@@ -527,7 +527,7 @@
           "expected": "Saving ordinary, generated and edited images to another destination does not overwrite, move or alter their linked source files or consume their original result/layer history. A cancelled save leaves no partial output."
         }
       ],
-      "limitations": "Windows file explorer is interpreted as the normal Windows save-file picker, not only opening the current source folder.\nThe report does not settle original source bytes versus a flattened edited/cropped image, or required output formats. Record the observed behavior without inventing a new export specification.\nAll images includes ordinary raster images and generated results; it does not establish that every video/model/document preview must become a raster export.\nRequired native evidence: Native body context menus, save picker, and reopened saved files for each tested image category; list any untested categories explicitly.\nSource repairs and independent review exist; Windows Rust test execution was denied before tests. Automated checks cannot pass these native/user observations."
+      "limitations": "Windows file explorer is interpreted as the normal Windows save-file picker, not only opening the current source folder.\nThe report does not settle original source bytes versus a flattened edited/cropped image, or required output formats. Record the observed behavior without inventing a new export specification.\nAll images includes ordinary raster images and generated results; it does not establish that every video/model/document preview must become a raster export.\nRequired native evidence: Native body context menus, save picker, and reopened saved files for each tested image category; list any untested categories explicitly.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
     },
     {
       "id": "sbox-172555-save-image-numbered-collisions",
@@ -572,7 +572,7 @@
           "expected": "Adjacent regression: Numbering handles already-numbered stems without dropping the image extension or repeatedly colliding with an existing sibling."
         }
       ],
-      "limitations": "No exact suffix format, starting number, zero padding, or gap-reuse policy is specified. Any predictable incrementing noncolliding sequence can be evaluated without inventing those rules.\nContent-hash deduplication, automatic removal of identical photos, and a new save-management framework are not requested.\nThe report does not specify whether an explicitly chosen existing filename may be overwritten after human confirmation; the automatic/default flow must avoid that collision.\nRequired native evidence: Native repeated Save image as flow and destination-file inventory before/after, showing suggested/final names and preservation of existing files.\nSource repairs and independent review exist; Windows Rust test execution was denied before tests. Automated checks cannot pass these native/user observations."
+      "limitations": "No exact suffix format, starting number, zero padding, or gap-reuse policy is specified. Any predictable incrementing noncolliding sequence can be evaluated without inventing those rules.\nContent-hash deduplication, automatic removal of identical photos, and a new save-management framework are not requested.\nThe report does not specify whether an explicitly chosen existing filename may be overwritten after human confirmation; the automatic/default flow must avoid that collision.\nRequired native evidence: Native repeated Save image as flow and destination-file inventory before/after, showing suggested/final names and preservation of existing files.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
     }
   ]
 }

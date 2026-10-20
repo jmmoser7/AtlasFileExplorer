@@ -76,7 +76,7 @@ fn ordinary_image(tag: &str) -> (crate::app::tests::Harness, NodeId, PathBuf) {
     image::RgbaImage::from_pixel(20, 10, image::Rgba([10, 20, 30, 192]))
         .save(&path)
         .unwrap();
-    let item = h.app.add_paths(&[path.clone()])[0];
+    let item = h.app.add_paths(std::slice::from_ref(&path))[0];
     let node = h.app.doc_mut().scene.build_node(
         slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0),
         NodeKind::Image(ImageNode::new(item)),
@@ -92,7 +92,9 @@ fn ordinary_image_save_keeps_edited_pixels_and_protects_original_source() {
     let (mut h, id, source) = ordinary_image("save-edited-ordinary-image");
     let original_bytes = std::fs::read(&source).unwrap();
     let mark = h.app.doc_mut().scene.build_node(
-        WorldRect::new(0.1, 0.1, 0.5, 0.5),
+        // Ink is normalized to the full uncropped image. The right-half
+        // crop maps this mark to x=2..8, y=1..6 in the saved 10x10 image.
+        WorldRect::new(0.6, 0.1, 0.3, 0.5),
         NodeKind::Shape(ShapeNode {
             shape: ShapeKind::Rect,
             fill: Some(Rgba::opaque(250, 30, 20)),
@@ -123,11 +125,13 @@ fn ordinary_image_save_keeps_edited_pixels_and_protects_original_source() {
     let snapshot = h.app.board_image_save_snapshot(id).unwrap();
     let destination = h.base.join("edited.png");
     assert_eq!(
-        worker::save(&snapshot, &[destination.clone()]).unwrap(),
-        [destination.clone()]
+        worker::save(&snapshot, std::slice::from_ref(&destination))
+            .unwrap()
+            .as_slice(),
+        std::slice::from_ref(&destination)
     );
     assert_eq!(
-        worker::save(&snapshot, &[destination.clone()]).unwrap(),
+        worker::save(&snapshot, std::slice::from_ref(&destination)).unwrap(),
         [h.base.join("edited_001.png")]
     );
     let actual = image::open(destination).unwrap().to_rgba8();
@@ -142,7 +146,7 @@ fn ordinary_image_save_keeps_edited_pixels_and_protects_original_source() {
         [250, 30, 20, 255],
         "visible paint is saved"
     );
-    assert!(worker::save(&snapshot, &[source.clone()])
+    assert!(worker::save(&snapshot, std::slice::from_ref(&source))
         .unwrap_err()
         .contains("source images"));
     assert_eq!(std::fs::read(source).unwrap(), original_bytes);
@@ -228,8 +232,10 @@ fn canvas_copy_uses_the_same_save_pipeline_as_ordinary_images() {
     let snapshot = h.app.board_image_save_snapshot(copy).unwrap();
     let destination = h.base.join("copied.png");
     assert_eq!(
-        worker::save(&snapshot, &[destination.clone()]).unwrap(),
-        [destination.clone()]
+        worker::save(&snapshot, std::slice::from_ref(&destination))
+            .unwrap()
+            .as_slice(),
+        std::slice::from_ref(&destination)
     );
     assert_eq!(
         std::fs::read(destination).unwrap(),

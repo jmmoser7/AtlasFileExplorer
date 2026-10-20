@@ -103,8 +103,8 @@ fn a_view_wire_snaps_to_the_model_edge_during_a_drag_and_binds() {
     h.frame();
 
     let xf = h.app.board_xf();
-    let shot_rect = h.app.doc().scene.node(shot).unwrap().rect;
-    let grip = xf.w2s(super::super::board_wire::grip_point(shot_rect, Side::Right));
+    let source = h.app.doc().scene.node(shot).unwrap();
+    let grip = xf.w2s(Pos2::from(h.app.wire_host(source).anchor(Side::Right, 0.5)));
     let Some(super::super::board::BoardDrag::Wire(mut wd)) =
         h.app
             .begin_gesture_for_test(grip, xf.s2w(grip), Default::default())

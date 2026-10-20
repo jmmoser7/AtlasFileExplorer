@@ -1,8 +1,8 @@
 {
   "schema": "slate-acceptance-document-qa/v1",
-  "checkedAt": "2026-10-19T23:42:55.183928+00:00",
+  "checkedAt": "2026-10-20T00:01:59.409616+00:00",
   "scope": "Document schema, generated HTML and existing renderer state logic only; no native Slate execution or source-fix test result.",
-  "catalogHash": "ebd5c3352f6327c303d6dc8b937ff39bb9ebacb9c586f3d0c75d690b0a309fe6",
+  "catalogHash": "6c2f09882ed61c94a034de9081c6175dc9c7740f6d8f1a44251d0ab4575111eb",
   "reports": 9,
   "cases": 9,
   "checks": 60,
@@ -23,5 +23,5 @@
   },
   "nativeCasesExecuted": 0,
   "userAcceptancesRecorded": 0,
-  "sourceAndHeadlessImplementationEvidence": "Source fixes and independent review completed in isolated branch codex/suggestion-box-20261019 based on f32767df. cargo fmt --all -- --check and CRLF-aware diff checks passed. Targeted Windows cargo test --locked --release -p slate-doc wire_host::rail_tests --lib --jobs 4 exited 101 before tests: quote, proc-macro2, libm and serde_core build helpers could not execute (OS error 5). Raw log: target/suggestion-wire-check.log. No Slate test, native UI or provider success is claimed. Native desktop remains reserved to the other working chat. All application acceptance checks remain Untested."
+  "sourceAndHeadlessImplementationEvidence": "Local formatting and CRLF-aware diff checks passed; local Rust execution was denied before tests (OSerror5). HostedCI172 on bce9c679 passed Windows compilation and completed3907tests passed/8failed/93ignored; fixes for the reported behavior/fixture/lint failures are awaiting a new hosted run. implementation-evidence.json retains details. No application native UI or provider success is claimed; every acceptance verdict remains Untested."
 }

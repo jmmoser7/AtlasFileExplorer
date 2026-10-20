@@ -6,7 +6,7 @@
   "validation": {
     "format": "PASS: cargo fmt --all -- --check (exit0)",
     "diff": "PASS: git -c core.whitespace=cr-at-eol diff --check",
-    "rustTests": "NOT RUN: prerequisite Windows build helpers denied execution; attempted wire test command exited101 before tests. Raw target/suggestion-wire-check.log retained. No retry/configuration relocation performed.",
+    "rustTests": "Local prerequisite build helpers denied OSerror5 before tests (target/suggestion-wire-check.log). Hosted CI172 completed3907pass/8fail/93ignored on bce9c679, including Slate2067pass/8fail/69ignored. Follow-up fixes pending verification; no final automated pass claimed.",
     "nativeUI": "UNTESTED: native desktop reserved to the other working chat; no application binary from this branch built or driven.",
     "documentUI": "PASS for document only: nine cases visible, crop instructions expand, verdict controls disabled before build-confirmed run."
   },
@@ -33,5 +33,20 @@
     "Edited composites use the existing PNG/JPEG/WebP pipeline. No new source decoder support was added.",
     "Crop handles and selection alignment need exact-build native checks at actual display scales."
   ],
-  "reportPolicy": "All9 reports remain active. feedback/README.md and .cursor/rules/feedback-archive.mdc already govern evidence-preserving archival; age alone never closes a report."
+  "reportPolicy": "All9 reports remain active. feedback/README.md and .cursor/rules/feedback-archive.mdc already govern evidence-preserving archival; age alone never closes a report.",
+  "hostedValidation": [
+    {
+      "source": "bce9c679f10fc46d0ac946848c44206ea1c893fa",
+      "run": 172,
+      "runId": 39343637318,
+      "windowsCompile": "PASS",
+      "linuxWorkspace": {
+        "passed": 3907,
+        "failed": 8,
+        "ignored": 93
+      },
+      "linuxClippy": "FAIL:7 singleton-clone test warnings; corrected in pending follow-up.",
+      "followup": "Pending rerun: quick Play Area now reserves bounds; alignment reserves final property-strip footprint during fade; normal body hover stays preview-only. Import assertions resolve workbook-relative locators; crop-paint fixture follows uncropped layer coordinates; source-wire gesture fixtures use shared host anchors."
+    }
+  ]
 }
