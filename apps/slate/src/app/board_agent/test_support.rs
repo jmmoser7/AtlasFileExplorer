@@ -6,6 +6,10 @@ pub(super) use super::paint_probe::*;
 pub(super) use super::train_setup::*;
 
 impl SlateApp {
+    pub(crate) fn fitted_agent_image_for_test(&self, id: NodeId) -> Option<&str> {
+        self.agents.fitted_image.get(&id).map(String::as_str)
+    }
+
     /// Deliver a fixture session through the same binding identity the pump uses.
     pub(crate) fn set_agent_session_for_test(&mut self, id: NodeId, session: AgentSession) {
         if let Some((binding, _)) = self.agent_session_for(id) {

@@ -36,9 +36,20 @@ pub(super) fn fixture(tag: &str) -> (Harness, NodeId) {
     h.app.board_sel = std::iter::once(host).collect();
     h.app.tab_mut().cam.offset = egui::vec2(240.0, 240.0);
     h.app.tab_mut().cam.z = 1.0;
-    for _ in 0..20 {
+    let shown = h.app.agent_active_output(host).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while h.app.fitted_agent_image_for_test(host) != Some(shown.as_str()) {
         h.frame();
+        assert!(
+            std::time::Instant::now() < deadline,
+            "result preview did not fit: shown={shown}, fitted={:?}, host={:?}",
+            h.app.fitted_agent_image_for_test(host),
+            h.app.doc().scene.node(host).unwrap().rect
+        );
+        std::thread::yield_now();
     }
+    // Fitting happens while painting; paint the next frame at the settled size.
+    h.frame();
     (h, host)
 }
 
