@@ -9,7 +9,14 @@ fn path_mesh_cache_evicts_oldest_instead_of_clearing() {
         ..Default::default()
     };
     let empty = InkMesh::default;
-    for i in 0..300u64 {
+    cache.begin_frame(1);
+    for i in 0..256u64 {
+        cache.get_or_tessellate(NodeId(i), i, empty);
+    }
+    // Old, unseen entries are eligible after the previous-paint grace. A
+    // cold over-budget paint now retains its first fitting subset instead.
+    cache.begin_frame(3);
+    for i in 256..300u64 {
         cache.get_or_tessellate(NodeId(i), i, empty);
     }
     let n = cache.stroke_len();
@@ -32,20 +39,22 @@ pub(super) fn triangle_ink() -> InkMesh {
     }
 }
 
-fn triangle_fill() -> FillTriangles {
+pub(super) fn triangle_fill() -> FillTriangles {
     (vec![[0.0, 0.0], [10.0, 0.0], [0.0, 10.0]], vec![0, 1, 2])
 }
 
 #[test]
 fn ten_thousand_visible_paths_stay_warm_in_paint_order() {
     let mut cache = PathMeshCache::default();
+    cache.begin_frame(1);
     for id in 0..10_000 {
         cache.get_or_fill_tris(NodeId(id), 0, triangle_fill);
         cache.get_or_tessellate(NodeId(id), 0, triangle_ink);
     }
     assert_eq!(cache.tess_misses, 20_000);
     cache.tess_misses = 0;
-    for _ in 0..3 {
+    for frame in 2..=4 {
+        cache.begin_frame(frame);
         for id in 0..10_000 {
             cache.get_or_fill_tris(NodeId(id), 0, || panic!("warm fill rebuilt"));
             cache.get_or_tessellate(NodeId(id), 0, || panic!("warm stroke rebuilt"));
@@ -69,14 +78,16 @@ fn cache_hits_share_geometry_without_copying_vectors() {
 }
 
 #[test]
-fn stroke_and_fill_share_a_byte_budget_and_hits_get_a_second_chance() {
+fn stroke_and_fill_share_a_byte_budget_and_recent_paints_are_protected() {
     let mut cache = PathMeshCache {
         budget_bytes: 84, // One 48-byte stroke and one 36-byte fill.
         ..Default::default()
     };
+    cache.begin_frame(1);
     cache.get_or_tessellate(NodeId(1), 0, triangle_ink);
     cache.get_or_fill_tris(NodeId(2), 0, triangle_fill);
     assert_eq!(cache.resident_bytes, 84);
+    cache.begin_frame(3);
     cache.get_or_tessellate(NodeId(1), 0, || panic!("cache miss"));
     cache.get_or_fill_tris(NodeId(3), 0, triangle_fill);
     assert!(cache.map.contains_key(&(NodeId(1), 0, false)));

@@ -19,6 +19,9 @@ pub(crate) struct FrameStats {
     pub admitted: u64,
     pub evictions: u64,
     pub evicted_bytes: u64,
+    pub eviction_scans: u64,
+    pub admission_bypasses: u64,
+    pub bypassed_bytes: u64,
     pub oversized_rejections: u64,
     pub oversized_bytes: u64,
     pub disabled_admission_rejections: u64,
@@ -210,6 +213,19 @@ impl PathMeshCache {
         if let Some(probe) = self.probe.as_mut() {
             probe.frame.evictions += 1;
             probe.frame.evicted_bytes = probe.frame.evicted_bytes.saturating_add(bytes as u64);
+        }
+    }
+
+    pub(super) fn probe_scanned(&mut self) {
+        if let Some(probe) = self.probe.as_mut() {
+            probe.frame.eviction_scans += 1;
+        }
+    }
+
+    pub(super) fn probe_bypassed(&mut self, bytes: usize) {
+        if let Some(probe) = self.probe.as_mut() {
+            probe.frame.admission_bypasses += 1;
+            probe.frame.bypassed_bytes = probe.frame.bypassed_bytes.saturating_add(bytes as u64);
         }
     }
 

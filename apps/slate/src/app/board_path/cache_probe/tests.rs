@@ -17,32 +17,56 @@ fn instrumentation_is_opt_in_and_scope_restores_conversion_collection() {
 }
 
 #[test]
-fn probe_distinguishes_stable_key_cyclic_eviction_from_key_changes() {
+fn probe_reports_a_stable_over_budget_subset_and_explicit_key_turnover() {
     let mut cache = PathMeshCache {
         budget_bytes: 96,
         ..Default::default()
     };
     let _scope = cache.enable_probe();
+    cache.begin_frame(1);
     for id in 0..3 {
         cache.get_or_tessellate(NodeId(id), 7, triangle_ink);
     }
-    for _ in 0..3 {
+    for frame in 2..=4 {
+        cache.begin_frame(frame);
         cache.begin_probe_frame();
         for id in 0..3 {
             cache.get_or_tessellate(NodeId(id), 7, triangle_ink);
         }
         let row = cache.probe_snapshot().unwrap();
         assert_eq!(
-            (row.cache.builds, row.cache.evictions, row.cache.key_changes),
-            (3, 3, 0)
+            (
+                row.cache.hits,
+                row.cache.builds,
+                row.cache.evictions,
+                row.cache.key_changes
+            ),
+            (2, 1, 0, 0)
         );
         assert_eq!(row.cache.requested_bytes, 144);
         assert_eq!(row.cache.unique_requested_bytes, 144);
         assert_eq!((row.resident_bytes, row.resident_entries), (96, 2));
+        assert_eq!(
+            (row.cache.eviction_scans, row.cache.admission_bypasses),
+            (2, 1)
+        );
     }
+    cache.begin_frame(5);
     cache.begin_probe_frame();
-    cache.get_or_tessellate(NodeId(2), 8, triangle_ink);
+    cache.get_or_tessellate(NodeId(0), 8, triangle_ink);
     assert_eq!(cache.probe_snapshot().unwrap().cache.key_changes, 1);
+    // No old key is touched in frame5; its replacement becomes retainable
+    // after the grace and then hits without another build.
+    cache.begin_frame(6);
+    cache.get_or_tessellate(NodeId(0), 8, triangle_ink);
+    cache.begin_frame(7);
+    cache.begin_probe_frame();
+    cache.get_or_tessellate(NodeId(0), 8, || panic!("replacement did not become warm"));
+    let row = cache.probe_snapshot().unwrap();
+    assert_eq!(
+        (row.cache.hits, row.cache.builds, row.cache.key_changes),
+        (1, 0, 0)
+    );
 }
 
 #[test]

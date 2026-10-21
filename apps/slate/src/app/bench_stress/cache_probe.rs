@@ -35,6 +35,24 @@ fn phase(h: &mut Harness, rows: &mut Vec<ResultRow>, name: &str, frames: usize) 
         last.cache.requests, last.cache.hits, last.cache.builds, last.cache.unique_requested_bytes,
         last.resident_bytes, last.resident_entries, last.cache.evictions, last.cache.oversized_rejections,
         key_changes, last.conversion.calls, last.conversion.cpu_ns);
+    if matches!(name, "stationary" | "pan" | "zoom_same_bucket") {
+        assert!(
+            last.cache.hits > 0,
+            "{name}: the resident subset must stay warm"
+        );
+        assert!(
+            last.cache.builds < last.cache.requests,
+            "{name}: stable geometry must not all rebuild"
+        );
+        assert!(
+            last.cache.admission_bypasses > 0,
+            "{name}: the over-budget fixture must exercise protected retention"
+        );
+        assert_eq!(
+            key_changes, 0,
+            "{name}: camera movement must preserve geometry keys"
+        );
+    }
     report(rows, h.app.doc().scene.nodes.len(), name, samples, 0.0);
 }
 
@@ -92,7 +110,7 @@ fn bench_native_pen_cache_probe() {
         "fixture_source": fixture.source, "fixture_sha256": fixture.source_sha256,
         "original_mixed_nodes": fixture.source_nodes, "exact_pen_subset_nodes": fixture.nodes.len(),
         "camera": fixture.camera, "screen": [1440,900], "frames_per_phase": frames,
-        "caveat": "Exact authored pen subset, including original NodeIds, placement, paths, styles and camera. Other mixed-board content is omitted to isolate the existing mesh cache. Shared bench_stress frame includes CPU update and egui tessellation; no GPU submission, native presentation or 3D. Diagnostic Instant/counter/map overhead is included. requested_bytes counts all lookups; unique_requested_bytes counts each content key once per frame, bounded to32768keys. build_cpu_ns includes tessellation and packing into cached arrays; conversion is only ink_mesh_to_epaint, not direct fill conversion. Key identity tracking is bounded to32768(node,fill) pairs; saturation flags are explicit. No cache budget/admission changes.",
+        "caveat": "Exact authored pen subset, including original NodeIds, placement, paths, styles and camera. Other mixed-board content is omitted to isolate the existing mesh cache. Shared bench_stress frame includes CPU update and egui tessellation; no GPU submission, native presentation or 3D. Diagnostic Instant/counter/map overhead is included. requested_bytes counts all lookups; unique_requested_bytes counts each content key once per frame, bounded to32768keys. build_cpu_ns includes tessellation and packing into cached arrays; conversion is only ink_mesh_to_epaint, not direct fill conversion. Key identity tracking is bounded to32768(node,fill) pairs; saturation flags are explicit. The probe uses the compiled retention policy and leaves its cache budget unchanged.",
         "rows": rows,
     });
     std::fs::write(&output, serde_json::to_vec_pretty(&report).unwrap()).unwrap();

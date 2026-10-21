@@ -1885,10 +1885,10 @@ impl SlateApp {
                 .and_then(|session| session.atlas.update_close_blocked())
         }
     }
-
     /// One full UI frame (split out for testability, mirroring Atlas).
     pub fn update_app(&mut self, ctx: &egui::Context) {
         self.frame_no += 1;
+        self.path_mesh_cache.begin_frame(self.frame_no);
         self.recovery_frame(ctx);
         self.poll_deferred_fonts(ctx);
         self.poll_recent_prune();

@@ -67,6 +67,17 @@ jobs:
           set -o pipefail
           cargo test --locked -p slate --lib bench_native_pen_cache_probe -- --ignored --nocapture --test-threads=1 2>&1 | tee path-cache-probe.log
 
+      - name: Exercise mixed-board navigation (dev CPU)
+        if: startsWith(github.head_ref, 'codex/slate-performance-audit-')
+        timeout-minutes: 10
+        env:
+          SLATE_STRESS_LABEL: hosted-dev-smoke
+          SLATE_STRESS_COUNTS: 100,1000
+          SLATE_STRESS_FRAMES: 10
+        run: |
+          set -o pipefail
+          cargo test --locked -p slate --lib bench_mixed_board -- --ignored --nocapture --test-threads=1 2>&1 | tee mixed-board-smoke.log
+
       - name: Preserve synthetic pen cache diagnostics
         if: always() && startsWith(github.head_ref, 'codex/slate-performance-audit-')
         uses: actions/upload-artifact@v4
@@ -75,6 +86,8 @@ jobs:
           path: |
             path-cache-probe.log
             target/slate-perf-audit/path-cache-probe-hosted-dev.json
+            mixed-board-smoke.log
+            target/slate-perf-audit/mixed-hosted-dev-smoke.json
           if-no-files-found: warn
 
       # Job logs need a signed-in account; annotations are public.
