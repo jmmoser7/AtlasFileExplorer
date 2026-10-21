@@ -68,8 +68,26 @@ fn capture_writer_scanner_and_folder_share_scope_without_touching_human_copies()
             && runtime.busy == 0
     });
     h.app.recovery_shutdown();
-    let names: Vec<_> = store
-        .scan()
+    // Shutdown has a bounded exit wait; discovery requires the worker's session
+    // lock to be released, even when the saved snapshot was already acknowledged.
+    let mut final_scan = None;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    wait(&mut h, |_| {
+        let scan = store.scan().unwrap();
+        let visible = scan
+            .entries
+            .iter()
+            .any(|entry| entry.name == "Synthetic capture only");
+        assert!(
+            visible || Instant::now() < deadline,
+            "capture not discoverable after shutdown: entries={:?}; issues={:?}",
+            scan.entries,
+            scan.issues
+        );
+        final_scan = Some(scan);
+        visible
+    });
+    let names: Vec<_> = final_scan
         .unwrap()
         .entries
         .into_iter()
