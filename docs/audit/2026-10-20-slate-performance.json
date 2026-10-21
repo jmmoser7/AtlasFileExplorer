@@ -1,0 +1,325 @@
+{
+  "schema": "slate-performance-audit/v1",
+  "date": "2026-10-21",
+  "status": "closed_partial_remediation_native_acceptance_incomplete",
+  "reported_symptom": "Pan or zoom trails behind input.",
+  "conclusion": "Reviewed source fixes reduce repeated work, but large overviews still miss the interactive frame budget. Native end-to-end improvement and 60 fps are not established.",
+  "source": {
+    "validated_workflow_source_sha": "d4b26ff47a74e03fdfdb9a5228cbf95c0d3ae557",
+    "product_source_sha": "1055537882e72d8c4878fe18d131578d7c161119",
+    "tested_merge_sha": "41938aaf4492fccd0e425a1ffcf053911e56ea63",
+    "integration_parent_sha": "f0902f806a5fdedd17844c1b51e730c76a99bb3f",
+    "note": "The workflow source changes CI only relative to the product source. This report is a documentation-only followup and does not change the measured product code."
+  },
+  "fixes": [
+    {
+      "owner": "apps/slate/src/app/agent_presence/brush_preview.rs",
+      "change": "Avoid authored-path hashing when ordinary brush strokes have no cached agent preview."
+    },
+    {
+      "owner": "crates/vector-ink/src/hit.rs",
+      "change": "Conservatively reject distant stroke picks before exact outline construction, preserving candidate boundary checks."
+    },
+    {
+      "owner": "apps/slate/src/app/model3d/posters/loading.rs",
+      "change": "Decode disk posters through shared bounded preview workers; handle stale tabs, cancellation and fresh captures."
+    },
+    {
+      "owner": "apps/slate/src/app/model3d/posters/generation.rs",
+      "change": "Reuse resident source/camera/aspect poster identities, bound bulk mesh parsing, and allow at most one actual GPU poster attempt per frame."
+    },
+    {
+      "owner": "apps/slate/src/app/board_path/cache.rs",
+      "change": "Protect current/previous paint epochs and bound eviction scanning to one frame-start sweep, retaining a warm subset within the existing memory and entry limits. Misses always build and paint immediately."
+    }
+  ],
+  "validation": {
+    "linux_workspace": {
+      "passed": 4022,
+      "failed": 0,
+      "ignored": 97
+    },
+    "windows_workspace": {
+      "passed": 4089,
+      "failed": 0,
+      "ignored": 115
+    },
+    "command": "cargo test --locked --workspace --no-fail-fast",
+    "clippy": "passed",
+    "windows_compile": "passed",
+    "windows_release_build": "passed",
+    "install_upgrade_smoke": "passed",
+    "package_verification": "passed",
+    "native_gpu_acceptance": "not performed for changed source",
+    "vector_ink_release_suite": {
+      "passed": 169,
+      "ignored": 2
+    },
+    "focused_regressions": {
+      "poster_preview_tests_passed": 13,
+      "brush_coverage_tests_passed": 2,
+      "new_cache_policy_tests_passed": 8
+    },
+    "ignored_cpu_probes": "Exact 750-path cache and generated mixed navigation tests executed separately and passed execution/invariant checks. The mixed benchmark has no frame-budget assertion.",
+    "preserved_prior_failure": {
+      "source_sha": "1055537882e72d8c4878fe18d131578d7c161119",
+      "windows": {
+        "passed": 4088,
+        "failed": 1,
+        "ignored": 115
+      },
+      "test": "app::tests::delete::delete_key_removes_the_card_under_the_cursor",
+      "diagnostic": "Windows shell refused deletion with 0x7c. Focused diagnostic passed; the later integrated full suite also passed this unchanged test. The original integrated failure remains part of the evidence."
+    }
+  },
+  "pen_cache": {
+    "fixture_paths": 750,
+    "working_set_bytes": 97054944,
+    "memory_limit_bytes": 67108864,
+    "entry_limit": 32768,
+    "baseline_steady_frame": {
+      "hits": 0,
+      "builds": 750,
+      "evictions": 750
+    },
+    "fixed_steady_frame": {
+      "hits": 519,
+      "builds": 231,
+      "evictions": 0,
+      "bypasses": 231,
+      "eviction_scans": 519,
+      "key_changes": 0
+    },
+    "fewer_steady_builds_percent": 69.2,
+    "peak_retained_bytes": 67064592,
+    "coverage": "All 750 overview paths request and convert each frame. Retention bypass does not omit painting. Zoom-bucket changes and restoration retain explicit regression coverage.",
+    "deterministic_recheck": {
+      "fields_compared": 544,
+      "discrepancies": 0
+    },
+    "observed_cpu_median_ms": {
+      "baseline": 154.072138,
+      "product_source": 107.794561,
+      "unchanged_product_recheck": 134.542001
+    },
+    "timing_limit": "Separate hosted dev runners with diagnostic overhead and no GPU presentation. Timings establish neither controlled native speedup nor a source regression. Conversion remains about 40 ms; egui median varied from about 35 to 62 ms with unchanged product code."
+  },
+  "mixed_cpu": {
+    "profile": "dev/test",
+    "screen_pixels": [
+      1440,
+      900
+    ],
+    "pixels_per_point": 1,
+    "mix_percent": {
+      "brush": 25,
+      "frame": 5,
+      "image": 40,
+      "model": 10,
+      "pen": 15,
+      "text": 5
+    },
+    "distinct_generated_sources": {
+      "images": 24,
+      "models": 2
+    },
+    "smoke": {
+      "nodes": [
+        100,
+        1000
+      ],
+      "recorded_frames_per_scale": 314,
+      "node1000_frames_over_16_67_ms": 163,
+      "node1000_wheel_max_ms": 65.253,
+      "source_sha": "1055537882e72d8c4878fe18d131578d7c161119"
+    },
+    "large": [
+      {
+        "nodes": 5000,
+        "recorded_frames": 314,
+        "frames_over_16_67_ms": 163,
+        "overview_followup_frames_over_100_ms": 162,
+        "first_paint": {
+          "app_detail_cpu_ms": 13.674712,
+          "scene_seed_outside_frame_ms": 336.482576,
+          "overview_first_cpu_ms": 450.7984,
+          "qualification": "App first paint starts at zoom0.8 and contains only about4,000 vertices. It does not paint the whole scene. Scene construction/journaling and fixture saving occur outside that frame timing. The first whole-scene overview is measured separately after a camera fit; bounded warmups do not certify complete media residency."
+        },
+        "scenarios": [
+          {
+            "name": "idle_detail",
+            "samples": 10,
+            "cpu_ms": {
+              "p50": 2.536038,
+              "p95": 2.676101,
+              "p99": 2.676101,
+              "max": 2.676101
+            }
+          },
+          {
+            "name": "idle_overview",
+            "samples": 10,
+            "cpu_ms": {
+              "p50": 151.251677,
+              "p95": 152.01706000000001,
+              "p99": 152.01706000000001,
+              "max": 152.01706000000001
+            }
+          },
+          {
+            "name": "middle_drag_overview",
+            "samples": 12,
+            "cpu_ms": {
+              "p50": 153.788172,
+              "p95": 181.270313,
+              "p99": 181.270313,
+              "max": 181.270313
+            }
+          },
+          {
+            "name": "wheel_zoom_overview",
+            "samples": 10,
+            "cpu_ms": {
+              "p50": 186.208209,
+              "p95": 188.322206,
+              "p99": 188.322206,
+              "max": 188.322206
+            }
+          },
+          {
+            "name": "wheel_release_tail",
+            "samples": 30,
+            "cpu_ms": {
+              "p50": 182.95661099999998,
+              "p95": 189.09798899999998,
+              "p99": 190.67294700000002,
+              "max": 190.67294700000002
+            }
+          }
+        ]
+      },
+      {
+        "nodes": 10000,
+        "recorded_frames": 314,
+        "frames_over_16_67_ms": 163,
+        "overview_followup_frames_over_100_ms": 162,
+        "first_paint": {
+          "app_detail_cpu_ms": 13.679824,
+          "scene_seed_outside_frame_ms": 1406.105769,
+          "overview_first_cpu_ms": 560.262435,
+          "qualification": "App first paint starts at zoom0.8 and contains only about4,000 vertices. It does not paint the whole scene. Scene construction/journaling and fixture saving occur outside that frame timing. The first whole-scene overview is measured separately after a camera fit; bounded warmups do not certify complete media residency."
+        },
+        "scenarios": [
+          {
+            "name": "idle_detail",
+            "samples": 10,
+            "cpu_ms": {
+              "p50": 4.78506,
+              "p95": 4.890547000000001,
+              "p99": 4.890547000000001,
+              "max": 4.890547000000001
+            }
+          },
+          {
+            "name": "idle_overview",
+            "samples": 10,
+            "cpu_ms": {
+              "p50": 252.52737600000003,
+              "p95": 253.753691,
+              "p99": 253.753691,
+              "max": 253.753691
+            }
+          },
+          {
+            "name": "middle_drag_overview",
+            "samples": 12,
+            "cpu_ms": {
+              "p50": 256.26503299999996,
+              "p95": 298.673449,
+              "p99": 298.673449,
+              "max": 298.673449
+            }
+          },
+          {
+            "name": "wheel_zoom_overview",
+            "samples": 10,
+            "cpu_ms": {
+              "p50": 298.126405,
+              "p95": 299.156274,
+              "p99": 299.156274,
+              "max": 299.156274
+            }
+          },
+          {
+            "name": "wheel_release_tail",
+            "samples": 30,
+            "cpu_ms": {
+              "p50": 415.899537,
+              "p95": 491.84882400000004,
+              "p99": 507.56034900000003,
+              "max": 507.56034900000003
+            }
+          }
+        ]
+      }
+    ],
+    "maximum_resident_set_kib": 4475964,
+    "memory_limit": "Peak for the complete timed cargo/test invocation and its children, not a per-scale or per-phase allocation snapshot. It cannot identify scene retention, cache residency, a leak, or a native Windows memory requirement. Zero swaps and zero major faults are observed, not a claim of zero file reads.",
+    "interaction": {
+      "middle_drag": "Injected motion applies in the same sampled update, with less than 0.00004 screen pixels of numerical error; release leaves the camera unchanged.",
+      "wheel": "After ten positive wheel events, ten synthetic no-event frames continue zoom by about 3.84%, then twenty frames are static. Tested source consumes egui smooth_scroll_delta and adds no second Slate easing layer.",
+      "interpretation": "Heavy native frames amplifying the perceived wheel tail is an inference. Synthetic frame counts and CPU sums do not measure native event delivery or input-to-display latency."
+    },
+    "limitations": [
+      "Primary scenarios have only 10 samples, so p95 and p99 equal the observed maximum; these are descriptive smoke tails, not robust rare-event estimates.",
+      "All timings are optimized dev/test CPU on a hosted Linux runner. No Windows release or native speedup claim is supported.",
+      "No GPU upload, draw submission, compositor/vsync, delivered frames, hardware input/OS event queues, or input-to-photon latency is measured.",
+      "Model cards do not exercise live GL rendering, multiple model orbit, real Rhino assets or heavy real-world material/texture scenes.",
+      "Only24 distinct image sources are repeatedly placed. Unique 5,000-image pressure, large Downloads images and real cloud/network behavior are untested here.",
+      "Node positions, authored segment counts and camera fit change with scale. Doubling scene count is not a controlled doubling of visible triangles; zoom buckets, LOD, clipping, atlas activity and async worker timing can differ. Do not infer a universal complexity law from these two points.",
+      "No active per-sample cache probe in this workload; geometry counts cover all egui primitives, not exclusively pen paths. Hits/evictions/residency cannot be inferred from counts or RSS.",
+      "No assertion verifies every image/model preview or brush tile is ready, and no screenshots or export comparisons establish visual fidelity.",
+      "The test passing means scenario execution and invariants passed. The benchmark has no frame-budget assertion and clearly exceeds interactive budgets in overview."
+    ]
+  },
+  "historical_native_baselines": {
+    "scope": "Existing October 19 binary, not changed-source before/after validation.",
+    "brush5000": {
+      "pan_samples": 5,
+      "pan_min_ms": 61.81,
+      "pan_max_ms": 87.02,
+      "limit": "Five observations do not establish a reliable p95."
+    },
+    "model_orbit": {
+      "triangles": 39200,
+      "app_cpu_p95_ms": 1.49,
+      "click_off_ms": 48.28
+    },
+    "mixed5000": {
+      "frame_ms": 28078,
+      "model_upkeep_ms": 27745,
+      "model_placements": 500,
+      "poster_identities": 6,
+      "limit": "Motivated poster deduplication; the fix effect is not measured in a current-source native run."
+    }
+  },
+  "unverified": [
+    "Current-source native pan/zoom input-to-display latency and GPU presentation.",
+    "Visual continuity, capture/export parity and native first meaningful paint of the changed source.",
+    "Thousands of distinct image paths, live real-model viewports and long-session memory behavior."
+  ],
+  "local_execution_limit": "Windows denied a generated rfd build helper and xtask. One authorized retry also failed. No security, dependency, profile, flag, cache or path workaround was used. A future native session requires permitted execution and appropriate UI ownership.",
+  "next_work": [
+    "Run matched release native comparisons sequentially, recording frame tails, delivered input latency, cold/warm readiness, visual continuity and sustained memory.",
+    "Investigate retained 2D meshes under the existing board-path owner to reduce conversion and egui replay, preserving clipping, painter order, premultiplied opacity/colors, transforms, editing and CPU capture/preview parity. Apply architecture/DRY review and native GPU validation.",
+    "Measure distinct-image pressure and linear document-item lookup separately; repeated-source CPU fixtures do not establish their cost."
+  ],
+  "evidence": {
+    "linux_ci": "https://github.com/jmmoser7/AtlasFileExplorer/actions/runs/39538164950",
+    "windows_runtime_and_packaging": "https://github.com/jmmoser7/AtlasFileExplorer/actions/runs/39538164956",
+    "exact_recheck_and_large_cpu_artifact": "https://github.com/jmmoser7/AtlasFileExplorer/actions/runs/39538164950/artifacts/12319340824",
+    "product_source_cache_and_smoke_artifact": "https://github.com/jmmoser7/AtlasFileExplorer/actions/runs/39533979909/artifacts/12317323256",
+    "baseline_cache_artifact": "https://github.com/jmmoser7/AtlasFileExplorer/actions/runs/39530325817/artifacts/12316016984",
+    "prior_windows_failure": "https://github.com/jmmoser7/AtlasFileExplorer/actions/runs/39533979774"
+  }
+}
