@@ -3,7 +3,9 @@
 use kurbo::BezPath;
 
 use crate::flatten::flatten_contours;
-use crate::geom::{cumulative_arclength, dist_to_segment, half_width_at, EPS};
+use crate::geom::{
+    cumulative_arclength, dist_to_segment, half_width_at, EPS, MAX_CAP_SLOPE, MITER_LIMIT,
+};
 use crate::stroke::valid_style;
 use crate::{Cap, StrokeStyle, TipEase};
 
@@ -21,6 +23,65 @@ pub fn hit_stroke_outline(
     if !valid_style(style) || !point.into_iter().all(f32::is_finite) {
         return false;
     }
+    if !outline_might_hit(path, style, ends, widths, point, slop) {
+        return false;
+    }
+    hit_stroke_outline_exact(path, style, ends, widths, ease, point, slop)
+}
+
+/// Reject distant picks before flattening and constructing the stroke outline.
+/// A Bezier stays inside its control hull. Widths, taper, limited miters and
+/// tangential round caps can expand that hull; none may be clipped by this test.
+fn outline_might_hit(
+    path: &BezPath,
+    style: &StrokeStyle,
+    ends: [Cap; 2],
+    widths: Option<&[f32]>,
+    point: [f32; 2],
+    slop: f32,
+) -> bool {
+    let width = widths
+        .unwrap_or_default()
+        .iter()
+        .copied()
+        .fold(style.width, f32::max) as f64;
+    let taper = match style.taper {
+        None => 1.0,
+        Some(crate::Taper::Linear(a, b)) => a.abs().max(b.abs()) as f64,
+        Some(crate::Taper::Ends(tip)) => tip.abs().max(1.0) as f64,
+    };
+    let cap_reach = if ends.contains(&Cap::Round) || style.cap == Cap::Round {
+        let slope = MAX_CAP_SLOPE as f64;
+        slope + (1.0 + slope * slope).sqrt()
+    } else {
+        std::f64::consts::SQRT_2
+    };
+    let bounds = path.control_box();
+    // The outline uses f32 arithmetic for both placement and cap expansion.
+    let scale = bounds
+        .x0
+        .abs()
+        .max(bounds.x1.abs())
+        .max(bounds.y0.abs())
+        .max(bounds.y1.abs());
+    let reach = width * 0.5 * taper * cap_reach.max(MITER_LIMIT as f64) + slop.max(0.0) as f64;
+    let reach = reach + (scale + reach.abs()).max(1.0) * f32::EPSILON as f64 * 8.0;
+    let [x, y] = point.map(f64::from);
+    !(x < bounds.x0 - reach
+        || x > bounds.x1 + reach
+        || y < bounds.y0 - reach
+        || y > bounds.y1 + reach)
+}
+
+fn hit_stroke_outline_exact(
+    path: &BezPath,
+    style: &StrokeStyle,
+    ends: [Cap; 2],
+    widths: Option<&[f32]>,
+    ease: TipEase,
+    point: [f32; 2],
+    slop: f32,
+) -> bool {
     let outline = crate::stroke_outline_ends(path, style, ends, widths, ease, 0.25);
     let contours = flatten_contours(&outline, 0.25);
     crate::point_in_polygon(&contours, point)
@@ -138,141 +199,4 @@ fn hit_cached_flat_stroke(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{Cap, Join, StrokeStyle};
-    use kurbo::BezPath;
-
-    #[test]
-    fn variable_width_pick_follows_outline_and_cap() {
-        let style = StrokeStyle {
-            width: 100.0,
-            cap: Cap::Butt,
-            join: Join::Miter,
-            taper: None,
-            dash: None,
-        };
-        let hit = |p| {
-            hit_stroke_outline(
-                &hline(),
-                &style,
-                [Cap::Butt; 2],
-                Some(&[2.0, 100.0]),
-                TipEase::Linear,
-                p,
-                4.0,
-            )
-        };
-        assert!(hit([5.0, 4.0]));
-        assert!(
-            !hit([5.0, 30.0]),
-            "the widest tip must not expand the narrow end"
-        );
-        assert!(!hit([-8.0, 0.0]), "flat cap has only screen slop");
-        assert!(hit([95.0, 40.0]));
-    }
-
-    fn hline() -> BezPath {
-        let mut p = BezPath::new();
-        p.move_to((0.0, 0.0));
-        p.line_to((100.0, 0.0));
-        p
-    }
-
-    #[test]
-    fn on_line_hits_off_line_misses() {
-        let path = hline();
-        let style = StrokeStyle {
-            width: 4.0,
-            cap: Cap::Butt,
-            join: Join::Miter,
-            taper: None,
-            dash: None,
-        };
-        assert!(hit_stroke(&path, &style, [50.0, 0.0], 0.0));
-        assert!(!hit_stroke(&path, &style, [50.0, 8.0], 0.0));
-    }
-
-    #[test]
-    fn cached_pick_reuses_the_same_hit_boundary_for_many_points() {
-        let path = hline();
-        let style = style();
-        let cached = CachedStrokeHit::new(&path, &style).unwrap();
-        for (point, expected) in [
-            ([0.0, 0.0], true),
-            ([50.0, 1.0], true),
-            ([50.0, 8.0], false),
-            ([100.0, 0.0], true),
-        ] {
-            assert_eq!(cached.hit(point, 0.0), expected);
-            assert_eq!(
-                cached.hit(point, 0.0),
-                hit_stroke(&path, &style, point, 0.0)
-            );
-        }
-    }
-
-    #[test]
-    fn taper_thin_end_misses_where_thick_would_hit() {
-        let path = hline();
-        let style = StrokeStyle {
-            width: 10.0,
-            cap: Cap::Butt,
-            join: Join::Miter,
-            taper: Some(crate::Taper::Linear(1.0, 0.0)),
-            dash: None,
-        };
-        assert!(hit_stroke(&path, &style, [5.0, 0.0], 0.0));
-        // On the centerline the tapered half-width is still > 0; use lateral offset.
-        assert!(hit_stroke(&path, &style, [5.0, 2.0], 0.0));
-        assert!(!hit_stroke(&path, &style, [99.0, 2.0], 0.0));
-    }
-
-    fn style() -> StrokeStyle {
-        StrokeStyle {
-            width: 2.0,
-            cap: Cap::Butt,
-            join: Join::Miter,
-            taper: None,
-            dash: None,
-        }
-    }
-
-    #[test]
-    fn closed_triangle_hits_the_seam_not_the_origin() {
-        let mut path = BezPath::new();
-        path.move_to((400.0, 300.0));
-        path.line_to((480.0, 300.0));
-        path.line_to((400.0, 380.0));
-        path.close_path();
-        let s = style();
-        assert!(hit_stroke(&path, &s, [400.0, 340.0], 0.0), "closing seam");
-        assert!(!hit_stroke(&path, &s, [0.0, 0.0], 0.0), "world origin");
-        assert!(
-            !hit_stroke(&path, &s, [200.0, 150.0], 0.0),
-            "along the line from the first vertex toward the origin"
-        );
-        assert!(
-            !hit_stroke(&path, &s, [200.0, 300.0], 0.0),
-            "infinite extension of the base, outside the AABB"
-        );
-    }
-
-    #[test]
-    fn disjoint_contours_do_not_invent_a_joining_segment() {
-        let mut path = BezPath::new();
-        path.move_to((400.0, 300.0));
-        path.line_to((480.0, 300.0));
-        path.close_path();
-        path.move_to((0.0, 0.0));
-        path.line_to((10.0, 0.0));
-        let s = style();
-        // Midpoint of the ghost line from (400,300) to (0,0).
-        assert!(
-            !hit_stroke(&path, &s, [200.0, 150.0], 0.0),
-            "concatenated contours must not hit between subpaths"
-        );
-        assert!(hit_stroke(&path, &s, [440.0, 300.0], 0.0));
-        assert!(hit_stroke(&path, &s, [5.0, 0.0], 0.0));
-    }
-}
+mod tests;

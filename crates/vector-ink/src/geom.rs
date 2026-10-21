@@ -1,6 +1,7 @@
 //! Small 2D vector helpers (f32).
 
 pub(crate) const MITER_LIMIT: f32 = 4.0;
+pub(crate) const MAX_CAP_SLOPE: f32 = 8.0;
 pub(crate) const EPS: f32 = 1e-6;
 
 #[inline]
