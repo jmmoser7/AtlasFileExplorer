@@ -56,6 +56,27 @@ jobs:
           set -o pipefail
           cargo test --locked --workspace --no-fail-fast 2>&1 | tee test-output.log
 
+      # Reuse the warm test build for this bounded diagnostic. Dev CPU timings
+      # identify cache behavior; they do not measure native input latency.
+      - name: Measure synthetic pen cache working set (dev CPU)
+        if: startsWith(github.head_ref, 'codex/slate-performance-audit-')
+        env:
+          SLATE_STRESS_LABEL: hosted-dev
+          SLATE_CACHE_PROBE_FRAMES: 3
+        run: |
+          set -o pipefail
+          cargo test --locked -p slate --lib bench_native_pen_cache_probe -- --ignored --nocapture --test-threads=1 2>&1 | tee path-cache-probe.log
+
+      - name: Preserve synthetic pen cache diagnostics
+        if: always() && startsWith(github.head_ref, 'codex/slate-performance-audit-')
+        uses: actions/upload-artifact@v4
+        with:
+          name: slate-path-cache-dev-${{ github.sha }}
+          path: |
+            path-cache-probe.log
+            target/slate-perf-audit/path-cache-probe-hosted-dev.json
+          if-no-files-found: warn
+
       # Job logs need a signed-in account; annotations are public.
       - name: Name failing tests
         if: failure()
