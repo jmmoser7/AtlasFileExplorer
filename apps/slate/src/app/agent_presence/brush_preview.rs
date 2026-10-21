@@ -81,12 +81,17 @@ impl DrawingBrushPreview {
             && self.point_count().saturating_add(points) <= PREVIEW_POINT_BUDGET)
     }
 
-    fn covered(&self, tab: u64, node: NodeId, content_key: Option<u64>) -> Option<BrushCoverage> {
+    fn covered(
+        &self,
+        tab: u64,
+        node: NodeId,
+        content_key: impl FnOnce() -> Option<u64>,
+    ) -> Option<BrushCoverage> {
         let entry = self.entries.get(&BrushKey { tab, node })?;
         if entry.rejected || entry.canvas.is_none() {
             return None;
         }
-        if content_key != Some(entry.content_key) {
+        if content_key() != Some(entry.content_key) {
             return None;
         }
         Some(BrushCoverage::Held)
@@ -455,18 +460,19 @@ impl SlateApp {
         if active {
             return Some(BrushCoverage::Active);
         }
-        let key = self
-            .doc()
-            .scene
-            .node(node)
-            .and_then(board_path::node_stamp_key);
-        if content_key.is_some_and(|requested| Some(requested) != key) {
-            return None;
-        }
-        if let Some(coverage) = self.presence.brush_preview.covered(tab, node, key) {
-            return Some(coverage);
-        }
-        None
+        // Ordinary strokes have no preview entry. Hash authored path contents
+        // only after finding a canvas that could actually cover this node.
+        self.presence.brush_preview.covered(tab, node, || {
+            let key = self
+                .doc()
+                .scene
+                .node(node)
+                .and_then(board_path::node_stamp_key);
+            if content_key.is_some_and(|requested| Some(requested) != key) {
+                return None;
+            }
+            key
+        })
     }
 
     pub(crate) fn release_agent_brush_preview(&mut self, node: NodeId, content_key: u64) {

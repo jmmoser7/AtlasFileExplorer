@@ -7,7 +7,6 @@
 //! - `ui/advanced` — floating advanced settings
 //! - `canvas` — board entry point and camera helpers
 //! - `session` — linked File Atlas viewport (in-process)
-
 use atlas_core::thumbs::{cache_key, ThumbPool, ThumbRequest};
 use atlas_shell::file_picker::{self, DialogGate, DialogOwner, FilePicker, PickRequest};
 use atlas_shell::theme::{dark_visuals, light_visuals, Palette};
@@ -21,7 +20,6 @@ use slate_doc::{
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-
 mod agent_presence;
 mod agent_text_output;
 mod artifact_export;
@@ -32,6 +30,8 @@ mod bench_brush;
 mod bench_brush_tiles;
 #[cfg(test)]
 mod bench_model3d;
+#[cfg(test)]
+mod bench_stress;
 #[cfg(test)]
 mod bench_web;
 pub mod board;
