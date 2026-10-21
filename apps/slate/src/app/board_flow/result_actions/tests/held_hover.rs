@@ -19,10 +19,8 @@ fn hover_only_strip_survives_the_gap_and_a_held_click_without_selecting_the_host
     for _ in 0..20 {
         tick(&mut h, vec![]);
     }
-    let body = h
-        .app
-        .board_xf()
-        .rect_w2s(h.app.doc().scene.node(host).unwrap().rect);
+    let host_rect = h.app.doc().scene.node(host).unwrap().rect;
+    let body = h.app.board_xf().rect_w2s(host_rect);
     let at = point(&h, host, 1);
     tick(&mut h, vec![egui::Event::PointerMoved(at)]);
     assert!(!h
@@ -60,6 +58,11 @@ fn hover_only_strip_survives_the_gap_and_a_held_click_without_selecting_the_host
     assert!(
         h.app.board_drag.is_none(),
         "the canvas never starts a gesture"
+    );
+    assert_eq!(
+        h.app.doc().scene.node(host).unwrap().rect,
+        host_rect,
+        "the fitted preview must not move the thumbnail during its held press"
     );
     assert!(
         h.app
