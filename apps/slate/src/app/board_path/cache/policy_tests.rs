@@ -31,7 +31,7 @@ fn over_budget_scan_keeps_a_warm_subset_even_when_uncached_geometry_paints_first
     assert_eq!(paint(&mut cache, 1, &[(1, 7), (2, 7), (3, 7)]), 3);
     assert!(cache.map.contains_key(&(NodeId(1), 7, false)));
     assert!(cache.map.contains_key(&(NodeId(2), 7, false)));
-    for frame in 2..=101 {
+    for frame in 2u64..=101 {
         let keys = if frame.is_multiple_of(2) {
             [(3, 7), (2, 7), (1, 7)]
         } else {
