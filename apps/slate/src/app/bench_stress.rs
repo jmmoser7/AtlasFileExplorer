@@ -198,7 +198,7 @@ fn stroke(i: usize, brush: bool) -> NodeKind {
         fill: None,
         stroke: Stroke {
             width: if brush { 6.0 + (i % 5) as f32 } else { 2.0 },
-            color: Rgba([25, 90, 150, if i % 3 == 0 { 140 } else { 255 }]),
+            color: Rgba([25, 90, 150, if i.is_multiple_of(3) { 140 } else { 255 }]),
             cap: StrokeCap::Round,
             join: StrokeJoin::Round,
             stamp: brush,
