@@ -64,8 +64,18 @@ impl SlateApp {
         self.read_web_text(id)
     }
 
+    /// Diagnostic page identity only; navigation keeps the host's original URL.
     pub(crate) fn agent_web_current_url(&self, id: NodeId) -> Option<String> {
-        self.web.host.current_url(id)
+        let mut page = url::Url::parse(&self.web.host.current_url(id)?).ok()?;
+        if !page.username().is_empty() {
+            page.set_username("").ok()?;
+        }
+        if page.password().is_some() {
+            page.set_password(None).ok()?;
+        }
+        page.set_query(None);
+        page.set_fragment(None);
+        Some(page.into())
     }
 
     pub(crate) fn agent_web_capture(
