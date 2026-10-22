@@ -65,6 +65,19 @@ impl SlateApp {
             .iter()
             .filter(|a| a.tab == tab && a.departure.is_none())
             .collect();
+        let saved: Vec<_> = self
+            .settings
+            .collaborators
+            .iter()
+            .filter(|profile| {
+                !profile.retired
+                    && !self
+                        .presence
+                        .agents
+                        .iter()
+                        .any(|agent| agent.profile.id == profile.id)
+            })
+            .collect();
         let proposals: Vec<_> = live
             .iter()
             .map(|a| {
@@ -81,12 +94,13 @@ impl SlateApp {
             .iter()
             .map(|p| format!("human:{}", p.id))
             .collect();
-        let messages: Vec<(Vec<_>, usize)> = std::iter::once("self")
+        let messages: Vec<(Vec<_>, usize, Option<Vec<_>>)> = std::iter::once("self")
             .chain(live.iter().map(|a| a.profile.id.as_str()))
+            .chain(saved.iter().map(|profile| profile.id.as_str()))
             .chain(human_ids.iter().map(String::as_str))
             .map(|id| {
                 if state.active_chat() != Some(id) {
-                    return (Vec::new(), 0);
+                    return (Vec::new(), 0, None);
                 }
                 self.presence_conversation(id)
                     .map(|c| {
@@ -106,7 +120,10 @@ impl SlateApp {
                                     .map_or(0, Vec::len),
                             })
                             .collect();
-                        (rows, total)
+                        let copy_rows = state
+                            .copy_transcript_requested(ctx, id)
+                            .then(|| conversation::conversation_messages(c));
+                        (rows, total, copy_rows)
                     })
                     .unwrap_or_default()
             })
@@ -135,15 +152,11 @@ impl SlateApp {
             .collect();
         let attachments: Vec<Vec<_>> = live
             .iter()
-            .map(|a| {
-                self.presence_conversation(&a.profile.id)
-                    .into_iter()
-                    .flat_map(|c| &c.draft_images)
-                    .map(|p| chrome::Attachment {
-                        name: p.file_name().and_then(|s| s.to_str()).unwrap_or("Image"),
-                    })
-                    .collect()
-            })
+            .map(|a| self.presence_draft_attachments(&a.profile.id))
+            .collect();
+        let saved_attachments: Vec<_> = saved
+            .iter()
+            .map(|profile| self.presence_draft_attachments(&profile.id))
             .collect();
         let models: Vec<Vec<_>> = live
             .iter()
@@ -163,6 +176,13 @@ impl SlateApp {
             .iter()
             .map(|a| presence_mode_status(a, history_status.as_deref()))
             .collect();
+        let saved_statuses: Vec<_> = saved
+            .iter()
+            .map(|_| match history_status.as_deref() {
+                Some(status) => format!("Saved · inactive · {status}"),
+                None => "Saved · inactive".into(),
+            })
+            .collect();
         let self_thread = self.presence_conversation("self");
         let mut participants = vec![chrome::Participant {
             id: "self",
@@ -171,6 +191,7 @@ impl SlateApp {
             status: history_status.as_deref().unwrap_or("Your private notes"),
             provider: "",
             human: true,
+            inactive: false,
             paused: false,
             autonomous: false,
             full_access: false,
@@ -185,6 +206,7 @@ impl SlateApp {
             attachments: &[],
             messages: &messages[0].0,
             message_total: messages[0].1,
+            copy_messages: messages[0].2.as_deref(),
             proposals: &[],
             draft: self_thread.map_or("", |c| c.draft.as_str()),
             queued_provider: None,
@@ -199,6 +221,7 @@ impl SlateApp {
                 status: &statuses[index],
                 provider: &a.profile.provider,
                 human: false,
+                inactive: false,
                 paused: a.paused,
                 autonomous: a.grant.as_ref().is_some_and(|g| g.mutation_autonomy),
                 full_access: self.presence_full_access_for(&a.profile.id),
@@ -224,6 +247,7 @@ impl SlateApp {
                 attachments: &attachments[index],
                 messages: &messages[index + 1].0,
                 message_total: messages[index + 1].1,
+                copy_messages: messages[index + 1].2.as_deref(),
                 proposals: &proposals[index],
                 draft: self
                     .presence_conversation(&a.profile.id)
@@ -233,6 +257,18 @@ impl SlateApp {
                 models: &models[index],
             });
         }
+        let saved_offset = 1 + live.len();
+        for (index, profile) in saved.iter().enumerate() {
+            let rows = &messages[saved_offset + index];
+            participants.push(self.saved_presence_participant(
+                profile,
+                &rows.0,
+                rows.1,
+                rows.2.as_deref(),
+                &saved_attachments[index],
+                &saved_statuses[index],
+            ));
+        }
         for (index, person) in self.settings.presence_contacts.iter().enumerate() {
             let who = human_ids[index].as_str();
             participants.push(chrome::Participant {
@@ -241,6 +277,7 @@ impl SlateApp {
                 hat: "none",
                 provider: "",
                 human: true,
+                inactive: false,
                 local_profile: false,
                 status: if let Some(problem) = history_status.as_deref() {
                     problem
@@ -260,8 +297,9 @@ impl SlateApp {
                 busy: false,
                 activity: &[],
                 attachments: &[],
-                messages: &messages[1 + live.len() + index].0,
-                message_total: messages[1 + live.len() + index].1,
+                messages: &messages[1 + live.len() + saved.len() + index].0,
+                message_total: messages[1 + live.len() + saved.len() + index].1,
+                copy_messages: messages[1 + live.len() + saved.len() + index].2.as_deref(),
                 proposals: &[],
                 draft: self
                     .presence_conversation(who)
@@ -397,6 +435,7 @@ impl SlateApp {
             ),
             ConnectPeople => ("presence.people", serde_json::json!({})),
             SetupWorkspace => ("presence.workspace", serde_json::json!({})),
+            WebsiteAccessSettings => ("portal.web.access_settings", serde_json::json!({})),
             Pause { id, paused } => (
                 "presence.pause",
                 serde_json::json!({"id":id,"paused":paused}),

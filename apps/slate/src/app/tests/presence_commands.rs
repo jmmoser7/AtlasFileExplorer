@@ -270,6 +270,9 @@ fn public_command_schema_and_argument_validation_share_one_catalogue() {
         "board.paths.draw",
         "board.shape.edit",
         "board.smooth.stroke",
+        "board.tags.assign",
+        "board.tags.create",
+        "board.tags.unassign",
         "board.wire.edit",
         "portal.agent.run",
         "portal.atlas.highlight",
@@ -283,6 +286,7 @@ fn public_command_schema_and_argument_validation_share_one_catalogue() {
         "portal.web.read_text",
         "portal.web.scroll",
         "portal.web.type",
+        "presence.preview",
         "presence.read_text",
     ]);
     assert_eq!(

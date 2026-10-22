@@ -1,7 +1,9 @@
 //! Incremental, generation-fenced board reads. No whole-board pass on a frame.
 use super::*;
 use serde_json::{json, Value};
+mod participants;
 mod text_page;
+use self::participants::helper_result_preview;
 
 pub(super) struct ReadJob {
     pub call: BoardCall,
@@ -16,35 +18,59 @@ pub(super) struct ReadJob {
     image: Option<crate::app::board_agent::ScopedImageInput>,
     image_source: Option<PathBuf>,
     participant_ids: Option<Vec<String>>,
+    text_cursor: Option<usize>,
+    text_limit: Option<usize>,
+    text_generation: Option<String>,
     text_page: Option<text_page::TextPage>,
+    preview: Option<super::board_preview::PreviewJob>,
 }
 impl ReadJob {
     pub(super) fn new(call: BoardCall, generation: u64) -> Result<Self, String> {
         let text_page = text_page::TextPage::parse(&call, generation)?;
-        let (node_ids, participant_ids, offset, limit): (
-            &[String],
-            Option<Vec<String>>,
-            usize,
-            usize,
-        ) = match &call.operation {
-            BoardOperation::Read {
-                node_ids,
-                offset,
-                limit,
-            } => (node_ids, None, *offset, *limit),
-            BoardOperation::ReadParticipants {
-                participant_ids,
-                offset,
-                limit,
-            } => (&[][..], Some(participant_ids.clone()), *offset, *limit),
-            BoardOperation::Invoke {
-                command, targets, ..
-            } if command == "presence.read_image" && targets.len() == 1 => (targets, None, 0, 1),
-            BoardOperation::Invoke {
-                command, targets, ..
-            } if command == "presence.read_text" && targets.len() == 1 => (targets, None, 0, 1),
-            _ => return Err("Choose one explicit image or authored text node".into()),
-        };
+        let (node_ids, participant_ids, offset, limit, text_cursor, text_limit, text_generation) =
+            match &call.operation {
+                BoardOperation::Read {
+                    node_ids,
+                    offset,
+                    limit,
+                } => (node_ids.as_slice(), None, *offset, *limit, None, None, None),
+                BoardOperation::ReadParticipants {
+                    participant_ids,
+                    offset,
+                    limit,
+                    text_cursor,
+                    text_limit,
+                    text_generation,
+                } => (
+                    &[][..],
+                    Some(participant_ids.clone()),
+                    *offset,
+                    *limit,
+                    *text_cursor,
+                    *text_limit,
+                    text_generation.clone(),
+                ),
+                BoardOperation::Invoke {
+                    command, targets, ..
+                } if command == "presence.read_image" && targets.len() == 1 => {
+                    (targets.as_slice(), None, 0, 1, None, None, None)
+                }
+                BoardOperation::Invoke {
+                    command, targets, ..
+                } if command == "presence.read_text" && targets.len() == 1 => {
+                    (targets.as_slice(), None, 0, 1, None, None, None)
+                }
+                BoardOperation::Invoke {
+                    command, targets, ..
+                } if command == "presence.preview" => {
+                    (targets.as_slice(), None, 0, 1, None, None, None)
+                }
+                _ => {
+                    return Err(
+                        "Choose one explicit image, authored text node, or frame preview".into(),
+                    )
+                }
+            };
         let explicit = node_ids
             .iter()
             .map(|id| {
@@ -66,7 +92,11 @@ impl ReadJob {
             image: None,
             image_source: None,
             participant_ids,
+            text_cursor,
+            text_limit,
+            text_generation,
             text_page,
+            preview: None,
         })
     }
 }
@@ -80,6 +110,14 @@ impl SlateApp {
             return Err("Wait for the current board action or read".into());
         }
         let mut job = ReadJob::new(call.clone(), self.doc().scene.scene_gen())?;
+        if matches!(&call.operation, BoardOperation::Invoke { command, .. } if command == "presence.preview")
+        {
+            job.preview = Some(super::board_preview::PreviewJob::new(
+                self,
+                a.grant.as_ref().ok_or("Read grant revoked")?,
+                call,
+            )?);
+        }
         if matches!(&call.operation, BoardOperation::Invoke { command, .. } if command == "presence.read_image")
         {
             let grant = a.grant.as_ref().ok_or("Read grant revoked")?;
@@ -130,8 +168,18 @@ impl SlateApp {
         a.read = Some(job);
         Ok(())
     }
+    #[cfg(test)]
     pub(super) fn advance_presence_read(
         &mut self,
+        a: &mut Collaborator,
+        budget: &mut usize,
+        elapsed: std::time::Duration,
+    ) -> Option<BoardReply> {
+        self.advance_presence_read_with_context(None, a, budget, elapsed)
+    }
+    pub(super) fn advance_presence_read_with_context(
+        &mut self,
+        ctx: Option<&egui::Context>,
         a: &mut Collaborator,
         budget: &mut usize,
         elapsed: std::time::Duration,
@@ -146,6 +194,12 @@ impl SlateApp {
                 || (job.participant_ids.is_none() && job.generation != self.doc().scene.scene_gen())
             {
                 return Err("Board changed during the read; request a fresh page".into());
+            }
+            if let Some(preview) = job.preview.as_mut() {
+                let ctx = ctx.ok_or("A board preview requires the active Slate paint context")?;
+                job.done = preview.poll(self, ctx, grant)?;
+                let visible = self.advance_presence_read_motion(a, elapsed);
+                return Ok(job.done && visible);
             }
             if job.participant_ids.is_some() {
                 job.done = true;
@@ -203,21 +257,7 @@ impl SlateApp {
                     job.done = true;
                 }
             }
-            let visible = if a.paused && a.chat_only {
-                // Reading context to answer the person does not release the
-                // addressed avatar's paused board position.
-                true
-            } else if let Some(m) = self.presence.roster.session_mut(&a.motion) {
-                let sample = m.advance(elapsed);
-                if sample.phase == MotionPhase::ReadyToCommit {
-                    m.resolve_ready(|_| true);
-                    true
-                } else {
-                    sample.phase == MotionPhase::Idle
-                }
-            } else {
-                true
-            };
+            let visible = self.advance_presence_read_motion(a, elapsed);
             Ok(job.done && visible)
         })();
         match result {
@@ -226,6 +266,16 @@ impl SlateApp {
                 None
             }
             Ok(true) => {
+                if let Some(preview) = job.preview.as_mut() {
+                    a.activity = "working".into();
+                    return Some(BoardReply {
+                        id: job.call.id,
+                        session_id: a.binding.session_id.clone(),
+                        request_id: a.request.clone(),
+                        success: true,
+                        result: preview.result.take().unwrap_or(Value::Null),
+                    });
+                }
                 if let Some(page) = &job.text_page {
                     a.activity = "working".into();
                     return Some(match page.value(self) {
@@ -239,10 +289,9 @@ impl SlateApp {
                         Err(error) => BoardReply::error(&job.call, &error),
                     });
                 }
-                if let Some(participant_ids) = &job.participant_ids {
+                if job.participant_ids.is_some() {
                     let grant = a.grant.as_ref().unwrap();
-                    let result =
-                        self.participant_page(a, grant, participant_ids, job.offset, job.limit);
+                    let result = self.participant_page(a, grant, &job);
                     a.activity = "working".into();
                     return Some(match result {
                         Ok(value) => BoardReply {
@@ -303,11 +352,19 @@ impl SlateApp {
                         "status": result.status.chars().take(512).collect::<String>(),
                         "outcome": result.outcome,
                         "expired": result.expired,
-                        "result": result.result.chars().take(512).collect::<String>()
+                        "result": helper_result_preview(&result.result),
+                        "total_bytes": result.total_bytes,
+                        "next_text_cursor": text_page::utf8_page_end(&result.result, 0, 512)
+                            .ok().filter(|end| *end < result.result.len()),
+                        "truncated": result.truncated || result.result.len() > 512,
+                        "text_generation": result.request_id,
+                        "text_pageable": true
                     }));
                 }
                 a.activity = "working".into();
-                let value = json!({"workspace_id":a.binding.workspace_id,"objects":job.objects,"image_source":job.image_source,"next_offset":next,"commands":self.presence_command_schema(),"conversations":grant.conversation_ids,"participants":participants,"proposal_mode":!grant.mutation_autonomy});
+                let value = json!({"workspace_id":a.binding.workspace_id,"objects":job.objects,"image_source":job.image_source,"next_offset":next,"commands":self.presence_command_schema(),"conversations":grant.conversation_ids,"participants":participants,"proposal_mode":!grant.mutation_autonomy,
+                    "action_budget":{"consumed":a.calls,"remaining":usize::from(grant.max_actions).saturating_sub(a.calls),"limit":grant.max_actions},
+                    "tag_catalog":grant.readable_board.then(||crate::app::dispatch::targeted::tags::catalog(self.doc()))});
                 if serde_json::to_vec(&value).map_or(true, |v| v.len() > 60_000) {
                     return Some(BoardReply::error(&job.call, "Request a smaller page"));
                 }
@@ -330,102 +387,24 @@ impl SlateApp {
             }
         }
     }
-
-    fn live_participant_descriptor(other: &Collaborator) -> Value {
-        json!({
-            "id": other.profile.id,
-            "name": other.profile.name.chars().take(256).collect::<String>(),
-            "status": other.status.chars().take(512).collect::<String>(),
-            "result": other.snapshot.as_ref()
-                .and_then(|snapshot| snapshot.turns.iter().rev().find(|turn| turn.role == "assistant"))
-                .map(|turn| turn.text.chars().take(512).collect::<String>())
-        })
-    }
-
-    fn retired_participant_descriptor(result: &helper_scope::HelperResult) -> Value {
-        json!({
-            "id": result.id,
-            "parent_id": result.parent_id,
-            "request_id": result.request_id,
-            "name": result.name.chars().take(256).collect::<String>(),
-            "retired": true,
-            "status": result.status.chars().take(512).collect::<String>(),
-            "outcome": result.outcome,
-            "expired": result.expired,
-            "result": result.result.chars().take(512).collect::<String>()
-        })
-    }
-
-    fn participant_page(
-        &self,
-        caller: &Collaborator,
-        grant: &CollaboratorGrant,
-        explicit: &[String],
-        offset: usize,
-        limit: usize,
-    ) -> Result<Value, String> {
-        if explicit.iter().any(|id| {
-            self.presence
-                .helper_results
-                .iter()
-                .any(|result| result.id == *id && result.parent_id != caller.profile.id)
-        }) {
-            return Err("A retained helper outcome is available only to its parent".into());
+    fn advance_presence_read_motion(
+        &mut self,
+        a: &Collaborator,
+        elapsed: std::time::Duration,
+    ) -> bool {
+        // Addressed chat reads do not release the avatar's paused board position.
+        if a.paused && a.chat_only {
+            return true;
         }
-        let requested = |id: &str| explicit.is_empty() || explicit.iter().any(|item| item == id);
-        let mut available = Vec::new();
-        // The dispatcher temporarily removes the caller from the live roster.
-        for other in std::iter::once(caller).chain(
-            self.presence
-                .agents
-                .iter()
-                .filter(|other| other.profile.id != caller.profile.id),
-        ) {
-            if other.departure.is_none()
-                && grant.conversation_ids.contains(&other.profile.id)
-                && requested(&other.profile.id)
-            {
-                available.push(Self::live_participant_descriptor(other));
-            }
+        let Some(m) = self.presence.roster.session_mut(&a.motion) else {
+            return true;
+        };
+        let sample = m.advance(elapsed);
+        if sample.phase == MotionPhase::ReadyToCommit {
+            m.resolve_ready(|_| true);
+            true
+        } else {
+            sample.phase == MotionPhase::Idle
         }
-        for result in &self.presence.helper_results {
-            if result.parent_id == caller.profile.id
-                && grant.conversation_ids.contains(&result.id)
-                && requested(&result.id)
-            {
-                available.push(Self::retired_participant_descriptor(result));
-            }
-        }
-        let total = available.len();
-        let mut participants = Vec::new();
-        let mut bytes = serde_json::to_vec(&json!({
-            "participants": [],
-            "total": total,
-            "next_offset": 1_000_000,
-        }))
-        .map_err(|_| "Participant reply could not be serialized")?
-        .len();
-        for participant in available.into_iter().skip(offset).take(limit) {
-            let record_bytes = serde_json::to_vec(&participant)
-                .map_err(|_| "Participant reply could not be serialized")?
-                .len()
-                + 1;
-            if bytes + record_bytes > 60_000 {
-                break;
-            }
-            bytes += record_bytes;
-            participants.push(participant);
-        }
-        let emitted = participants.len();
-        let next_offset = (offset + emitted < total).then_some(offset + emitted);
-        let value = json!({
-            "participants": participants,
-            "total": total,
-            "next_offset": next_offset,
-        });
-        if serde_json::to_vec(&value).map_or(true, |reply| reply.len() > 60_000) {
-            return Err("Request a smaller participant page".into());
-        }
-        Ok(value)
     }
 }

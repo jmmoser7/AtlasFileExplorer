@@ -1,16 +1,16 @@
 //! Shared display parameters — camera zoom profiles and per-frame budgets.
 //!
-//! Both apps keep their own product feel (Atlas must zoom into a directory
-//! tag; Slate caps board detail). What this module unifies is the *numbers
-//! and formulas*, so a third copy of `ZOOM_MIN` cannot appear. No renderer
+//! Each canvas keeps its own product feel (Atlas folder tags, Slate board detail).
+//! This module owns the numbers and formulas,
+//! so a third copy of `ZOOM_MIN` cannot appear. No renderer
 //! types (Art. I.1).
 
 /// How a scroll-wheel delta becomes a multiplicative zoom factor.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum WheelPolicy {
-    /// Atlas tree: `(scroll * k).exp()`.
+    /// Continuous canvas zoom: `(scroll * k).exp()`.
     Exp { k: f32 },
-    /// Slate canvases: `1.0 + scroll * k`.
+    /// Legacy canvas zoom: `1.0 + scroll * k`.
     Linear { k: f32 },
 }
 
@@ -45,12 +45,20 @@ pub const ATLAS_TREE: ZoomProfile = ZoomProfile {
     wheel: WheelPolicy::Exp { k: 0.0021 },
 };
 
-/// Slate Grid / Venn / Board / Lens. Tighter max — board detail, not folder tags.
+/// Legacy Slate Grid / Venn / Lens profile.
 pub const SLATE_CANVAS: ZoomProfile = ZoomProfile {
     min: 0.05,
     max: 3.5,
     default_z: 0.8,
     wheel: WheelPolicy::Linear { k: 0.0015 },
+};
+
+/// Board editing follows the approved selection studio's projected-size ladder.
+pub const SLATE_BOARD: ZoomProfile = ZoomProfile {
+    min: 1.0 / 128.0,
+    max: 128.0,
+    default_z: SLATE_CANVAS.default_z,
+    wheel: WheelPolicy::Exp { k: 0.0015 },
 };
 
 /// GPU texture upload / residency budget for a canvas.
@@ -110,5 +118,17 @@ mod tests {
         const { assert!(ATLAS_TREE.max > SLATE_CANVAS.max) };
         const { assert!(ATLAS_TREE.min < SLATE_CANVAS.min) };
         assert_ne!(ATLAS_TREE.default_z, SLATE_CANVAS.default_z);
+    }
+
+    #[test]
+    fn board_zoom_reaches_the_approved_point_scale_and_composes_smoothly() {
+        assert_eq!(SLATE_BOARD.clamp(1000.0), 128.0);
+        assert_eq!(SLATE_BOARD.clamp(0.0001), 1.0 / 128.0);
+        assert_eq!(SLATE_CANVAS.max, 3.5);
+        let one = SLATE_BOARD.wheel_factor(80.0);
+        let split = SLATE_BOARD.wheel_factor(20.0).powi(4);
+        assert!((one - split).abs() < 1e-6);
+        assert!((one * SLATE_BOARD.wheel_factor(-80.0) - 1.0).abs() < 1e-6);
+        assert!(SLATE_BOARD.wheel_factor(-1000.0) > 0.0);
     }
 }

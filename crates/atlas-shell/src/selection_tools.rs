@@ -6,11 +6,11 @@ use crate::{
     tokens,
 };
 use eframe::egui::{self, emath::Rot2, Align2, Color32, Id, Pos2, Rect, Sense, Stroke, Vec2};
-
 pub mod alignment;
 pub mod capture;
 mod dimensions;
-pub use dimensions::{inline_number, stringer};
+pub mod hit_regions;
+pub use dimensions::{inline_number, stringer, BOTTOM_STRINGER_GAP};
 mod agent_generate;
 mod image_brush;
 #[cfg(test)]
@@ -170,7 +170,7 @@ pub fn button(
 }
 
 mod popup_placement;
-pub use popup_placement::{editor_placement, editor_rect, place_popup, POPUP_MARGIN};
+pub use popup_placement::*;
 
 pub fn panel(ui: &egui::Ui, rect: Rect, zoom: f32, theme: Palette) {
     ui.painter().rect(

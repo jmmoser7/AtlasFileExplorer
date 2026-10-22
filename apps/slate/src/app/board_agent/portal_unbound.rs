@@ -30,8 +30,7 @@ impl SlateApp {
             self.node_resolved_corner(node),
             xf.z,
         );
-        let outline =
-            super::super::board::corner_outline(layout.frame, layout.corner, layout.zoom.max(0.01));
+        let outline = super::super::board::corner_outline(layout.frame, layout.corner, layout.zoom);
         atlas_shell::selection_tools::agent_card_outline(painter, &outline, xf.z, {
             let mut palette = self.palette();
             if portal.agent.as_ref().is_some_and(|a| a.chat.custom_fill) {

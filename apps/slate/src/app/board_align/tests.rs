@@ -1,5 +1,94 @@
 use super::*;
 
+#[test]
+fn small_selection_alignment_clicks_clear_properties_and_wires() {
+    use crate::app::tests::{add_rect, align_board, crop_pointer, select_ids};
+    for (size, zoom) in [(24.0, 0.25), (24.0, 1.0), (80.0, 1.0)] {
+        for action_index in 0..8 {
+            let mut h = align_board("small_alignment_controls");
+            let ids = [
+                add_rect(&mut h.app, 0.0, 0.0),
+                add_rect(&mut h.app, 13.0, 11.0),
+                add_rect(&mut h.app, 49.0, 37.0),
+            ];
+            h.app.patch_nodes(&ids, |n| {
+                n.rect.w = size;
+                n.rect.h = size * 0.75;
+            });
+            select_ids(&mut h.app, &ids);
+            h.app.tab_mut().cam.z = zoom;
+            h.frame();
+            h.frame();
+            let layout = h.app.align_layout(&h.app.board_xf()).unwrap();
+            for hit in &layout.hits {
+                assert!(
+                    h.app
+                        .shape_properties
+                        .chrome_hits
+                        .iter()
+                        .all(|r| !r.intersects(hit.rect.expand(alignment::HIT_PAD_PX))),
+                    "zoom={zoom}, {:?}: property control overlaps alignment",
+                    hit.action
+                );
+            }
+            let hit = &layout.hits[action_index];
+            let at = hit.rect.center();
+            assert_eq!(h.app.align_action_at(at), Some(hit.action));
+            assert!(h.app.wire_grip_at(at, &h.app.board_xf()).is_none());
+            let before: Vec<_> = ids
+                .iter()
+                .map(|id| h.app.doc().scene.node(*id).unwrap().rect)
+                .collect();
+            let input: Vec<_> = ids.iter().copied().zip(before.iter().copied()).collect();
+            let expected = preview_rects(&input, &[], hit.action);
+            crop_pointer(&mut h, at, Some(true));
+            crop_pointer(&mut h, at, Some(false));
+            assert!(h.app.board_drag.is_none());
+            for (id, expected) in expected {
+                assert_eq!(
+                    h.app.doc().scene.node(id).unwrap().rect,
+                    expected,
+                    "one press invokes {:?} at z={zoom}, size={size}, pointer={at:?}",
+                    hit.action
+                );
+            }
+            h.app.board_undo();
+            for (id, rect) in ids.iter().zip(before) {
+                assert_eq!(
+                    h.app.doc().scene.node(*id).unwrap().rect,
+                    rect,
+                    "one undo restores every member"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn alignment_buttons_stay_fixed_through_property_strip_reveal() {
+    use crate::app::tests::{add_rect, align_board, select_ids};
+    let mut h = align_board("alignment_during_reveal");
+    let ids = [
+        add_rect(&mut h.app, 0.0, 0.0),
+        add_rect(&mut h.app, 49.0, 37.0),
+    ];
+    select_ids(&mut h.app, &ids);
+    let mut first = None;
+    for frame in 0..16 {
+        h.frame();
+        let layout = h.app.align_layout(&h.app.board_xf()).unwrap();
+        let rects: Vec<_> = layout.hits.iter().map(|hit| hit.rect).collect();
+        if let Some(first) = &first {
+            assert_eq!(
+                &rects, first,
+                "frame{frame}: controls must not move during reveal"
+            );
+        } else {
+            first = Some(rects);
+        }
+    }
+}
+
 fn r(x: f32, y: f32, w: f32, h: f32) -> WorldRect {
     WorldRect::new(x, y, w, h)
 }

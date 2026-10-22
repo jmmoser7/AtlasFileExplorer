@@ -36,7 +36,7 @@ pub(super) fn crop(
         _ => {
             return Err(
                 "Use exactly mode/handle/x/y or mode/dx/dy; coordinates are world units".into(),
-            )
+            );
         }
     };
     if ids.len() != 1 || !app.croppable_image(ids[0]) {

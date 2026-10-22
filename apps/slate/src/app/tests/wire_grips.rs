@@ -2,6 +2,16 @@
 
 use super::*;
 
+/// Wire-action fixtures exercise a fully relevant host through the public
+/// camera path. Tiny/dormant-domain behavior is tested separately below.
+fn zoom_wire_host(h: &mut Harness, id: NodeId) {
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    let focus = h.app.world_to_screen(Pos2::from(rect.center()));
+    assert!(h.app.canvas_rect.contains(focus));
+    h.app.zoom_at(focus, 2.0 / h.app.tab().cam.z);
+    h.frame();
+}
+
 #[test]
 fn nonrectangular_shapes_cannot_start_or_receive_new_wires() {
     use slate_doc::scene::{ShapeKind, Side};
@@ -55,10 +65,11 @@ fn tiny_rectangular_hosts_do_not_offer_overlapping_wire_targets() {
 #[test]
 fn wire_grips_preview_only_the_handle_under_the_pointer() {
     let mut h = web_board("wire_grip_prox");
-    add_rect(&mut h.app, 0.0, 0.0);
+    let id = add_rect(&mut h.app, 0.0, 0.0);
     h.app.board_sel.clear();
     h.app.set_board_tool(board::BoardTool::Select);
     h.frame();
+    zoom_wire_host(&mut h, id);
 
     let xf = h.app.board_xf();
     let n = h.app.doc().scene.nodes[0].clone();
@@ -79,11 +90,16 @@ fn wire_grips_preview_only_the_handle_under_the_pointer() {
     );
 }
 
-/// The enlarged grip hit reaches outside the node and stops at the edge.
+/// The continuous outward field reaches beyond the port; the same distant
+/// inward probe belongs to the host rather than its wire.
 #[test]
 fn wire_grip_hit_reaches_outside_the_node_only() {
     let mut h = web_board("wire_grip_outward");
     let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.patch_nodes(&[id], |node| {
+        node.rect.w = 160.0;
+        node.rect.h = 100.0;
+    });
     h.app.board_sel.clear();
     h.app.set_board_tool(board::BoardTool::Select);
     h.frame();
@@ -91,13 +107,13 @@ fn wire_grip_hit_reaches_outside_the_node_only() {
     let xf = h.app.board_xf();
     let rect = h.app.doc().scene.node(id).unwrap().rect;
     let grip = xf.w2s(board_wire::grip_point(rect, slate_doc::scene::Side::Top));
-    let outside = grip + EVec2::new(0.0, -30.0);
-    let inside = grip + EVec2::new(0.0, 30.0);
+    let outside = grip + EVec2::new(0.0, -18.0);
+    let inside = grip + EVec2::new(0.0, 18.0);
 
     assert_eq!(
         h.app.wire_grip_at(outside, &xf).map(|(_, side, _)| side),
         Some(slate_doc::scene::Side::Top),
-        "30 px outside the edge is a grip"
+        "18 px outside the edge is in the continuous outward field"
     );
     assert!(
         h.app.wire_grip_at(inside, &xf).is_none(),
@@ -122,6 +138,7 @@ fn wire_grip_press_beats_edge_resize() {
     h.app.board_sel.clear();
     h.app.set_board_tool(board::BoardTool::Select);
     h.frame();
+    zoom_wire_host(&mut h, id);
 
     let xf = h.app.board_xf();
     let rect = h.app.doc().scene.node(id).unwrap().rect;
@@ -150,14 +167,12 @@ fn wire_grip_press_beats_edge_resize() {
     );
 }
 
-/// The inner hit grows past 8 px once the camera pulls back, and stays 8 px
-/// when zoomed in. Painted discs still use canvas scale.
+/// Wire relevance tapers with projected host size, replacing inverse-zoom
+/// enlargement. Cursor expansion does not revive a dormant fine control.
 #[test]
-fn wire_grip_hit_grows_when_zoomed_out() {
+fn wire_grip_hit_tapers_when_the_projected_host_shrinks() {
     let mut h = web_board("wire_hit_zoom");
     let id = add_rect(&mut h.app, 0.0, 0.0);
-    // The radius growth applies to ports with enough room for disjoint body
-    // and transform targets; tiny hosts have their own suppression regression.
     h.app.patch_nodes(&[id], |node| {
         node.rect.h = 100.0;
         node.rect.w = 160.0;
@@ -172,21 +187,26 @@ fn wire_grip_hit_grows_when_zoomed_out() {
     let xf = h.app.board_xf();
     let inside = xf.w2s(grip_w) + EVec2::new(0.0, 9.0);
     assert!(
-        h.app.wire_grip_at(inside, &xf).is_none(),
-        "9 px inside the edge is past the zoom-1 disk"
+        h.app.wire_grip_at(inside, &xf).is_some(),
+        "cursor proximity expands the fully relevant field to this probe"
     );
 
     h.app.tab_mut().cam.z = 0.55;
     let xf = h.app.board_xf();
     let inside = xf.w2s(grip_w) + EVec2::new(0.0, 9.0);
+    assert!(
+        h.app.wire_grip_at(inside, &xf).is_none(),
+        "the same 9 px lies outside the less relevant field"
+    );
     assert_eq!(
-        h.app.wire_grip_at(inside, &xf).map(|(_, side, _)| side),
-        Some(slate_doc::scene::Side::Top),
-        "the same 9 px reaches the grown hit"
+        h.app
+            .wire_grip_at(xf.w2s(grip_w), &xf)
+            .map(|(_, side, _)| side),
+        Some(slate_doc::scene::Side::Top)
     );
 }
 
-/// A port the painter has dropped is not a press target.
+/// A dormant projected-size wire domain cannot take a press.
 #[test]
 fn wire_ports_below_the_lod_are_not_hittable() {
     let mut h = web_board("wire_port_lod");
@@ -201,7 +221,7 @@ fn wire_ports_below_the_lod_are_not_hittable() {
     let grip = xf.w2s(board_wire::grip_point(rect, slate_doc::scene::Side::Right));
     assert!(
         h.app.wire_grip_at(grip, &xf).is_none(),
-        "a disc below 1.5 px is not a grip"
+        "a projected host below Wire relevance is not a grip"
     );
 }
 
@@ -244,6 +264,7 @@ fn a_port_inside_a_slide_frame_still_starts_a_wire() {
     h.app.set_board_tool(board::BoardTool::Select);
     h.app.tab_mut().cam.z = 1.0;
     h.frame();
+    zoom_wire_host(&mut h, id);
 
     let xf = h.app.board_xf();
     let rect = h.app.doc().scene.node(id).unwrap().rect;
@@ -285,13 +306,43 @@ fn zoomed_out_packed_selection_moves_instead_of_starting_a_wire() {
         h.app.wire_grip_at(screen, &xf).is_none(),
         "a press inside the selection is not a port"
     );
+    assert_eq!(
+        h.app.transform_hit_at(screen),
+        Some((Some(middle), board_handles::BoardHitTarget::Body)),
+        "a neighboring member's compact cage cannot steal the visible body"
+    );
     let drag = h
         .app
         .begin_gesture_for_test(screen, world, egui::Modifiers::NONE);
     assert!(
-        matches!(drag, Some(board::BoardDrag::Move { .. })),
-        "the group moves"
+        matches!(drag, Some(board::BoardDrag::Move { ref ids, .. })
+            if ids.len() == 9 && h.app.board_sel.iter().all(|id| ids.contains(id))),
+        "the whole group moves"
     );
+}
+
+#[test]
+fn a_foreground_body_inside_a_compact_group_keeps_its_own_move() {
+    let mut h = web_board("wire_group_foreground_move");
+    let a = add_image_card(&mut h.app, 0.0, 0.0);
+    let b = add_image_card(&mut h.app, 84.0, 0.0);
+    let front = add_image_card(&mut h.app, 42.0, 0.0);
+    h.app.board_sel = [a, b].into_iter().collect();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.tab_mut().cam.z = 0.55;
+    h.frame();
+    let rect = h.app.doc().scene.node(front).unwrap().rect;
+    let world = Pos2::from(rect.center());
+    let screen = h.app.board_xf().w2s(world);
+    assert_eq!(
+        h.app.transform_hit_at(screen),
+        Some((Some(front), board_handles::BoardHitTarget::Body))
+    );
+    let drag = h
+        .app
+        .begin_gesture_for_test(screen, world, egui::Modifiers::NONE);
+    assert!(matches!(drag, Some(board::BoardDrag::Move { ref ids, .. }) if ids == &[front]));
+    assert_eq!(h.app.board_sel, [front].into_iter().collect());
 }
 
 /// New wires store no color, so they paint the active theme's wire gray.
@@ -352,6 +403,7 @@ fn wire_drop_on_empty_canvas_keeps_a_free_end() {
     h.app.board_sel.clear();
     h.app.set_board_tool(board::BoardTool::Select);
     h.frame();
+    zoom_wire_host(&mut h, id);
 
     let xf = h.app.board_xf();
     let rect = h.app.doc().scene.node(id).unwrap().rect;

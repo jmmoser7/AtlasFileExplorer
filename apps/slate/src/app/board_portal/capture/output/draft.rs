@@ -48,10 +48,60 @@ impl Draft {
     }
 
     pub(crate) fn commit(mut self) -> Result<PathBuf, String> {
-        replace(self.path(), &self.destination)
+        publish(self.path(), &self.destination, true)
             .map_err(|e| format!("Could not save capture: {e}"))?;
         self.path = None;
         Ok(self.destination.clone())
+    }
+
+    /// Publish a complete file without replacing any existing directory entry.
+    /// A competing save can win a name between attempts; publication then
+    /// fails with AlreadyExists and we try the next number with the same draft.
+    pub(crate) fn commit_unique(self) -> Result<PathBuf, String> {
+        let mut candidate = self.destination.clone();
+        loop {
+            match publish(self.path(), &candidate, false) {
+                Ok(()) => return Ok(candidate),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    candidate = Self::next_numbered_path(&candidate)
+                        .ok_or("The image filename number is too large.")?;
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "Could not save a new image without overwriting another file: {error}."
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Advisory only: probe on the save worker, never the frame thread.
+    pub(crate) fn next_available_path(after: &Path) -> Option<PathBuf> {
+        let mut candidate = Self::next_numbered_path(after)?;
+        loop {
+            match std::fs::symlink_metadata(&candidate) {
+                Ok(_) => candidate = Self::next_numbered_path(&candidate)?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Some(candidate)
+                }
+                Err(_) => return None,
+            }
+        }
+    }
+
+    fn next_numbered_path(path: &Path) -> Option<PathBuf> {
+        let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+        let (base, number) = stem
+            .rsplit_once('_')
+            .filter(|(_, suffix)| suffix.len() >= 3 && suffix.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|(base, suffix)| suffix.parse::<u64>().ok().map(|n| (base, n)))
+            .unwrap_or((&stem, 0));
+        let mut name = std::ffi::OsString::from(format!("{base}_{:03}", number.checked_add(1)?));
+        if let Some(extension) = path.extension() {
+            name.push(".");
+            name.push(extension);
+        }
+        Some(path.with_file_name(name))
     }
 }
 
@@ -64,7 +114,7 @@ impl Drop for Draft {
 }
 
 #[cfg(windows)]
-fn replace(source: &Path, destination: &Path) -> Result<(), String> {
+fn publish(source: &Path, destination: &Path, replace_existing: bool) -> std::io::Result<()> {
     use ::windows::core::PCWSTR;
     use ::windows::Win32::Storage::FileSystem::{
         MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
@@ -76,18 +126,23 @@ fn replace(source: &Path, destination: &Path) -> Result<(), String> {
         .encode_wide()
         .chain(Some(0))
         .collect();
+    let flags = if replace_existing {
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+    } else {
+        MOVEFILE_WRITE_THROUGH
+    };
     // Same-directory rename never needs a copy or a partially written target.
-    unsafe {
-        MoveFileExW(
-            PCWSTR(source.as_ptr()),
-            PCWSTR(destination.as_ptr()),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    }
-    .map_err(|e| e.to_string())
+    unsafe { MoveFileExW(PCWSTR(source.as_ptr()), PCWSTR(destination.as_ptr()), flags) }
+        // MoveFileExW reports HRESULT_FROM_WIN32. Retain the Win32 error so
+        // ERROR_FILE_EXISTS / ERROR_ALREADY_EXISTS trigger the numbering retry.
+        .map_err(|e| std::io::Error::from_raw_os_error(e.code().0 & 0xffff))
 }
 
 #[cfg(not(windows))]
-fn replace(source: &Path, destination: &Path) -> Result<(), String> {
-    std::fs::rename(source, destination).map_err(|e| e.to_string())
+fn publish(source: &Path, destination: &Path, replace_existing: bool) -> std::io::Result<()> {
+    if replace_existing {
+        std::fs::rename(source, destination)
+    } else {
+        std::fs::hard_link(source, destination)
+    }
 }

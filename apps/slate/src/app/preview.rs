@@ -41,7 +41,7 @@ pub(crate) fn linked_image_key(path: &std::path::Path, revision: &str) -> String
 /// New full-resolution decodes allowed to start per frame. Combined with the
 /// pool's LIFO order this bounds latency for what's actually on screen while
 /// a big scene streams in gradually.
-const REQUESTS_PER_FRAME: u32 = 3;
+pub(super) const REQUESTS_PER_FRAME: u32 = 3;
 
 /// Tier sentinel: the source decoded completely — no higher tier exists, so
 /// any future desired size is already satisfied.
@@ -190,6 +190,9 @@ impl SlateApp {
                 break;
             };
             budget.received(matches!(res.outcome, PreviewOutcome::Ready(..)));
+            let Some(res) = self.consume_model_poster_preview(res, ctx) else {
+                continue;
+            };
             let Some(res) = self.consume_generation_preview(res, ctx) else {
                 continue;
             };
@@ -244,6 +247,8 @@ impl SlateApp {
         }
         if !self.previews.rx.is_empty() {
             ctx.request_repaint();
+        } else if self.model3d.poster_loads_pending() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(150));
         }
     }
 

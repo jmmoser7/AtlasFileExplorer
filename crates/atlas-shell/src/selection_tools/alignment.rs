@@ -12,7 +12,7 @@ pub const DISABLED_ALPHA: f32 = 0.32;
 /// Base clearance beyond the width stringer; the alignment row sits one pitch farther out.
 pub fn bottom_outset_px(zoom: f32) -> f32 {
     let z = zoom.max(0.05);
-    FRAME_OUTSET_PX.max(super::STRINGER_GAP * z + ICON_PX * 0.5 + 10.0 * z)
+    FRAME_OUTSET_PX.max(super::BOTTOM_STRINGER_GAP * z + ICON_PX * 0.5 + 10.0 * z)
 }
 
 pub struct AlignmentLayout {

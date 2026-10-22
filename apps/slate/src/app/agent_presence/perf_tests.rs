@@ -337,7 +337,7 @@ fn admission(f: &mut Fixture, warm: bool) {
         let mut agent = f.h.app.presence.agents.remove(0);
         agent.request = format!("perf-admission-{}-{warm}-{n}", f.scene.nodes.len());
         agent.calls = 0;
-        agent.sequences = 0;
+        agent.sequences.clear();
         agent.work = None;
         agent.grant.as_mut().unwrap().mutation_autonomy = true;
         f.h.app

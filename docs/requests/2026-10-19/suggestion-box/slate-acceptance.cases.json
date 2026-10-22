@@ -1,0 +1,619 @@
+{
+  "evaluationId": "slate-suggestion-box-2026-10-19-nine-reports",
+  "createdLabel": "19 October 2026 / nine-report suggestion batch",
+  "candidateBuild": {
+    "available": true,
+    "path": "C:/Users/jmoser/source/repos/AtlasFileExplorer/target/release/slate.exe",
+    "sha256": "0E9764DB21121B206047E254DED6F25BCB748391809DD8A8B330853209C87983",
+    "version": "Combined source 344988a4; suggestion source d880d960; native failures remain open",
+    "modified_utc": "2026-10-20T01:06:07Z",
+    "tested_interactively": true
+  },
+  "automatedEvidence": "Source checks and agent UI observations are separate from human acceptance. Suggestion source d880d960: CI178 Windows compilation and Clippy PASS; workspace3919 passed/1 failed/93 ignored, with the sole failure owned by the concurrent agent chat. Combined344: CI183 Windows/Clippy PASS; workspace3923 passed/1 failed/93 ignored (size cap in concurrent agent roster tests). Native run01 on executable SHA256 0E9764DB21121B206047E254DED6F25BCB748391809DD8A8B330853209C87983 exercised all9 reports through ordinary Windows UI, including real paired image generation and reopening saved outputs. It confirmed selected-A to first-drag-B/empty-frame failures (115519) and the first-unknown-folder replacement prompt (172555). Other clauses have partial observations, not complete case passes. The raw agent ledger, screenshots and remaining checks are retained in native-evidence/agent-native-run-01.json; implementation-evidence.json records follow-up repairs. Every human verdict starts Untested.",
+  "sourceReview": {
+    "requestScale": "moderate",
+    "immutableIntake": "intake-d615bcc4a0f6.json",
+    "immutableIntakeSha256": "83f5f286d31739e2874937c0b0fff6a1389ae12679e90d0b791158b943791b0e",
+    "independentIntentReview": "intent-review.json",
+    "independentIntentReviewSha256": "42689546052cb857a03614c348a49b83839ca9b2e78c66e23b5569f65d8f3f57",
+    "sourceZipSha256": "d615bcc4a0f6327b3f7f022774303182b9d1de5bd2984f27340e6e0889953b5b",
+    "sourceContentIsUntrustedData": true,
+    "sourceEvidence": "Only these nine original reports, recorded command hints and their one attachment define this checklist. Stall records are not diagnoses."
+  },
+  "reports": {
+    "2026-10-19_110837-bug-wire-from-origional-immage-shoul": {
+      "description": "wire from origional immage should automatickly align to top position same as would be the case with one generated immage linking to the next",
+      "kind": "bug",
+      "created_at": "2026-10-19T11:08:37.283290300-04:00",
+      "reportedVersion": "1.0.0-preview.132",
+      "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_110837-bug-wire-from-origional-immage-shoul\\report.json",
+      "attachments": [
+        "00_window-capture.png"
+      ],
+      "archived": false,
+      "reviewStatus": "Native partial observations recorded; remaining clauses open; no human acceptance",
+      "recordedCommands": [],
+      "originalReportSha256": "d8ad6f483929ea67735dadf66368ab01a4814be95b7a816cb5346882bba3665b"
+    },
+    "2026-10-19_112946-bug-in-colapsed-mode-the-play-button": {
+      "description": "in colapsed mode the play button for generation of an immage does not work.",
+      "kind": "bug",
+      "created_at": "2026-10-19T11:29:46.655264-04:00",
+      "reportedVersion": "1.0.0-preview.132",
+      "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_112946-bug-in-colapsed-mode-the-play-button\\report.json",
+      "attachments": [],
+      "archived": false,
+      "reviewStatus": "Native partial observations recorded; remaining clauses open; no human acceptance",
+      "recordedCommands": [
+        "app.repeat_last"
+      ],
+      "originalReportSha256": "5983eead239180e059fa34d228aeb3498fd123125ac344c614ef5635f449627a"
+    },
+    "2026-10-19_114206-bug-seems-to-be-a-bug-when-generaati": {
+      "description": "seems to be a bug when generaating multiple immages on a  board simaltaniously in two different frames. they seem to get in eachothers way its not always an issu but can be confusing",
+      "kind": "bug",
+      "created_at": "2026-10-19T11:42:06.201828500-04:00",
+      "reportedVersion": "1.0.0-preview.132",
+      "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_114206-bug-seems-to-be-a-bug-when-generaati\\report.json",
+      "attachments": [],
+      "archived": false,
+      "reviewStatus": "Native partial observations recorded; remaining clauses open; no human acceptance",
+      "recordedCommands": [],
+      "originalReportSha256": "bf1317661e2a2e8081e6519b455946b220652acc72a6ce19b0abb2fe870c72f0"
+    },
+    "2026-10-19_115519-bug-on-first-click-and-drag-of-immag": {
+      "description": "on first click and drag of immage or element on canvas the user is curently not able to emediatly begin draging th eimmage. it requiers the user select th immage then click drag to begin moving it. this should be one click.",
+      "kind": "bug",
+      "created_at": "2026-10-19T11:55:19.133513200-04:00",
+      "reportedVersion": "1.0.0-preview.132",
+      "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_115519-bug-on-first-click-and-drag-of-immag\\report.json",
+      "attachments": [],
+      "archived": false,
+      "reviewStatus": "Native failure confirmed; repair and exact-build recheck pending; no human acceptance",
+      "recordedCommands": [
+        "app.repeat_last"
+      ],
+      "originalReportSha256": "06f72ae2302734157f3e937c2409763eec4eff0ea1d9b62fedbd2cbdab608fa7"
+    },
+    "2026-10-19_162621-bug-hit-detection-and-trigers-for-ov": {
+      "description": "hit detection and trigers for overlaping objects needs to be refeined. particularly on corner scaling. the corner of one object hiden be hind another object curently taakes priority over the field of exthe ovelaping objeckt causing the user ti inadvertantly grab the corner of the otend\nbject behind also the inverse of selecting the corner of an object infront of the field of an object behind results in selecting the object behind",
+      "kind": "bug",
+      "created_at": "2026-10-19T16:26:21.916470-04:00",
+      "reportedVersion": "1.0.0-preview.132",
+      "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_162621-bug-hit-detection-and-trigers-for-ov\\report.json",
+      "attachments": [],
+      "archived": false,
+      "reviewStatus": "Native partial observations recorded; remaining clauses open; no human acceptance",
+      "recordedCommands": [],
+      "originalReportSha256": "7b195e3faf3be619407ffc94dae5fb600020d4119f0a10a025cca57bab444b96"
+    },
+    "2026-10-19_163137-bug-on-smaller-objects-there-are-maj": {
+      "description": "on smaller objects there are major overlaps between squircle menues and the alignment widget. also between the alignment wiget and the hit zone for wires.",
+      "kind": "bug",
+      "created_at": "2026-10-19T16:31:37.998193200-04:00",
+      "reportedVersion": "1.0.0-preview.132",
+      "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_163137-bug-on-smaller-objects-there-are-maj\\report.json",
+      "attachments": [],
+      "archived": false,
+      "reviewStatus": "Native partial observations recorded; remaining clauses open; no human acceptance",
+      "recordedCommands": [
+        "board.align.middle_v",
+        "board.align.top",
+        "board.align.left",
+        "app.undo",
+        "app.repeat_last"
+      ],
+      "originalReportSha256": "aef4140de4e46bfb35655fc9bcf976b44099773870a5c718b7b92f435b764c79"
+    },
+    "2026-10-19_171417-bug-crop-mode-needs-to-supress-the-s": {
+      "description": "crop mode needs to supress the squircle and notch blister menues from immages the crop handel interfers with the menue icons. also on very small immages the crop controles need to also be shrunk to reflect the more constrained hit zones.",
+      "kind": "bug",
+      "created_at": "2026-10-19T17:14:17.767136-04:00",
+      "reportedVersion": "1.0.0-preview.132",
+      "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_171417-bug-crop-mode-needs-to-supress-the-s\\report.json",
+      "attachments": [],
+      "archived": false,
+      "reviewStatus": "Native partial observations recorded; remaining clauses open; no human acceptance",
+      "recordedCommands": [],
+      "originalReportSha256": "21fe99c8917ba3780017d40d0210ae514f11d9d4b783fe55044d7685a6f32bbf"
+    },
+    "2026-10-19_172108-bug-right-click-on-all-immages-needs": {
+      "description": "right click on all immages needs a save immage as button to launche windows file explorer and save the selected photo",
+      "kind": "bug",
+      "created_at": "2026-10-19T17:21:08.320120800-04:00",
+      "reportedVersion": "1.0.0-preview.132",
+      "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_172108-bug-right-click-on-all-immages-needs\\report.json",
+      "attachments": [],
+      "archived": false,
+      "reviewStatus": "Native partial observations recorded; remaining clauses open; no human acceptance",
+      "recordedCommands": [],
+      "originalReportSha256": "7b09135395b109fabad0b5460a215b718ca2e758cee29706ff6640451d40e549"
+    },
+    "2026-10-19_172555-feature-save-immage-as-must-auto-increme": {
+      "description": "save immage as must auto increment the number on immages saved to avoide duplicat immages. in saved folder",
+      "kind": "feature",
+      "created_at": "2026-10-19T17:25:55.209125900-04:00",
+      "reportedVersion": "1.0.0-preview.132",
+      "path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_172555-feature-save-immage-as-must-auto-increme\\report.json",
+      "attachments": [],
+      "archived": false,
+      "reviewStatus": "Native failure confirmed; repair and exact-build recheck pending; no human acceptance",
+      "recordedCommands": [],
+      "originalReportSha256": "923607ac68a3f213fa801d6822d992a1fa1dec555eae4e76feb7e2d6a94360bd"
+    }
+  },
+  "cases": [
+    {
+      "id": "sbox-110837-original-image-wire-top-datum",
+      "group": "Image generation",
+      "title": "Original-image wires share the generated-image top datum",
+      "scope": "current",
+      "reports": [
+        "2026-10-19_110837-bug-wire-from-origional-immage-shoul"
+      ],
+      "setup": [
+        "Use an ordinary imported image and a generated-image source as comparison cases, connected to equivalent image targets. Keep card positions fixed and record the viewport scale.",
+        "Record the actual tested binary/hash, disposable workbook, display scale, Slate zoom and relevant input/selection state. All verdicts start Untested."
+      ],
+      "steps": [
+        "Draw the ordinary image-to-image connection and inspect its source and target anchors against the generated-image chain.",
+        "Move and resize each source and target; inspect the same connection again."
+      ],
+      "checks": [
+        {
+          "id": "ordinary-datum",
+          "expected": "The ordinary image's output is located at the same top-relative flow datum used by the generated-image comparison, instead of staying at its old vertical midpoint."
+        },
+        {
+          "id": "tracks-geometry",
+          "expected": "The connection remains attached to the intended top-relative datum after moving or resizing either card."
+        },
+        {
+          "id": "same-input",
+          "expected": "The wire still supplies the intended image input; the geometry change does not silently retarget the connection or choose a different image."
+        },
+        {
+          "id": "regression-1",
+          "expected": "Adjacent regression: Generated-to-generated wires keep their existing datum."
+        },
+        {
+          "id": "regression-2",
+          "expected": "Adjacent regression: Prompt and Style inputs keep distinct anchors and bindings."
+        },
+        {
+          "id": "regression-3",
+          "expected": "Adjacent regression: Creating or moving the wire does not unexpectedly reposition either image card; Undo restores the prior connection or geometry."
+        }
+      ],
+      "limitations": "Top position has no numeric inset in the report; compare with the existing generated-image flow datum rather than inventing a new offset.\nThe text could be read as card alignment in isolation. The attachment supports wire-anchor alignment, not automatically moving the image cards.\nRequired native evidence: Before/after native viewport captures with ordinary and generated source wires at the same scale; saved connection endpoints when available.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
+    },
+    {
+      "id": "sbox-112946-collapsed-generator-play",
+      "group": "Image generation",
+      "title": "Start generation with the collapsed Play control",
+      "scope": "current",
+      "reports": [
+        "2026-10-19_112946-bug-in-colapsed-mode-the-play-button"
+      ],
+      "setup": [
+        "Use a configured generator with a valid local image and prompt, an idle state, and the generator dashboard collapsed. Record the exact provider/model, active result, and requested image count.",
+        "Record the actual tested binary/hash, disposable workbook, display scale, Slate zoom and relevant input/selection state. All verdicts start Untested."
+      ],
+      "steps": [
+        "Click the visible collapsed Play once without first opening the dashboard.",
+        "Observe request acceptance, per-card progress or explicit error, and the resulting image history.",
+        "Compare one run from the expanded editor using the same inputs and settings."
+      ],
+      "checks": [
+        {
+          "id": "direct-start",
+          "expected": "One click on collapsed Play accepts and starts the intended generator request without requiring the dashboard to be expanded."
+        },
+        {
+          "id": "same-settings",
+          "expected": "The run uses that card's image, prompt and count; completion adds its results to that card's history."
+        },
+        {
+          "id": "feedback",
+          "expected": "The card exposes a clear running/completed/error state. A silent inert click is not success; a provider error or unavailable prerequisite does not pass completed generation."
+        },
+        {
+          "id": "regression-1",
+          "expected": "Adjacent regression: Hovering or changing the nearby image count does not accidentally press Play."
+        },
+        {
+          "id": "regression-2",
+          "expected": "Adjacent regression: The expanded editor's existing Play still works."
+        },
+        {
+          "id": "regression-3",
+          "expected": "Adjacent regression: Clicking Play does not instead start a card move, select a thumbnail, or open a different tool; normal cancellation/running-state controls remain usable."
+        }
+      ],
+      "limitations": "Collapsed could mean a closed generator dashboard or a compact card. Record the tested presentation and retain both interpretations if they differ.\nThe report does not specify the provider, input wiring, or failing card size; one successful configuration cannot establish every provider or layout.\nRequired native evidence: Native collapsed-control click and per-card state transition, correlated request/source/settings evidence and completed results; mark provider-blocked coverage separately.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
+    },
+    {
+      "id": "sbox-114206-two-generator-isolation",
+      "group": "Image generation",
+      "title": "Keep overlapping runs isolated in two generator frames",
+      "scope": "current",
+      "reports": [
+        "2026-10-19_114206-bug-seems-to-be-a-bug-when-generaati"
+      ],
+      "setup": [
+        "Use two separate native-created generator frames with distinguishable local sources and prompts. Record each frame's provider/session, count and active input. Establish that each works alone first.",
+        "Record the actual tested binary/hash, disposable workbook, display scale, Slate zoom and relevant input/selection state. All verdicts start Untested.",
+        "Use fresh UI-created frames/session bindings for a deliberate generation test, rather than reusing shared fixture sessions. Provider availability and any authorized submission prerequisites must be recorded; missing prerequisites mean Blocked, never Pass."
+      ],
+      "steps": [
+        "Start A, then submit B while A is still pending or running; watch both frames through completion.",
+        "Repeat with the start order reversed.",
+        "In a separate overlap attempt, stop one request and observe the other frame."
+      ],
+      "checks": [
+        {
+          "id": "both-accepted",
+          "expected": "Both submissions remain accounted for. The second is not silently dropped or substituted for the first; any backend queue is shown clearly on the corresponding frame."
+        },
+        {
+          "id": "input-isolation",
+          "expected": "Each request retains its own captured image, prompt, model and count rather than borrowing the other frame's inputs or latest edits."
+        },
+        {
+          "id": "output-isolation",
+          "expected": "Each frame receives only its own requested outputs/history and exposes the status belonging to its own request."
+        },
+        {
+          "id": "control-isolation",
+          "expected": "Stopping or selecting one frame does not stop, redirect, or replace the other frame's active work."
+        },
+        {
+          "id": "regression-1",
+          "expected": "Adjacent regression: Running a single frame remains reliable."
+        },
+        {
+          "id": "regression-2",
+          "expected": "Adjacent regression: Repeated runs on one frame preserve its own result history and configured count."
+        },
+        {
+          "id": "regression-3",
+          "expected": "Adjacent regression: Board selection, panning and switching between the two cards remain usable while their work overlaps."
+        }
+      ],
+      "limitations": "Frame may mean an image-generator card or an authored slide frame containing one; start with two generator cards and record containment separately.\nA provider may serialize requests. The report requires reliable independent user flows, not an invented service-level parallelism or throughput guarantee.\nNo concrete shared-state cause can be concluded from this description.\nRequired native evidence: Two overlapping native submissions with correlated frame/session/request IDs, captured input identity and output ownership. Appearance of plausible generated images alone cannot establish isolation.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
+    },
+    {
+      "id": "sbox-115519-first-press-body-drag",
+      "group": "Selection and tools",
+      "title": "Move an unselected object with the first press-and-drag",
+      "scope": "current",
+      "reports": [
+        "2026-10-19_115519-bug-on-first-click-and-drag-of-immag"
+      ],
+      "setup": [
+        "Use neutral Select mode and an unselected ordinary image, shape and other supported movable element. Avoid an active crop/paint/text/content-edit gesture when checking ordinary body dragging.",
+        "Use both PNG-to-JPEG and JPEG-to-PNG selection changes; repeat after Undo leaves the previous object selected. Include a newly created empty image-generator frame before any result, then the same frame after its first result.",
+        "Record the actual tested binary/hash, disposable workbook, display scale, Slate zoom and relevant input/selection state. All verdicts start Untested."
+      ],
+      "steps": [
+        "From clear canvas, press the visible body of an unselected object and move the pointer while keeping the same press held; release.",
+        "Repeat while a different object is already selected.",
+        "Click and release without dragging as a comparison; Undo a completed move.",
+        "Select an image, arm its hosted Brush without opening the editor, then click empty canvas. Check that dismissal does not paint or alter the scene."
+      ],
+      "checks": [
+        {
+          "id": "one-press",
+          "expected": "The object begins moving during the initial held press once the normal drag threshold is crossed; a separate selection click is unnecessary."
+        },
+        {
+          "id": "correct-target",
+          "expected": "The object under the initial visible-body press moves rather than the previously selected object."
+        },
+        {
+          "id": "stable-commit",
+          "expected": "Release leaves the intended object at its dragged position and Undo restores the move without an extra phantom move."
+        },
+        {
+          "id": "regression-1",
+          "expected": "Adjacent regression: A stationary click remains a selection action rather than moving the object."
+        },
+        {
+          "id": "regression-2",
+          "expected": "Adjacent regression: Shift/Ctrl selection, deliberate resize grips, crop/paint gestures and entered portal/text interactions keep their separate purposes."
+        },
+        {
+          "id": "regression-3",
+          "expected": "Adjacent regression: Dragging does not unexpectedly move a whole unrelated selection or change the stacking order."
+        },
+        {
+          "id": "empty-generator-body",
+          "expected": "The newly created empty generator frame moves by its visible body with the same held press before its first output. After a result appears, body movement keeps the same ownership and one-Undo behavior."
+        },
+        {
+          "id": "hosted-tool-dismissal",
+          "expected": "Clicking outside a hosted Brush while its editor is closed returns to Select and hides the image controls. It adds no ink or move, and Undo has no empty dismissal step to reverse."
+        }
+      ],
+      "limitations": "Element is broad. Record tested node kinds and editing states; this report does not justify stealing gestures from an actively edited text field or entered portal.\nRequired native evidence: Native continuous press/move/release sequence showing an initially unselected body; record initial selection, target kind and resulting geometry.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
+    },
+    {
+      "id": "sbox-162621-front-back-corner-picking",
+      "group": "Selection and tools",
+      "title": "Pick the visible body or corner in overlapping objects",
+      "scope": "current",
+      "reports": [
+        "2026-10-19_162621-bug-hit-detection-and-trigers-for-ov"
+      ],
+      "setup": [
+        "Overlap two ordinary rectangular objects so a rear corner lies behind the foreground object's body. Also position a visible foreground corner over the rear object's body. Record which object is selected and the stacking order.",
+        "Record the actual tested binary/hash, disposable workbook, display scale, Slate zoom and relevant input/selection state. All verdicts start Untested."
+      ],
+      "steps": [
+        "Press and drag the foreground body at the location covering the rear corner, with the rear object selected as one variation.",
+        "Select the foreground object and drag its visible corner over the rear body's footprint.",
+        "Reverse front/back order and repeat the equivalent tests."
+      ],
+      "checks": [
+        {
+          "id": "hidden-rear-grip",
+          "expected": "An occluded rear corner does not capture a press through the foreground body; the visible foreground object receives its ordinary body interaction."
+        },
+        {
+          "id": "visible-front-grip",
+          "expected": "The visible foreground corner starts scaling the foreground object and does not select or move the background body instead."
+        },
+        {
+          "id": "stack-order",
+          "expected": "Reversing the stacking order reverses ownership consistently with what is visibly in front."
+        },
+        {
+          "id": "regression-1",
+          "expected": "Adjacent regression: An exposed rear-object region remains selectable; this change does not make the entire rear object unreachable."
+        },
+        {
+          "id": "regression-2",
+          "expected": "Adjacent regression: Foreground body dragging and visible corner scaling still work for an isolated object."
+        },
+        {
+          "id": "regression-3",
+          "expected": "Adjacent regression: Undo restores the correct object's move/scale; no hidden object is modified as a side effect."
+        }
+      ],
+      "limitations": "The report does not define behavior in transparent pixels or intentionally active editing tools. Test ordinary opaque bodies first and keep transparent/cropped special cases distinct.\nFirst-click body dragging is related to 115519, but passing it does not prove the visible-corner-versus-rear-body case.\nRequired native evidence: Native capture of both inverse overlap arrangements, initial selection/stacking order, and which object's geometry changes.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
+    },
+    {
+      "id": "sbox-163137-small-object-control-separation",
+      "group": "Selection and tools",
+      "title": "Use small-object menus, alignment and wires independently",
+      "scope": "current",
+      "reports": [
+        "2026-10-19_163137-bug-on-smaller-objects-there-are-maj"
+      ],
+      "setup": [
+        "Use small selected objects where the squircle tools, alignment widget and a wire affordance can be exposed near one another. Record object size, zoom and whether the selection contains one or several objects.",
+        "Record the actual tested binary/hash, disposable workbook, display scale, Slate zoom and relevant input/selection state. All verdicts start Untested."
+      ],
+      "steps": [
+        "Hover from each squircle into its menu, then use a menu control.",
+        "Invoke Top, vertical middle, Left and horizontal center alignment from the alignment widget where applicable; verify the requested edge or center relationship.",
+        "Start a wire from its visible target and cancel or complete it; repeat with a smaller object and at another zoom."
+      ],
+      "checks": [
+        {
+          "id": "visual-separation",
+          "expected": "Squircle menus, dimension labels and the alignment widget do not cover one another's visible controls on the tested small objects."
+        },
+        {
+          "id": "alignment-owner",
+          "expected": "Pressing an alignment control invokes the intended alignment without opening a squircle menu or dimension editor, or starting a wire."
+        },
+        {
+          "id": "wire-owner",
+          "expected": "Pressing or dragging the visible wire target starts the intended wire action without invoking alignment or a neighboring menu."
+        },
+        {
+          "id": "menu-owner",
+          "expected": "The squircle menu remains reachable and its controls work without accidentally invoking alignment or wiring."
+        },
+        {
+          "id": "regression-1",
+          "expected": "Adjacent regression: Alignment still applies to the intended selected objects and one Undo restores it."
+        },
+        {
+          "id": "regression-2",
+          "expected": "Adjacent regression: Normal-size objects keep usable toolbar/alignment/wire placement."
+        },
+        {
+          "id": "regression-3",
+          "expected": "Adjacent regression: A menu stays open while the pointer travels into its controls; moving controls apart must not create an unusable hover gap."
+        }
+      ],
+      "limitations": "No failing object size, exact selection, alignment-widget form, or required numeric spacing is supplied. Preserve a native reproduction instead of assigning arbitrary pixel clearances.\nThe issue concerns actual hit zones as well as visible overlap; a screenshot of separated icons alone is insufficient.\nRequired native evidence: Native pointer interactions with menu, alignment and wire targets on the same small-object arrangement, plus object-size/zoom metadata.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
+    },
+    {
+      "id": "sbox-171417-crop-control-ownership",
+      "group": "Selection and tools",
+      "title": "Crop without toolbar collisions, including tiny images",
+      "scope": "current",
+      "reports": [
+        "2026-10-19_171417-bug-crop-mode-needs-to-supress-the-s"
+      ],
+      "setup": [
+        "Use an ordinary image that shows a notch/blister toolbar, another using squircles, and a very small image. Record size, zoom and selected crop mode.",
+        "Record the actual tested binary/hash, disposable workbook, display scale, Slate zoom and relevant input/selection state. All verdicts start Untested."
+      ],
+      "steps": [
+        "Enter crop mode on both toolbar presentations and drag crop edges/corners through positions that previously met menu icons.",
+        "Repeat on the very small image, selecting individual crop controls.",
+        "Commit one crop, cancel another, then exit crop mode and inspect the normal image tools."
+      ],
+      "checks": [
+        {
+          "id": "menus-suppressed",
+          "expected": "Both squircle and notch/blister image menus are suppressed during crop mode, including their input hit zones; crop drags do not activate their icons."
+        },
+        {
+          "id": "tiny-controls",
+          "expected": "Very small images use visibly smaller crop controls suited to their constrained edges, with the intended individual crop control still distinguishable and usable."
+        },
+        {
+          "id": "crop-works",
+          "expected": "Dragging changes the intended crop edge or corner rather than moving the image, opening another tool, or grabbing an unrelated crop control."
+        },
+        {
+          "id": "exit-restores",
+          "expected": "A committed handle gesture keeps crop mode and the selection. After explicitly exiting crop with Enter or Esc, ordinary image menus return without invisible controls intercepting input."
+        },
+        {
+          "id": "regression-1",
+          "expected": "Adjacent regression: Ordinary-size crop controls remain usable."
+        },
+        {
+          "id": "regression-2",
+          "expected": "Adjacent regression: Cancel restores the prior crop; Undo restores a committed crop."
+        },
+        {
+          "id": "regression-3",
+          "expected": "Adjacent regression: Zooming or changing image size while in crop mode does not reintroduce menu collisions or make the crop impossible to finish."
+        }
+      ],
+      "limitations": "Very small and the amount of shrinking have no numeric specification. Record the actual successful and failing sizes; shrinking artwork alone while retaining colliding hit areas does not satisfy the report.\nSuppressing image toolbars does not itself define whether every right-click context command should be disabled during crop.\nRequired native evidence: Native crop interaction on both toolbar types and a tiny image, with close view of control sizes and actual drag ownership.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
+    },
+    {
+      "id": "sbox-172108-save-image-as-all-contexts",
+      "group": "Image saving",
+      "title": "Save ordinary, generated and edited images without changing sources",
+      "scope": "current",
+      "reports": [
+        "2026-10-19_172108-bug-right-click-on-all-immages-needs"
+      ],
+      "setup": [
+        "Use an imported image, pasted/screenshot image and a generated image with several results. Choose a disposable local destination directory and record the selected result before each save.",
+        "Record the actual tested binary/hash, disposable workbook, display scale, Slate zoom and relevant input/selection state. All verdicts start Untested.",
+        "Include a disposable edited image with an obvious crop, mirror, filter or paint layer. Before testing it, record whether Save image as is expected to save the visible composite or original source; the original report does not settle that choice. Retain source size/hash or an equivalent exact comparison from this local disposable fixture."
+      ],
+      "steps": [
+        "Select each image in turn, right-click its body and choose Save image as.",
+        "Choose a destination/filename in the Windows save picker; inspect and reopen the saved file.",
+        "Cancel a picker as a separate check; repeat after choosing a different generated result.",
+        "Save the edited image, reopen the saved file, and compare it with the recorded original-versus-visible-composite expectation. Confirm source files and their original locations remain unchanged; cancel a second edited-image save."
+      ],
+      "checks": [
+        {
+          "id": "all-contexts",
+          "expected": "Save image as is available from each tested image's body context menu, including ordinary imported images; it is not limited to an album thumbnail."
+        },
+        {
+          "id": "native-picker",
+          "expected": "The action opens a usable Windows save-file picker so the person can choose a location and filename."
+        },
+        {
+          "id": "right-photo",
+          "expected": "The saved nonempty image opens successfully and corresponds to the selected photo/result, rather than another album result or previously selected object."
+        },
+        {
+          "id": "cancel",
+          "expected": "Cancelling the picker creates no unwanted saved file and leaves the source image/workbook intact."
+        },
+        {
+          "id": "regression-1",
+          "expected": "Adjacent regression: Existing thumbnail Save as and Copy actions remain usable."
+        },
+        {
+          "id": "regression-2",
+          "expected": "Adjacent regression: Changing album selection changes the photo offered for saving."
+        },
+        {
+          "id": "regression-3",
+          "expected": "Adjacent regression: Right-click target and selected image agree, or the UI makes any difference clear; saving must not silently target an unrelated object."
+        },
+        {
+          "id": "edited-composite-contract",
+          "expected": "The saved edited image follows the original-versus-visible-composite choice recorded before this test. If that choice is unresolved or the command gives no understandable way to know which is saved, mark this clause Blocked / clarification needed; do not silently treat a plausible export as agreed behavior."
+        },
+        {
+          "id": "source-protection",
+          "expected": "Saving ordinary, generated and edited images to another destination does not overwrite, move or alter their linked source files or consume their original result/layer history. A cancelled save leaves no partial output."
+        }
+      ],
+      "limitations": "Windows file explorer is interpreted as the normal Windows save-file picker, not only opening the current source folder.\nThe report does not settle original source bytes versus a flattened edited/cropped image, or required output formats. Record the observed behavior without inventing a new export specification.\nAll images includes ordinary raster images and generated results; it does not establish that every video/model/document preview must become a raster export.\nRequired native evidence: Native body context menus, save picker, and reopened saved files for each tested image category; list any untested categories explicitly.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
+    },
+    {
+      "id": "sbox-172555-save-image-numbered-collisions",
+      "group": "Image saving",
+      "title": "Save repeatedly with automatic noncolliding numbered names",
+      "scope": "current",
+      "reports": [
+        "2026-10-19_172555-feature-save-immage-as-must-auto-increme"
+      ],
+      "setup": [
+        "Use a disposable destination folder containing the intended base filename and several already numbered siblings with distinguishable contents. Keep those files available for comparison.",
+        "Record the actual tested binary/hash, disposable workbook, display scale, Slate zoom and relevant input/selection state. All verdicts start Untested."
+      ],
+      "steps": [
+        "Save an image using the normal suggested filename into that folder, then save it again without manually finding a free suffix. Record both the filename initially proposed by the picker and the final saved filename.",
+        "Repeat with a gap in existing numbered filenames, after saving a different image with the same proposed base name, and after switching to a different supported image format whose matching numbered name already exists.",
+        "Cancel one save-picker visit, then try saving again."
+      ],
+      "checks": [
+        {
+          "id": "automatic-number",
+          "expected": "The ordinary save flow automatically advances the filename number when the intended name is already present; the person need not invent a new name for every save."
+        },
+        {
+          "id": "no-collision",
+          "expected": "Each completed save receives an unused filename and preserves all existing files; choosing another image with the same base name also avoids a collision."
+        },
+        {
+          "id": "repeatable",
+          "expected": "Subsequent saves keep choosing usable noncolliding numbered names. Cancelling does not create an empty file or reserve a phantom output."
+        },
+        {
+          "id": "regression-1",
+          "expected": "Adjacent regression: The first save into an empty folder has a sensible usable filename."
+        },
+        {
+          "id": "regression-2",
+          "expected": "Adjacent regression: The person can still choose a destination and edit the proposed filename."
+        },
+        {
+          "id": "regression-3",
+          "expected": "Adjacent regression: Numbering handles already-numbered stems without dropping the image extension or repeatedly colliding with an existing sibling."
+        }
+      ],
+      "limitations": "No exact suffix format, starting number, zero padding, or gap-reuse policy is specified. Any predictable incrementing noncolliding sequence can be evaluated without inventing those rules.\nContent-hash deduplication, automatic removal of identical photos, and a new save-management framework are not requested.\nThe report does not specify whether an explicitly chosen existing filename may be overwritten after human confirmation; the automatic/default flow must avoid that collision.\nRequired native evidence: Native repeated Save image as flow and destination-file inventory before/after, showing suggested/final names and preservation of existing files.\nSource repairs and independent review exist; Local Windows Rust test execution was denied before tests; hosted outcomes and pending follow-ups are recorded in implementation-evidence.json. Automated checks cannot pass these native/user observations."
+    }
+  ],
+  "agentNativeEvaluation": {
+    "ledger": "native-evidence/agent-native-run-01.json",
+    "binarySha256": "0E9764DB21121B206047E254DED6F25BCB748391809DD8A8B330853209C87983",
+    "sourceRevision": "344988a4459e2575b8ae95b39f8bae1a597b359f",
+    "confirmedFailureReports": [
+      "115519",
+      "172555"
+    ],
+    "completeCasePasses": 0,
+    "humanAcceptances": 0,
+    "remainingChecks": [
+      "First-drag/empty-generator/outer-grip native recheck after repairs",
+      "First-unknown-folder collision picker after repair",
+      "Definitive other-frame progress after Stop acknowledgement",
+      "Crop Escape while pointer held (atomic drag API limitation)",
+      "Visible tiny wire grip and alternate zoom",
+      "Generated current-result switching and edited-image picker cancellation"
+    ]
+  },
+  "catalogHash": "f501b9d606469433443f5f7febb3de5f5764d8b5072378f07e33bed34caa5f35",
+  "criteriaRevisions": [
+    {
+      "reason": "Native344 run exposed empty-generator body failure; independent UX review found closed-editor hostedBrush cleanup must be preserved by first-drag repair. Added explicit observable clauses instead of weakening existing ones.",
+      "report": "115519",
+      "previousCheckCount": 60,
+      "currentCheckCount": 62,
+      "originalCatalogHash": "055f51a50bb0050cdce0d919c817fa4a1a1afd7dcb5c91a4d8605904adb2f498",
+      "currentCatalogHash": "f501b9d606469433443f5f7febb3de5f5764d8b5072378f07e33bed34caa5f35",
+      "humanVerdictsCarriedForward": 0
+    }
+  ]
+}

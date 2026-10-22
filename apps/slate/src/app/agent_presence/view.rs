@@ -265,16 +265,26 @@ impl SlateApp {
         if chrome::presence_preferences_ui(ui, &mut self.settings.presence_reduced_motion) {
             self.settings.save();
         }
+        let mut allow_all = self.web.allows_all_websites();
+        if chrome::website_access_preferences_ui(ui, &mut allow_all) {
+            let command = if allow_all {
+                "portal.web.allow_all_sites"
+            } else {
+                "portal.web.restrict_sites"
+            };
+            self.dispatch(ui.ctx(), atlas_commands::CommandId(command), None);
+        }
         let saved: Vec<_> = self
             .settings
             .collaborators
             .iter()
             .filter(|p| {
-                !self
-                    .presence
-                    .agents
-                    .iter()
-                    .any(|a| a.profile.id == p.id && a.departure.is_none())
+                p.retired
+                    && !self
+                        .presence
+                        .agents
+                        .iter()
+                        .any(|a| a.profile.id == p.id && a.departure.is_none())
             })
             .cloned()
             .collect();

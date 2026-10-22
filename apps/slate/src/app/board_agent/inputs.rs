@@ -354,9 +354,6 @@ impl SlateApp {
             &outputs,
             |source| self.check_document_input_preview(source),
         )?;
-        // Engines open files: a pasted picture's `assets/…` locator is relative
-        // to the workbook, not to the engine's working directory.
-        let book = self.tab().path.as_deref();
         for item in inputs.context.iter_mut().chain(inputs.wired.iter_mut()) {
             for source in item
                 .images
@@ -364,7 +361,9 @@ impl SlateApp {
                 .chain(item.depth.as_mut())
                 .chain(item.outputs.values_mut())
             {
-                *source = resolve_source(book, source).to_string_lossy().into_owned();
+                *source = resolve_source(self.tab().path.as_deref(), source)
+                    .to_string_lossy()
+                    .into_owned();
             }
         }
         // A prompt being typed steers before the edit commits.

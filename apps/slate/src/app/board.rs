@@ -156,8 +156,8 @@ pub(crate) struct SheetResize {
     pub rows: Vec<f32>,
 }
 
-const ZOOM_MIN: f32 = atlas_core::display::SLATE_CANVAS.min;
-const ZOOM_MAX: f32 = atlas_core::display::SLATE_CANVAS.max;
+const ZOOM_MIN: f32 = atlas_core::display::SLATE_BOARD.min;
+const ZOOM_MAX: f32 = atlas_core::display::SLATE_BOARD.max;
 pub(crate) const MIN_DRAW: f32 = 8.0;
 /// Coalescing window for continuous inspector edits (one undo step).
 const COALESCE: Duration = Duration::from_millis(1500);
@@ -357,17 +357,17 @@ impl SlateApp {
         self.lock_models_pressed_outside(ui, &xf, pointer, model_toolbar_captures);
         let now = ui.input(|i| i.time);
         let mut canvas_nav = false;
-        // One web portal may hold the pointer and keyboard (D17/D22). This runs
-        // before the camera because that is the whole point: with the pointer
-        // inside a focused page, the wheel scrolls the page instead of zooming
-        // the board. Its chrome strip and a thin border band stay Slate targets,
-        // so the frame can always be grabbed and released.
+        // A focused page owns wheel input; its chrome stays draggable (D17/D22).
         if !shot_captures {
             self.peel_contents_focus_if_clicked_outside(ui, &xf, pointer);
         }
         self.peel_sheet(ui, &xf, pointer);
         let agent_capture = self.agent_shelf_captures(&xf, pointer);
-        let page_capture = self.web_input_frame(ui, &xf, pointer);
+        if (popup_capture || presence_capture) && ui.input(|i| i.pointer.any_pressed()) {
+            self.web_release_keyboard();
+        }
+        let page_capture =
+            !(popup_capture || presence_capture) && self.web_input_frame(ui, &xf, pointer);
         let external_capture = page_capture || self.atlas_input_frame(ui, &xf, pointer);
         // The shelf still receives the wheel. A drag moves the train card
         // unless a text field is the action under the pointer.
@@ -403,12 +403,7 @@ impl SlateApp {
                 || palette_wheel)
             && !external_capture
         {
-            // egui hands a Shift wheel over as a horizontal delta.
-            let (scroll, shift) = ui.input(|i| {
-                let d = i.smooth_scroll_delta + i.raw_scroll_delta;
-                let shift = i.modifiers.shift;
-                (if shift { d.x + d.y } else { d.y }, shift)
-            });
+            let (scroll, shift) = ui.input(Self::board_wheel_input);
             if scroll.abs() > 0.0 {
                 // Scroll over an unlocked 3D viewport zooms the model, not
                 // the board (Rhino wheel semantics while live).
@@ -425,7 +420,7 @@ impl SlateApp {
                     if let Some(p) = pointer {
                         self.board_zoom_at(
                             p,
-                            atlas_core::display::SLATE_CANVAS.wheel_factor(scroll),
+                            atlas_core::display::SLATE_BOARD.wheel_factor(scroll),
                         );
                         canvas_nav = true;
                     }
@@ -1398,7 +1393,7 @@ impl SlateApp {
         brush_prof::lap("collect");
         board_path::tiles::paint_rest(self, ui, &painter, &xf, rect, &nodes);
         self.paint_fading_curves(ui, &painter, &xf);
-        self.paint_presence_proposals(ui, &painter, &xf);
+        self.paint_presence_proposals(ui, &painter, &xf, None);
         self.paint_presence(&painter, &xf);
         drop(_nodes_span);
         brush_prof::lap("nodes");
@@ -1470,6 +1465,15 @@ impl SlateApp {
                         false,
                     );
                 }
+            }
+        }
+        if self.board_sel.len() >= 2
+            && self.board_crop.is_none()
+            && !self.selection_all_simple_lines()
+        {
+            if let Some(bounds) = self.board_group_bounds() {
+                let geom = board_handles::selection_geom(&xf, bounds, 0.0);
+                board_handles::paint_control_frame(&selection_painter, &geom, select_tint);
             }
         }
         self.paint_agent_spawn_preview(&painter, &xf);
@@ -2219,97 +2223,7 @@ impl SlateApp {
                 }
             }
             Some(BoardDrag::ModelMeasure { .. }) | Some(BoardDrag::DeckStroke { .. }) => {}
-            Some(BoardDrag::Resize {
-                id, before, handle, ..
-            }) => {
-                let node_id = *id;
-                let handle = *handle;
-                let before_rect = before.rect;
-                let rotation_deg = before.rotation_deg;
-                // A picture dragged past its opposite edge mirrors instead of
-                // clamping (P1.node.transform); other kinds keep the clamp.
-                let mirrors = matches!(before.kind, NodeKind::Image(_))
-                    && slate_doc::mirror::node_mirrors(self.doc(), before);
-                // Corner drags scale proportionally by default; Shift frees
-                // the aspect (distortion). Edge drags are single-axis, with
-                // Shift locking the aspect instead.
-                let is_corner = matches!(handle, 0 | 2 | 4 | 6);
-                let lock_aspect = if is_corner { !mods.shift } else { mods.shift };
-                let from_center = mods.ctrl;
-                let resize = |pointer: Pos2| {
-                    if mirrors {
-                        board_snap::resize_from_handle_mirroring(
-                            before_rect,
-                            pointer,
-                            handle,
-                            MIN_DRAW,
-                            lock_aspect,
-                            from_center,
-                            rotation_deg,
-                        )
-                    } else {
-                        let r = board_snap::resize_from_handle(
-                            before_rect,
-                            pointer,
-                            handle,
-                            MIN_DRAW,
-                            lock_aspect,
-                            from_center,
-                            rotation_deg,
-                        );
-                        (r, [false, false])
-                    }
-                };
-                let (mut r, mut crossed) = resize(world);
-
-                if !mods.alt {
-                    if is_corner {
-                        let rotated = rotation_deg.abs() > f32::EPSILON;
-                        if !rotated && crossed == [false, false] {
-                            let pointer = self.resolve_corner_scale(
-                                world,
-                                before_rect,
-                                r,
-                                handle,
-                                MIN_DRAW,
-                                lock_aspect,
-                                from_center,
-                                &[node_id],
-                            );
-                            (r, crossed) = resize(pointer);
-                        } else {
-                            let pointer =
-                                self.resolve_point_snap(world, &[node_id], None, false, false);
-                            (r, crossed) = resize(pointer);
-                        }
-                    } else if self.board_smart_guides {
-                        let all = self.board_node_rects();
-                        // Past the far edge, the moving edge is the opposite one.
-                        let moving = if crossed[0] || crossed[1] {
-                            (handle + 4) % 8
-                        } else {
-                            handle
-                        };
-                        let edges = board_snap::ResizeSnapEdges::for_handle(moving);
-                        let (snapped, guides) = board_snap::snap_resize_rect_scoped(
-                            r,
-                            &[node_id],
-                            &all,
-                            self.snap_scope(),
-                            edges,
-                        );
-                        r = snapped;
-                        self.board_snap_guides = guides;
-                    }
-                }
-
-                if mirrors {
-                    self.sync_resize_mirror(node_id, crossed);
-                }
-                if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
-                    n.rect = r;
-                }
-            }
+            Some(BoardDrag::Resize { .. }) => self.update_node_resize(world, mods),
             Some(BoardDrag::CropEdge {
                 id,
                 before,
@@ -2379,11 +2293,14 @@ impl SlateApp {
                 before,
                 group_before,
                 handle,
+                grab_offset,
                 ..
             }) => {
+                let world = world + *grab_offset;
                 let ids = ids.clone();
                 let before = before.clone();
                 let gb = *group_before;
+                let minimum = MIN_DRAW.min(gb.w).min(gb.h).max(f32::EPSILON);
                 let handle = *handle;
                 // Same convention as single-node resize: corners scale
                 // proportionally by default, Shift distorts. Ctrl+Alt+Shift
@@ -2405,7 +2322,7 @@ impl SlateApp {
                         gb,
                         world,
                         handle,
-                        MIN_DRAW,
+                        minimum,
                         lock_aspect,
                         from_center,
                         0.0,
@@ -2415,7 +2332,7 @@ impl SlateApp {
                         gb,
                         proposed,
                         handle,
-                        MIN_DRAW,
+                        minimum,
                         lock_aspect,
                         from_center,
                         &ids,
@@ -2425,7 +2342,7 @@ impl SlateApp {
                     gb,
                     pointer,
                     handle,
-                    MIN_DRAW,
+                    minimum,
                     lock_aspect,
                     from_center,
                     0.0,

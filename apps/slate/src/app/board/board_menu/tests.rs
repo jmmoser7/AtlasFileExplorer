@@ -28,6 +28,21 @@ fn shipped_menus_preserve_studio_revision_and_the_canvas_wire_refinement() {
             entries.push("board.open_location".into());
         }
     }
+    // October 19 exposes the existing image save pipeline from board images,
+    // including a clicked image inside a multi-selection or authored group.
+    for recipe in agreed["menus"].as_array_mut().unwrap() {
+        let anchor = match recipe["id"].as_str().unwrap() {
+            "image" | "image-selection" => "board.open_file",
+            "multi" | "grouped" => "board.shape.edit",
+            _ => continue,
+        };
+        let entries = recipe["entries"].as_array_mut().unwrap();
+        let position = entries
+            .iter()
+            .position(|entry| entry.as_str() == Some(anchor))
+            .unwrap();
+        entries.insert(position + 1, "board.image.save_as".into());
+    }
     assert_eq!(native["menus"], agreed["menus"]);
     assert_eq!(native["metrics"], agreed["metrics"]);
     assert_eq!(native["menus"].as_array().unwrap().len(), 28);
@@ -145,6 +160,9 @@ fn object_properties_menu_opens_an_existing_supported_panel() {
     assert!(!h
         .app
         .board_menu_entry_available("menu.layers", rect, &[rect]));
+    assert!(!h
+        .app
+        .board_menu_entry_available("board.image.save_as", rect, &[rect]));
 }
 
 #[test]
@@ -165,6 +183,9 @@ fn image_tags_submenu_preserves_the_root_and_assigns_to_its_target() {
     assert!(h
         .app
         .board_menu_entry_available("menu.layers", image, &[image]));
+    assert!(h
+        .app
+        .board_menu_entry_available("board.image.save_as", image, &[image]));
     h.app.board_menu = Some((image, Pos2::new(400.0, 100.0)));
     menu_frame(&mut h, vec![]);
     let out = menu_frame(&mut h, vec![]);
@@ -176,6 +197,7 @@ fn image_tags_submenu_preserves_the_root_and_assigns_to_its_target() {
     );
     assert!(text_center(&out, "Hide").is_none());
     let tags = text_center(&out, "Tags").unwrap();
+    assert!(text_center(&out, "Save image as…").is_some());
     menu_frame(&mut h, vec![egui::Event::PointerMoved(tags)]);
     let out = menu_frame(&mut h, vec![egui::Event::PointerMoved(tags)]);
     let at = text_center(&out, "Big").expect("native Tags submenu");

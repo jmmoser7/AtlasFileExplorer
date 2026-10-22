@@ -155,7 +155,7 @@ impl SlateApp {
                 bucket,
             );
             let style = board_path::stroke_style_world(&stroke, xf.z);
-            let feather = board_path::FEATHER_PX / xf.z.max(0.05);
+            let feather = board_path::FEATHER_PX / xf.z.max(atlas_core::display::SLATE_BOARD.min);
             let kurbo = connector_path_kurbo(&path);
             let cached = self.path_mesh_cache.get_or_tessellate(node.id, key, || {
                 vector_ink::stroke_mesh(&kurbo, &style, feather, board_path::curve_tolerance(xf.z))

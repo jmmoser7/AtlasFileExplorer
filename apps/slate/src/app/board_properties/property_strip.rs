@@ -2,6 +2,16 @@
 
 use super::*;
 
+impl SlateApp {
+    /// Reserve the final strip footprint while it fades in, so nearby controls
+    /// cannot move away from the pointer between hover and press.
+    pub(crate) fn external_property_strip_rect(&self, xf: &BoardXf) -> Option<Rect> {
+        let last = self.shape_properties.last_chrome.as_ref()?;
+        (!last.blister && !last.image)
+            .then(|| chrome::strip_rect_below(xf.w2s(last.bottom), last.count, xf.z, 1.0))
+    }
+}
+
 pub(super) fn node_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
     if nodes.is_empty() {
         return Vec::new();

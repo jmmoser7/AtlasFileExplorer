@@ -3,7 +3,7 @@
 use super::*;
 
 impl SlateApp {
-    /// A painted grip or tiny body keeps its native canvas drag even when
+    /// A painted grip or object body keeps its native canvas drag even when
     /// last frame's overlapping strip/stringer was egui's press target.
     /// Claim only after the drag threshold; normal clicks keep their owner.
     pub(super) fn canvas_grip_drag_response(
@@ -20,7 +20,14 @@ impl SlateApp {
             || !matches!(self.board_tool, BoardTool::Select | BoardTool::DirectSelect)
             || self.property_inline_editor_open()
             || ctx.memory(|m| m.any_popup_open())
-            || !ctx.input(|i| i.pointer.primary_down() && i.pointer.is_decidedly_dragging())
+            || !ctx.input(|i| {
+                i.pointer.primary_down()
+                    && (i.pointer.is_decidedly_dragging()
+                        // Egui excludes the press frame even when coalesced motion
+                        // has already crossed its click-distance threshold.
+                        || (i.pointer.primary_pressed()
+                            && !i.pointer.could_any_button_be_click()))
+            })
         {
             return response;
         }
@@ -41,7 +48,9 @@ impl SlateApp {
                     || self.arrow_size_handle_under(p)
                     || (self.board_tool == BoardTool::Select
                         && !self.curve_subselect_under(p)
-                        && self.tiny_body_owns_pointer(p).is_some()))
+                        && (self.tiny_body_owns_pointer(p).is_some()
+                            || (ctx.layer_id_at(p) == Some(ui.layer_id())
+                                && self.transform_hit_at(p).is_some()))))
         });
         if owns_origin && ctx.dragged_id() != Some(response.id) {
             ctx.set_dragged_id(response.id);

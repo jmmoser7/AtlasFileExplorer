@@ -186,6 +186,10 @@ impl SlateApp {
     /// Keys the focused page is allowed to hear. Esc is Slate's, always: it is
     /// how focus is peeled back off the page (D22).
     fn web_keyboard_events(&self, ui: &egui::Ui) -> Vec<WebInput> {
+        // A Slate TextEdit keeps keyboard ownership after its popup is left.
+        if ui.ctx().wants_keyboard_input() {
+            return Vec::new();
+        }
         let mut events = Vec::new();
         ui.input(|i| {
             for event in &i.events {

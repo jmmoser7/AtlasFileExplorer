@@ -445,7 +445,9 @@ impl SlateApp {
                     ui.label("Loading models…");
                 }
             });
-        atlas_shell::menu_wheel::claim(ui.ctx(), ui.min_rect());
+        if !ui.is_sizing_pass() {
+            atlas_shell::menu_wheel::claim(ui.ctx(), ui.min_rect());
+        }
         chosen
     }
     /// A generator or text block switches engine or model. Its runtime link is

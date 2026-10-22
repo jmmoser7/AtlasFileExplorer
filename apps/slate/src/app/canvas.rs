@@ -1,10 +1,49 @@
 use super::SlateApp;
 use eframe::egui::{self, Pos2, Rect};
 
-const ZOOM_MIN: f32 = atlas_core::display::SLATE_CANVAS.min;
-const ZOOM_MAX: f32 = atlas_core::display::SLATE_CANVAS.max;
-
 impl SlateApp {
+    /// Wheel events carry the modifier state at the notch, which can differ
+    /// from the frame snapshot when the chord and wheel arrive together.
+    pub(crate) fn board_wheel_input(input: &egui::InputState) -> (f32, bool) {
+        let modifiers = input
+            .events
+            .iter()
+            .rev()
+            .find_map(|event| match event {
+                egui::Event::MouseWheel { modifiers, .. } => Some(*modifiers),
+                _ => None,
+            })
+            .unwrap_or(input.modifiers);
+        // egui routes modified wheel input into its separate zoom stream;
+        // normal wheel input uses smoothing. Never add the same stream twice.
+        let delta = if modifiers.ctrl || modifiers.command || modifiers.mac_cmd {
+            input.raw_scroll_delta
+        } else {
+            input.smooth_scroll_delta
+        };
+        (
+            if modifiers.shift {
+                delta.x + delta.y
+            } else {
+                delta.y
+            },
+            modifiers.shift,
+        )
+    }
+
+    pub(crate) fn zoom_profile_for_view(
+        view: slate_doc::ViewKind,
+    ) -> atlas_core::display::ZoomProfile {
+        if view == slate_doc::ViewKind::Board {
+            atlas_core::display::SLATE_BOARD
+        } else {
+            atlas_core::display::SLATE_CANVAS
+        }
+    }
+
+    pub(crate) fn canvas_zoom_profile(&self) -> atlas_core::display::ZoomProfile {
+        Self::zoom_profile_for_view(self.doc().view.active_view)
+    }
     pub(crate) fn board_turbo_pan(
         &mut self,
         ctx: &egui::Context,
@@ -37,10 +76,11 @@ impl SlateApp {
 
     pub(crate) fn fit_view(&mut self, bounds: Rect) {
         let canvas = self.canvas_rect;
-        let z = ((canvas.width() / bounds.width().max(1.0))
-            .min(canvas.height() / bounds.height().max(1.0))
-            * 0.92)
-            .clamp(ZOOM_MIN, ZOOM_MAX);
+        let z = self.canvas_zoom_profile().clamp(
+            (canvas.width() / bounds.width().max(1.0))
+                .min(canvas.height() / bounds.height().max(1.0))
+                * 0.92,
+        );
         let cam = &mut self.tab_mut().cam;
         cam.z = z;
         cam.offset = bounds.center().to_vec2();
@@ -48,8 +88,9 @@ impl SlateApp {
 
     pub(crate) fn zoom_at(&mut self, pointer: Pos2, factor: f32) {
         let world_before = self.screen_to_world(pointer);
+        let profile = self.canvas_zoom_profile();
         let cam = &mut self.tab_mut().cam;
-        cam.z = (cam.z * factor).clamp(ZOOM_MIN, ZOOM_MAX);
+        cam.z = profile.clamp(cam.z * factor);
         let cam_z = cam.z;
         let center = self.canvas_rect.center();
         self.tab_mut().cam.offset = world_before.to_vec2() - (pointer - center) / cam_z;

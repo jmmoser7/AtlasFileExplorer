@@ -32,6 +32,11 @@ pub(super) fn commands(
         prepare::dimension(args, "height")?,
     );
     let train = command == "board.objects.create_train";
+    let (aspect, count) = if train {
+        (None, None)
+    } else {
+        image_options(args)?
+    };
     let provider = match args.get("provider") {
         Some(value) => value
             .as_str()
@@ -76,6 +81,12 @@ pub(super) fn commands(
         agent.model = (!model.is_empty()).then_some(model);
         agent.instruction = prompt;
         agent.live = false;
+        if let Some(aspect) = aspect {
+            agent.image.aspect = aspect;
+        }
+        if let Some(count) = count {
+            agent.image.count = count;
+        }
     }
     if !title.is_empty() {
         if let NodeKind::Portal(portal) = &mut node.kind {
@@ -83,6 +94,30 @@ pub(super) fn commands(
         }
     }
     additions(app, vec![node], Vec::new())
+}
+
+pub(super) fn image_options(
+    args: &Value,
+) -> Result<(Option<atlas_agent::Aspect>, Option<u8>), String> {
+    let aspect = args
+        .get("aspect")
+        .map(|value| {
+            serde_json::from_value::<atlas_agent::Aspect>(value.clone()).map_err(|_| {
+                "Aspect must be source, square, landscape, portrait, or wide".to_owned()
+            })
+        })
+        .transpose()?;
+    let count = args
+        .get("count")
+        .map(|value| {
+            value
+                .as_u64()
+                .filter(|count| (1..=8).contains(count))
+                .map(|count| count as u8)
+                .ok_or_else(|| "Image count must be an integer from 1 to 8".to_owned())
+        })
+        .transpose()?;
+    Ok((aspect, count))
 }
 
 fn place_images(

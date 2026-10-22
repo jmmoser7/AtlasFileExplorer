@@ -475,5 +475,8 @@ fn zero_roster_ui_adds_a_local_collaborator_and_delivers_its_first_scoped_messag
     assert!(c.draft.is_empty());
     let a = &h.app.presence.agents[0];
     assert!(a.runtime.is_none() && a.cursor.is_none() && a.launched.is_empty());
+    // The selectable transcript creates a child Area for each message. Let
+    // its first sizing pass settle before asserting the visible text shape.
+    let _ = h.frame_output(|_| {});
     has(&h.frame_output(|_| {}), message);
 }

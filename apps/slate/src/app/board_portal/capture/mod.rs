@@ -179,7 +179,7 @@ impl SlateApp {
         self.doc().scene.node(node).is_some_and(|node| {
             matches!(node.kind, NodeKind::Portal(_)) || {
                 let angle = node.rotation_deg.rem_euclid(360.0);
-                angle.is_finite() && (angle < 0.001 || angle > 359.999)
+                angle.is_finite() && !(0.001..=359.999).contains(&angle)
             }
         })
     }

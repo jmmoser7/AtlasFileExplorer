@@ -9,7 +9,6 @@ fn hover_grip(h: &mut Harness, kind: &str) -> egui::CursorIcon {
     h.app.set_board_tool(board::BoardTool::Select);
     h.app.board_sel.clear();
     h.frame();
-    let xf = h.app.board_xf();
     let node = h
         .app
         .doc()
@@ -20,16 +19,29 @@ fn hover_grip(h: &mut Harness, kind: &str) -> egui::CursorIcon {
         .find(|n| !matches!(n.kind, NodeKind::Connector(_)))
         .unwrap()
         .clone();
+    let focus = h.app.world_to_screen(Pos2::from(node.rect.center()));
+    assert!(
+        h.app.canvas_rect.contains(focus),
+        "{kind} host-center fixture must be visible"
+    );
+    let projected = node.rect.w.min(node.rect.h) * h.app.tab().cam.z;
+    h.app.zoom_at(focus, (96.0 / projected).max(1.0));
+    h.frame();
+    let xf = h.app.board_xf();
+    let node = h.app.doc().scene.node(node.id).unwrap().clone();
     assert!(
         board_wire::wire_ports_fit(node.rect, xf.z),
         "{kind} fixture must offer eligible wire ports: {:?}",
         node.rect
     );
-    let point = h
+    let port = h
         .app
         .wire_host(&node)
-        .anchor(slate_doc::scene::Side::Right, 0.5);
-    let grip = xf.w2s(Pos2::new(point[0], point[1]));
+        .ports()
+        .into_iter()
+        .find(|port| port.side == slate_doc::scene::Side::Right)
+        .unwrap_or_else(|| panic!("{kind} fixture must offer a right output port"));
+    let grip = xf.w2s(Pos2::from(port.point));
     // egui reports the canvas hovered from the second frame the pointer is over it.
     h.frame_with(pointer_to(grip, false));
     let icon = h
@@ -51,15 +63,14 @@ fn wire_grab_zone_uses_a_grab_cursor_on_every_node_kind() {
     assert_eq!(hover_grip(&mut h, "rectangle"), egui::CursorIcon::Grab);
 
     let mut h = web_board("wire_cursor_text");
-    // The authored 40-unit host is eligible at 1:1, not the default 0.8x.
-    h.app.tab_mut().cam.z = 1.0;
+    // The helper zooms each authored host to a relevant projected footprint.
     let node = h.app.doc_mut().scene.build_node(
         slate_doc::scene::WorldRect::new(0.0, 0.0, 160.0, 40.0),
         NodeKind::Text(slate_doc::scene::TextNode {
             text: "Hello".into(),
             style: Default::default(),
             family: Default::default(),
-            // Keep its measured line above the short-host suppression floor.
+            // Exercise a readable measured line as well as the frame.
             size: 64.0,
             color: slate_doc::scene::Rgba::BLACK,
             align: Default::default(),

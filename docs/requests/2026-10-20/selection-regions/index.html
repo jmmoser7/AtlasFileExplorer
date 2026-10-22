@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Slate selection regions — native acceptance</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="acceptance.cases.js"></script>
+  <script defer src="acceptance.js"></script>
+</head>
+<body>
+<main>
+  <header>
+    <p class="eyebrow">Slate · 20 October 2026 · native acceptance</p>
+    <h1>Do the selection regions work in the full app?</h1>
+    <p>Compare the delivered Slate build with the sandbox you approved. Test the whole action, including the result at rest, and record anything that feels harder or chooses the wrong object.</p>
+    <p class="small">Every new run starts Untested. Sandbox approval, source review, automated checks, and a successful build do not fill in native results.</p>
+  </header>
+
+  <details id="context-panel" open>
+    <summary>Identify this build and test session <span id="context-label"></span></summary>
+    <form id="context-form">
+      <div class="fields">
+        <label>Evaluator<input name="evaluator" autocomplete="name" required></label>
+        <label>Evaluation type<select name="evaluatorType"><option value="user">User acceptance</option><option value="native-evaluator">Native evaluator observation</option></select></label>
+        <label>Run label<input name="label" required></label>
+        <label>Version / release ID<input name="version" required placeholder="The running app's version; unknown if blocked"></label>
+        <label class="wide">Full path of the running Slate executable<input name="binaryPath" required spellcheck="false" placeholder="C:\…\slate.exe; unknown if blocked"></label>
+        <label class="wide">Executable SHA-256<input name="sha256" required pattern="[a-fA-F0-9]{64}|unknown" spellcheck="false" placeholder="64 hexadecimal characters, or unknown if unavailable"></label>
+        <label>Executable last-write time<input name="binaryModified" placeholder="Include time zone, or say unknown"></label>
+        <label>Build / source revision, if known<input name="sourceRevision" spellcheck="false" placeholder="A source revision alone does not identify the binary"></label>
+        <label class="wide">Disposable workbook and sample identity<textarea name="workbook" rows="2" required placeholder="Workbook path/name; shapes, images and portals used. Never overwrite your working document."></textarea></label>
+        <label class="wide">Display / input context<textarea name="environment" rows="2" required placeholder="Windows display scaling, theme, mouse/pen, start zoom and zoom range tested"></textarea></label>
+      </div>
+      <label class="confirmation"><input name="identityConfirmed" type="checkbox"> I verified that the app I am testing is the executable identified above.</label>
+      <p class="small">If the build cannot run or its identity is unavailable, leave confirmation clear and record Blocked or Fail. A native Pass requires confirmed identity, a SHA-256, every expected result passing, and a note or evidence reference.</p>
+      <button id="begin" type="submit">Begin this run</button>
+    </form>
+    <p id="context-locked" class="small" hidden>Build context is locked. New build / new run preserves this record and creates fresh Untested cases.</p>
+  </details>
+
+  <nav class="toolbar" aria-label="Acceptance actions">
+    <button id="new-run" type="button">New build / new run</button>
+    <label>Saved run<select id="saved-runs"></select></label>
+    <button id="export" type="button">Export results JSON</button>
+    <button id="restore-toggle" type="button">Restore results</button>
+    <button id="print" type="button">Print checklist</button>
+  </nav>
+  <p id="message" role="status" aria-live="polite"></p>
+  <section id="restore-panel" hidden>
+    <label>Paste a previously exported results file<textarea id="restore-text" rows="6" spellcheck="false"></textarea></label>
+    <button id="restore" type="button">Add restored runs</button>
+  </section>
+  <section id="export-panel" hidden>
+    <label>Portable results — copy this if the download does not open<textarea id="export-text" rows="8" readonly spellcheck="false"></textarea></label>
+  </section>
+
+  <section class="guide">
+    <h2>What to judge</h2>
+    <p>Use a disposable workbook and reuse it across the nine paths. Mark each expected result independently. A single failed clause fails its path. Blocked, incomplete and Untested paths stay open; describe the missing step instead of substituting a source assertion.</p>
+    <p>For each path, note the actual object/action chosen, zoom and pointer location when relevant. Capture the failed or surprising state, plus the committed result. Evidence fields accept screenshot/video/log paths or filenames; this page does not read or upload those files.</p>
+    <p class="small">A native evaluator's Pass records an interactive observation. User acceptance is recorded separately by selecting User acceptance for the run. This page never archives reports or declares the batch resolved.</p>
+    <p class="small">Source: <a href="../../../keymap/contracts/selection-hit-regions.md">agreed contract GP1–GP9</a> and <a href="../../../../feedback/README.md#resolution-and-interactive-acceptance">feedback acceptance policy</a>. Current changes are GP1–GP7; GP8–GP9 protect adjacent native behavior.</p>
+  </section>
+  <section id="totals" aria-label="Run results"></section>
+  <div class="filters">
+    <label>Show<select id="filter"><option value="all">All nine paths</option><option value="current">Current changes · GP1–GP7</option><option value="regression">Adjacent regressions · GP8–GP9</option><option value="open">Open paths</option></select></label>
+    <button id="expand" type="button">Expand all paths</button>
+  </div>
+  <div id="cases"></div>
+
+  <section>
+    <h2>Anything else that failed?</h2>
+    <label>Unexpected behavior, steps, expected versus actual, and evidence<textarea id="additional" rows="4" placeholder="Record concerns even when they do not fit a path above."></textarea></label>
+  </section>
+  <footer><p>Results save in this browser when storage is available. Export JSON before closing the session or changing browsers. No external dependencies, network requests, telemetry, or uploads.</p></footer>
+  <noscript><p>JavaScript is required to save results. This document records native evaluation; it does not launch Slate.</p></noscript>
+</main>
+</body>
+</html>

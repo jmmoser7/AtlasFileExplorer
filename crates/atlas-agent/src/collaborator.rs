@@ -5,6 +5,10 @@ use serde_json::Value;
 pub const MAX_BOARD_MESSAGE_BYTES: u64 = 65_536;
 pub const MAX_BOARD_TARGETS: usize = 64;
 pub const MAX_BOARD_CALLS: usize = 128;
+/// Per-request action ceiling. Queue/backlog capacity remains `MAX_BOARD_CALLS`.
+pub const MAX_TASK_ACTIONS: u16 = 4096;
+pub const DEFAULT_TASK_ACTIONS: u16 = MAX_TASK_ACTIONS;
+pub const MAX_HELPER_TASK_ACTIONS: u16 = 32;
 pub const BOARD_LINK_MARKER: &str = "\n\nSlate board collaborator:\n";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,7 +63,7 @@ impl CollaboratorGrant {
             || self.commands.len() > 128
             || self.conversation_ids.len() > 128
             || self.helper_limit > 8
-            || !(1..=128).contains(&self.max_actions)
+            || !(1..=MAX_TASK_ACTIONS).contains(&self.max_actions)
             || self
                 .readable_nodes
                 .iter()
@@ -95,7 +99,7 @@ impl CollaboratorGrant {
             return Err("Board session or request is no longer current.");
         }
         if call.sequence >= u64::from(self.max_actions) {
-            return Err("This collaborator's task action budget is exhausted.");
+            return Err("Task action budget exhausted; send Continue for a fresh task budget.");
         }
         match &call.operation {
             BoardOperation::Read { node_ids, .. } => {
@@ -174,6 +178,15 @@ pub enum BoardOperation {
         offset: usize,
         #[serde(default = "default_participant_limit")]
         limit: usize,
+        /// Independent UTF-8 byte cursor into one retained helper result.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text_cursor: Option<usize>,
+        /// UTF-8 page size in bytes (4–4096).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text_limit: Option<usize>,
+        /// Retained helper request identity for continuation pages.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text_generation: Option<String>,
     },
     Invoke {
         command: String,
@@ -187,7 +200,10 @@ pub enum BoardOperation {
 impl BoardCall {
     pub fn validate(&self) -> Result<(), &'static str> {
         self.session.validate()?;
-        if !valid_call_id(&self.id) || !valid_id(&self.request_id) || self.sequence >= 128 {
+        if !valid_call_id(&self.id)
+            || !valid_id(&self.request_id)
+            || self.sequence >= u64::from(MAX_TASK_ACTIONS)
+        {
             return Err("Invalid board call identity or action budget.");
         }
         let targets = match &self.operation {
@@ -205,9 +221,23 @@ impl BoardCall {
                 participant_ids,
                 offset,
                 limit,
+                text_cursor,
+                text_limit,
+                text_generation,
             } => {
                 if *offset > 1_000_000 || !(1..=8).contains(limit) {
                     return Err("Participant read pagination exceeds protocol limits.");
+                }
+                if (text_cursor.is_some() || text_limit.is_some() || text_generation.is_some())
+                    && (participant_ids.len() != 1
+                        || text_cursor.unwrap_or_default() > 1_000_000
+                        || !(4..=4096).contains(&text_limit.unwrap_or(4096))
+                        || text_generation.is_none()
+                        || text_generation.as_deref().is_some_and(|id| !valid_id(id)))
+                {
+                    return Err(
+                            "Participant text pages require one participant and valid UTF-8 cursor fields.",
+                        );
                 }
                 participant_ids
             }
@@ -289,6 +319,7 @@ pub fn board_link_guide(request: &crate::AgentRequest, dir: &str) -> String {
     };
     let profile = include_str!("../../../docs/agent/cursor-sidecar/board-link-v1.md");
     let profile = profile
+        .replace("{{max_actions}}", &MAX_TASK_ACTIONS.to_string())
         .replace(
             "{{session}}",
             &serde_json::to_string(link).unwrap_or_default(),

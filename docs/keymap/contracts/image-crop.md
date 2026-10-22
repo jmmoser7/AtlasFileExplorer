@@ -11,18 +11,18 @@ Inherits: P0.* (all), P1.node, P1.shape.properties
 | ID | Dimension | Agreed behavior | Source | Conf |
 |----|-----------|-----------------|--------|------|
 | D01 | Initiation & arming | Crop lives in the Corners squircle, with the fillet. The panel shows Fillet/Chamfer and an Off/Crop control. Off/Crop is packed into the one Corners capsule, leading Fillet/Chamfer, the slider and %/u: the capsule and slider keep their sizes and the three toggle capsules scale by one factor to fit (`selection_tools::corner_layout`; user finding, 26 September 2026). Crop turns the mode on for every selected croppable image. C and double-click still enter that same mode. 3D, text cards, and workbooks stay ineligible. | stated | 100 |
-| D02 | Stickiness & repeat | Crop stays on until Off is chosen in the Corners panel, Enter, Esc, or a tool other than Select. It is not a sticky drawing tool. A finished crop gesture joins repeat-last (P0.4): afterwards, a Space tap or Enter while idle re-enters crop mode on whatever image is selected then, however crop was first entered. | stated | 100 |
+| D02 | Stickiness & repeat | Crop stays on until Enter, Esc, or a tool other than Select. Selection is retained; the property squircle/notch menu is hidden during crop. A finished crop gesture joins repeat-last (P0.4): afterwards, a Space tap or Enter while idle re-enters crop mode on whatever image is selected then, however crop was first entered. | stated | 100 |
 | D03 | Gesture grammar | Ordinary image edge cropping retains existing frame semantics. Inside-crop dragging pans pixels behind the window. A closed-shape image fill keeps its exact clip, holes, frame, rotation and stroke fixed; crop grips scale the source uniformly at or above minimum cover. Double-click enters the same crop mode, with dim ghost pixels outside the mask. | stated | 100 |
 | D04 | Click vs drag | A press that travels less than draft.drag_threshold (4 screen px) does not clip. The Off/Crop control is a click and never starts a board drag or a marquee. | pattern | 90 |
 | D05 | Modifiers | No extra modifier. Shift does not lock aspect. The multi-selection itself is what copies the crop. Alt-drag still duplicates nodes and does not start a crop. | guess | 55 |
 | D06 | Constraints & snapping | F8, F9, and object snap do not move a crop edge. The window stays inside the uncropped picture and cannot shrink below MIN_CROP_WORLD (8 world units) or 5% of the source on either axis. | precedent | 85 |
 | D07 | Direction / value locks | n/a. Tab does not lock a crop edge. | pattern | 85 |
 | D08 | Numeric / manual entry | n/a in this pass. There is no typed crop inset. The Corners capsule still edits the fillet. | guess | 50 |
-| D09 | Preview & readouts | Crop brackets and bars remain live; full-picture ghost extends outside the crop window. A crop handle or image-body press reaches the crop gesture immediately and retains selection/palette. Shape-fill crop shows content grips independently of the fixed mask. | stated | 100 |
-| D10 | Cursor | Hit zones are screen-space and never smaller than HIT_SLOP_PX (8), like other board handles (canvas_scale::hit_px). A corner is a disc of radius CROP_ARM_PX + CROP_HIT_PAD_PX (16 at 1:1) around the corner point. An edge is a band of half-width CROP_BAR_THICK_PX / 2 + CROP_HIT_PAD_PX (6.5, floored to 8) along the whole side, not only the painted bar. Both reach outside the box. Hovering a zone shows its cursor: left and right use the horizontal resize cursor, top and bottom the vertical, corners the diagonals. | stated | 100 |
+| D09 | Preview & readouts | Crop brackets and bars remain live; full-picture ghost extends outside the crop window. A crop handle or image-body press reaches the crop gesture immediately and retains selection. While crop is active, squircle and notch menus, their temporary image cutout, and their hit regions are suppressed immediately. Shape-fill crop shows content grips independently of the fixed mask. | stated | 100 |
+| D10 | Cursor | Hit zones use canvas_scale::hit_px with the ordinary 8px floor. Corners use CROP_ARM_PX + CROP_HIT_PAD_PX; edges use CROP_BAR_THICK_PX / 2 + CROP_HIT_PAD_PX along the full side. On a small screen-space host, paint and hit reach shrink together so neighboring handles remain distinct and the interior remains available for content panning. Hovering each handle shows its resize cursor. | stated | 100 |
 | D11 | Commit | Pointer-up writes one journal group: the grabbed image's new frame and Crop, and the same Crop on every other selected croppable image, each frame resized so its own picture stays put. An unchanged drag adds no undo step. Undo restores every image in that group. Every path that sends this image to an agent uses only the visible crop window. The hidden part of the source file is omitted. | stated | 100 |
 | D12 | Cancel | Esc during a drag restores the gesture-start frames and crops and leaves crop mode on. Esc or Enter with no drag exits crop mode and keeps the last committed crop. The Corners fillet is untouched. | precedent | 85 |
-| D13 | Selected presentation | Crop on paints Photoshop crop chrome: a white corner bracket on each corner and a short white bar across the middle of each side, each with a dark edge. Ordinary resize handles hide on those images until crop turns off. The fillet stays in the same Corners squircle. | stated | 100 |
+| D13 | Selected presentation | Crop on paints white corner brackets and short white edge bars, each with a dark edge. Ordinary resize handles and property squircle/notch menus hide until crop turns off. Crop paint and hit sizes adapt together on small images; the Corners entry returns after exiting crop. | stated | 100 |
 | D14 | Post-edit | Crop persists through save and export. Dropping an image into a closed rectangle, ellipse, polygon or closed path replaces its fill with a linked image at centered minimum cover, retaining exact mask/holes, outline, transform and shape text. Source layers and filters travel with the image. Ordinary move consumes the source; Alt retains it. One undo restores both. | stated | 100 |
 | D15 | Non-goals | No rule-of-thirds, rotate-to-straighten or destructive pixel deletion. Pixel pan and independent scale behind a fixed closed-shape mask are in scope. | stated | 100 |
 | D16 | Create-style inheritance | n/a. Crop does not read or write BoardLastStyle. | pattern | 90 |
@@ -36,7 +36,7 @@ Inherits: P0.* (all), P1.node, P1.shape.properties
 | `CROP_BAR_LEN_PX` | Edge bar length, screen px | `18` |
 | `CROP_BAR_THICK_PX` | Edge bar thickness, screen px | `5` |
 | `CROP_HIT_PAD_PX` | Hit reach beyond the corner arm and the bar half-thickness | `4` |
-| `HIT_SLOP_PX` | Floor on every handle hit zone, screen px (`canvas_scale::hit_px`) | `8` |
+| `HIT_SLOP_PX` | Ordinary floor on handle hit zones; tiny hosts shrink paint and hits together, screen px (`canvas_scale::hit_px`) | `8` |
 | `MIN_CROP_WORLD` | Smallest crop window, world units | `8` |
 
 ## Golden paths
@@ -48,6 +48,7 @@ Inherits: P0.* (all), P1.node, P1.shape.properties
 5. GP5: Turn Crop on in the Corners squircle and press a bar at once, with no hover first. That first press grabs it.
 6. GP6: Select three images, turn Crop on, drag one side. All three stay in crop mode through the drag and release writes one journal group.
 7. GP7: Crop one image, press Esc, select another image, tap Space. Crop mode opens on it.
+8. GP8: Enter crop on a normal image and a tiny fallback image: no squircle/notch paint or hits remain. All eight adaptive handles remain distinct and the center pans pixels. Exit crop and property controls return.
 
 ## Open questions
 

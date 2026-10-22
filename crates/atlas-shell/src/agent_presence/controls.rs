@@ -11,6 +11,10 @@ pub(super) fn show(
     header: Rect,
     actions: &mut Vec<PresenceAction>,
 ) {
+    if p.inactive {
+        state.popover = None;
+        return;
+    }
     let Some(
         popover @ (Popover::Advanced | Popover::Retirement | Popover::Provider | Popover::More),
     ) = state.popover
@@ -318,6 +322,10 @@ fn advanced(
         });
     }
     ui.small("This live session only. Unrelated chats stay outside its scope.");
+    if ui.button("Website access…").clicked() {
+        actions.push(PresenceAction::WebsiteAccessSettings);
+        state.popover = None;
+    }
     ui.separator();
     if ui.button("Copy @identity").clicked() {
         actions.push(PresenceAction::CopyIdentity { id: p.id.into() });

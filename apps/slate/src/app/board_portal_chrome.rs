@@ -6,10 +6,10 @@
 //! journaled (Art. VI.3). On the canvas, tab height and type follow **P0.9**.
 //! Tab painting lives in `atlas-shell::tabs`.
 
-use std::collections::HashSet;
-
+use atlas_core::display::SLATE_BOARD;
 use atlas_shell::{canvas_scale, canvas_text};
 use eframe::egui::{Align2, FontId, Vec2};
+use std::collections::HashSet;
 
 use atlas_shell::tabs::{self, PortalTabAction, PortalTabModel};
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke, StrokeKind};
@@ -235,7 +235,7 @@ pub fn layout_portal_frame(
     zoom: f32,
 ) -> PortalChromeLayout {
     let tokens = portal_frame_tokens();
-    let z = if maximized { 1.0 } else { zoom.max(0.01) };
+    let z = (if maximized { 1.0 } else { zoom }).max(SLATE_BOARD.min);
     let corner = portal_layout_corner(frame_corner, maximized);
     let radius = portal_layout_radius_screen(frame, corner, z, maximized);
     let border = if maximized {
@@ -273,7 +273,7 @@ pub fn layout_portal_chrome(
     zoom: f32,
 ) -> PortalChromeLayout {
     let tokens = portal_frame_tokens();
-    let z = if maximized { 1.0 } else { zoom.max(0.01) };
+    let z = (if maximized { 1.0 } else { zoom }).max(SLATE_BOARD.min);
     let corner = portal_layout_corner(frame_corner, maximized);
     let radius = portal_layout_radius_screen(frame, corner, z, maximized);
     let tab_h = if maximized {
@@ -686,7 +686,7 @@ impl SlateApp {
         layout: &PortalChromeLayout,
         fill: Color32,
     ) {
-        let z = layout.zoom.max(0.01);
+        let z = layout.zoom.max(SLATE_BOARD.min);
         let (chamfer, radius_world) = layout
             .corner
             .effective(layout.frame.width() / z, layout.frame.height() / z);
@@ -695,7 +695,7 @@ impl SlateApp {
         if use_rect {
             painter.rect(layout.frame, radius, fill, Stroke::NONE, StrokeKind::Inside);
         } else {
-            let outline = board::corner_outline(layout.frame, layout.corner, layout.zoom.max(0.01));
+            let outline = board::corner_outline(layout.frame, layout.corner, z);
             board::paint_convex_fan_fill(painter, &outline, fill);
         }
     }
@@ -735,7 +735,7 @@ impl SlateApp {
         focused: bool,
         zoom: f32,
     ) {
-        let z = zoom.max(0.01);
+        let z = zoom.max(SLATE_BOARD.min);
         let stroke_rect = |painter: &egui::Painter, width: f32, color: Color32| {
             let (chamfer, radius_world) = layout
                 .corner
@@ -750,8 +750,7 @@ impl SlateApp {
                     StrokeKind::Middle,
                 );
             } else {
-                let outline =
-                    board::corner_outline(layout.frame, layout.corner, layout.zoom.max(0.01));
+                let outline = board::corner_outline(layout.frame, layout.corner, layout.zoom);
                 painter.add(egui::Shape::closed_line(outline, Stroke::new(width, color)));
             }
         };
@@ -797,7 +796,7 @@ pub(crate) fn maximized_host_rect(kind: PortalKind, node: WorldRect, screen: Rec
     }
 }
 
-fn fit_xf(world: WorldRect, dest: Rect) -> BoardXf {
+pub(crate) fn fit_xf(world: WorldRect, dest: Rect) -> BoardXf {
     let z = (dest.width() / world.w.max(1.0)).min(dest.height() / world.h.max(1.0));
     BoardXf {
         center: dest.center(),

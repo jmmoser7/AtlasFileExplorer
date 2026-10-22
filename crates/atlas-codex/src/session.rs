@@ -226,6 +226,21 @@ pub(super) fn collect_activity(method: &str, params: &Value, session: &mut Agent
     } else {
         start
     };
+    // Expose the observed public command, never its arguments or result payload.
+    let command = (item["type"] == "dynamicToolCall" && item["tool"] == "slate_board_command")
+        .then(|| item.pointer("/arguments/command").and_then(Value::as_str))
+        .flatten()
+        .filter(|name| {
+            !name.is_empty()
+                && name.len() <= 96
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        });
+    let text = match command {
+        Some(command) => format!("{text}: {command}"),
+        None => text.to_owned(),
+    };
     session.record_activity(AgentActivity {
         id: format!("tool:{id}:{}", if completed { "finish" } else { "start" }),
         request: session.request.clone(),
@@ -234,7 +249,7 @@ pub(super) fn collect_activity(method: &str, params: &Value, session: &mut Agent
         } else {
             AgentActivityKind::ToolStarted
         },
-        text: text.into(),
+        text,
         at: super::now(),
         semantics: Some(AgentActivitySemantics::new(if completed && failed {
             AgentActivityAction::Error

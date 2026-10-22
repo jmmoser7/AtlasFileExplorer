@@ -1,0 +1,163 @@
+{
+  "schema": "slate-original-intent-review/v1",
+  "date": "2026-10-19",
+  "requestScale": "moderate",
+  "role": "One bounded independent intent reviewer; original reports and attachment only.",
+  "scope": "Nine imported October 19 bundles reporting Slate 1.0.0-preview.132. No application/source investigation, implementation, Cargo, provider call, native UI, or other-chat action was performed.",
+  "evidenceRules": [
+    "Descriptions and the attachment define requested behavior; recorded commands provide reproduction hints only.",
+    "Stall records do not establish the cause or even reproduce a reported interaction failure.",
+    "All native acceptance remains unperformed by this review. Automated tests cannot be labeled native acceptance.",
+    "October 17 evidence is historical and does not establish these October 19 outcomes."
+  ],
+  "cases": [
+    {
+      "reportId": "110837",
+      "bundle": "2026-10-19_110837-bug-wire-from-origional-immage-shoul",
+      "intent": "An ordinary original image uses the same near-top wire datum as an image in a generated-image chain.",
+      "sourceEvidence": {"recordedCommands": [], "attachment": "00_window-capture.png", "observation": "The left original image's wire leaves around its right-side vertical midpoint and rises to a near-top entry on the right image. The image tops already appear aligned; the receiving image is partly covered by the report window."},
+      "nativeSetup": ["Use an ordinary imported image and a generated-image source as comparison cases, connected to equivalent image targets. Keep card positions fixed and record the viewport scale."],
+      "actions": ["Draw the ordinary image-to-image connection and inspect its source and target anchors against the generated-image chain.", "Move and resize each source and target; inspect the same connection again."],
+      "success": [
+        {"id": "ordinary-datum", "expected": "The ordinary image's output is located at the same top-relative flow datum used by the generated-image comparison, instead of staying at its old vertical midpoint."},
+        {"id": "tracks-geometry", "expected": "The connection remains attached to the intended top-relative datum after moving or resizing either card."},
+        {"id": "same-input", "expected": "The wire still supplies the intended image input; the geometry change does not silently retarget the connection or choose a different image."}
+      ],
+      "adjacentRegressions": ["Generated-to-generated wires keep their existing datum.", "Prompt and Style inputs keep distinct anchors and bindings.", "Creating or moving the wire does not unexpectedly reposition either image card; Undo restores the prior connection or geometry."],
+      "ambiguities": ["Top position has no numeric inset in the report; compare with the existing generated-image flow datum rather than inventing a new offset.", "The text could be read as card alignment in isolation. The attachment supports wire-anchor alignment, not automatically moving the image cards."],
+      "requiredEvidence": "Before/after native viewport captures with ordinary and generated source wires at the same scale; saved connection endpoints when available."
+    },
+    {
+      "reportId": "112946",
+      "bundle": "2026-10-19_112946-bug-in-colapsed-mode-the-play-button",
+      "intent": "The collapsed image-generator Play control actually starts the intended image generation.",
+      "sourceEvidence": {"recordedCommands": ["app.repeat_last"], "attachment": null, "observation": "Recorded stalls and Repeat last do not identify a Play press or its dispatch result."},
+      "nativeSetup": ["Use a configured generator with a valid local image and prompt, an idle state, and the generator dashboard collapsed. Record the exact provider/model, active result, and requested image count."],
+      "actions": ["Click the visible collapsed Play once without first opening the dashboard.", "Observe request acceptance, per-card progress or explicit error, and the resulting image history.", "Compare one run from the expanded editor using the same inputs and settings."],
+      "success": [
+        {"id": "direct-start", "expected": "One click on collapsed Play accepts and starts the intended generator request without requiring the dashboard to be expanded."},
+        {"id": "same-settings", "expected": "The run uses that card's image, prompt and count; completion adds its results to that card's history."},
+        {"id": "feedback", "expected": "The card exposes a clear running/completed/error state. A silent inert click is not success; a provider error or unavailable prerequisite does not pass completed generation."}
+      ],
+      "adjacentRegressions": ["Hovering or changing the nearby image count does not accidentally press Play.", "The expanded editor's existing Play still works.", "Clicking Play does not instead start a card move, select a thumbnail, or open a different tool; normal cancellation/running-state controls remain usable."],
+      "ambiguities": ["Collapsed could mean a closed generator dashboard or a compact card. Record the tested presentation and retain both interpretations if they differ.", "The report does not specify the provider, input wiring, or failing card size; one successful configuration cannot establish every provider or layout."],
+      "requiredEvidence": "Native collapsed-control click and per-card state transition, correlated request/source/settings evidence and completed results; mark provider-blocked coverage separately."
+    },
+    {
+      "reportId": "114206",
+      "bundle": "2026-10-19_114206-bug-seems-to-be-a-bug-when-generaati",
+      "intent": "Two image-generation frames can have overlapping runs without confusing or corrupting one another's inputs, progress, controls or results.",
+      "sourceEvidence": {"recordedCommands": [], "attachment": null, "observation": "The report describes intermittent interference but gives no exact provider, timing, shared-session relationship, or visible symptom."},
+      "nativeSetup": ["Use two separate native-created generator frames with distinguishable local sources and prompts. Record each frame's provider/session, count and active input. Establish that each works alone first."],
+      "actions": ["Start A, then submit B while A is still pending or running; watch both frames through completion.", "Repeat with the start order reversed.", "In a separate overlap attempt, stop one request and observe the other frame."],
+      "success": [
+        {"id": "both-accepted", "expected": "Both submissions remain accounted for. The second is not silently dropped or substituted for the first; any backend queue is shown clearly on the corresponding frame."},
+        {"id": "input-isolation", "expected": "Each request retains its own captured image, prompt, model and count rather than borrowing the other frame's inputs or latest edits."},
+        {"id": "output-isolation", "expected": "Each frame receives only its own requested outputs/history and exposes the status belonging to its own request."},
+        {"id": "control-isolation", "expected": "Stopping or selecting one frame does not stop, redirect, or replace the other frame's active work."}
+      ],
+      "adjacentRegressions": ["Running a single frame remains reliable.", "Repeated runs on one frame preserve its own result history and configured count.", "Board selection, panning and switching between the two cards remain usable while their work overlaps."],
+      "ambiguities": ["Frame may mean an image-generator card or an authored slide frame containing one; start with two generator cards and record containment separately.", "A provider may serialize requests. The report requires reliable independent user flows, not an invented service-level parallelism or throughput guarantee.", "No concrete shared-state cause can be concluded from this description."],
+      "requiredEvidence": "Two overlapping native submissions with correlated frame/session/request IDs, captured input identity and output ownership. Appearance of plausible generated images alone cannot establish isolation."
+    },
+    {
+      "reportId": "115519",
+      "bundle": "2026-10-19_115519-bug-on-first-click-and-drag-of-immag",
+      "intent": "Pressing and dragging an unselected image or ordinary canvas element selects and moves it in the same gesture.",
+      "sourceEvidence": {"recordedCommands": ["app.repeat_last"], "attachment": null, "observation": "The report explicitly contrasts one press-and-drag with selecting first and dragging on a second press."},
+      "nativeSetup": ["Use neutral Select mode and an unselected ordinary image, shape and other supported movable element. Avoid an active crop/paint/text/content-edit gesture when checking ordinary body dragging."],
+      "actions": ["From clear canvas, press the visible body of an unselected object and move the pointer while keeping the same press held; release.", "Repeat while a different object is already selected.", "Click and release without dragging as a comparison; Undo a completed move."],
+      "success": [
+        {"id": "one-press", "expected": "The object begins moving during the initial held press once the normal drag threshold is crossed; a separate selection click is unnecessary."},
+        {"id": "correct-target", "expected": "The object under the initial visible-body press moves rather than the previously selected object."},
+        {"id": "stable-commit", "expected": "Release leaves the intended object at its dragged position and Undo restores the move without an extra phantom move."}
+      ],
+      "adjacentRegressions": ["A stationary click remains a selection action rather than moving the object.", "Shift/Ctrl selection, deliberate resize grips, crop/paint gestures and entered portal/text interactions keep their separate purposes.", "Dragging does not unexpectedly move a whole unrelated selection or change the stacking order."],
+      "ambiguities": ["Element is broad. Record tested node kinds and editing states; this report does not justify stealing gestures from an actively edited text field or entered portal."],
+      "requiredEvidence": "Native continuous press/move/release sequence showing an initially unselected body; record initial selection, target kind and resulting geometry."
+    },
+    {
+      "reportId": "162621",
+      "bundle": "2026-10-19_162621-bug-hit-detection-and-trigers-for-ov",
+      "intent": "Overlapping object picking follows visible front-to-back ownership for both body drags and corner scaling.",
+      "sourceEvidence": {"recordedCommands": [], "attachment": null, "observation": "Two inverse failures are specified: an occluded rear corner steals a front-body interaction, and a visible front corner loses to the rear body."},
+      "nativeSetup": ["Overlap two ordinary rectangular objects so a rear corner lies behind the foreground object's body. Also position a visible foreground corner over the rear object's body. Record which object is selected and the stacking order."],
+      "actions": ["Press and drag the foreground body at the location covering the rear corner, with the rear object selected as one variation.", "Select the foreground object and drag its visible corner over the rear body's footprint.", "Reverse front/back order and repeat the equivalent tests."],
+      "success": [
+        {"id": "hidden-rear-grip", "expected": "An occluded rear corner does not capture a press through the foreground body; the visible foreground object receives its ordinary body interaction."},
+        {"id": "visible-front-grip", "expected": "The visible foreground corner starts scaling the foreground object and does not select or move the background body instead."},
+        {"id": "stack-order", "expected": "Reversing the stacking order reverses ownership consistently with what is visibly in front."}
+      ],
+      "adjacentRegressions": ["An exposed rear-object region remains selectable; this change does not make the entire rear object unreachable.", "Foreground body dragging and visible corner scaling still work for an isolated object.", "Undo restores the correct object's move/scale; no hidden object is modified as a side effect."],
+      "ambiguities": ["The report does not define behavior in transparent pixels or intentionally active editing tools. Test ordinary opaque bodies first and keep transparent/cropped special cases distinct.", "First-click body dragging is related to 115519, but passing it does not prove the visible-corner-versus-rear-body case."],
+      "requiredEvidence": "Native capture of both inverse overlap arrangements, initial selection/stacking order, and which object's geometry changes."
+    },
+    {
+      "reportId": "163137",
+      "bundle": "2026-10-19_163137-bug-on-smaller-objects-there-are-maj",
+      "intent": "Small-object squircle menus, alignment controls and wire targets remain visually separate and independently operable.",
+      "sourceEvidence": {"recordedCommands": ["board.align.middle_v", "board.align.top", "board.align.left", "app.undo", "app.repeat_last"], "attachment": null, "observation": "Alignment commands and Undo are recorded. Their presence and surrounding stalls do not establish which pointer hit zone was wrong."},
+      "nativeSetup": ["Use small selected objects where the squircle tools, alignment widget and a wire affordance can be exposed near one another. Record object size, zoom and whether the selection contains one or several objects."],
+      "actions": ["Hover from each squircle into its menu, then use a menu control.", "Invoke Top, vertical middle and Left alignment from the alignment widget where applicable.", "Start a wire from its visible target and cancel or complete it; repeat with a smaller object and at another zoom."],
+      "success": [
+        {"id": "visual-separation", "expected": "Squircle menus and the alignment widget do not cover one another's visible controls on the tested small objects."},
+        {"id": "alignment-owner", "expected": "Pressing an alignment control invokes the intended alignment without opening a squircle menu or starting a wire."},
+        {"id": "wire-owner", "expected": "Pressing or dragging the visible wire target starts the intended wire action without invoking alignment or a neighboring menu."},
+        {"id": "menu-owner", "expected": "The squircle menu remains reachable and its controls work without accidentally invoking alignment or wiring."}
+      ],
+      "adjacentRegressions": ["Alignment still applies to the intended selected objects and one Undo restores it.", "Normal-size objects keep usable toolbar/alignment/wire placement.", "A menu stays open while the pointer travels into its controls; moving controls apart must not create an unusable hover gap."],
+      "ambiguities": ["No failing object size, exact selection, alignment-widget form, or required numeric spacing is supplied. Preserve a native reproduction instead of assigning arbitrary pixel clearances.", "The issue concerns actual hit zones as well as visible overlap; a screenshot of separated icons alone is insufficient."],
+      "requiredEvidence": "Native pointer interactions with menu, alignment and wire targets on the same small-object arrangement, plus object-size/zoom metadata."
+    },
+    {
+      "reportId": "171417",
+      "bundle": "2026-10-19_171417-bug-crop-mode-needs-to-supress-the-s",
+      "intent": "Crop mode suppresses the image squircle/notch menus and adapts crop controls to very small images.",
+      "sourceEvidence": {"recordedCommands": [], "attachment": null, "observation": "The report contains two requirements: menu suppression during crop and smaller crop controls for constrained hit zones."},
+      "nativeSetup": ["Use an ordinary image that shows a notch/blister toolbar, another using squircles, and a very small image. Record size, zoom and selected crop mode."],
+      "actions": ["Enter crop mode on both toolbar presentations and drag crop edges/corners through positions that previously met menu icons.", "Repeat on the very small image, selecting individual crop controls.", "Commit one crop, cancel another, then exit crop mode and inspect the normal image tools."],
+      "success": [
+        {"id": "menus-suppressed", "expected": "Both squircle and notch/blister image menus are suppressed during crop mode, including their input hit zones; crop drags do not activate their icons."},
+        {"id": "tiny-controls", "expected": "Very small images use visibly smaller crop controls suited to their constrained edges, with the intended individual crop control still distinguishable and usable."},
+        {"id": "crop-works", "expected": "Dragging changes the intended crop edge or corner rather than moving the image, opening another tool, or grabbing an unrelated crop control."},
+        {"id": "exit-restores", "expected": "Committing or cancelling crop exits cleanly and restores the ordinary image menus without leaving invisible controls intercepting input."}
+      ],
+      "adjacentRegressions": ["Ordinary-size crop controls remain usable.", "Cancel restores the prior crop; Undo restores a committed crop.", "Zooming or changing image size while in crop mode does not reintroduce menu collisions or make the crop impossible to finish."],
+      "ambiguities": ["Very small and the amount of shrinking have no numeric specification. Record the actual successful and failing sizes; shrinking artwork alone while retaining colliding hit areas does not satisfy the report.", "Suppressing image toolbars does not itself define whether every right-click context command should be disabled during crop."],
+      "requiredEvidence": "Native crop interaction on both toolbar types and a tiny image, with close view of control sizes and actual drag ownership."
+    },
+    {
+      "reportId": "172108",
+      "bundle": "2026-10-19_172108-bug-right-click-on-all-immages-needs",
+      "intent": "Every ordinary image context menu offers Save image as and lets the person save the selected photo through the Windows file picker.",
+      "sourceEvidence": {"recordedCommands": [], "attachment": null, "observation": "The request names all images and a Save image as action, not merely generated-result thumbnails."},
+      "nativeSetup": ["Use an imported image, pasted/screenshot image and a generated image with several results. Choose a disposable local destination directory and record the selected result before each save."],
+      "actions": ["Select each image in turn, right-click its body and choose Save image as.", "Choose a destination/filename in the Windows save picker; inspect and reopen the saved file.", "Cancel a picker as a separate check; repeat after choosing a different generated result."],
+      "success": [
+        {"id": "all-contexts", "expected": "Save image as is available from each tested image's body context menu, including ordinary imported images; it is not limited to an album thumbnail."},
+        {"id": "native-picker", "expected": "The action opens a usable Windows save-file picker so the person can choose a location and filename."},
+        {"id": "right-photo", "expected": "The saved nonempty image opens successfully and corresponds to the selected photo/result, rather than another album result or previously selected object."},
+        {"id": "cancel", "expected": "Cancelling the picker creates no unwanted saved file and leaves the source image/workbook intact."}
+      ],
+      "adjacentRegressions": ["Existing thumbnail Save as and Copy actions remain usable.", "Changing album selection changes the photo offered for saving.", "Right-click target and selected image agree, or the UI makes any difference clear; saving must not silently target an unrelated object."],
+      "ambiguities": ["Windows file explorer is interpreted as the normal Windows save-file picker, not only opening the current source folder.", "The report does not settle original source bytes versus a flattened edited/cropped image, or required output formats. Record the observed behavior without inventing a new export specification.", "All images includes ordinary raster images and generated results; it does not establish that every video/model/document preview must become a raster export."],
+      "requiredEvidence": "Native body context menus, save picker, and reopened saved files for each tested image category; list any untested categories explicitly."
+    },
+    {
+      "reportId": "172555",
+      "bundle": "2026-10-19_172555-feature-save-immage-as-must-auto-increme",
+      "intent": "Repeated Save image as operations propose or produce incremented filenames that avoid collisions in the destination folder.",
+      "sourceEvidence": {"recordedCommands": [], "attachment": null, "observation": "The requested mechanism is automatic numbering. Duplicate images is ambiguous, but the supplied mechanism addresses name collisions, not detection of identical pixel content."},
+      "nativeSetup": ["Use a disposable destination folder containing the intended base filename and several already numbered siblings with distinguishable contents. Keep those files available for comparison."],
+      "actions": ["Save an image using the normal suggested filename into that folder, then save it again without manually finding a free suffix.", "Repeat with a gap in existing numbered filenames and after saving a different image with the same proposed base name.", "Cancel one save-picker visit, then try saving again."],
+      "success": [
+        {"id": "automatic-number", "expected": "The ordinary save flow automatically advances the filename number when the intended name is already present; the person need not invent a new name for every save."},
+        {"id": "no-collision", "expected": "Each completed save receives an unused filename and preserves all existing files; choosing another image with the same base name also avoids a collision."},
+        {"id": "repeatable", "expected": "Subsequent saves keep choosing usable noncolliding numbered names. Cancelling does not create an empty file or reserve a phantom output."}
+      ],
+      "adjacentRegressions": ["The first save into an empty folder has a sensible usable filename.", "The person can still choose a destination and edit the proposed filename.", "Numbering handles already-numbered stems without dropping the image extension or repeatedly colliding with an existing sibling."],
+      "ambiguities": ["No exact suffix format, starting number, zero padding, or gap-reuse policy is specified. Any predictable incrementing noncolliding sequence can be evaluated without inventing those rules.", "Content-hash deduplication, automatic removal of identical photos, and a new save-management framework are not requested.", "The report does not specify whether an explicitly chosen existing filename may be overwritten after human confirmation; the automatic/default flow must avoid that collision."],
+      "requiredEvidence": "Native repeated Save image as flow and destination-file inventory before/after, showing suggested/final names and preservation of existing files."
+    }
+  ]
+}

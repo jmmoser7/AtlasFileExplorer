@@ -13,7 +13,11 @@ use vector_ink::kurbo::{BezPath, Point};
 use vector_ink::{flatten_contours, point_in_polygon, Polygon};
 
 mod outline;
-pub use outline::node_closed_poly;
+pub(crate) use outline::OutlineCache;
+pub use outline::{
+    node_closed_poly, node_outline_distance, node_outlines_overlap, point_in_node_outline,
+    OutlineQueries,
+};
 
 mod image;
 pub use image::{cover_crop, image_content_rect, shape_image_clip};
@@ -1331,11 +1335,6 @@ pub fn node_stroke_polylines(n: &Node, tolerance: f32) -> Vec<Vec<[f32; 2]>> {
             .collect();
     }
     vec![]
-}
-
-/// Whether world point `p` lies inside the host's visible outline (trim clip when set).
-pub fn point_in_node_outline(host: &Node, px: f32, py: f32, tolerance: f32) -> bool {
-    node_closed_poly(host, tolerance).is_some_and(|poly| point_in_polygon(&poly, [px, py]))
 }
 
 /// Whether any part of `stroke` intersects the host's visible outline.

@@ -2,6 +2,10 @@
 
 use super::*;
 
+mod generation;
+mod loading;
+pub(super) use generation::PosterGeneration;
+
 const MAX_POSTERS: usize = 64;
 /// Combined decoded pixels and GPU RGBA textures, independent of disk cache.
 const POSTER_RESIDENT_BYTES: usize = 128 * 1024 * 1024;
@@ -11,6 +15,7 @@ pub(super) struct Residency {
     entries: HashMap<String, Resident>,
     clock: u64,
     frame: u64,
+    loads: loading::PosterLoads,
 }
 
 struct Resident {
@@ -246,6 +251,7 @@ impl ModelSpace {
     /// Show `img` as the poster `name` from the next paint and write it to
     /// disk off the frame loop (PNG encoding a full poster costs tens of ms).
     pub(super) fn store_poster(&mut self, name: String, path: PathBuf, img: egui::ColorImage) {
+        self.poster_residency.loads.forget_missing(&name);
         let img = Arc::new(img);
         self.cache_poster_pixels(name, img.clone());
         std::thread::spawn(move || save_poster(&path, &img));
@@ -283,19 +289,8 @@ impl SlateApp {
             return None;
         }
         let path = poster_dir().join(&name);
-        let base = self.model3d.cached_poster_pixels(&name).or_else(|| {
-            let img = image::open(&path).ok()?.to_rgba8();
-            let (w, h) = (img.width() as usize, img.height() as usize);
-            let color = Arc::new(egui::ColorImage::from_rgba_unmultiplied(
-                [w, h],
-                img.as_raw(),
-            ));
-            self.model3d
-                .cache_poster_pixels(name.clone(), color.clone());
-            Some(color)
-        });
-        let Some(base) = base else {
-            self.model3d.release_empty_poster(&name);
+        let Some(base) = self.model3d.cached_poster_pixels(&name) else {
+            self.queue_cached_model_poster(ctx, &name, path);
             return None;
         };
         if !self
@@ -366,30 +361,7 @@ impl SlateApp {
             self.model3d.cache_poster_texture(name, tex.clone());
             return Some(tex);
         }
-        let path = enscape_poster_path(cache_key);
-        let Ok((width, height)) = image::image_dimensions(&path) else {
-            self.model3d.release_empty_poster(&name);
-            return None;
-        };
-        if !self
-            .model3d
-            .admit_poster(&name, width as usize * height as usize * 4, frame)
-        {
-            return None;
-        }
-        let Ok(img) = image::open(path) else {
-            self.model3d.release_empty_poster(&name);
-            return None;
-        };
-        let img = img.to_rgba8();
-        let (w, h) = (img.width() as usize, img.height() as usize);
-        let color = egui::ColorImage::from_rgba_unmultiplied([w, h], img.as_raw());
-        let tex = ctx.load_texture(
-            format!("slate-enscape-{name}"),
-            color,
-            egui::TextureOptions::LINEAR,
-        );
-        self.model3d.cache_poster_texture(name, tex.clone());
-        Some(tex)
+        self.queue_cached_model_poster(ctx, &name, enscape_poster_path(cache_key));
+        None
     }
 }

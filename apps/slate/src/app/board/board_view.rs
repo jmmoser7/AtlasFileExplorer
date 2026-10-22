@@ -59,7 +59,7 @@ impl SlateApp {
         let xf = self.board_xf();
         let a = xf.s2w(screen.min);
         let b = xf.s2w(screen.max);
-        let pad = 80.0 / xf.z.max(0.05);
+        let pad = 80.0 / xf.z.max(ZOOM_MIN);
         WorldRect::new(
             a.x.min(b.x) - pad,
             a.y.min(b.y) - pad,

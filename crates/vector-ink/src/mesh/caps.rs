@@ -1,5 +1,6 @@
 //! Tangential round closures for constant and variable-width rails.
 use super::*;
+use crate::geom::MAX_CAP_SLOPE;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn push_cap(
@@ -33,7 +34,7 @@ pub(super) fn push_cap(
             // A circle tangent to y = half + slope*x is centred at
             // x = half*slope and has radius half*sqrt(1+slope²). Keeping
             // the contact at the endpoint preserves the authored width.
-            let slope = slope.clamp(-8.0, 8.0);
+            let slope = slope.clamp(-MAX_CAP_SLOPE, MAX_CAP_SLOPE);
             let radius = half * (1.0 + slope * slope).sqrt();
             let center = add(pos, scale(tangent, half * slope));
             let contact = std::f32::consts::FRAC_PI_2 + slope.atan();

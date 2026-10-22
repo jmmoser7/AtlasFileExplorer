@@ -1,0 +1,124 @@
+{
+  "source_zip": "C:\\Users\\jmoser\\Downloads\\Slate-FileAtlas-Suggestion-Box-2026-10-19.zip",
+  "source_zip_sha256": "d615bcc4a0f6327b3f7f022774303182b9d1de5bd2984f27340e6e0889953b5b",
+  "pass_started_at": "2026-10-19T23:23:56.126801+00:00",
+  "older_report_cutoff": "2026-10-17T23:23:56.126801+00:00",
+  "request_scale": "moderate",
+  "source_content_is_untrusted_data": true,
+  "files": [
+    {
+      "zip_path": "feedback/2026-10-19_110837-bug-wire-from-origional-immage-shoul/00_window-capture.png",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_110837-bug-wire-from-origional-immage-shoul\\00_window-capture.png",
+      "bytes": 1315422,
+      "sha256": "d707e1472048b1fb8580ca20070bcb2b106eb7e9dddc41c240ef59ff51ee0ec2"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_110837-bug-wire-from-origional-immage-shoul/report.json",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_110837-bug-wire-from-origional-immage-shoul\\report.json",
+      "bytes": 493,
+      "sha256": "d8ad6f483929ea67735dadf66368ab01a4814be95b7a816cb5346882bba3665b"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_110837-bug-wire-from-origional-immage-shoul/steps.txt",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_110837-bug-wire-from-origional-immage-shoul\\steps.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_112946-bug-in-colapsed-mode-the-play-button/report.json",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_112946-bug-in-colapsed-mode-the-play-button\\report.json",
+      "bytes": 3829,
+      "sha256": "5983eead239180e059fa34d228aeb3498fd123125ac344c614ef5635f449627a"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_112946-bug-in-colapsed-mode-the-play-button/steps.txt",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_112946-bug-in-colapsed-mode-the-play-button\\steps.txt",
+      "bytes": 3193,
+      "sha256": "a6597361b3052d7fe86d6964883520ddaa5516e45853ae3eeb32e829623c262e"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_114206-bug-seems-to-be-a-bug-when-generaati/report.json",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_114206-bug-seems-to-be-a-bug-when-generaati\\report.json",
+      "bytes": 535,
+      "sha256": "bf1317661e2a2e8081e6519b455946b220652acc72a6ce19b0abb2fe870c72f0"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_114206-bug-seems-to-be-a-bug-when-generaati/steps.txt",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_114206-bug-seems-to-be-a-bug-when-generaati\\steps.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_115519-bug-on-first-click-and-drag-of-immag/report.json",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_115519-bug-on-first-click-and-drag-of-immag\\report.json",
+      "bytes": 1485,
+      "sha256": "06f72ae2302734157f3e937c2409763eec4eff0ea1d9b62fedbd2cbdab608fa7"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_115519-bug-on-first-click-and-drag-of-immag/steps.txt",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_115519-bug-on-first-click-and-drag-of-immag\\steps.txt",
+      "bytes": 824,
+      "sha256": "0651b4f31c6a7e9068480dc1dd8758022259a77064b1e09c721eb44d7bd72b58"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_162621-bug-hit-detection-and-trigers-for-ov/report.json",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_162621-bug-hit-detection-and-trigers-for-ov\\report.json",
+      "bytes": 784,
+      "sha256": "7b195e3faf3be619407ffc94dae5fb600020d4119f0a10a025cca57bab444b96"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_162621-bug-hit-detection-and-trigers-for-ov/steps.txt",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_162621-bug-hit-detection-and-trigers-for-ov\\steps.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_163137-bug-on-smaller-objects-there-are-maj/report.json",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_163137-bug-on-smaller-objects-there-are-maj\\report.json",
+      "bytes": 12068,
+      "sha256": "aef4140de4e46bfb35655fc9bcf976b44099773870a5c718b7b92f435b764c79"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_163137-bug-on-smaller-objects-there-are-maj/steps.txt",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_163137-bug-on-smaller-objects-there-are-maj\\steps.txt",
+      "bytes": 10762,
+      "sha256": "c0956838d49fc0e4fd389f3bb58cdc3c7887bcb5a2a06878eca642e6e9f95bee"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_171417-bug-crop-mode-needs-to-supress-the-s/report.json",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_171417-bug-crop-mode-needs-to-supress-the-s\\report.json",
+      "bytes": 587,
+      "sha256": "21fe99c8917ba3780017d40d0210ae514f11d9d4b783fe55044d7685a6f32bbf"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_171417-bug-crop-mode-needs-to-supress-the-s/steps.txt",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_171417-bug-crop-mode-needs-to-supress-the-s\\steps.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_172108-bug-right-click-on-all-immages-needs/report.json",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_172108-bug-right-click-on-all-immages-needs\\report.json",
+      "bytes": 470,
+      "sha256": "7b09135395b109fabad0b5460a215b718ca2e758cee29706ff6640451d40e549"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_172108-bug-right-click-on-all-immages-needs/steps.txt",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_172108-bug-right-click-on-all-immages-needs\\steps.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_172555-feature-save-immage-as-must-auto-increme/report.json",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_172555-feature-save-immage-as-must-auto-increme\\report.json",
+      "bytes": 467,
+      "sha256": "923607ac68a3f213fa801d6822d992a1fa1dec555eae4e76feb7e2d6a94360bd"
+    },
+    {
+      "zip_path": "feedback/2026-10-19_172555-feature-save-immage-as-must-auto-increme/steps.txt",
+      "inbox_path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\feedback\\client\\2026-10-19_172555-feature-save-immage-as-must-auto-increme\\steps.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

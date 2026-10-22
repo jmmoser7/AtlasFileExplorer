@@ -6,8 +6,7 @@
 //! through [`SlateApp::dispatch`] — the same entry the canvas palette, the
 //! dock toggles, and the menu bar use, so every input modality drives one
 //! command surface (Constitution Art. VII/VIII). Every dispatched command
-//! pushes a [`HistoryEntry`] (the F2 window's data and the Space/Enter
-//! repeat source).
+//! pushes a [`HistoryEntry`] for F2 and Space/Enter repeat.
 //!
 //! Specially handled (not chord table rows): Space-tap / Enter-idle repeat,
 //! the Esc cancel stack ([`atlas_commands::cancel_target`]), Tab cycling,
@@ -118,6 +117,9 @@ impl SlateApp {
             "board.open_location" => self.open_selected_file_location(),
             "board.tags.add" => self.dispatch_tag_add(detail.as_deref()),
             "board.tags.visibility" => self.dispatch_tag_visibility(detail.as_deref()),
+            "board.tags.create" | "board.tags.assign" | "board.tags.unassign" => {
+                return self.dispatch_targeted_human_with_context(ctx, id.0, detail.as_deref());
+            }
             "portal.agent.run" => self.dispatch_image_generate(detail.as_deref()),
             command if command.starts_with("portal.artifact.") => {
                 self.dispatch_artifact(command, detail.as_deref())
@@ -190,7 +192,7 @@ impl SlateApp {
             {
                 self.dispatch_media_intake(ctx, command, detail.as_deref())
             }
-            command if command.starts_with("portal.agent.result.") => {
+            command if Self::image_action_command(command) => {
                 self.dispatch_image_result_action(ctx, command, detail.as_deref())
             }
             "board.model_display" => self.dispatch_model_display(detail.as_deref()),
@@ -482,14 +484,8 @@ impl SlateApp {
                 self.set_board_tool(board::BoardTool::Split);
                 true
             }
-            "portal.web.source" => match detail.as_deref().map(str::trim).filter(|s| !s.is_empty())
-            {
-                // Agents and the command palette can pass a URL or path; humans
-                // without a detail get the file picker (GP11 / D14 / D27).
-                Some(source) => self.web_bind_source_for_selection(source),
-                None => self.web_pick_source_for_selection(),
-            },
-            "portal.web.allow_origin" => self.web_allow_selected_origin(),
+            "portal.web.source" => self.web_source_command(detail.as_deref()),
+            command if self.web_consent_command(command) => true,
             "portal.web.home" => self.web_home_selected(),
             "portal.web.reload" => self.web_reload_selected(),
             "portal.web.back" => self.web_history_step(false),

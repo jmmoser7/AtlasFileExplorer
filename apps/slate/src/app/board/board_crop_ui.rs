@@ -19,7 +19,7 @@ impl SlateApp {
     }
 
     pub(crate) fn snap_scope(&self) -> board_snap::SnapScope {
-        let z = self.tab().cam.z.max(0.05);
+        let z = self.tab().cam.z.max(atlas_core::display::SLATE_BOARD.min);
         let (reach_px, lane_px) = self.board_snap_reach.screen_px();
         let xf = self.board_xf();
         let r = self.canvas_rect;

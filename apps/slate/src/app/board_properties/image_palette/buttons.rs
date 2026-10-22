@@ -128,9 +128,14 @@ pub(super) fn panel_buttons(
             .fixed_pos(play.union(count_rect).min)
             .constrain(false)
             .movable(false)
+            .sense(Sense::hover())
             .fade_in(false)
             .show(ctx, |ui| {
+                ctx.move_to_top(ui.layer_id());
                 ui.set_clip_rect(app.canvas_rect);
+                // Shared controls register interactions without allocating.
+                // Their Area still needs bounds to own these visible hits.
+                ui.set_min_size(play.union(count_rect).size());
                 ui.add_enabled_ui(enabled, |ui| {
                     captures |=
                         app.paint_image_agent_quick_generate(ui, image, play, count_rect, z);
@@ -140,6 +145,9 @@ pub(super) fn panel_buttons(
     }
     (captures, requested_panel, close_requested)
 }
+
+#[cfg(test)]
+mod tests;
 
 pub(in crate::app::board_properties) fn panel_kind(panel: Option<Panel>) -> chrome::ImagePanelKind {
     match panel {

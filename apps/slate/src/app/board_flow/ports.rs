@@ -1,13 +1,18 @@
 //! Flow-port presentation on the shared typed-port geometry.
 use super::*;
-
-/// Designed port radius; hit testing and paint both use this board-space value.
-pub(crate) const PORT_RADIUS: f32 = 6.0;
+use atlas_shell::selection_tools::hit_regions::PortPresentation;
 
 #[cfg(test)]
 mod tests;
 
 impl SlateApp {
+    pub(crate) fn flow_port_presentation(
+        node: &slate_doc::scene::Node,
+        xf: &BoardXf,
+    ) -> Option<PortPresentation> {
+        PortPresentation::typed(node.rect.w.abs().min(node.rect.h.abs()) * xf.z)
+    }
+
     /// Shared reveal/fit decision for both the real host cutouts and its dots.
     pub(crate) fn flow_ports_visible(
         &self,
@@ -19,11 +24,7 @@ impl SlateApp {
             return false;
         }
         let ports = self.wire_input_ports(node);
-        if node.hidden
-            || ports.is_empty()
-            || !super::super::board_wire::wire_ports_fit(node.rect, xf.z)
-            || !super::super::board_wire::port_disc_visible(PORT_RADIUS, xf.z)
-        {
+        if node.hidden || ports.is_empty() || Self::flow_port_presentation(node, xf).is_none() {
             return false;
         }
         let host = self.wire_input_host(node);
@@ -33,7 +34,7 @@ impl SlateApp {
         let screen = xf.rect_w2s(node.rect);
         let near = ctx
             .pointer_latest_pos()
-            .is_some_and(|p| screen.expand(PORT_REVEAL * xf.z).contains(p));
+            .is_some_and(|p| screen.expand(PORT_REVEAL).contains(p));
         let wiring = matches!(self.board_drag, Some(BoardDrag::Wire(_)));
         let ordinary = agent_inputs::image_generation_target(node, &|id| {
             self.doc().item(id).map(|item| item.path.as_path())
@@ -49,39 +50,40 @@ impl SlateApp {
     /// while a wire is being drawn.
     pub(crate) fn paint_flow_ports(&self, painter: &egui::Painter, xf: &BoardXf) {
         let z = xf.z;
-        if !super::super::board_wire::port_disc_visible(PORT_RADIUS, z) {
-            return;
-        }
-        let radius = canvas_scale::px(PORT_RADIUS, z);
         let palette = self.palette();
         let roles = palette.agent_roles();
         let pointer = painter.ctx().pointer_latest_pos();
-        let font = canvas_scale::font(PORT_LABEL_PX, z);
-        let labels = canvas_text::legible(font.size);
         let scene = &self.doc().scene;
         for node in &scene.nodes {
             let ports = self.wire_input_ports(node);
             if !self.flow_ports_visible(node, painter.ctx(), xf) {
                 continue;
             }
+            let Some(presentation) = Self::flow_port_presentation(node, xf) else {
+                continue;
+            };
+            let radius = presentation.radius;
+            let font = egui::FontId::proportional(PORT_LABEL_PX * presentation.prominence);
+            let labels = canvas_text::legible(font.size);
+            let label_gap = 6.0 * presentation.prominence;
             let host = self.wire_input_host(node);
             let sites = host.ports();
             for (port, site) in ports.iter().zip(&sites) {
                 let center = xf.w2s(Pos2::new(site.point[0], site.point[1]));
                 let (_, color) = InputRole::of_slot(port.slot).look(&roles);
-                painter.circle_filled(center, radius, color);
+                painter.circle_filled(
+                    center,
+                    radius,
+                    color.gamma_multiply(presentation.prominence),
+                );
                 if labels {
                     canvas_text::text(
                         painter,
-                        center
-                            - egui::vec2(
-                                radius + canvas_scale::px(6.0, z),
-                                canvas_scale::px(6.0, z),
-                            ),
+                        center - egui::vec2(radius + label_gap, label_gap),
                         Align2::RIGHT_BOTTOM,
                         port.label,
                         font.clone(),
-                        palette.ink,
+                        palette.ink.gamma_multiply(presentation.prominence),
                     );
                 }
             }
@@ -93,15 +95,15 @@ impl SlateApp {
                 } else {
                     palette.link
                 };
-                painter.circle_filled(center, radius, ring);
+                painter.circle_filled(center, radius, ring.gamma_multiply(presentation.prominence));
                 if labels {
                     canvas_text::text(
                         painter,
-                        center + egui::vec2(radius + 6.0 * z, -6.0 * z),
+                        center + egui::vec2(radius + label_gap, -label_gap),
                         Align2::LEFT_BOTTOM,
                         "Output",
                         font.clone(),
-                        palette.ink,
+                        palette.ink.gamma_multiply(presentation.prominence),
                     );
                 }
             }

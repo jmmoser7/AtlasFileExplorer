@@ -154,19 +154,22 @@ mod tests {
         let (scene, source, _, a, b) = hosts();
         let before = scene.clone();
         let preview = WorldRect::new(100.0, 150.0, 80.0, 60.0);
+        let mut preview_host = WireHost::from_node(scene.node(source).unwrap());
+        preview_host.rect = preview;
         for routing in [WireRouting::Bezier, WireRouting::Orthogonal] {
             let path = connector_route_in_scene_with_hosts(&scene, None, &a, &b, routing, |id| {
                 if id == source {
-                    Some(WireHost::from_rect(preview))
+                    Some(preview_host.clone())
                 } else {
                     scene_wire_hosts(&scene)(id)
                 }
             })
             .unwrap();
-            assert_eq!(path.start(), [180.0, 180.0]);
+            // 60/128 compact-rail fit keeps the 30-unit datum at 14.0625.
+            assert_eq!(path.start(), [180.0, 164.0625]);
             assert_eq!(path.end(), [300.0, 30.0]);
             let authored = connector_route_in_scene(&scene, None, &a, &b, routing).unwrap();
-            assert_eq!(authored.start(), [80.0, 30.0]);
+            assert_eq!(authored.start(), [80.0, 14.0625]);
         }
         assert_eq!(scene, before);
     }

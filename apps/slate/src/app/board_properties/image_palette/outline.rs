@@ -33,7 +33,9 @@ impl SlateApp {
         if self.slate_nesting() || self.portal_capture_owns_viewport(node.id) {
             return None;
         }
-        let ports = if self.flow_ports_visible(node, ctx, xf) {
+        let ports = if let Some(presentation) = Self::flow_port_presentation(node, xf)
+            .filter(|_| self.flow_ports_visible(node, ctx, xf))
+        {
             let host = self.wire_input_host(node);
             host.ports()
                 .into_iter()
@@ -42,6 +44,7 @@ impl SlateApp {
                     chrome::MediaPortNotch {
                         center: xf.w2s(egui::Pos2::new(site.point[0], site.point[1])),
                         inward: egui::vec2(-outward[0], -outward[1]),
+                        radius: presentation.radius,
                     }
                 })
                 .collect::<Vec<_>>()

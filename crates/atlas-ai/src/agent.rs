@@ -417,8 +417,20 @@ fn civil_date(secs: u64) -> (i64, u32, u32) {
 pub fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     let json = serde_json::to_string_pretty(value)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    atomic_write_bytes(path, json.as_bytes())
+}
+
+/// Atomically write compact JSON for bounded protocols whose byte limits are
+/// measured on the serialized representation.
+pub fn atomic_write_json_compact<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
+    let json = serde_json::to_vec(value)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    atomic_write_bytes(path, &json)
+}
+
+fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, json)?;
+    std::fs::write(&tmp, bytes)?;
     std::fs::rename(tmp, path)
 }
 

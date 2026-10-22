@@ -12,7 +12,7 @@ pub(super) fn drop(app: &mut SlateApp, ctx: &egui::Context) {
     let items = recipe::palette_items(&tags, &recipe::selected(app, ctx));
     let layout = chrome::measure_tag_palette(ctx, &items, dock::flyout_icon_size(&tokens));
     let card = layout.natural_size(&tokens);
-    let z = app.tab().cam.z.max(0.05);
+    let z = app.tab().cam.z.max(atlas_core::display::SLATE_BOARD.min);
     let center = app
         .board_xf()
         .s2w(dock::take_canvas_drop_position(ctx).unwrap_or(app.canvas_rect.center()));

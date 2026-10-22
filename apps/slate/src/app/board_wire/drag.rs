@@ -9,7 +9,7 @@ impl SlateApp {
         world: Pos2,
         from: Option<(NodeId, Side, f32)>,
     ) -> Option<(NodeId, Side, f32)> {
-        let z = self.tab().cam.z.max(0.05);
+        let z = self.tab().cam.z.max(atlas_core::display::SLATE_BOARD.min);
         let snap_w = WIRE_SNAP_PX / z;
         if let Some(from) = from.filter(|f| self.is_crosstalk_port(*f)) {
             return self.crosstalk_snap(world, from.0, snap_w);

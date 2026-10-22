@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["vendor/rfd"]
 members = [
     "crates/atlas-core",
     "crates/atlas-packs",
@@ -35,6 +36,10 @@ members = [
 [workspace.package]
 version = "1.0.2"
 edition = "2021"
+
+# Pinned upstream picker with an opt-in Windows overwrite-confirmation policy.
+[patch.crates-io]
+rfd = { path = "vendor/rfd" }
 
 [workspace.dependencies]
 # Shared third-party deps — always reference these from member crates so the

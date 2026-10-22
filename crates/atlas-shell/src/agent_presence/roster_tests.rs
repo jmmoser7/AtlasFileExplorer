@@ -12,6 +12,7 @@ struct Fixture {
     drafts: HashMap<String, String>,
     busy: bool,
     full_access: bool,
+    inactive: bool,
     captured: bool,
     status: String,
     agent_name: String,
@@ -39,6 +40,7 @@ impl Fixture {
             drafts: HashMap::new(),
             busy: false,
             full_access: false,
+            inactive: false,
             captured: false,
             status: "Ready in proposal mode".into(),
             agent_name: "Dot".into(),
@@ -101,6 +103,7 @@ impl Fixture {
                 status: "Human participant",
                 provider: "",
                 human: true,
+                inactive: false,
                 paused: false,
                 autonomous: false,
                 full_access: false,
@@ -112,6 +115,7 @@ impl Fixture {
                 photo_texture: None,
                 busy: false,
                 messages: &[],
+                copy_messages: None,
                 activity: &activity,
                 attachments: &attachments,
                 message_total: 0,
@@ -128,6 +132,7 @@ impl Fixture {
                 status: &self.status,
                 provider: &self.agent_provider,
                 human: false,
+                inactive: self.inactive,
                 paused: false,
                 autonomous: false,
                 full_access: self.full_access,
@@ -139,6 +144,7 @@ impl Fixture {
                 photo_texture: None,
                 busy: self.busy,
                 messages: &messages,
+                copy_messages: None,
                 activity: &activity,
                 attachments: &attachments,
                 message_total: messages.len(),
@@ -330,8 +336,9 @@ fn busy_harness_selection_requires_a_timing_choice_and_same_harness_is_inert() {
 fn editing_emits_a_durable_draft_and_escape_does_not_discard_it() {
     let mut f = Fixture::new();
     f.open_chat("dot");
-    let r = f.state.last_popup_rect;
-    f.click(Pos2::new(r.left() + 80.0, r.bottom() - 44.0));
+    let composer = Id::new(("presence-composer", "dot"));
+    f.click(visual::screen_response(&f, composer).0.center());
+    assert_eq!(f.ctx.memory(|memory| memory.focused()), Some(composer));
     let actions = f
         .frame(vec![egui::Event::Text("Keep these images together".into())])
         .0;

@@ -78,7 +78,7 @@ impl SlateApp {
     /// through `item_texture`. A live hover or slider scrub filters the
     /// thumbnail so the frame stays cheap. A committed adjustment filters the
     /// sharp preview once, when that decode is resident.
-    pub(super) fn board_texture(
+    pub(crate) fn board_texture(
         &mut self,
         ctx: &egui::Context,
         node_id: NodeId,
@@ -338,7 +338,8 @@ impl SlateApp {
             board_handles::paint_fillet_grip(
                 painter,
                 grip,
-                xf.z,
+                atlas_shell::selection_tools::hit_regions::Domain::Resize
+                    .prominence(n.rect.w.min(n.rect.h) * xf.z),
                 select_tint,
                 hot,
                 self.palette().select_fill,

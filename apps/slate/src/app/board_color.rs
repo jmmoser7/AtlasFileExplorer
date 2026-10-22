@@ -1304,7 +1304,7 @@ impl SlateApp {
         stamp: bool,
     ) -> Option<(BrushMark, WorldRect, slate_doc::scene::PathData)> {
         let mut mark = self.ink_mark(id, stamp).filter(|m| m.extendable)?;
-        let slop = 1.0 / self.tab().cam.z.max(0.05);
+        let slop = 1.0 / self.tab().cam.z.max(atlas_core::display::SLATE_BOARD.min);
         if (mark.end - from).length() > slop {
             return None;
         }

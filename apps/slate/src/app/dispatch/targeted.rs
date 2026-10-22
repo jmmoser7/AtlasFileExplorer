@@ -8,6 +8,7 @@ mod prepare;
 mod prepared;
 mod schema;
 mod smoothing;
+pub(crate) mod tags;
 mod text_style;
 
 use super::super::SlateApp;
@@ -34,6 +35,7 @@ pub(crate) struct PreparedBoardCommand {
     erase_span: Option<slate_doc::scene::StrokeSpan>,
     camera_zoom: f32,
     smooth: Option<super::super::board_smooth::SmoothGesture>,
+    tag_commands: Vec<slate_doc::TagCommand>,
 }
 
 impl SlateApp {
@@ -86,9 +88,14 @@ impl SlateApp {
         }
         let ids = prepare::target_ids(&self.doc().scene, targets)?;
         let mut smooth = None;
+        let mut tag_commands = Vec::new();
         let (cmds, targets, invocation, crop) = if command == "board.smooth.stroke" {
             let (cmds, targets, gesture) = smoothing::prepare(self, &ids, arguments)?;
             smooth = Some(gesture);
+            (cmds, targets, None, None)
+        } else if tags::recognizes(command) {
+            let (commands, cmds, targets) = tags::prepare(self, command, &ids, arguments)?;
+            tag_commands = commands;
             (cmds, targets, None, None)
         } else if portals::recognizes(command) {
             let (cmds, targets) = portals::prepare(self, command, &ids, arguments)?;
@@ -109,7 +116,7 @@ impl SlateApp {
             let (cmds, targets) = prepare::commands(self, command, &ids, arguments)?;
             (cmds, targets, None, None)
         };
-        if cmds.is_empty() && invocation.is_none() {
+        if cmds.is_empty() && invocation.is_none() && tag_commands.is_empty() {
             return Err("The command would make no changes".into());
         }
         let mut expected: Vec<Node> = targets
@@ -181,6 +188,7 @@ impl SlateApp {
             erase_span,
             camera_zoom: self.tab().cam.z,
             smooth,
+            tag_commands,
         };
         prepared.applicable(&self.doc().scene)?;
         Ok(prepared)
@@ -207,6 +215,12 @@ impl SlateApp {
                 prepared.cmds,
                 slate_doc::scene::CmdAuthor::Agent(author.to_owned()),
             );
+        }
+        if tags::recognizes(&prepared.command) && !autonomy {
+            return Err("Tag edits change workbook classification and require explicit mutation autonomy. Enable it for this collaborator, or use the human Tags controls.".into());
+        }
+        for command in &mut prepared.tag_commands {
+            command.set_author(slate_doc::scene::CmdAuthor::Agent(author.to_owned()));
         }
         let id = format!("presence-{}", slate_doc::scene::new_agent_session_id());
         if !autonomy {
@@ -242,11 +256,16 @@ impl SlateApp {
         let removed = prepare::removed_ids(&prepared.cmds);
         let added = prepare::added_wire_ids(&prepared.cmds);
         let erasures = (prepared.command == "board.eraser.stroke").then(|| prepared.cmds.clone());
-        if !self.commit_scene_as(
-            prepared.cmds,
-            slate_doc::scene::CmdAuthor::Agent(author.to_owned()),
-        ) {
+        if !prepared.cmds.is_empty()
+            && !self.commit_scene_as(
+                prepared.cmds,
+                slate_doc::scene::CmdAuthor::Agent(author.to_owned()),
+            )
+        {
             return Err("The journal refused the prepared command".into());
+        }
+        if !prepared.tag_commands.is_empty() && !self.commit_tag_commands(prepared.tag_commands) {
+            return Err("The tag journal refused the prepared command".into());
         }
         self.finish_targeted_bookkeeping(&removed, &added);
         if let Some(cmds) = erasures {
@@ -283,7 +302,9 @@ impl SlateApp {
         if prepared.command == "board.objects.place_images" {
             creation::check_placement_tags(self, &prepared.cmds)?;
         }
-        prepared.applicable(&self.doc().scene)
+        prepared
+            .applicable(&self.doc().scene)
+            .and_then(|_| tags::preflight(self.doc(), &prepared.tag_commands))
     }
 
     pub(crate) fn finish_targeted_bookkeeping(&mut self, removed: &[NodeId], wires: &[NodeId]) {
@@ -342,6 +363,9 @@ impl SlateApp {
                 value.get("arguments").unwrap_or(&Value::Null),
             )?;
             self.check_targeted_command(&prepared)?;
+            for tag in &mut prepared.tag_commands {
+                tag.set_author(slate_doc::scene::CmdAuthor::Human);
+            }
             if let Some(invocation) = prepared.invocation.take() {
                 return self
                     .finish_generator_invocation(
@@ -358,8 +382,12 @@ impl SlateApp {
                 .ok_or("Unknown board command")?;
             let removed = prepare::removed_ids(&prepared.cmds);
             let added = prepare::added_wire_ids(&prepared.cmds);
-            if !self.commit_scene(prepared.cmds) {
+            if !prepared.cmds.is_empty() && !self.commit_scene(prepared.cmds) {
                 return Err("The journal refused the command".into());
+            }
+            if !prepared.tag_commands.is_empty() && !self.commit_tag_commands(prepared.tag_commands)
+            {
+                return Err("The tag journal refused the command".into());
             }
             self.finish_targeted_bookkeeping(&removed, &added);
             self.push_history(id, Some(format!("{} objects", prepared.targets.len())));
@@ -372,5 +400,29 @@ impl SlateApp {
                 false
             }
         }
+    }
+
+    fn commit_tag_commands(&mut self, commands: Vec<slate_doc::TagCommand>) -> bool {
+        let mut check = self.doc().clone();
+        for command in &commands {
+            if !command.apply(&mut check) {
+                return false;
+            }
+        }
+        for command in commands {
+            if !command.apply(self.doc_mut()) {
+                return false;
+            }
+            self.tab_mut()
+                .edits
+                .push(super::super::board::BoardMark::Tags(command));
+        }
+        let tab = self.tab_mut();
+        tab.dirty = true;
+        tab.edit_redo.clear();
+        tab.journal.discard_redo();
+        self.last_board_edit = None;
+        self.publish_session_tags();
+        true
     }
 }

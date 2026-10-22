@@ -5,7 +5,12 @@ use atlas_agent::{collaborator::*, presence::*, AgentSession};
 use atlas_shell::agent_presence as chrome;
 use eframe::egui;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::Arc,
+    time::Instant,
+};
 
 mod calls;
 mod consent_policy;
@@ -23,6 +28,7 @@ mod harness;
 mod updates;
 pub(crate) use conversation::HumanProfile;
 mod avatar_input;
+mod board_preview;
 mod helper_scope;
 mod human_chat;
 pub(crate) use human_chat::StoredHuman;
@@ -56,6 +62,9 @@ pub(crate) const BOARD_COMMANDS: &[&str] = &[
     "board.objects.resize",
     "board.objects.crop",
     "board.objects.order",
+    "board.tags.create",
+    "board.tags.assign",
+    "board.tags.unassign",
     "board.objects.create_frame",
     "board.objects.create_text",
     "board.objects.create_shape",
@@ -68,6 +77,7 @@ pub(crate) const BOARD_COMMANDS: &[&str] = &[
     "presence.helper",
     "presence.read_image",
     "presence.read_text",
+    "presence.preview",
     "board.objects.set_text",
     "board.shape.edit",
     "board.wire.edit",
@@ -111,7 +121,7 @@ pub(crate) struct Collaborator {
     grant: Option<CollaboratorGrant>,
     dir: PathBuf,
     request: String,
-    sequences: u128,
+    sequences: HashSet<u64>,
     calls: usize,
     paused: bool,
     resume_task: bool,

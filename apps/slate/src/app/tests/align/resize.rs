@@ -19,6 +19,7 @@ fn group_reposition_keeps_member_size() {
         before,
         group_before: gb,
         handle: board_handles::ResizeHandle::E as u8,
+        grab_offset: EVec2::ZERO,
         dup: false,
     });
     let mods = egui::Modifiers {
@@ -91,6 +92,7 @@ fn group_every_handle_scale_and_reposition() {
                 before,
                 group_before: gb,
                 handle,
+                grab_offset: EVec2::ZERO,
                 dup: false,
             });
             let mut mods = egui::Modifiers::default();
@@ -222,7 +224,7 @@ fn group_box_corner_is_diagonal_resize() {
     let xf = h.app.board_xf();
     let gb = h.app.board_group_bounds().expect("group bounds");
     let geom = board_handles::selection_geom(&xf, gb, 0.0);
-    let hit = h.app.transform_hit_at(geom.corners[0]);
+    let hit = h.app.transform_hit_at(geom.control_corners[0]);
     assert!(
         matches!(
             hit,
