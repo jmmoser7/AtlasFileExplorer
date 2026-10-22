@@ -100,11 +100,15 @@ jobs:
         if: github.head_ref == 'codex/slate-consolidation-20261021'
         timeout-minutes: 3
         env:
-          SLATE_WEB_PERF_LABEL: hosted-dev
+          SLATE_WEB_PERF_LABEL: hosted-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -o pipefail
-          cargo test --locked -p slate --lib bench_web_large_canvas_cpu -- --ignored --nocapture --test-threads=1 2>&1 | tee web-large-canvas.log
-          test -s target/slate-web-perf-audit/web-large-canvas-hosted-dev.json
+          if [ -x /usr/bin/time ]; then
+            /usr/bin/time -v timeout --kill-after=5s 115s cargo test --locked -p slate --lib app::bench_web::perf_probe::bench_web_large_canvas_cpu -- --ignored --exact --nocapture --test-threads=1 2>&1 | tee web-large-canvas.log
+          else
+            timeout --kill-after=5s 115s cargo test --locked -p slate --lib app::bench_web::perf_probe::bench_web_large_canvas_cpu -- --ignored --exact --nocapture --test-threads=1 2>&1 | tee web-large-canvas.log
+          fi
+          test -s "target/slate-web-perf-audit/web-large-canvas-${SLATE_WEB_PERF_LABEL}.json"
 
       - name: Preserve web CPU diagnostic
         if: always() && github.head_ref == 'codex/slate-consolidation-20261021'
@@ -113,7 +117,7 @@ jobs:
           name: slate-web-cpu-${{ github.sha }}
           path: |
             web-large-canvas.log
-            target/slate-web-perf-audit/*.json
+            target/slate-web-perf-audit/web-large-canvas-hosted-${{ github.run_id }}-${{ github.run_attempt }}.json
           if-no-files-found: warn
 
       # Job logs need a signed-in account; annotations are public.
