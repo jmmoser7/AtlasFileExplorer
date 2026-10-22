@@ -90,7 +90,10 @@ the draft. Existing `board.model_screenshot*` IDs remain aliases and preserve
 Web portals accept dropped page links and selected HTTP(S) URL text on the
 Board: empty canvas creates a portal; an unlocked web portal receives a new
 URL. Both are undoable. Native Chrome/Edge tab-strip docking is not supported;
-drag the address-bar URL or a page link instead.
+drag the address-bar URL or a page link instead. A focused live page owns
+Copy, Cut and Paste, including platform clipboard events. Other registered
+Slate shortcuts (including Save and Undo), Escape and focused Slate text
+fields retain their existing keyboard ownership.
 
 1. **Register it** in `apps/slate/src/app/commands.rs` → `SPECS` as an
    `atlas_commands::CommandSpec`: stable namespaced `id`

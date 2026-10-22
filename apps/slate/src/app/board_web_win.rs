@@ -85,6 +85,7 @@ use super::board_web::{
     PxRect, WebHost, WebInput, WebRequest,
 };
 
+mod input;
 mod readback;
 
 #[cfg(test)]
@@ -223,6 +224,7 @@ struct View {
     /// The most recent readback, kept so a demoted portal still has a poster.
     last: Option<super::board_web::WebFrame>,
     scrollbar_style: Option<(u64, bool, u32, egui::Color32)>,
+    wheel: input::WheelRemainders,
     shared: Rc<RefCell<Pending>>,
 }
 
@@ -461,6 +463,7 @@ impl Webview2Host {
                 profile,
                 last: None,
                 scrollbar_style: None,
+                wheel: input::WheelRemainders::default(),
                 shared,
             },
         );
@@ -685,6 +688,9 @@ impl WebHost for Webview2Host {
         self.escape.replace(false)
     }
     fn release_keyboard(&self) {
+        for view in self.views.values() {
+            view.wheel.reset();
+        }
         use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
         use windows::Win32::UI::WindowsAndMessaging::IsChild;
         let focused = unsafe { GetFocus() };
@@ -801,91 +807,7 @@ impl WebHost for Webview2Host {
     }
 
     fn send_input(&mut self, id: NodeId, input: WebInput) {
-        let Some(comp) = self
-            .views
-            .get(&id)
-            .and_then(|v| v.shared.borrow().comp.clone())
-        else {
-            return;
-        };
-        let scale = self.views.get(&id).map_or(1.0, |v| v.scale);
-        let point = |x: f32, y: f32| capture_point(x, y, scale);
-        let none = COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE;
-        let mouse = |kind: COREWEBVIEW2_MOUSE_EVENT_KIND,
-                     data: u32,
-                     p: POINT,
-                     keys: COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS| {
-            let _ = unsafe { comp.SendMouseInput(kind, keys, data, p) };
-        };
-        match input {
-            WebInput::Move { x, y, buttons } => mouse(
-                COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE,
-                0,
-                point(x, y),
-                held_keys(buttons),
-            ),
-            WebInput::Down { x, y, button } => mouse(
-                match button {
-                    1 => COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOWN,
-                    2 => COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOWN,
-                    _ => COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN,
-                },
-                0,
-                point(x, y),
-                none,
-            ),
-            WebInput::Up { x, y, button } => mouse(
-                match button {
-                    1 => COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_UP,
-                    2 => COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_UP,
-                    _ => COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP,
-                },
-                0,
-                point(x, y),
-                none,
-            ),
-            WebInput::Wheel {
-                x,
-                y,
-                delta,
-                horizontal,
-            } => mouse(
-                if horizontal {
-                    COREWEBVIEW2_MOUSE_EVENT_KIND_HORIZONTAL_WHEEL
-                } else {
-                    COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL
-                },
-                wheel_data(delta),
-                point(x, y),
-                none,
-            ),
-            WebInput::Leave => mouse(
-                COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE,
-                0,
-                POINT { x: 0, y: 0 },
-                none,
-            ),
-            // Keyboard goes through DevTools rather than the parent window's
-            // focus, so egui keeps deciding what reaches the page and Esc can
-            // still peel focus off it (D22).
-            WebInput::Key { key, pressed } => {
-                let Some(code) = virtual_key(key) else { return };
-                let kind = if pressed { "keyDown" } else { "keyUp" };
-                self.devtools(
-                    id,
-                    "Input.dispatchKeyEvent",
-                    &format!(
-                        "{{\"type\":\"{kind}\",\"windowsVirtualKeyCode\":{code},\
-                         \"nativeVirtualKeyCode\":{code}}}"
-                    ),
-                );
-            }
-            WebInput::Text(c) => {
-                let mut buf = [0u8; 4];
-                let text = json_escape(c.encode_utf8(&mut buf));
-                self.devtools(id, "Input.insertText", &format!("{{\"text\":\"{text}\"}}"));
-            }
-        }
+        self.send_page_input(id, input);
     }
 
     fn cursor(&self, id: NodeId) -> Option<egui::CursorIcon> {
@@ -907,6 +829,9 @@ impl WebHost for Webview2Host {
     }
 
     fn go_back(&mut self, id: NodeId) -> bool {
+        if let Some(view) = self.views.get(&id) {
+            view.wheel.reset();
+        }
         let Some(webview) = self.webview(id) else {
             return false;
         };
@@ -916,6 +841,9 @@ impl WebHost for Webview2Host {
     }
 
     fn go_forward(&mut self, id: NodeId) -> bool {
+        if let Some(view) = self.views.get(&id) {
+            view.wheel.reset();
+        }
         let Some(webview) = self.webview(id) else {
             return false;
         };
@@ -925,6 +853,9 @@ impl WebHost for Webview2Host {
     }
 
     fn reload(&mut self, id: NodeId) -> bool {
+        if let Some(view) = self.views.get(&id) {
+            view.wheel.reset();
+        }
         let Some(webview) = self.webview(id) else {
             return false;
         };
@@ -932,6 +863,9 @@ impl WebHost for Webview2Host {
     }
 
     fn navigate(&mut self, id: NodeId, target: &str) -> bool {
+        if let Some(view) = self.views.get(&id) {
+            view.wheel.reset();
+        }
         let Some(webview) = self.webview(id) else {
             return false;
         };
@@ -948,37 +882,6 @@ impl WebHost for Webview2Host {
         }
         true
     }
-}
-
-/// Buttons held during a move, so a drag reads as a drag inside the page.
-fn held_keys(buttons: u8) -> COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS {
-    let mut keys = COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE;
-    if buttons & 1 != 0 {
-        keys |= COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_LEFT_BUTTON;
-    }
-    if buttons & 2 != 0 {
-        keys |= COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_RIGHT_BUTTON;
-    }
-    if buttons & 4 != 0 {
-        keys |= COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_MIDDLE_BUTTON;
-    }
-    keys
-}
-
-/// egui reports scroll in points; Windows counts notches of `WHEEL_DELTA`.
-/// Without the conversion a notch moved a page by a couple of lines and
-/// scrolling felt broken.
-fn wheel_data(delta: f32) -> u32 {
-    const WHEEL_DELTA: f32 = 120.0;
-    // egui's Windows backend reports roughly 50 points per notch.
-    let notches = delta / 50.0;
-    let scaled = (notches * WHEEL_DELTA).round() as i32;
-    let clamped = if scaled == 0 {
-        WHEEL_DELTA as i32 * delta.signum() as i32
-    } else {
-        scaled
-    };
-    clamped as u32
 }
 
 /// Wire a freshly created composition controller to our visual and point it at
@@ -1891,46 +1794,6 @@ fn create_d3d_device() -> windows::core::Result<(ID3D11Device, ID3D11DeviceConte
         )?;
     }
     Ok((device.unwrap(), context.unwrap()))
-}
-
-fn json_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out
-}
-
-/// egui keys the page is allowed to hear. Printable characters arrive
-/// separately as text, so this is the navigation and editing set.
-fn virtual_key(key: egui::Key) -> Option<u32> {
-    use egui::Key::*;
-    Some(match key {
-        ArrowDown => 0x28,
-        ArrowLeft => 0x25,
-        ArrowRight => 0x27,
-        ArrowUp => 0x26,
-        Backspace => 0x08,
-        Delete => 0x2E,
-        End => 0x23,
-        Enter => 0x0D,
-        Home => 0x24,
-        Insert => 0x2D,
-        PageDown => 0x22,
-        PageUp => 0x21,
-        Tab => 0x09,
-        Space => 0x20,
-        F5 => 0x74,
-        _ => return None,
-    })
 }
 
 // ---------------------------------------------------------------------------

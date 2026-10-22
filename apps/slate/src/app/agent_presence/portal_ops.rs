@@ -394,9 +394,7 @@ impl SlateApp {
                     .as_str()
                     .filter(|s| s.chars().count() <= 512)
                     .ok_or("Typed text exceeds 512 characters")?;
-                for ch in text.chars() {
-                    self.agent_web_input(op.portal, WebInput::Text(ch))?;
-                }
+                self.agent_web_input(op.portal, WebInput::Text(text.to_owned()))?;
                 Ok(Some(
                     json!({"status":"typed","characters":text.chars().count()}),
                 ))
@@ -407,7 +405,14 @@ impl SlateApp {
                 let pressed = op.arguments["pressed"]
                     .as_bool()
                     .ok_or("Key pressed must be boolean")?;
-                self.agent_web_input(op.portal, WebInput::Key { key, pressed })?;
+                self.agent_web_input(
+                    op.portal,
+                    WebInput::Key {
+                        key,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                )?;
                 Ok(Some(json!({"status":"key_sent"})))
             }
             _ => Err("Unknown portal operation".into()),

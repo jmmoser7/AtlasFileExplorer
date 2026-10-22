@@ -138,7 +138,7 @@ fn foreground_chat_owns_input_over_a_focused_web_page() {
     assert!(
         host.inputs()
             .iter()
-            .any(|event| matches!(event, crate::app::board_web::WebInput::Text('p'))),
+            .any(|event| matches!(event, crate::app::board_web::WebInput::Text(text) if text == "page text")),
         "ordinary page keyboard input was blocked"
     );
 }

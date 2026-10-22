@@ -66,11 +66,18 @@ fn agent_focus_is_visible_cancelable_and_yields_to_human_contents_focus() {
         h.app.web.agent_focus_lease,
         Some((id, "request-a".to_owned()))
     );
-    h.app.agent_web_input(id, WebInput::Text('x')).unwrap();
-    assert!(host
-        .inputs()
-        .iter()
-        .any(|event| matches!(event, WebInput::Text('x'))));
+    let text = "e\u{301} 👩\u{200d}💻 漢字";
+    h.app
+        .agent_web_input(id, WebInput::Text(text.into()))
+        .unwrap();
+    assert_eq!(
+        host.sent(|event| match event {
+            WebInput::Text(text) => Some(text.clone()),
+            _ => None,
+        }),
+        vec![text],
+        "agent input preserves one whole Unicode payload"
+    );
 
     // Human entry uses the existing focus path and clears agent ownership.
     h.app.web_focus(id);
@@ -82,7 +89,10 @@ fn agent_focus_is_visible_cancelable_and_yields_to_human_contents_focus() {
         Some(id),
         "release cannot blur human focus"
     );
-    assert!(h.app.agent_web_input(id, WebInput::Text('y')).is_err());
+    assert!(h
+        .app
+        .agent_web_input(id, WebInput::Text("y".into()))
+        .is_err());
 }
 
 #[test]
@@ -137,14 +147,22 @@ fn agent_focus_transfers_between_portals_for_the_same_request() {
         h.app.web.agent_focus_lease,
         Some((second, "request-a".to_owned()))
     );
-    assert!(h.app.agent_web_input(first, WebInput::Text('x')).is_err());
-    h.app.agent_web_input(second, WebInput::Text('y')).unwrap();
+    assert!(h
+        .app
+        .agent_web_input(first, WebInput::Text("x".into()))
+        .is_err());
+    h.app
+        .agent_web_input(second, WebInput::Text("y".into()))
+        .unwrap();
     assert!(h.app.agent_web_focus(first, "request-b").is_err());
 
     assert!(h.app.agent_web_release_focus("request-a"));
     assert_eq!(h.app.web.focused, None);
     assert_eq!(h.app.web.agent_focus_lease, None);
-    assert!(h.app.agent_web_input(second, WebInput::Text('z')).is_err());
+    assert!(h
+        .app
+        .agent_web_input(second, WebInput::Text("z".into()))
+        .is_err());
 }
 
 #[test]

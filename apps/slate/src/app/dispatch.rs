@@ -1000,8 +1000,8 @@ impl SlateApp {
         let editing = self.text_compose_active() || self.sheet_edit.is_some();
         // A focused web portal is a keyboard sink, like an inline editor: bare
         // letters, digits, Tab, and arrows belong to the page, so typing in a
-        // form cannot switch tools (D22). Ctrl chords stay Slate's — save and
-        // undo keep working — and Escape stays out of this so it can still peel
+        // form cannot switch tools (D22). Ctrl chords except clipboard stay
+        // Slate's — save/undo work — and Escape stays out so it can still peel
         // the focus back off.
         let web_focus = board && self.web.focused.is_some();
         let agent_focus = board && self.agents.focused.is_some();
@@ -1066,12 +1066,6 @@ impl SlateApp {
                 paste_text: None,
                 pointer_pressed: i.pointer.any_pressed(),
             };
-            fn push_unique(v: &mut Vec<CommandId>, id: CommandId) {
-                if !v.contains(&id) {
-                    v.push(id);
-                }
-            }
-
             // --- Space tap = repeat-last (release-fired; Space+drag stays pan) ---
             if i.key_pressed(egui::Key::Space)
                 && self.space_tap.pressed_at.is_none()
@@ -1106,7 +1100,7 @@ impl SlateApp {
                 {
                     continue;
                 }
-                if !spec.when.matches(cmd_ctx) {
+                if !spec.when.matches(cmd_ctx) || (web_focus && web_clipboard_command(spec.id)) {
                     continue;
                 }
                 // On the board, bare letters wait out the hold window so a
@@ -1130,7 +1124,8 @@ impl SlateApp {
                     continue;
                 }
                 if let Some(spec) = self.registry.by_id(*id) {
-                    if !spec.when.matches(cmd_ctx) {
+                    if !spec.when.matches(cmd_ctx) || (web_focus && web_clipboard_command(spec.id))
+                    {
                         continue;
                     }
                     if command_typing_ok && chord.is_bare_letter() {
@@ -1147,7 +1142,7 @@ impl SlateApp {
             // Copy/Cut/Paste events (with the OS clipboard payload) instead
             // of — or as well as — key events. Map them onto the same
             // commands; `push_unique` keeps double delivery harmless.
-            if !wants_kb && !editing && !palette_open {
+            if !wants_kb && !typing_sink && !palette_open {
                 for e in &i.events {
                     match e {
                         egui::Event::Copy => {
@@ -1250,7 +1245,7 @@ impl SlateApp {
         });
 
         if let Some(shift) = paste_edge {
-            if board && !self.at_home && !wants_kb && !editing && !palette_open {
+            if board && !self.at_home && !wants_kb && !typing_sink && !palette_open {
                 let already = keys
                     .matched
                     .iter()

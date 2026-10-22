@@ -189,6 +189,83 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bgra_conversion_preserves_premultiplied_colors_and_skips_row_padding() {
+        let mut source = vec![
+            30, 20, 10, 128, 60, 50, 40, 255, 99, 99, 99, 99, 3, 2, 1, 4, 0, 0, 0, 0, 88, 88, 88,
+            88,
+        ];
+        let mapped = D3D11_MAPPED_SUBRESOURCE {
+            pData: source.as_mut_ptr().cast(),
+            RowPitch: 12,
+            DepthPitch: 24,
+        };
+        let image = bgra_to_color_image(&mapped, 2, 2);
+        assert_eq!(image.size, [2, 2]);
+        assert_eq!(
+            image
+                .pixels
+                .iter()
+                .map(|p| p.to_array())
+                .collect::<Vec<_>>(),
+            [
+                [10, 20, 30, 128],
+                [40, 50, 60, 255],
+                [1, 2, 3, 4],
+                [0, 0, 0, 0]
+            ]
+        );
+    }
+
+    /// CPU conversion only: excludes GPU map, WebView2, upload and display.
+    #[test]
+    #[ignore = "bounded generated-only CPU readback conversion measurements"]
+    fn web_readback_conversion_cost() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        for (width, height) in [(1280usize, 720usize), (1920, 1080), (3840, 2160)] {
+            let pitch = width * 4 + 64;
+            let mut source = vec![0u8; pitch * height];
+            for y in 0..height {
+                for (x, pixel) in source[y * pitch..y * pitch + width * 4]
+                    .chunks_exact_mut(4)
+                    .enumerate()
+                {
+                    pixel.copy_from_slice(&[(x % 256) as u8, (y % 256) as u8, 127, 255]);
+                }
+            }
+            let mapped = D3D11_MAPPED_SUBRESOURCE {
+                pData: source.as_mut_ptr().cast(),
+                RowPitch: pitch as u32,
+                DepthPitch: (pitch * height) as u32,
+            };
+            for _ in 0..5 {
+                black_box(bgra_to_color_image(&mapped, width, height));
+            }
+            let mut samples = Vec::with_capacity(40);
+            for _ in 0..40 {
+                let started = Instant::now();
+                let image = black_box(bgra_to_color_image(&mapped, width, height));
+                samples.push(started.elapsed().as_secs_f64() * 1000.0);
+                assert_eq!(image.pixels.len(), width * height);
+                assert_eq!(image.pixels[0].to_array(), [127, 0, 0, 255]);
+                drop(image);
+            }
+            samples.sort_by(f64::total_cmp);
+            println!(
+                "web_readback_conversion {}",
+                serde_json::json!({
+                    "width": width, "height": height, "row_pitch": pitch,
+                    "output_bytes": width * height * 4, "samples_ms": samples,
+                    "p50_ms": samples[19], "p95_ms": samples[37],
+                    "p99_ms": samples[39], "max_ms": samples[39],
+                    "scope": "CPU allocation and BGRA conversion only; no GPU map/upload/display"
+                })
+            );
+        }
+    }
+
+    #[test]
     fn busy_pending_copy_keeps_a_second_slot_available() {
         let mut copies = PendingCopies::default();
         copies.issued(0);

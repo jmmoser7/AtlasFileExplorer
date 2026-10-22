@@ -2,31 +2,17 @@
 use super::*;
 
 pub(super) fn chord_pressed(i: &egui::InputState, chord: Chord) -> bool {
-    let Some(key) = to_egui_key(chord.key) else {
-        return false;
-    };
     i.events.iter().any(|event| {
-        matches!(event, egui::Event::Key {
-            key: event_key, pressed: true, modifiers, ..
-        } if *event_key == key
-            && modifiers.ctrl == chord.ctrl
-            && modifiers.shift == chord.shift
-            && modifiers.alt == chord.alt)
+        matches!(event, egui::Event::Key { key, pressed: true, modifiers, .. }
+            if chord_matches(chord, *key, *modifiers))
     })
 }
 
 /// [`chord_pressed`] by a real press, not a held key's auto-repeat.
 pub(super) fn chord_fresh(i: &egui::InputState, chord: Chord) -> bool {
-    let Some(key) = to_egui_key(chord.key) else {
-        return false;
-    };
     i.events.iter().any(|event| {
-        matches!(event, egui::Event::Key {
-            key: event_key, pressed: true, repeat: false, modifiers, ..
-        } if *event_key == key
-            && modifiers.ctrl == chord.ctrl
-            && modifiers.shift == chord.shift
-            && modifiers.alt == chord.alt)
+        matches!(event, egui::Event::Key { key, pressed: true, repeat: false, modifiers, .. }
+            if chord_matches(chord, *key, *modifiers))
     })
 }
 
@@ -149,4 +135,49 @@ pub(super) fn to_egui_key(key: Key) -> Option<egui::Key> {
         Key::Plus => E::Plus,
         Key::Minus => E::Minus,
     })
+}
+
+/// The clipboard belongs to a focused page, including platform-only clipboard
+/// events. Other active registered chords keep their existing Slate owner.
+pub(super) fn web_clipboard_command(id: CommandId) -> bool {
+    matches!(
+        id.0,
+        "board.copy" | "board.cut" | "board.paste" | "board.paste_in_place"
+    )
+}
+
+fn chord_matches(chord: Chord, key: egui::Key, modifiers: egui::Modifiers) -> bool {
+    to_egui_key(chord.key) == Some(key)
+        && modifiers.ctrl == chord.ctrl
+        && modifiers.shift == chord.shift
+        && modifiers.alt == chord.alt
+}
+
+pub(super) fn push_unique(ids: &mut Vec<CommandId>, id: CommandId) {
+    if !ids.contains(&id) {
+        ids.push(id);
+    }
+}
+
+impl SlateApp {
+    /// Query the existing registry with the focused-page typing policy. This
+    /// is called only after egui text fields and palettes have declined input;
+    /// it gates both key-down and key-up without a second shortcut registry.
+    pub(crate) fn slate_owns_web_key(&self, key: egui::Key, modifiers: egui::Modifiers) -> bool {
+        let context = self.command_ctx();
+        let owns = |spec: &atlas_commands::CommandSpec, chord| {
+            !web_clipboard_command(spec.id)
+                && !suppressed(chord, false, true, false)
+                && spec.when.matches(context)
+                && chord_matches(chord, key, modifiers)
+        };
+        self.registry
+            .iter()
+            .any(|spec| spec.chord.is_some_and(|chord| owns(spec, chord)))
+            || commands::ALIAS_CHORDS.iter().any(|(chord, id)| {
+                self.registry
+                    .by_id(*id)
+                    .is_some_and(|spec| owns(spec, *chord))
+            })
+    }
 }

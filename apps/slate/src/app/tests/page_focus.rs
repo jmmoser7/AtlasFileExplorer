@@ -101,11 +101,11 @@ fn typing_into_a_page_does_not_reach_the_board_tools() {
     });
 
     assert_eq!(h.app.board_tool, tool_before, "no tool switch while typing");
-    let text: Vec<char> = host.sent(|i| match i {
-        board_web::WebInput::Text(c) => Some(*c),
+    let text: Vec<String> = host.sent(|i| match i {
+        board_web::WebInput::Text(text) => Some(text.clone()),
         _ => None,
     });
-    assert_eq!(text, vec!['r'], "the character reached the page");
+    assert_eq!(text, vec!["r"], "the character reached the page");
 }
 
 /// Esc is the one key the page never gets, because it is how the human gets

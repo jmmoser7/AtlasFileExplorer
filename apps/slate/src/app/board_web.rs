@@ -34,6 +34,7 @@ mod layout;
 use layout::css_size;
 
 mod input;
+pub use input::WebInput;
 mod package;
 mod presentation;
 mod scheduler;
@@ -210,44 +211,6 @@ impl WebRequest {
         let css = self.width_css.max(1) as f64;
         (self.raster_w.max(1) as f64 / css).max(0.01)
     }
-}
-
-/// Input forwarded to the one portal holding input focus (D22). Composition
-/// hosting gives the app no HWND for the page, so every event is explicit.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum WebInput {
-    /// Pointer position in page CSS pixels. `buttons` is the bitmask of what is
-    /// currently held (1 = left, 2 = right, 4 = middle) — without it a page
-    /// sees a bare hover and drag-selecting text does nothing.
-    Move {
-        x: f32,
-        y: f32,
-        buttons: u8,
-    },
-    Down {
-        x: f32,
-        y: f32,
-        button: u8,
-    },
-    Up {
-        x: f32,
-        y: f32,
-        button: u8,
-    },
-    /// Wheel in page units; `horizontal` distinguishes the two axes.
-    Wheel {
-        x: f32,
-        y: f32,
-        delta: f32,
-        horizontal: bool,
-    },
-    /// The pointer left the frame, so hover states can clear.
-    Leave,
-    Key {
-        key: egui::Key,
-        pressed: bool,
-    },
-    Text(char),
 }
 
 /// The one thing in this feature that knows what a browser is.

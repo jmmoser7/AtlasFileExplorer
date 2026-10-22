@@ -277,11 +277,13 @@ mod tests {
             assert_eq!(host.current_url(id).as_deref(), Some(url));
         }
         h.app.agent_web_focus(id, "global-agent-request").unwrap();
-        h.app.agent_web_input(id, WebInput::Text('q')).unwrap();
+        h.app
+            .agent_web_input(id, WebInput::Text("q".into()))
+            .unwrap();
         assert!(host
             .inputs()
             .iter()
-            .any(|input| matches!(input, WebInput::Text('q'))));
+            .any(|input| matches!(input, WebInput::Text(text) if text == "q")));
         assert!(!h.app.agent_web_needs_file_grant(id).unwrap());
 
         assert!(h.app.web_consent_command("portal.web.restrict_sites"));
