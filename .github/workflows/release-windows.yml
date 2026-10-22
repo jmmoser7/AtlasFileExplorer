@@ -67,7 +67,7 @@ jobs:
         timeout-minutes: 3
         shell: pwsh
         run: |
-          & cargo test --locked -p slate --lib app::board_web_win::readback::tests::web_readback_conversion_cost -- --ignored --exact --nocapture --test-threads=1 2>&1 | Tee-Object web-readback-conversion.log
+          & cargo test --locked --workspace app::board_web_win::readback::tests::web_readback_conversion_cost -- --ignored --exact --nocapture --test-threads=1 2>&1 | Tee-Object web-readback-conversion.log
           $cargoExit = $LASTEXITCODE
           if ($cargoExit -ne 0) { exit $cargoExit }
           $samples = @(Get-Content web-readback-conversion.log | ForEach-Object { if ($_ -match 'web_readback_conversion (\{.*\})') { $Matches[1] | ConvertFrom-Json } })

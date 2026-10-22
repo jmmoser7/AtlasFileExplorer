@@ -104,9 +104,9 @@ jobs:
         run: |
           set -o pipefail
           if [ -x /usr/bin/time ]; then
-            /usr/bin/time -v timeout --kill-after=5s 115s cargo test --locked -p slate --lib app::bench_web::perf_probe::bench_web_large_canvas_cpu -- --ignored --exact --nocapture --test-threads=1 2>&1 | tee web-large-canvas.log
+            /usr/bin/time -v timeout --kill-after=5s 115s cargo test --locked --workspace app::bench_web::perf_probe::bench_web_large_canvas_cpu -- --ignored --exact --nocapture --test-threads=1 2>&1 | tee web-large-canvas.log
           else
-            timeout --kill-after=5s 115s cargo test --locked -p slate --lib app::bench_web::perf_probe::bench_web_large_canvas_cpu -- --ignored --exact --nocapture --test-threads=1 2>&1 | tee web-large-canvas.log
+            timeout --kill-after=5s 115s cargo test --locked --workspace app::bench_web::perf_probe::bench_web_large_canvas_cpu -- --ignored --exact --nocapture --test-threads=1 2>&1 | tee web-large-canvas.log
           fi
           test -s "target/slate-web-perf-audit/web-large-canvas-${SLATE_WEB_PERF_LABEL}.json"
 
