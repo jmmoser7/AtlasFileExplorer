@@ -1,5 +1,6 @@
 //! Generated-only CPU evidence at the existing fake WebHost seam; never a browser.
 
+use super::super::board::brush_prof;
 use super::*;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -18,6 +19,7 @@ const DEADLINE: Duration = Duration::from_secs(110);
 struct Sample {
     frame: usize,
     app_ms: f64,
+    board_laps: Vec<(&'static str, f32)>,
     tessellation_ms: f64,
     cpu_ms: f64,
     mesh_primitives: usize,
@@ -101,9 +103,11 @@ impl Bench {
         };
         let ctx = self.ctx.clone();
         let app = &mut self.app;
+        brush_prof::begin();
         let start = Instant::now();
         let output = ctx.run(input, |ctx| app.update_app(ctx));
         let app_ms = start.elapsed().as_secs_f64() * 1000.0;
+        let board_laps = brush_prof::take();
         let texture_payload_bytes = output
             .textures_delta
             .set
@@ -138,6 +142,7 @@ impl Bench {
         Sample {
             frame,
             app_ms,
+            board_laps,
             tessellation_ms,
             cpu_ms: app_ms + tessellation_ms,
             mesh_primitives,
@@ -381,6 +386,7 @@ fn scenario(b: &mut Bench, clock: Instant, name: &str, path: &Path) -> Value {
     match outcome {
         Ok(evidence) => evidence,
         Err(error) => {
+            let _ = brush_prof::take();
             reporting::scenario_failure(path, name, &warmup, &samples);
             std::panic::resume_unwind(error)
         }
@@ -400,16 +406,21 @@ fn bench_web_large_canvas_cpu() {
         .open(&path)
         .expect("existing evidence must be retained; choose a new label");
     let mut rows = Vec::new();
-    let mut report = json!({"schema":1,"label":label,"status":"running",
+    let mut report = json!({"schema":2,"label":label,"status":"running",
         "os":std::env::consts::OS,"arch":std::env::consts::ARCH,
         "build":if cfg!(debug_assertions) { "dev" } else { "release" },
+        "instrumentation":{"revision":2,"board_laps":{"owner":"board::brush_prof (existing test-only begin/take)",
+            "encoding":"Ordered [stage_name, elapsed_ms] pairs; repeated names are retained.",
+            "scope":"begin before app clock; app_ms captured immediately after ctx.run; take before texture accounting/tessellation.",
+            "interpretation":"Laps are intervals since the preceding lap; they do not cover all app work and must not be summed as total app_ms.",
+            "overhead":"Enabled lap clocks, thread-local access and Vec growth run inside app_ms; begin/take and serialization are outside. Profiled and earlier unprofiled timing are not directly equivalent."}},
         "percentiles":"nearest rank ceil(q*N)-1; CPU intervals exclude pacing",
         "limits":{"main_frames":FRAMES,"warmup_frames":WARMUP,"cooperative_deadline_seconds":110,"pace_us":16667},
         "fixture":{"portals":PORTALS,"frame_pixels":[PAGE_W,PAGE_H],"screen_points":[1920,1080],"extra_shapes":[0,1000,5000]},
         "limitations":["CPU app ctx.run plus egui tessellation only; no JS, network, provider, native WebView, GPU or delivered-display latency.",
             "Fake host allocates patterned 1280x720 ColorImages using the existing Bench owner.",
             "Texture payload bytes count 4 bytes/texel requested in egui texture deltas; not actual GPU uploads.",
-            "Warmup and CPU/input/camera traces retained; wall pacing and diagnostics are excluded from app+tessellation CPU timing.",
+            "Warmup and CPU/input/camera/lap traces retained; wall pacing and post-ctx diagnostics are excluded. Enabled lap sampling/allocation overhead is inside app_ms.",
             "20 main samples give descriptive tails, not reliable rare-event estimates.",
             "Rust deadline is checked between frames; the runner supplies the hard command cap. A hung frame cannot checkpoint its unfinished sample.",
             "Only generated gutter rectangles are added; page contents are synthetic and do not execute a dashboard."],
