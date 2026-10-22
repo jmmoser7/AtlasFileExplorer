@@ -1,6 +1,17 @@
 //! Explicit UTF-8 byte pages of authored words. Never opens a linked source.
 use super::*;
 
+pub(super) fn utf8_page_end(text: &str, cursor: usize, limit: usize) -> Result<usize, String> {
+    if cursor > text.len() || !text.is_char_boundary(cursor) {
+        return Err("Text cursor must be an in-range UTF-8 byte boundary".into());
+    }
+    let mut end = cursor.saturating_add(limit).min(text.len());
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    Ok(end)
+}
+
 pub(super) struct TextPage {
     node: slate_doc::NodeId,
     cursor: usize,
@@ -86,10 +97,7 @@ impl TextPage {
     }
     pub(super) fn value(&self, app: &SlateApp) -> Result<Value, String> {
         let text = self.body(app)?;
-        let mut end = self.cursor.saturating_add(self.limit).min(text.len());
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
+        let end = utf8_page_end(text, self.cursor, self.limit)?;
         Ok(
             json!({"node_id":self.node.0.to_string(), "text":&text[self.cursor..end],
             "cursor":self.cursor, "next_cursor":(end < text.len()).then_some(end),

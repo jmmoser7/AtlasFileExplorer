@@ -2,6 +2,8 @@ use super::*;
 use crate::app::tests::Harness;
 use serde_json::json;
 
+mod isolation;
+
 fn host(tag: &str) -> (Harness, NodeId, PathBuf) {
     let mut h = Harness::new(tag);
     h.app.leave_home();
@@ -23,7 +25,9 @@ fn host(tag: &str) -> (Harness, NodeId, PathBuf) {
     )
     .join("fresh-output.png");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(&path, b"known metadata fixture").unwrap();
+    image::RgbImage::from_pixel(12, 7, image::Rgb([10, 20, 30]))
+        .save(&path)
+        .unwrap();
     let mut session = AgentSession::default();
     session.bundle.images.push(atlas_agent::ImageOutput {
         id: "fresh-output".into(),
@@ -75,6 +79,11 @@ fn fresh_generation_registers_without_a_human_pick_then_places_with_one_undo() {
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
     let item = h.app.registered_agent_image_item(node).unwrap();
     assert_eq!(h.app.item_path(item), Some(path));
+    assert_eq!(
+        h.app
+            .known_agent_image_dimensions(node, "fresh-output", "generation-1"),
+        Some([12, 7])
+    );
     let prepared = h
         .app
         .prepare_targeted_command(
@@ -218,6 +227,7 @@ fn failed_import_backoff_is_capped_and_never_permanently_blocks_retry() {
         imports.remember(
             identity.clone(),
             Some("temporarily unavailable".into()),
+            None,
             now,
         );
     }

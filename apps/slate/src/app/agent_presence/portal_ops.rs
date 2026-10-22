@@ -341,9 +341,9 @@ impl SlateApp {
                     .map(Some)
             }
             "portal.atlas.read_file" => self.read_atlas_file(op),
-            "portal.web.read_text" => self
-                .agent_web_text(op.portal)
-                .map(|v| v.map(|text| json!({"text":text}))),
+            "portal.web.read_text" => self.agent_web_text(op.portal).map(|value| {
+                value.map(|text| json!({"text":text,"url":self.agent_web_current_url(op.portal)}))
+            }),
             "portal.web.capture" => {
                 let dir = self
                     .ai
@@ -351,8 +351,12 @@ impl SlateApp {
                     .valid_workspace()
                     .map(PathBuf::from)
                     .ok_or("Establish the AI workspace before capturing a page")?;
-                self.agent_web_capture(op.portal, &dir.join("portal-captures"))
-                    .map(|p| p.map(|path| json!({"image_source":path})))
+                self.agent_web_capture(op.portal, &dir.join("portal-captures"), &op.call.id)
+                    .map(|p| {
+                        p.map(|path| {
+                            json!({"image_source":path,"url":self.agent_web_current_url(op.portal)})
+                        })
+                    })
             }
             "portal.web.navigate" => {
                 let url = op.arguments["url"]
@@ -365,8 +369,8 @@ impl SlateApp {
             "portal.web.click" => {
                 let x = page_coord(&op.arguments, "x")?;
                 let y = page_coord(&op.arguments, "y")?;
-                self.agent_web_input(op.portal, WebInput::Down { x, y, button: 1 })?;
-                self.agent_web_input(op.portal, WebInput::Up { x, y, button: 1 })?;
+                self.agent_web_input(op.portal, WebInput::Down { x, y, button: 0 })?;
+                self.agent_web_input(op.portal, WebInput::Up { x, y, button: 0 })?;
                 Ok(Some(json!({"status":"clicked","x":x,"y":y})))
             }
             "portal.web.scroll" => {
@@ -390,9 +394,7 @@ impl SlateApp {
                     .as_str()
                     .filter(|s| s.chars().count() <= 512)
                     .ok_or("Typed text exceeds 512 characters")?;
-                for ch in text.chars() {
-                    self.agent_web_input(op.portal, WebInput::Text(ch))?;
-                }
+                self.agent_web_input(op.portal, WebInput::Text(text.to_owned()))?;
                 Ok(Some(
                     json!({"status":"typed","characters":text.chars().count()}),
                 ))
@@ -403,7 +405,14 @@ impl SlateApp {
                 let pressed = op.arguments["pressed"]
                     .as_bool()
                     .ok_or("Key pressed must be boolean")?;
-                self.agent_web_input(op.portal, WebInput::Key { key, pressed })?;
+                self.agent_web_input(
+                    op.portal,
+                    WebInput::Key {
+                        key,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                )?;
                 Ok(Some(json!({"status":"key_sent"})))
             }
             _ => Err("Unknown portal operation".into()),

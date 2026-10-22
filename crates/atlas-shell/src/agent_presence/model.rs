@@ -43,6 +43,8 @@ pub struct Participant<'a> {
     pub status: &'a str,
     pub provider: &'a str,
     pub human: bool,
+    /// Saved identity with no live runtime in this process.
+    pub inactive: bool,
     pub paused: bool,
     pub autonomous: bool,
     /// Provider-controlled workspace write access, separate from board grants.
@@ -56,6 +58,8 @@ pub struct Participant<'a> {
     pub busy: bool,
     /// The bounded slice selected by RosterState::message_range.
     pub messages: &'a [ConversationMessage<'a>],
+    /// Full public history only on an explicit copy frame; never rendered.
+    pub copy_messages: Option<&'a [ConversationMessage<'a>]>,
     /// Public task progress, already filtered by the application adapter.
     pub activity: &'a [PublicActivity<'a>],
     /// Locally pending composer attachments; source ownership stays in the app.
@@ -197,6 +201,7 @@ pub enum PresenceAction {
     },
     ConnectPeople,
     SetupWorkspace,
+    WebsiteAccessSettings,
     Retry {
         id: String,
         message: String,

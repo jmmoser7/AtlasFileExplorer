@@ -3,6 +3,175 @@
 use super::*;
 
 #[test]
+fn fillet_pointer_domain_matches_the_existing_grip_hit_region_across_zooms() {
+    let mut h = web_board("fillet_exact_point_domain");
+    let node = h.app.doc_mut().scene.build_node(
+        WorldRect::new(0.0, 0.0, 320.0, 240.0),
+        NodeKind::Portal(slate_doc::scene::PortalNode::unbound_web("page")),
+    );
+    let id = h.app.add_nodes(vec![node])[0];
+    h.app.board_sel = std::iter::once(id).collect();
+    h.frame();
+    for zoom in [0.2, 0.5, 1.0, 4.0] {
+        h.app.tab_mut().cam.z = zoom;
+        let node = h.app.doc().scene.node(id).unwrap();
+        let xf = h.app.board_xf();
+        let grip = h.app.fillet_grip_at(node, &xf).unwrap();
+        let geom = board_handles::selection_geom(&xf, node.rect, node.rotation_deg);
+        for offset in [0.0, 7.0, 14.85, 16.0, 32.0, 1000.0] {
+            let point = grip + EVec2::new(offset, 0.0);
+            let expected =
+                board_handles::hit_test_fillet_grip(point, &geom, grip).then_some((id, None));
+            assert_eq!(
+                h.app.fillet_grip_hit_at(point),
+                expected,
+                "zoom={zoom}, offset={offset}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_selected_rect_keeps_its_exposed_displaced_fillet_grip() {
+    let mut h = web_board("fillet_displaced_point_domain");
+    let id = add_rect(&mut h.app, 80.0, 80.0);
+    let cover = h.app.doc_mut().scene.build_node(
+        WorldRect::new(0.0, 0.0, 320.0, 240.0),
+        NodeKind::Portal(slate_doc::scene::PortalNode::unbound_web("cover")),
+    );
+    h.app.add_nodes(vec![cover]);
+    h.app.board_sel = std::iter::once(id).collect();
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+    let node = h.app.doc().scene.node(id).unwrap();
+    let xf = h.app.board_xf();
+    let geom = h.app.node_interaction_geom(node, &xf);
+    assert_ne!(geom.control_corners, geom.corners);
+    let grip = h.app.fillet_grip_at(node, &xf).unwrap();
+    let world = xf.s2w(grip);
+    assert!(!node.rect.contains(world.x, world.y));
+    assert_eq!(h.app.fillet_grip_hit_at(grip), Some((id, None)));
+}
+
+#[test]
+fn eligible_selected_rect_still_hits_its_fillet_grip() {
+    let mut h = web_board("fillet_eligible_pick");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel = std::iter::once(id).collect();
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+    let node = h.app.doc().scene.node(id).unwrap();
+    let grip = h.app.fillet_grip_at(node, &h.app.board_xf()).unwrap();
+    assert_eq!(h.app.fillet_grip_hit_at(grip), Some((id, None)));
+}
+
+#[test]
+fn empty_stale_and_unsupported_selections_offer_no_fillet_hit() {
+    let mut h = web_board("fillet_ineligible_selection");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel = std::iter::once(id).collect();
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+    let node = h.app.doc().scene.node(id).unwrap();
+    let grip = h.app.fillet_grip_at(node, &h.app.board_xf()).unwrap();
+    assert_eq!(h.app.fillet_grip_hit_at(grip), Some((id, None)));
+    h.app.board_sel.clear();
+    assert_eq!(h.app.fillet_grip_hit_at(grip), None);
+    h.app.board_sel.insert(NodeId(u64::MAX));
+    assert_eq!(h.app.fillet_grip_hit_at(grip), None);
+    h.app.patch_nodes(&[id], |node| {
+        let NodeKind::Shape(shape) = &mut node.kind else {
+            unreachable!()
+        };
+        shape.shape = slate_doc::scene::ShapeKind::Ellipse;
+    });
+    h.app.board_sel = std::iter::once(id).collect();
+    assert_eq!(h.app.fillet_grip_hit_at(grip), None);
+}
+
+#[test]
+fn cropping_suppresses_the_fillet_hit_until_crop_ends() {
+    let mut h = web_board("fillet_crop_pick");
+    let id = add_image_card(&mut h.app, 0.0, 0.0);
+    h.app.board_sel = std::iter::once(id).collect();
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+    let node = h.app.doc().scene.node(id).unwrap();
+    let grip = h.app.fillet_grip_at(node, &h.app.board_xf()).unwrap();
+    assert_eq!(h.app.fillet_grip_hit_at(grip), Some((id, None)));
+    h.app.board_crop = Some(id);
+    assert_eq!(h.app.fillet_grip_hit_at(grip), None);
+    h.app.board_crop = None;
+    assert_eq!(h.app.fillet_grip_hit_at(grip), Some((id, None)));
+}
+
+#[test]
+fn contents_focused_portal_restores_its_fillet_hit_on_blur() {
+    let mut h = web_board("fillet_portal_focus_pick");
+    let node = h.app.doc_mut().scene.build_node(
+        WorldRect::new(0.0, 0.0, 320.0, 240.0),
+        NodeKind::Portal(slate_doc::scene::PortalNode::unbound_web("page")),
+    );
+    let id = h.app.add_nodes(vec![node])[0];
+    h.app.board_sel = std::iter::once(id).collect();
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+    let node = h.app.doc().scene.node(id).unwrap();
+    let grip = h.app.fillet_grip_at(node, &h.app.board_xf()).unwrap();
+    assert_eq!(h.app.fillet_grip_hit_at(grip), Some((id, None)));
+    h.app.web_focus(id);
+    assert_eq!(h.app.contents_focused(), Some(id));
+    assert_eq!(h.app.fillet_grip_hit_at(grip), None);
+    assert!(h.app.contents_blur());
+    assert_eq!(h.app.fillet_grip_hit_at(grip), Some((id, None)));
+}
+
+#[test]
+fn mixed_eligible_and_unsupported_selection_keeps_the_eligible_fillet() {
+    let mut h = web_board("fillet_mixed_selection");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    let other = add_rect(&mut h.app, 400.0, 200.0);
+    h.app.patch_nodes(&[other], |node| {
+        let NodeKind::Shape(shape) = &mut node.kind else {
+            unreachable!()
+        };
+        shape.shape = slate_doc::scene::ShapeKind::Ellipse;
+    });
+    h.app.board_sel = [id, other].into_iter().collect();
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+    let node = h.app.doc().scene.node(id).unwrap();
+    let grip = h.app.fillet_grip_at(node, &h.app.board_xf()).unwrap();
+    assert_eq!(h.app.fillet_grip_hit_at(grip), Some((id, None)));
+}
+
+#[test]
+fn a_foreground_cover_still_occludes_an_eligible_selected_fillet() {
+    let mut h = web_board("fillet_covered_pick");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    let other = add_rect(&mut h.app, 400.0, 200.0);
+    h.app.patch_nodes(&[other], |node| {
+        let NodeKind::Shape(shape) = &mut node.kind else {
+            unreachable!()
+        };
+        shape.shape = slate_doc::scene::ShapeKind::Ellipse;
+    });
+    // A mixed selection keeps this fixture on the ordinary frame, rather
+    // than the separate single-selection displaced-frame behavior.
+    h.app.board_sel = [id, other].into_iter().collect();
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+    let node = h.app.doc().scene.node(id).unwrap();
+    let grip = h.app.fillet_grip_at(node, &h.app.board_xf()).unwrap();
+    assert_eq!(h.app.fillet_grip_hit_at(grip), Some((id, None)));
+    let world = h.app.board_xf().s2w(grip);
+    let cover = add_rect(&mut h.app, world.x - 20.0, world.y - 20.0);
+    assert_eq!(h.app.fillet_grip_hit_at(grip), None);
+    h.app.patch_nodes(&[cover], |node| node.hidden = true);
+    assert_eq!(h.app.fillet_grip_hit_at(grip), Some((id, None)));
+}
+
+#[test]
 fn fillet_drag_outward_grows_authored_radius() {
     let mut h = Harness::new("fillet_outward");
     h.app.ensure_work_tab();
@@ -140,6 +309,10 @@ fn fillet_grip_drag_from_square_starts_at_zero_radius() {
     h.app.board_drag = h.app.begin_fillet_drag(grip, press);
     let moved = Pos2::new(press.x + 3.0, press.y + 3.0);
     h.app.update_gesture_for_test(moved, egui::Modifiers::NONE);
+    let current = h.app.doc().scene.node(id).unwrap();
+    let current_grip = h.app.fillet_grip_at(current, &xf).unwrap();
+    assert!(current_grip.distance(grip) > 1.0);
+    assert_eq!(h.app.fillet_grip_hit_at(current_grip), Some((id, None)));
     h.app
         .end_gesture_for_test(moved, Some(xf.w2s(moved)), egui::Modifiers::NONE);
     let after = h.app.doc().scene.node(id).unwrap();

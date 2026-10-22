@@ -86,9 +86,14 @@ fn align_gp5_widget_hit_misses_the_box() {
         "inner bottom edge is resize, not align"
     );
     let pitch = board_align::ICON_PX + board_align::ICON_GAP_PX;
-    let icon = Pos2::new(
-        bbox.center().x - pitch,
-        bbox.bottom() + board_align::bottom_outset_px(xf.z) + pitch,
+    let icon = h
+        .app
+        .align_button_rect_for_test(board_align::AlignAction::Align(board::BoardAlign::Left))
+        .expect("painted alignment button")
+        .center();
+    assert!(
+        icon.y > bbox.bottom(),
+        "alignment stays outside the selection"
     );
     assert_eq!(
         h.app.align_action_at(icon),

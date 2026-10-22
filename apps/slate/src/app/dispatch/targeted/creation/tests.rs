@@ -98,6 +98,115 @@ fn generator_is_existing_media_kind_without_an_automatic_run() {
 }
 
 #[test]
+fn generator_creation_accepts_shared_aspect_and_count_settings() {
+    let h = host("scoped-generator-settings");
+    let mut input = args("openai-image");
+    input["aspect"] = json!("portrait");
+    input["count"] = json!(3);
+    let prepared = h
+        .app
+        .prepare_targeted_command("board.objects.create_generator", &[], &input)
+        .unwrap();
+    let SceneCmd::Add { node, .. } = &prepared.cmds[0] else {
+        panic!("expected generator addition")
+    };
+    let agent = slate_doc::agent_chat::agent(node).unwrap();
+    assert_eq!(agent.image.aspect, atlas_agent::Aspect::Portrait);
+    assert_eq!(agent.image.count, 3);
+    assert!(!agent.live);
+}
+
+#[test]
+fn generator_creation_rejects_invalid_aspect_count_and_unknown_controls() {
+    let h = host("scoped-generator-settings-reject");
+    for value in [json!("cinematic"), json!(1), json!(null)] {
+        let mut input = args("openai-image");
+        input["aspect"] = value;
+        assert!(h
+            .app
+            .prepare_targeted_command("board.objects.create_generator", &[], &input)
+            .is_err());
+    }
+    for value in [json!(0), json!(9), json!(2.5), json!("2")] {
+        let mut input = args("openai-image");
+        input["count"] = value;
+        assert!(h
+            .app
+            .prepare_targeted_command("board.objects.create_generator", &[], &input)
+            .is_err());
+    }
+    let mut unknown = args("openai-image");
+    unknown["quality"] = json!("high");
+    assert!(h
+        .app
+        .prepare_targeted_command("board.objects.create_generator", &[], &unknown)
+        .is_err());
+}
+
+#[test]
+fn provider_run_overrides_aspect_and_count_while_preserving_seed() {
+    let mut h = host("scoped-generator-run-settings");
+    let created = h
+        .app
+        .prepare_targeted_command("board.objects.create_generator", &[], &args("openai-image"))
+        .unwrap();
+    let generator = created.created_ids()[0];
+    h.app
+        .finish_targeted_command(created, "Dot", true, "owner")
+        .unwrap();
+    h.app.patch_nodes(&[generator], |node| {
+        let agent = slate_doc::agent_chat::agent_mut(node).unwrap();
+        agent.image.seed = Some(739);
+        agent.image.aspect = atlas_agent::Aspect::Square;
+        agent.image.count = 2;
+    });
+
+    let prepared = h
+        .app
+        .prepare_targeted_command(
+            "portal.agent.run",
+            &[generator.0.to_string()],
+            &json!({"aspect":"wide","count":4}),
+        )
+        .unwrap();
+    h.app
+        .finish_targeted_command(prepared, "Dot", true, "owner")
+        .unwrap();
+    let request = &h.app.agents.dispatched.last().unwrap().1;
+    let image = request.image.as_ref().unwrap();
+    assert_eq!(image.aspect, atlas_agent::Aspect::Wide);
+    assert_eq!(image.count, 4);
+    assert_eq!(image.seed, Some(739));
+}
+
+#[test]
+fn invalid_run_controls_are_rejected_before_journal_commit_or_dispatch() {
+    let mut h = host("scoped-generator-run-reject");
+    let created = h
+        .app
+        .prepare_targeted_command("board.objects.create_generator", &[], &args("openai-image"))
+        .unwrap();
+    let generator = created.created_ids()[0];
+    h.app
+        .finish_targeted_command(created, "Dot", true, "owner")
+        .unwrap();
+    let depth = h.app.tab().journal.undo_depth();
+    for controls in [
+        json!({"aspect":"cinematic"}),
+        json!({"count":0}),
+        json!({"count":9}),
+        json!({"quality":"high"}),
+    ] {
+        assert!(h
+            .app
+            .prepare_targeted_command("portal.agent.run", &[generator.0.to_string()], &controls,)
+            .is_err());
+    }
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+    assert!(h.app.agents.dispatched.is_empty());
+}
+
+#[test]
 fn image_placement_uses_granted_node_and_checks_item_rebinding_before_commit() {
     let mut h = host("scoped-image-item");
     let item = h

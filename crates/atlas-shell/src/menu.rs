@@ -7,7 +7,7 @@
 
 mod layout;
 mod rows;
-pub use layout::Metrics;
+pub use layout::{anchored_measured, Metrics};
 
 use crate::tokens::{self, MenuThemeTokens, MenuTokens};
 use eframe::egui::{

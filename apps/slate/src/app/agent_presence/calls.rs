@@ -38,16 +38,18 @@ impl SlateApp {
                         matches!(w.purpose, witness::WitnessPurpose::ApprovedProposal(_))
                     }))
                 || (a.paused
-                    && matches!(&call.operation, BoardOperation::Invoke { command, .. } if !matches!(command.as_str(), "presence.read_image" | "presence.read_text")))
+                    && matches!(&call.operation, BoardOperation::Invoke { command, .. } if !matches!(command.as_str(), "presence.read_image" | "presence.read_text" | "presence.preview")))
             {
                 return Err("Board is inactive or collaborator paused".into());
             }
-            if a.calls >= usize::from(grant.max_actions)
-                || (a.sequences & (1u128 << call.sequence)) != 0
-            {
-                return Err("Action budget exhausted or duplicate sequence".into());
+            if a.calls >= usize::from(grant.max_actions) {
+                return Err(
+                    "Task action budget exhausted; send Continue for a fresh task budget.".into(),
+                );
             }
-            a.sequences |= 1u128 << call.sequence;
+            if !a.sequences.insert(call.sequence) {
+                return Err("Duplicate board call sequence".into());
+            }
             a.calls += 1;
             a.last_active = Instant::now();
             match &call.operation {
@@ -68,7 +70,7 @@ impl SlateApp {
                     }
                     if matches!(
                         command.as_str(),
-                        "presence.read_image" | "presence.read_text"
+                        "presence.read_image" | "presence.read_text" | "presence.preview"
                     ) {
                         self.begin_presence_read(a, call)?;
                         return Ok(None);
@@ -107,11 +109,22 @@ impl SlateApp {
                             profile,
                             Some((a.profile.id.clone(), a.motion.clone(), scope)),
                         )?;
-                        if let Some(g) = a.grant.as_mut() {
-                            if !g.conversation_ids.contains(&who) {
-                                g.conversation_ids.push(who.clone());
+                        let mut expanded = a.grant.clone().ok_or("Board grant revoked")?;
+                        if !expanded.conversation_ids.contains(&who) {
+                            expanded.conversation_ids.push(who.clone());
+                        }
+                        if !a.request.is_empty() {
+                            if let Err(error) = self.presence.links.set_session(
+                                &a.dir,
+                                a.binding.clone(),
+                                expanded.clone(),
+                                a.request.clone(),
+                            ) {
+                                let _ = self.retire_presence(&who, chrome::RANDOM_DEPARTURE);
+                                return Err(error.to_owned());
                             }
                         }
+                        a.grant = Some(expanded);
                         if let Err(error) =
                             self.send_presence_message_from(&who, task, Some(&a.profile.name))
                         {

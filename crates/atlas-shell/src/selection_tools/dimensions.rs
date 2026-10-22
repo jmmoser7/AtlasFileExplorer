@@ -1,6 +1,9 @@
 //! Dimension painting and oriented inline-number interaction.
 use super::*;
 
+/// Horizontal dimension lane below the selection's property strip, in board units.
+pub const BOTTOM_STRINGER_GAP: f32 = STRINGER_GAP + OBJECT_GAP + BUTTON_SIZE;
+
 fn number_hit(center: Pos2, rotation: Rot2, half: Vec2, point: Pos2) -> bool {
     let local = rotation.inverse() * (point - center);
     local.x.abs() <= half.x && local.y.abs() <= half.y

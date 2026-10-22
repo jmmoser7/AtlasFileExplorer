@@ -172,7 +172,7 @@ impl SlateApp {
             return false;
         }
         let current = self.sheet_scroll.get(&id).copied().unwrap_or(Vec2::ZERO);
-        let z = self.tab().cam.z.max(0.01);
+        let z = self.tab().cam.z.max(ZOOM_MIN);
         let delta = -scroll_px / z;
         let mut next = current;
         if horizontal {

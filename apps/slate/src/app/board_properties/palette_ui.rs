@@ -12,10 +12,10 @@ pub(super) struct LastChrome {
     pub(super) host: Option<(u64, NodeId)>,
     pub(super) bounds: WorldRect,
     pub(super) items: Vec<StripItem>,
-    count: usize,
+    pub(super) count: usize,
     generation: (u64, u64),
     picked_vertices: bool,
-    bottom: Pos2,
+    pub(super) bottom: Pos2,
     pub(super) blister: bool,
     pub(super) image: bool,
     pub(super) media: Option<media::PreparedBlister>,
@@ -49,6 +49,7 @@ impl SlateApp {
         let vertex_bounds = self.picked_vertex_bounds();
         let direct_picks = self.board_tool == BoardTool::DirectSelect && vertex_bounds.is_some();
         let live = (self.board_drag.is_none() || image_palette::handles(self, true))
+            && self.board_crop.is_none()
             && !editing_sticky
             && !composing_text_box
             && (editing_hosted_text
@@ -127,7 +128,7 @@ impl SlateApp {
             }
         }
         let fade = chrome::strip_fade(&ctx, Id::new("selection_property_strip"), live);
-        if fade <= 0.0 {
+        if fade <= 0.0 || self.board_crop.is_some() {
             if !live {
                 self.shape_properties.last_chrome = None;
             }

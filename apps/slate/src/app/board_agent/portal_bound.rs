@@ -1,7 +1,7 @@
 //! Collapse toggle and bound-card paint.
 
 use super::*;
-
+use atlas_core::display::SLATE_BOARD;
 /// Transcript type size, in world units.
 const TRANSCRIPT_TEXT_PX: f32 = 14.0;
 
@@ -122,7 +122,7 @@ impl SlateApp {
             );
             return;
         }
-        let z = xf.z.max(0.01);
+        let z = xf.z.max(SLATE_BOARD.min);
         let palette = self.palette();
         let body = layout.body;
         let font = FontId::proportional(canvas_text::authored_px(TRANSCRIPT_TEXT_PX, z));
@@ -247,7 +247,7 @@ impl SlateApp {
                 .get(&node.id)
                 .map(|(_, h, _)| *h)
                 .unwrap_or(0.0);
-            let view = transcript.height() / z.max(0.01);
+            let view = transcript.height() / z;
             let requested = if responding {
                 train_ux::requested_offset(&follow, known, view)
             } else {
@@ -382,8 +382,8 @@ impl SlateApp {
                         None => {}
                     }
                 });
-            let got = scroll.state.offset.y / z.max(0.01);
-            let content = scroll.content_size.y / z.max(0.01);
+            let got = scroll.state.offset.y / z;
+            let content = scroll.content_size.y / z;
             if responding {
                 let mut state = follow;
                 train_ux::settle_follow(&mut state, requested, got, content, view);

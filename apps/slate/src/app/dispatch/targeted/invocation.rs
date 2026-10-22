@@ -6,6 +6,8 @@ use slate_doc::scene::NodeKind;
 pub(super) struct DeferredInvocation {
     target: NodeId,
     prompt: Option<String>,
+    aspect: Option<atlas_agent::Aspect>,
+    count: Option<u8>,
     inputs: atlas_agent::InputSnapshot,
     requires_linked_inputs: bool,
 }
@@ -45,6 +47,7 @@ pub(super) fn prepare(
         })
         .transpose()
         .map_err(str::to_owned)?;
+    let (aspect, count) = super::creation::image_options(args)?;
     let inputs = app.generator_input_refs(target, true)?;
     // Image/depth locators and linked media/card sources are byte-bearing.
     // Authored text, frame titles, and shape text remain board-only context.
@@ -91,6 +94,8 @@ pub(super) fn prepare(
         DeferredInvocation {
             target,
             prompt,
+            aspect,
+            count,
             inputs,
             requires_linked_inputs,
         },
@@ -107,11 +112,18 @@ impl SlateApp {
         if self.generator_input_refs(invocation.target, true)? != invocation.inputs {
             return Err("Generator inputs changed while the action was prepared".into());
         }
-        let request = self.generation_request_with_prompt(
+        let mut request = self.generation_request_with_prompt(
             invocation.target,
             false,
             invocation.prompt.as_deref(),
         )?;
+        let image = request.image.get_or_insert_with(Default::default);
+        if let Some(aspect) = invocation.aspect {
+            image.aspect = aspect;
+        }
+        if let Some(count) = invocation.count {
+            image.count = count;
+        }
         let request_id = request.id.clone();
         self.check_generation_queue(invocation.target)?;
         let inputs = self.begin_agent_input_preparation(request.inputs.clone())?;

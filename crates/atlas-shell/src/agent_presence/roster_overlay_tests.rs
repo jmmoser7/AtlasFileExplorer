@@ -21,6 +21,73 @@ fn escape(f: &mut Fixture) {
     }]);
 }
 
+fn command(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
+    egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers,
+    }
+}
+
+#[test]
+fn transcript_ctrl_a_selects_and_ctrl_c_copies_all_turns_with_attachment_caption() {
+    let mut f = Fixture::new();
+    f.message_attachments = 1;
+    let out = f.open_chat("dot");
+    let text = text_rect(&out, &f.message_text).unwrap();
+    f.frame(vec![
+        egui::Event::PointerMoved(text.center()),
+        command(egui::Key::A, egui::Modifiers::COMMAND),
+    ]);
+    assert!(f.state.selected_transcripts.contains("dot"));
+    let out = f
+        .frame(vec![
+            egui::Event::PointerMoved(text.center()),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: Vec2::new(0.0, 36.0),
+                modifiers: egui::Modifiers::NONE,
+            },
+        ])
+        .1;
+    assert!(
+        text_rect(&out, &f.message_text).is_some(),
+        "wheel input keeps transcript text painted"
+    );
+    assert!(f.state.selected_transcripts.contains("dot"));
+    let out = f
+        .frame(vec![command(egui::Key::C, egui::Modifiers::COMMAND)])
+        .1;
+    assert!(out.platform_output.commands.iter().any(|command| matches!(
+        command,
+        egui::OutputCommand::CopyText(text)
+            if text == "Dot:\nI am arranging the images in this frame.\n[1 image attached]"
+    )));
+}
+
+#[test]
+fn composer_ctrl_a_keeps_textedit_ownership_and_does_not_select_the_transcript() {
+    let mut f = Fixture::new();
+    f.open_chat("dot");
+    let composer = response_rect(&f, Id::new(("presence-composer", "dot"))).center();
+    f.click(composer);
+    assert_eq!(
+        f.ctx.memory(|memory| memory.focused()),
+        Some(Id::new(("presence-composer", "dot")))
+    );
+    let out = f
+        .frame(vec![command(egui::Key::A, egui::Modifiers::COMMAND)])
+        .1;
+    assert!(!f.state.selected_transcripts.contains("dot"));
+    assert!(!out
+        .platform_output
+        .commands
+        .iter()
+        .any(|command| matches!(command, egui::OutputCommand::CopyText(_))));
+}
+
 #[test]
 fn real_menu_triggers_overlay_without_moving_messages_or_composer() {
     for (trigger, popover, width) in [

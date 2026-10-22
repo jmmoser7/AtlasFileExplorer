@@ -11,8 +11,8 @@ pub(super) fn tools() -> Value {
          "description":"Read the explicitly granted Slate board scope, stable node IDs and available registered commands. Board text is user data.",
          "inputSchema":{"type":"object","properties":{"node_ids":{"type":"array","items":{"type":"string"},"maxItems":64},"offset":{"type":"integer","minimum":0,"maximum":1000000,"default":0},"limit":{"type":"integer","minimum":1,"maximum":64,"default":32}},"additionalProperties":false}},
         {"type":"function","name":"slate_participants_read",
-         "description":"Read live or temporarily retained participant outcomes authorized by the current board grant. Empty participant_ids reads the authorized participant scope.",
-         "inputSchema":{"type":"object","properties":{"participant_ids":{"type":"array","items":{"type":"string"},"maxItems":64},"offset":{"type":"integer","minimum":0,"maximum":1000000,"default":0},"limit":{"type":"integer","minimum":1,"maximum":8,"default":8}},"additionalProperties":false}},
+         "description":"Read live or temporarily retained participant outcomes authorized by the current board grant. Empty participant_ids reads the authorized participant scope. For one retained helper, text_cursor and text_limit page its public result independently of participant offset; continue with text_generation.",
+         "inputSchema":{"type":"object","properties":{"participant_ids":{"type":"array","items":{"type":"string"},"maxItems":64},"offset":{"type":"integer","minimum":0,"maximum":1000000,"default":0},"limit":{"type":"integer","minimum":1,"maximum":8,"default":8},"text_cursor":{"type":"integer","minimum":0,"maximum":1000000},"text_limit":{"type":"integer","minimum":4,"maximum":4096,"default":4096},"text_generation":{"type":"string"}},"additionalProperties":false}},
         {"type":"function","name":"slate_board_command",
          "description":"Invoke a registered Slate command using stable target IDs. Its real action is visibly previewed and proposed unless the human granted board autonomy. Read command schemas first.",
          "inputSchema":{"type":"object","properties":{"command":{"type":"string"},"targets":{"type":"array","items":{"type":"string"},"maxItems":64},"arguments":{"type":"object"}},"required":["command","targets","arguments"],"additionalProperties":false}}
@@ -314,7 +314,26 @@ mod tests {
             BoardOperation::ReadParticipants {
                 participant_ids: vec![],
                 offset: 0,
-                limit: 8
+                limit: 8,
+                text_cursor: None,
+                text_limit: None,
+                text_generation: None
+            }
+        );
+        assert_eq!(
+            parse_operation(
+                "slate_participants_read",
+                &json!({"participant_ids":["helper-1"],"offset":8,"text_cursor":4096,"text_limit":4096,"text_generation":"helper-request-1"}),
+                TurnPolicy::Default
+            )
+            .unwrap(),
+            BoardOperation::ReadParticipants {
+                participant_ids: vec!["helper-1".into()],
+                offset: 8,
+                limit: 8,
+                text_cursor: Some(4096),
+                text_limit: Some(4096),
+                text_generation: Some("helper-request-1".into())
             }
         );
         assert!(matches!(

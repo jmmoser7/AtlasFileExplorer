@@ -16,7 +16,7 @@ pub struct InputPort {
 /// The one output port sits at the right midpoint.
 pub const OUTPUT_T: f32 = 0.5;
 
-pub(super) const GENERATOR_PORTS: [InputPort; 3] = [
+pub const GENERATOR_PORTS: [InputPort; 3] = [
     InputPort {
         slot: InputSlot::Media,
         t: 0.25,

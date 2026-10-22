@@ -6,8 +6,7 @@
 //! through [`SlateApp::dispatch`] — the same entry the canvas palette, the
 //! dock toggles, and the menu bar use, so every input modality drives one
 //! command surface (Constitution Art. VII/VIII). Every dispatched command
-//! pushes a [`HistoryEntry`] (the F2 window's data and the Space/Enter
-//! repeat source).
+//! pushes a [`HistoryEntry`] for F2 and Space/Enter repeat.
 //!
 //! Specially handled (not chord table rows): Space-tap / Enter-idle repeat,
 //! the Esc cancel stack ([`atlas_commands::cancel_target`]), Tab cycling,
@@ -118,6 +117,9 @@ impl SlateApp {
             "board.open_location" => self.open_selected_file_location(),
             "board.tags.add" => self.dispatch_tag_add(detail.as_deref()),
             "board.tags.visibility" => self.dispatch_tag_visibility(detail.as_deref()),
+            "board.tags.create" | "board.tags.assign" | "board.tags.unassign" => {
+                return self.dispatch_targeted_human_with_context(ctx, id.0, detail.as_deref());
+            }
             "portal.agent.run" => self.dispatch_image_generate(detail.as_deref()),
             command if command.starts_with("portal.artifact.") => {
                 self.dispatch_artifact(command, detail.as_deref())
@@ -190,7 +192,7 @@ impl SlateApp {
             {
                 self.dispatch_media_intake(ctx, command, detail.as_deref())
             }
-            command if command.starts_with("portal.agent.result.") => {
+            command if Self::image_action_command(command) => {
                 self.dispatch_image_result_action(ctx, command, detail.as_deref())
             }
             "board.model_display" => self.dispatch_model_display(detail.as_deref()),
@@ -482,14 +484,8 @@ impl SlateApp {
                 self.set_board_tool(board::BoardTool::Split);
                 true
             }
-            "portal.web.source" => match detail.as_deref().map(str::trim).filter(|s| !s.is_empty())
-            {
-                // Agents and the command palette can pass a URL or path; humans
-                // without a detail get the file picker (GP11 / D14 / D27).
-                Some(source) => self.web_bind_source_for_selection(source),
-                None => self.web_pick_source_for_selection(),
-            },
-            "portal.web.allow_origin" => self.web_allow_selected_origin(),
+            "portal.web.source" => self.web_source_command(detail.as_deref()),
+            command if self.web_consent_command(command) => true,
             "portal.web.home" => self.web_home_selected(),
             "portal.web.reload" => self.web_reload_selected(),
             "portal.web.back" => self.web_history_step(false),
@@ -1004,8 +1000,8 @@ impl SlateApp {
         let editing = self.text_compose_active() || self.sheet_edit.is_some();
         // A focused web portal is a keyboard sink, like an inline editor: bare
         // letters, digits, Tab, and arrows belong to the page, so typing in a
-        // form cannot switch tools (D22). Ctrl chords stay Slate's — save and
-        // undo keep working — and Escape stays out of this so it can still peel
+        // form cannot switch tools (D22). Ctrl chords except clipboard stay
+        // Slate's — save/undo work — and Escape stays out so it can still peel
         // the focus back off.
         let web_focus = board && self.web.focused.is_some();
         let agent_focus = board && self.agents.focused.is_some();
@@ -1070,12 +1066,6 @@ impl SlateApp {
                 paste_text: None,
                 pointer_pressed: i.pointer.any_pressed(),
             };
-            fn push_unique(v: &mut Vec<CommandId>, id: CommandId) {
-                if !v.contains(&id) {
-                    v.push(id);
-                }
-            }
-
             // --- Space tap = repeat-last (release-fired; Space+drag stays pan) ---
             if i.key_pressed(egui::Key::Space)
                 && self.space_tap.pressed_at.is_none()
@@ -1110,7 +1100,7 @@ impl SlateApp {
                 {
                     continue;
                 }
-                if !spec.when.matches(cmd_ctx) {
+                if !spec.when.matches(cmd_ctx) || (web_focus && web_clipboard_command(spec.id)) {
                     continue;
                 }
                 // On the board, bare letters wait out the hold window so a
@@ -1134,7 +1124,8 @@ impl SlateApp {
                     continue;
                 }
                 if let Some(spec) = self.registry.by_id(*id) {
-                    if !spec.when.matches(cmd_ctx) {
+                    if !spec.when.matches(cmd_ctx) || (web_focus && web_clipboard_command(spec.id))
+                    {
                         continue;
                     }
                     if command_typing_ok && chord.is_bare_letter() {
@@ -1151,7 +1142,7 @@ impl SlateApp {
             // Copy/Cut/Paste events (with the OS clipboard payload) instead
             // of — or as well as — key events. Map them onto the same
             // commands; `push_unique` keeps double delivery harmless.
-            if !wants_kb && !editing && !palette_open {
+            if !wants_kb && !typing_sink && !palette_open {
                 for e in &i.events {
                     match e {
                         egui::Event::Copy => {
@@ -1254,7 +1245,7 @@ impl SlateApp {
         });
 
         if let Some(shift) = paste_edge {
-            if board && !self.at_home && !wants_kb && !editing && !palette_open {
+            if board && !self.at_home && !wants_kb && !typing_sink && !palette_open {
                 let already = keys
                     .matched
                     .iter()

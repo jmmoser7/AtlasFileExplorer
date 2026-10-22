@@ -15,11 +15,6 @@ contains = "Color32::from_rgb(tag.color[0], tag.color[1], tag.color[2])"
 reason = "workbook tag chip colour from document"
 
 [[entry]]
-file = "apps/file-atlas/src/app/mod.rs"
-contains = "Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), 90)"
-reason = "chip fill derived from its tag colour with alpha"
-
-[[entry]]
 file = "apps/slate/src/app/board_atlas.rs"
 contains = "vec![Color32::from_rgb(22, 26, 32); w * h]"
 reason = "generated mosaic poster pixels (texture, not chrome)"

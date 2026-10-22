@@ -3,10 +3,14 @@ use super::{model::*, state::RosterState, ui as chrome, PresencePainter};
 use crate::theme::Palette;
 use eframe::egui::{self, Align2, Id, Pos2, Rect, RichText, Sense, Ui, Vec2};
 
+mod order;
+use order::{ordered_rows, TranscriptRow};
+
 pub(super) fn history_window(
     total: usize,
     offset: usize,
     attached: bool,
+    _select_all: bool,
 ) -> std::ops::Range<usize> {
     if attached {
         return total.saturating_sub(4)..total;
@@ -29,6 +33,9 @@ pub(super) fn show(
     message_height: f32,
     actions: &mut Vec<PresenceAction>,
 ) {
+    // Native label selection can consume the same events while rows paint.
+    let select_all_key = RosterState::transcript_key_requested(ui.ctx(), egui::Key::A);
+    let copy_all = state.copy_transcript_requested(ui.ctx(), p.id);
     let total = p.message_total;
     let mut offset = *state.history_offsets.entry(p.id.into()).or_insert(0);
     let paged = !attached && total > 64;
@@ -58,7 +65,7 @@ pub(super) fn show(
         state.history_offsets.insert(p.id.into(), offset);
     }
     let message_height = (message_height - if paged { 24.0 } else { 0.0 }).max(30.0);
-    let _scroll = egui::ScrollArea::vertical()
+    let scroll = egui::ScrollArea::vertical()
         .id_salt(("participant-messages", p.id, attached))
         .max_height(message_height)
         .min_scrolled_height(message_height)
@@ -87,59 +94,92 @@ pub(super) fn show(
                             );
                         });
                     }
-                    for (index, message) in p.messages.iter().enumerate() {
-                        if message.system {
-                            ui.vertical_centered(|ui| {
-                                ui.label(RichText::new(message.text).size(10.0).color(palette.sub));
-                            });
-                        } else {
-                            message_row(
-                                ui, palette, painter, p, message, now, reduced, attached, actions,
-                            );
-                        }
-                        if index + 1 < p.messages.len() {
-                            ui.add_space(if attached { 16.0 } else { 23.0 });
-                        }
-                    }
                     let activity_start =
                         p.activity
                             .len()
                             .saturating_sub(if attached { 1 } else { 8 });
-                    for activity in p.activity.iter().skip(activity_start) {
-                        let duplicate_commentary = activity.label == "Update"
-                            && p.messages.iter().any(|message| {
-                                !message.outgoing
-                                    && !message.system
-                                    && message.text.trim() == activity.text.trim()
-                            });
-                        if duplicate_commentary
-                            || (activity.label.trim().is_empty() && activity.text.trim().is_empty())
-                        {
-                            continue;
+                    let activity = &p.activity[activity_start..];
+                    let ordered = ordered_rows(p.messages, activity);
+                    for (position, row) in ordered.iter().enumerate() {
+                        match *row {
+                            TranscriptRow::Message(index) => {
+                                let message = &p.messages[index];
+                                if message.system {
+                                    ui.vertical_centered(|ui| {
+                                        let label = RichText::new(message.text)
+                                            .size(10.0)
+                                            .color(palette.sub);
+                                        ui.label(if state.selected_transcripts.contains(p.id) {
+                                            label.background_color(
+                                                egui::Color32::from_rgba_unmultiplied(
+                                                    75, 135, 220, 52,
+                                                ),
+                                            )
+                                        } else {
+                                            label
+                                        });
+                                    });
+                                } else {
+                                    message_row(
+                                        ui,
+                                        palette,
+                                        painter,
+                                        p,
+                                        message,
+                                        now,
+                                        reduced,
+                                        attached,
+                                        state.selected_transcripts.contains(p.id),
+                                        actions,
+                                    );
+                                }
+                                if ordered
+                                    .get(position + 1)
+                                    .is_some_and(|next| matches!(next, TranscriptRow::Message(_)))
+                                {
+                                    ui.add_space(if attached { 16.0 } else { 23.0 });
+                                }
+                            }
+                            TranscriptRow::Activity(index) => {
+                                let activity = &activity[index];
+                                let duplicate_commentary = activity.label == "Update"
+                                    && p.messages.iter().any(|message| {
+                                        !message.outgoing
+                                            && !message.system
+                                            && message.text.trim() == activity.text.trim()
+                                    });
+                                if duplicate_commentary
+                                    || (activity.label.trim().is_empty()
+                                        && activity.text.trim().is_empty())
+                                {
+                                    continue;
+                                }
+                                ui.add_space(if attached { 8.0 } else { 12.0 });
+                                egui::Frame::NONE
+                                    .fill(palette.window)
+                                    .corner_radius(if attached { 10 } else { 14 })
+                                    .inner_margin(egui::Margin::symmetric(10, 7))
+                                    .show(ui, |ui| {
+                                        ui.set_width(ui.available_width());
+                                        let line =
+                                            match (activity.label.trim(), activity.text.trim()) {
+                                                ("", text) => text.to_owned(),
+                                                (label, "") => label.to_owned(),
+                                                (label, text) => format!("{label} · {text}"),
+                                            };
+                                        let response = ui.add(
+                                            egui::Label::new(
+                                                RichText::new(line).size(11.0).color(palette.sub),
+                                            )
+                                            .wrap(),
+                                        );
+                                        response.on_hover_text(format!(
+                                            "{}\n{}",
+                                            activity.label, activity.text
+                                        ));
+                                    });
+                            }
                         }
-                        ui.add_space(if attached { 8.0 } else { 12.0 });
-                        egui::Frame::NONE
-                            .fill(palette.window)
-                            .corner_radius(if attached { 10 } else { 14 })
-                            .inner_margin(egui::Margin::symmetric(10, 7))
-                            .show(ui, |ui| {
-                                ui.set_width(ui.available_width());
-                                let line = match (activity.label.trim(), activity.text.trim()) {
-                                    ("", text) => text.to_owned(),
-                                    (label, "") => label.to_owned(),
-                                    (label, text) => format!("{label} · {text}"),
-                                };
-                                let response = ui.add(
-                                    egui::Label::new(
-                                        RichText::new(line).size(11.0).color(palette.sub),
-                                    )
-                                    .wrap(),
-                                );
-                                response.on_hover_text(format!(
-                                    "{}\n{}",
-                                    activity.label, activity.text
-                                ));
-                            });
                     }
                     for proposal in p.proposals {
                         ui.add_space(if attached { 12.0 } else { 18.0 });
@@ -148,6 +188,50 @@ pub(super) fn show(
                     ui.add_space(if attached { 14.0 } else { 20.0 });
                 });
         });
+    let composer_focused =
+        ui.memory(|memory| memory.focused()) == Some(Id::new(("presence-composer", p.id)));
+    // Selectable text sits in transformed child Areas. Those are the top hit
+    // layer while hovered, so egui's normal hit-test says the enclosing scroll
+    // viewport is not hovered. Resolve the pointer in this UI's coordinates
+    // instead; this keeps Ctrl+A scoped to the transcript without stealing the
+    // composer/header shortcuts.
+    let transform = ui
+        .ctx()
+        .layer_transform_to_global(ui.layer_id())
+        .unwrap_or_default();
+    state.transcript_target = Some((
+        p.id.into(),
+        transform * scroll.inner_rect,
+        std::iter::once(ui.layer_id())
+            .chain(p.messages.iter().map(|message| {
+                egui::LayerId::new(
+                    ui.layer_id().order,
+                    Id::new(("presence-message-text", p.id, message.id)),
+                )
+            }))
+            .collect(),
+    ));
+    let transcript_hovered = state.transcript_hovered(ui.ctx());
+    let select_all = select_all_key && transcript_hovered && !composer_focused;
+    if select_all && !p.messages.is_empty() {
+        ui.input_mut(|input| {
+            input.consume_key(egui::Modifiers::COMMAND, egui::Key::A);
+        });
+        state.select_transcript(ui.ctx(), p.id);
+    }
+    if copy_all {
+        ui.input_mut(|input| {
+            input.consume_key(egui::Modifiers::COMMAND, egui::Key::C);
+        });
+        let text = conversation_copy_text(p.name, p.copy_messages.unwrap_or(p.messages));
+        if !text.is_empty() {
+            ui.ctx().copy_text(text);
+        }
+    }
+    if ui.input(|input| input.pointer.any_pressed()) {
+        state.selected_transcripts.remove(p.id);
+    }
+
     #[cfg(test)]
     if p.proposals.len() > 1
         && ui.input(|input| {
@@ -162,11 +246,46 @@ pub(super) fn show(
             .unwrap_or_default();
         eprintln!(
             "proposal ScrollArea id={:?} layer={:?} transform={transform:?} offset={:?} velocity={:?} content={:?} inner_local={:?} inner_screen={:?} parent_clip_local={:?} parent_clip_screen={:?}",
-            _scroll.id, ui.layer_id(), _scroll.state.offset, _scroll.state.velocity(),
-            _scroll.content_size, _scroll.inner_rect, transform * _scroll.inner_rect,
-            ui.clip_rect(), transform * ui.clip_rect(),
+            scroll.id,
+            ui.layer_id(),
+            scroll.state.offset,
+            scroll.state.velocity(),
+            scroll.content_size,
+            scroll.inner_rect,
+            transform * scroll.inner_rect,
+            ui.clip_rect(),
+            transform * ui.clip_rect(),
         );
     }
+}
+
+fn conversation_copy_text(participant_name: &str, messages: &[ConversationMessage<'_>]) -> String {
+    messages
+        .iter()
+        .map(|message| {
+            let speaker = if message.system {
+                "Notice"
+            } else if message.outgoing {
+                "You"
+            } else {
+                participant_name
+            };
+            let mut entry = format!("{speaker}:\n{}", message.text);
+            if message.attachment_count > 0 {
+                entry.push_str(&format!(
+                    "\n[{} image{} attached]",
+                    message.attachment_count,
+                    if message.attachment_count == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
+                ));
+            }
+            entry
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 fn proposal_row(
@@ -225,6 +344,7 @@ fn message_row(
     now: f64,
     reduced: bool,
     attached: bool,
+    selected: bool,
     actions: &mut Vec<PresenceAction>,
 ) {
     let width = ui.available_width();
@@ -269,9 +389,17 @@ fn message_row(
         palette,
         true,
     );
-    ui.painter().galley(
+    if selected {
+        ui.painter().rect_filled(
+            rect,
+            if attached { 17 } else { 24 },
+            egui::Color32::from_rgba_unmultiplied(75, 135, 220, 52),
+        );
+    }
+    crate::canvas_text::Scaled::from_galley(galley, 1.0).selectable(
+        ui,
+        Id::new(("presence-message-text", p.id, message.id)),
         rect.min + padding,
-        galley,
         if message.outgoing {
             palette.ink
         } else {
@@ -361,22 +489,5 @@ fn message_row(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::history_window;
-    #[test]
-    fn every_stored_turn_is_reachable_with_at_most_sixty_four_painted_rows() {
-        let total = 513;
-        let mut seen = vec![false; total];
-        for offset in (0..total).step_by(64) {
-            let page = history_window(total, offset, false);
-            assert!(page.len() <= 64);
-            for index in page {
-                assert!(!seen[index]);
-                seen[index] = true;
-            }
-        }
-        assert!(seen.into_iter().all(|turn| turn));
-        assert_eq!(history_window(100_000, 0, true), 99_996..100_000);
-        assert_eq!(history_window(0, 0, false), 0..0);
-    }
-}
+#[path = "transcript_tests.rs"]
+mod tests;

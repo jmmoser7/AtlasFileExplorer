@@ -40,7 +40,7 @@ impl SlateApp {
     }
 
     pub(crate) fn osnap_radius_world(&self) -> f32 {
-        OSNAP_RADIUS_PX / self.tab().cam.z.max(0.05)
+        OSNAP_RADIUS_PX / self.tab().cam.z.max(atlas_core::display::SLATE_BOARD.min)
     }
 
     /// Point-pick resolution: Alt suspends, ortho wins when allowed, then

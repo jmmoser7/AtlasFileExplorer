@@ -122,7 +122,7 @@ pub(super) fn vector_stroke_ink_for(
     style.width = ink_width;
     let feather = soft
         + if soft <= 0.0 {
-            FEATHER_PX / zoom.max(0.05)
+            FEATHER_PX / zoom.max(atlas_core::display::SLATE_BOARD.min)
         } else {
             0.0
         };

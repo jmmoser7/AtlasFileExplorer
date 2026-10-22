@@ -82,7 +82,23 @@ fn publish_session_until(
     deadline: Instant,
     observed: impl Fn(&Harness) -> bool,
 ) {
-    atlas_ai::agent::atomic_write_json(&dir.join("session.json"), &session).unwrap();
+    let path = dir.join("session.json");
+    let previous_mtime = std::fs::metadata(&path)
+        .and_then(|metadata| metadata.modified())
+        .ok();
+    atlas_ai::agent::atomic_write_json(&path, &session).unwrap();
+    if let Some(previous_mtime) = previous_mtime {
+        // The real file poller keys observations by mtime. Give rapid fixture
+        // revisions distinct timestamps even on coarse-resolution filesystems.
+        let modified =
+            std::time::SystemTime::now().max(previous_mtime + std::time::Duration::from_secs(1));
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+    }
     h.app.presence.sources.expect(dir, &session.request);
     loop {
         h.app.presence_pump(&h.ctx);

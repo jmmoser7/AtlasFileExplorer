@@ -5,9 +5,8 @@
 //! Commands are data ([`atlas_commands::CommandSpec`]): the reference UI, the
 //! canvas palette, keyboard dispatch (`dispatch.rs`), and the F2 history all
 //! read this one table, so they can never disagree (Constitution Art. VII).
-//! Rows with `chord: None` are documentation for mouse gestures or keys that
-//! are handled specially (Space/Enter repeat, Esc, Tab, arrows) or locally in
-//! the board canvas.
+//! Rows with `chord: None` document mouse gestures or specially handled keys.
+//! Space/Enter repeat, Esc, Tab and arrows are handled locally by the canvas.
 use atlas_commands::{Availability, Chord, CommandId, CommandSpec, Key, Repeat};
 pub use atlas_shell::commands::{CommandEntry, TurboPanState};
 const GLOBAL: Availability = Availability::GLOBAL;
@@ -29,7 +28,14 @@ pub use constructors::ALIAS_CHORDS;
 use constructors::{ctrl_shift, shift, spec};
 /// Canonical command table: group by category for the reference UI;
 /// keep historical documentation rows first, dispatchable additions after.
+#[rustfmt::skip]
 pub static SPECS: &[CommandSpec] = &[
+    agent_tools::TAG_CREATE,
+    agent_tools::TAG_ASSIGN,
+    agent_tools::TAG_UNASSIGN,
+    agent_tools::BOARD_PREVIEW,
+    agent_tools::WEB_ALLOW_ORIGIN, agent_tools::WEB_REVOKE_ORIGIN,
+    agent_tools::WEB_ALLOW_ALL_SITES, agent_tools::WEB_RESTRICT_SITES, agent_tools::WEB_ACCESS_SETTINGS,
     agent_tools::DRAW,
     agent_tools::PORTAL,
     agent_tools::ATLAS_LIST,
@@ -620,16 +626,7 @@ pub static SPECS: &[CommandSpec] = &[
         BOARD,
         &["choose page", "bind url", "choose dashboard"],
     ),
-    spec(
-        "portal.web.allow_origin",
-        "Board",
-        "Web portal: allow this origin",
-        "Portal sidebar; permits one remote origin for this workbook. Local trust only — never journaled or saved",
-        None,
-        Repeat::Never,
-        BOARD,
-        &["allow origin", "trust host", "permit site"],
-    ),
+
     spec(
         "portal.web.home",
         "Board",
@@ -1053,16 +1050,7 @@ pub static SPECS: &[CommandSpec] = &[
         BOARD,
         &[],
     ),
-    spec(
-        "board.crop",
-        "Board",
-        "Crop selected image",
-        "C with one or more croppable images selected (Board view)",
-        Some(Chord::bare(Key::C)),
-        Repeat::Repeatable,
-        BOARD_SEL,
-        &["mask"],
-    ),
+    results::CROP,
     spec(
         "board.crop_window",
         "Board",
@@ -1091,6 +1079,7 @@ pub static SPECS: &[CommandSpec] = &[
     media::GENERATE,
     results::COPY,
     results::SAVE,
+    results::IMAGE_SAVE,
     results::CANVAS,
     results::RANGE,
     media::ARTIFACT_ACCEPT,

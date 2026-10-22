@@ -16,6 +16,27 @@ fn delete_key_removes_the_card_under_the_cursor() {
     h.app.suppress_delete_confirm = true;
     h.frame();
     let doomed = *h.app.rel_to_id.get("doomed.jpg").expect("scanned");
+    let fixture_path = root.join("doomed.jpg");
+    let scanned_path = &h.app.entries[doomed as usize].path;
+    assert_eq!(
+        scanned_path, &fixture_path,
+        "scanned generated fixture path"
+    );
+    let metadata = std::fs::symlink_metadata(&fixture_path).unwrap();
+    eprintln!(
+        "Delete generated fixture: scanned={scanned_path:?}, expected={fixture_path:?}, absolute={}, file={}, symlink={}, len={}, readonly={}",
+        scanned_path.is_absolute(), metadata.is_file(), metadata.file_type().is_symlink(),
+        metadata.len(), metadata.permissions().readonly()
+    );
+    #[cfg(windows)]
+    {
+        use std::os::windows::{ffi::OsStrExt, fs::MetadataExt};
+        let wide: Vec<u16> = scanned_path.as_os_str().encode_wide().collect();
+        eprintln!(
+            "Delete generated fixture Windows: attributes=0x{:x}, utf16_len={}, utf16_units={wide:?}",
+            metadata.file_attributes(), wide.len()
+        );
+    }
     let center = h.app.w2s(
         h.app.tree.as_ref().unwrap().file_pos[doomed as usize]
             .rect()
@@ -31,6 +52,8 @@ fn delete_key_removes_the_card_under_the_cursor() {
         repeat: false,
         modifiers: egui::Modifiers::NONE,
     }]);
+    let started_operation = h.app.fs_op.as_ref().map(|op| op.op.clone());
+    eprintln!("Delete generated fixture started operation: {started_operation:?}");
     assert!(
         h.app.fs_op.is_some() || !root.join("doomed.jpg").exists(),
         "Delete did not start or finish: focus={:?}, wants_keyboard={}, hover={:?}, mode={:?}, confirmation={}, toasts={:?}",
@@ -44,12 +67,13 @@ fn delete_key_removes_the_card_under_the_cursor() {
     }
     assert!(
         !root.join("doomed.jpg").exists(),
-        "the file is still there: operation={:?}, toasts={:?}",
+        "the file is still there: operation={:?}, toasts={:?}, started_operation={:?}",
         h.app
             .fs_op
             .as_ref()
             .map(|op| (&op.label, op.done, op.total, &op.op)),
-        h.app.toasts
+        h.app.toasts,
+        started_operation
     );
     assert!(h.app.entries[doomed as usize].dead);
     // The next rebuild agrees with the completed operation.

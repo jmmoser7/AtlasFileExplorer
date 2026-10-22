@@ -1538,9 +1538,20 @@ impl SlateApp {
                     self.model3d.want_poster.remove(&key);
                     continue;
                 }
-                if self.generate_poster(id) {
-                    self.model3d.want_poster.remove(&key);
-                    ctx.request_repaint();
+                match self.generate_poster(id) {
+                    posters::PosterGeneration::Waiting => {}
+                    posters::PosterGeneration::Complete => {
+                        self.model3d.want_poster.remove(&key);
+                    }
+                    posters::PosterGeneration::Rendered(complete) => {
+                        if complete {
+                            self.model3d.want_poster.remove(&key);
+                        }
+                        ctx.request_repaint();
+                        // Cached duplicates retire cheaply; actual GPU work,
+                        // including failed attempts, stays at one per frame.
+                        break;
+                    }
                 }
             }
         }
@@ -1554,63 +1565,6 @@ impl SlateApp {
         if !self.model3d.live.is_empty() {
             // Keep ticking so the auto-lock countdown fires without input.
             ctx.request_repaint_after(Duration::from_millis(500));
-        }
-    }
-
-    /// Render + store the poster for a locked node. `true` when done (or
-    /// permanently impossible, so the request should be dropped).
-    fn generate_poster(&mut self, id: NodeId) -> bool {
-        let Some(info) = self.model_node_info(id) else {
-            return true;
-        };
-        let Some(gl) = self.gl.clone() else {
-            return true;
-        };
-        self.model3d.request_model(&info.cache_key, &info.path);
-        match self.model3d.models.get(&info.cache_key).map(|e| &e.state) {
-            Some(ModelState::Ready(_)) => {}
-            Some(ModelState::Failed(_) | ModelState::External(_)) => return true,
-            _ => return false, // still parsing
-        }
-        let Some((min, max)) = self.model3d.bounds.get(&info.cache_key).copied() else {
-            return true;
-        };
-        let cam = resolve_camera(&info.cam, min, max);
-        let aq = aspect_q(info.rect.w, info.rect.h);
-        let (pw, ph) = poster_size(aq);
-        match self
-            .model3d
-            .render_image(&gl, &info.cache_key, &cam, pw, ph, None)
-        {
-            Some(img) => {
-                self.model3d.store_poster(
-                    poster_file_name(&info.cache_key, &cam, aq),
-                    poster_path(&info.cache_key, &cam, aq),
-                    img,
-                );
-                true
-            }
-            None => matches!(self.model3d.engine, EngineSlot::Failed),
-        }
-    }
-
-    /// Queue poster generation for a locked node (paint pass found none).
-    pub fn request_model_poster(&mut self, id: NodeId) {
-        if self.gl.is_none() {
-            return;
-        }
-        if let Some(info) = self.model_node_info(id) {
-            if self.model3d.external.contains(&info.cache_key) {
-                return;
-            }
-            self.model3d.request_model(&info.cache_key, &info.path);
-            let blocked = matches!(
-                self.model3d.models.get(&info.cache_key).map(|e| &e.state),
-                Some(ModelState::Failed(_) | ModelState::External(_))
-            );
-            if !blocked && self.model3d.admit_model_poster(&info) {
-                self.model3d.want_poster.insert((self.tab().id, id));
-            }
         }
     }
 

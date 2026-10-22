@@ -2,6 +2,102 @@
 
 use super::*;
 
+pub fn hit_path_node(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32) -> bool {
+    if far_from_plain_filled_rect(node, shape, [wx, wy], zoom) {
+        return false;
+    }
+    let styled = slate_doc::vertex_style::closed_form_paint_shape(shape, node.rect);
+    let shape = styled.as_ref().unwrap_or(shape);
+    if erased_at(node, shape, wx, wy) {
+        return false;
+    }
+    if hit_brush_dab(node, shape, wx, wy, zoom) {
+        return true;
+    }
+    if shape_uses_stroke_pick(node, shape) {
+        return hit_shape_stroke(node, shape, wx, wy, zoom);
+    }
+    let Some(path) = shape.path.as_ref().filter(|p| !p.is_empty()) else {
+        return slate_doc::geom::point_in_node_outline(node, wx, wy, 0.25)
+            || hit_shape_stroke(node, shape, wx, wy, zoom);
+    };
+    let bez = shape_path_world_bez(node, shape, path);
+    let style = stroke_style_world(&shape.stroke, zoom);
+    let slop = pick_slop_world(zoom);
+    if stroke_picks(shape) && picking::hit_painted_stroke(node, shape, &bez, &style, [wx, wy], slop)
+    {
+        return true;
+    }
+    if path.closed {
+        if let Some(fill) = shape.fill {
+            if fill.0[3] > 0 {
+                let contours = flatten_contours(&bez, 0.25);
+                if vector_ink::point_in_polygon(&contours, [wx, wy]) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Reject only geometry wholly contained by a plain rect. Survivors still use
+/// the precise outline predicate above; alpha alone cannot rule out a stroke.
+fn far_from_plain_filled_rect(node: &Node, shape: &ShapeNode, point: [f32; 2], zoom: f32) -> bool {
+    let plain = |s: &ShapeNode| {
+        s.shape == ShapeKind::Rect
+            && s.corner == slate_doc::scene::Corner::Square
+            && s.path.is_none()
+            && s.stroke.width == 0.0
+            && shape_has_fill(s)
+    };
+    if !plain(shape)
+        || !matches!(&node.kind, NodeKind::Shape(actual) if plain(actual))
+        || node.clip.is_some()
+        || node.rotation_deg != 0.0
+    {
+        return false;
+    }
+    let rect = node.rect;
+    let slop = pick_slop_world(zoom);
+    let right = rect.x + rect.w;
+    let bottom = rect.y + rect.h;
+    if rect.w <= 0.0
+        || rect.h <= 0.0
+        || ![
+            rect.x, rect.y, rect.w, rect.h, right, bottom, point[0], point[1], slop,
+        ]
+        .iter()
+        .all(|value| value.is_finite())
+    {
+        return false;
+    }
+    let expanded = WorldRect::new(
+        rect.x - slop,
+        rect.y - slop,
+        rect.w + 2.0 * slop,
+        rect.h + 2.0 * slop,
+    );
+    let expanded_right = expanded.x + expanded.w;
+    let expanded_bottom = expanded.y + expanded.h;
+    if ![
+        expanded.x,
+        expanded.y,
+        expanded.w,
+        expanded.h,
+        expanded_right,
+        expanded_bottom,
+    ]
+    .iter()
+    .all(|value| value.is_finite())
+        || expanded_right < right
+        || expanded_bottom < bottom
+    {
+        return false;
+    }
+    !expanded.contains(point[0], point[1])
+}
+
 pub(super) fn hit_painted_stroke(
     node: &Node,
     shape: &ShapeNode,
@@ -218,155 +314,4 @@ pub(super) fn brush_dab_disc(node: &Node, shape: &ShapeNode) -> Option<(Pos2, f3
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use slate_doc::scene::{ConnectorEnd, ConnectorNode, FrameNode, ImageNode, Scene, SceneCmd};
-    use slate_doc::{ItemId, WireRouting};
-
-    fn add(scene: &mut Scene, rect: WorldRect, kind: NodeKind) -> NodeId {
-        let node = scene.build_node(rect, kind);
-        let id = node.id;
-        scene.apply(&SceneCmd::Add {
-            index: scene.nodes.len(),
-            node,
-        });
-        id
-    }
-
-    fn image() -> NodeKind {
-        NodeKind::Image(ImageNode::new(ItemId(1)))
-    }
-
-    fn connector(a: ConnectorEnd, b: ConnectorEnd) -> NodeKind {
-        NodeKind::Connector(ConnectorNode {
-            a,
-            b,
-            stroke: Stroke {
-                width: 2.0,
-                color: Rgba([0, 0, 0, 255]),
-                ..Default::default()
-            },
-            color: None,
-            routing: None,
-            arrow_a: false,
-            arrow_b: false,
-            label: None,
-            display: Default::default(),
-            binding: None,
-            crosstalk: None,
-        })
-    }
-
-    fn frame() -> NodeKind {
-        NodeKind::Frame(FrameNode {
-            title: "Slide".into(),
-            order: 0,
-            fill: Rgba::WHITE,
-            fill_authored: false,
-            assignments: Default::default(),
-            stroke: Stroke::none(),
-            corner: Default::default(),
-        })
-    }
-
-    fn filtered(scene: &Scene, locked: bool, accepts: impl Fn(&Node) -> bool) -> Option<NodeId> {
-        board_pick_node_filtered(
-            scene,
-            [50.0, 0.0],
-            1.0,
-            locked,
-            WireRouting::Bezier,
-            accepts,
-            slate_doc::scene_wire_hosts(scene),
-        )
-    }
-
-    #[test]
-    fn excluded_authored_body_falls_through_to_the_visible_node_behind_it() {
-        let mut scene = Scene::default();
-        let rect = WorldRect::new(40.0, -10.0, 20.0, 20.0);
-        let back = add(&mut scene, rect, image());
-        let carried = add(&mut scene, rect, image());
-        assert_eq!(board_pick_node(&scene, 50.0, 0.0, 1.0), Some(carried));
-        assert_eq!(filtered(&scene, false, |n| n.id != carried), Some(back));
-        assert_eq!(filtered(&scene, false, |_| false), None);
-    }
-
-    #[test]
-    fn transient_filter_applies_to_frame_fallback_and_locked_escape_hatch() {
-        let mut scene = Scene::default();
-        let rect = WorldRect::new(0.0, -30.0, 100.0, 60.0);
-        let back = add(&mut scene, rect, frame());
-        let locked = add(&mut scene, rect, frame());
-        scene.node_mut(locked).unwrap().locked = true;
-        assert_eq!(filtered(&scene, false, |_| true), Some(back));
-        assert_eq!(filtered(&scene, true, |_| true), Some(locked));
-        assert_eq!(filtered(&scene, true, |n| n.id != locked), Some(back));
-        assert_eq!(filtered(&scene, false, |n| n.id != back), None);
-        scene.node_mut(locked).unwrap().hidden = true;
-        assert_eq!(filtered(&scene, true, |n| n.id != back), None);
-    }
-
-    #[test]
-    fn excluded_body_does_not_occlude_wire_but_excluded_wire_still_cannot_be_hit() {
-        let mut scene = Scene::default();
-        let conn = connector(
-            ConnectorEnd::Free { point: [0.0, 0.0] },
-            ConnectorEnd::Free {
-                point: [100.0, 0.0],
-            },
-        );
-        let wire = add(&mut scene, WorldRect::new(0.0, 0.0, 100.0, 0.0), conn);
-        let carried = add(&mut scene, WorldRect::new(45.0, -5.0, 10.0, 10.0), image());
-        assert_eq!(filtered(&scene, false, |_| true), Some(carried));
-        assert_eq!(filtered(&scene, false, |n| n.id != carried), Some(wire));
-        assert_eq!(filtered(&scene, false, |_| false), None);
-    }
-
-    #[test]
-    fn attached_wire_picks_its_visible_preview_route_and_not_its_old_authored_span() {
-        let mut scene = Scene::default();
-        let source = add(&mut scene, WorldRect::new(0.0, 0.0, 40.0, 40.0), image());
-        let target = add(&mut scene, WorldRect::new(200.0, 0.0, 40.0, 40.0), image());
-        let conn = connector(
-            ConnectorEnd::Anchored {
-                node: source,
-                side: slate_doc::scene::Side::Right,
-                t: 0.5,
-            },
-            ConnectorEnd::Anchored {
-                node: target,
-                side: slate_doc::scene::Side::Left,
-                t: 0.5,
-            },
-        );
-        let wire = add(&mut scene, WorldRect::new(40.0, 20.0, 160.0, 0.0), conn);
-        for routing in [WireRouting::Bezier, WireRouting::Orthogonal] {
-            let pick = |point| {
-                board_pick_node_filtered(
-                    &scene,
-                    point,
-                    1.0,
-                    false,
-                    routing,
-                    |node| node.id != source && node.id != target,
-                    |id| {
-                        scene.node(id).filter(|node| !node.hidden).map(|node| {
-                            let mut host = slate_doc::WireHost::from_node(node);
-                            host.rect.y += 100.0;
-                            host
-                        })
-                    },
-                )
-            };
-            assert_eq!(pick([120.0, 120.0]), Some(wire), "visible {routing:?} span");
-            assert_eq!(pick([120.0, 20.0]), None, "old {routing:?} span is absent");
-            assert_eq!(
-                board_pick_node_routed(&scene, 120.0, 20.0, 1.0, false, routing),
-                Some(wire)
-            );
-        }
-        assert_eq!(scene.node(source).unwrap().rect.y, 0.0);
-        assert_eq!(scene.node(target).unwrap().rect.y, 0.0);
-    }
-}
+mod tests;

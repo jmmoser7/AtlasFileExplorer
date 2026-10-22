@@ -101,11 +101,11 @@ fn typing_into_a_page_does_not_reach_the_board_tools() {
     });
 
     assert_eq!(h.app.board_tool, tool_before, "no tool switch while typing");
-    let text: Vec<char> = host.sent(|i| match i {
-        board_web::WebInput::Text(c) => Some(*c),
+    let text: Vec<String> = host.sent(|i| match i {
+        board_web::WebInput::Text(text) => Some(text.clone()),
         _ => None,
     });
-    assert_eq!(text, vec!['r'], "the character reached the page");
+    assert_eq!(text, vec!["r"], "the character reached the page");
 }
 
 /// Esc is the one key the page never gets, because it is how the human gets
@@ -375,5 +375,31 @@ fn a_press_in_the_selection_gap_moves_the_group() {
     assert!(
         matches!(drag, Some(board::BoardDrag::Move { .. })),
         "the gap moves the selection"
+    );
+}
+
+#[test]
+fn a_group_gap_keeps_foreground_nonmember_transform_priority() {
+    let mut h = grip_board("group_gap_foreground_chrome");
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 100.0, 0.0);
+    h.app.board_sel = [a, b].into_iter().collect();
+    h.frame();
+    let world = Pos2::new(90.0, 30.0);
+    let point = h.app.world_to_screen(world);
+    assert_eq!(
+        h.app.transform_hit_at(point),
+        Some((None, board_handles::BoardHitTarget::Body))
+    );
+    let front = add_rect(&mut h.app, 100.0, 0.0);
+    h.app.board_sel = [a, b].into_iter().collect();
+    h.frame();
+    assert_eq!(
+        h.app.transform_hit_at(point),
+        Some((
+            Some(front),
+            board_handles::BoardHitTarget::Resize(board_handles::ResizeHandle::W)
+        )),
+        "group gap recovery must not steal a nonmember's foreground transform field"
     );
 }

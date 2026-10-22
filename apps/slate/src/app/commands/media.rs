@@ -89,14 +89,24 @@ pub(super) const ARTIFACT_REJECT: CommandSpec = spec(
     &["artifact", "dashboard", "discard", "reject"],
 );
 pub(super) const ARTIFACT_FORK: CommandSpec = spec(
-    "portal.artifact.fork", "Board", "Artifact: fork this revision",
+    "portal.artifact.fork",
+    "Board",
+    "Artifact: fork this revision",
     "Spawn a downstream artifact with independent content and memory trace wires from the shown revision",
-    None, Repeat::Never, BOARD, &["artifact", "dashboard", "fork", "variation"],
+    None,
+    Repeat::Never,
+    BOARD,
+    &["artifact", "dashboard", "fork", "variation"],
 );
 pub(super) const ARTIFACT_MEMORY_DISCONNECT: CommandSpec = spec(
-    "portal.artifact.memory_disconnect", "Board", "Artifact: start with fresh eyes",
+    "portal.artifact.memory_disconnect",
+    "Board",
+    "Artifact: start with fresh eyes",
     "Remove only the memory trace; content and completed revisions remain, and the next run starts a new agent session",
-    None, Repeat::Never, BOARD, &["artifact", "dashboard", "memory", "fresh eyes"],
+    None,
+    Repeat::Never,
+    BOARD,
+    &["artifact", "dashboard", "memory", "fresh eyes"],
 );
 pub(super) const ARTIFACT_MEMORY_INSPECT: CommandSpec = spec(
     "portal.artifact.memory_inspect",
@@ -109,9 +119,14 @@ pub(super) const ARTIFACT_MEMORY_INSPECT: CommandSpec = spec(
     &["artifact", "memory", "history", "trace"],
 );
 pub(super) const ARTIFACT_REVISION: CommandSpec = spec(
-    "portal.artifact.revision", "Board", "Artifact: show preserved revision",
+    "portal.artifact.revision",
+    "Board",
+    "Artifact: show preserved revision",
     "Click a history chip to show its exact immutable source; a later fork starts from that revision",
-    None, Repeat::Never, BOARD, &["artifact", "dashboard", "version", "evolution"],
+    None,
+    Repeat::Never,
+    BOARD,
+    &["artifact", "dashboard", "version", "evolution"],
 );
 pub(super) const ARTIFACT_SOURCE_OPEN: CommandSpec = spec(
     "portal.artifact.source_open",

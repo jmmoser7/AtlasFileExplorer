@@ -305,10 +305,15 @@ impl Scaled {
             Pos2::new(viewport.right(), self.galley.size().y),
         );
         let visible = local.intersect(viewport);
-        let interactable = visible.is_positive();
-        // Native selection bookkeeping must still visit a selected hidden row.
-        // A zero-size, noninteractive Area preserves Copy without hidden hits.
-        let visible = if interactable {
+        // Child hit layers yield the wheel to the surrounding ScrollArea,
+        // preserving visible text and native drag selection on other frames.
+        let wheel_in_frame = ui.input(|input| {
+            input.raw_scroll_delta != Vec2::ZERO || input.smooth_scroll_delta != Vec2::ZERO
+        });
+        let on_screen = visible.is_positive();
+        let interactable = on_screen && !wheel_in_frame;
+        // Hidden rows retain Copy bookkeeping without hidden hit regions.
+        let visible = if on_screen {
             visible
         } else {
             Rect::from_min_size(Pos2::ZERO, Vec2::ZERO)
@@ -339,9 +344,7 @@ impl Scaled {
                         egui::Sense::hover()
                     },
                 );
-                // Native label selection intersects global galley bounds with
-                // Ui::clip_rect. Give bookkeeping that global viewport, then
-                // retain local clipping for its transformed paint output.
+                // Bookkeep against the global clip, then restore local clipping.
                 let first = text_ui
                     .ctx()
                     .graphics_mut(|layers| layers.entry(layer).next_idx());

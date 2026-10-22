@@ -128,6 +128,21 @@ fn read_pagination_defaults_remain_compatible_and_bounded() {
 }
 
 #[test]
+fn task_action_limit_is_large_bounded_and_keeps_backlog_separate() {
+    let (mut grant, mut call) = fixture();
+    grant.max_actions = MAX_TASK_ACTIONS;
+    call.sequence = 4095;
+    assert!(grant.validate().is_ok());
+    assert!(call.validate().is_ok());
+    assert!(grant.authorize(&call, &call.session, "r").is_ok());
+    call.sequence = u64::from(MAX_TASK_ACTIONS);
+    assert!(call.validate().is_err());
+    grant.max_actions = MAX_TASK_ACTIONS + 1;
+    assert!(grant.validate().is_err());
+    assert_eq!(MAX_BOARD_CALLS, 128);
+}
+
+#[test]
 fn participant_reads_are_typed_bounded_and_grant_scoped() {
     let (mut grant, mut call) = fixture();
     grant.conversation_ids = vec!["helper-1".into()];
@@ -138,6 +153,9 @@ fn participant_reads_are_typed_bounded_and_grant_scoped() {
             participant_ids: vec![],
             offset: 0,
             limit: 8,
+            text_cursor: None,
+            text_limit: None,
+            text_generation: None,
         }
     );
     assert!(grant.authorize(&call, &call.session, "r").is_ok());
@@ -145,6 +163,9 @@ fn participant_reads_are_typed_bounded_and_grant_scoped() {
         participant_ids: vec!["helper-2".into()],
         offset: 0,
         limit: 8,
+        text_cursor: None,
+        text_limit: None,
+        text_generation: None,
     };
     assert!(grant.authorize(&call, &call.session, "r").is_err());
     for (offset, limit) in [(1_000_001, 8), (0, 0), (0, 9)] {
@@ -152,7 +173,33 @@ fn participant_reads_are_typed_bounded_and_grant_scoped() {
             participant_ids: vec![],
             offset,
             limit,
+            text_cursor: None,
+            text_limit: None,
+            text_generation: None,
         };
         assert!(call.validate().is_err());
     }
+    call.operation = BoardOperation::ReadParticipants {
+        participant_ids: vec!["helper-1".into()],
+        offset: 8,
+        limit: 8,
+        text_cursor: Some(4),
+        text_limit: Some(4096),
+        text_generation: None,
+    };
+    assert!(
+        call.validate().is_err(),
+        "continuations must carry a generation"
+    );
+    if let BoardOperation::ReadParticipants {
+        text_generation, ..
+    } = &mut call.operation
+    {
+        *text_generation = Some("helper-request-1".into());
+    }
+    assert!(call.validate().is_ok());
+    if let BoardOperation::ReadParticipants { text_limit, .. } = &mut call.operation {
+        *text_limit = Some(3);
+    }
+    assert!(call.validate().is_err());
 }

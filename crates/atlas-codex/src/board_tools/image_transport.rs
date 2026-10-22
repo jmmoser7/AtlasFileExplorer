@@ -52,7 +52,7 @@ fn image_operation(operation: &BoardOperation) -> bool {
     };
     matches!(
         command.as_str(),
-        "presence.read_image" | "portal.web.capture"
+        "presence.read_image" | "presence.preview" | "portal.web.capture"
     ) || (command == "portal.atlas.read_file" && arguments["mode"] == "image")
 }
 

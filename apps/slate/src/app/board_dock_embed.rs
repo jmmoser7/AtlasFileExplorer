@@ -61,7 +61,7 @@ impl SlateApp {
         let tokens = dock_tokens();
         let layout = measure_canvas_strip(ctx, &items, &tokens);
         let card = dock::icon_strip_card_size(&layout, &tokens);
-        let z = self.tab().cam.z.max(0.05);
+        let z = self.tab().cam.z.max(atlas_core::display::SLATE_BOARD.min);
         let w = (card.x / z).max(8.0);
         let h = (card.y / z).max(8.0);
         let center = self

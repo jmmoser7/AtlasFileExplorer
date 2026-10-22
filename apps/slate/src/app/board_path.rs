@@ -52,6 +52,13 @@ const MIN_PATH_BOUNDS: f32 = 8.0;
 const CACHE_BYTES: usize = 64 * 1024 * 1024;
 const CACHE_ENTRIES: usize = 32_768;
 
+mod cache;
+pub use cache::PathMeshCache;
+#[cfg(test)]
+pub(crate) mod cache_probe;
+#[cfg(test)]
+mod cache_tests;
+
 /// In-progress multi-click / freehand path gestures. `tips` holds the tool
 /// tip (width, color, opacity) each point was placed with, one per point,
 /// so a tip chord mid-draw blends from the placed points to the next
@@ -176,162 +183,7 @@ type GeometryKey = (NodeId, u64, bool);
 
 struct GeometryEntry {
     geometry: CachedGeometry,
-    referenced: bool,
-}
-
-/// The path shape a styled closed form paints as, with the shape and box
-/// it was derived from.
-struct ClosedFormPaint {
-    source: ShapeNode,
-    rect: WorldRect,
-    styled: Option<Shared<ShapeNode>>,
-}
-
-pub struct PathMeshCache {
-    map: HashMap<GeometryKey, GeometryEntry>,
-    clock: VecDeque<GeometryKey>,
-    resident_bytes: usize,
-    budget_bytes: usize,
-    entry_limit: usize,
-    /// Keyed by (board scope, id): every board numbers its nodes from one.
-    closed_forms: HashMap<(u64, NodeId), ClosedFormPaint>,
-    /// Cache misses this paint — reset at the start of `board_canvas`.
-    pub tess_misses: u32,
-}
-
-impl Default for PathMeshCache {
-    fn default() -> Self {
-        Self {
-            map: HashMap::new(),
-            clock: VecDeque::new(),
-            resident_bytes: 0,
-            budget_bytes: CACHE_BYTES,
-            entry_limit: CACHE_ENTRIES,
-            closed_forms: HashMap::new(),
-            tess_misses: 0,
-        }
-    }
-}
-
-impl PathMeshCache {
-    /// The path shape closed form `id` paints as while it stores per-vertex
-    /// style (`vertex_style::closed_form_paint_shape`), derived again only
-    /// when the shape or its box changes, so a steady frame allocates
-    /// nothing (Art. II). `scope` names the board being painted
-    /// ([`SlateApp::closed_form_scope`]).
-    pub(crate) fn closed_form_paint_shape(
-        &mut self,
-        scope: u64,
-        id: NodeId,
-        shape: &ShapeNode,
-        rect: WorldRect,
-    ) -> Option<Shared<ShapeNode>> {
-        if shape.path.is_none()
-            || slate_doc::vertex_style::closed_form_vertex_count(shape).is_none()
-        {
-            return None;
-        }
-        let id = (scope, id);
-        if let Some(entry) = self.closed_forms.get(&id) {
-            if entry.rect == rect && entry.source == *shape {
-                return entry.styled.clone();
-            }
-        }
-        note_closed_form_derive();
-        let styled = slate_doc::vertex_style::closed_form_paint_shape(shape, rect).map(Shared::new);
-        if self.closed_forms.len() >= CACHE_ENTRIES && !self.closed_forms.contains_key(&id) {
-            self.closed_forms.clear();
-        }
-        self.closed_forms.insert(
-            id,
-            ClosedFormPaint {
-                source: shape.clone(),
-                rect,
-                styled: styled.clone(),
-            },
-        );
-        styled
-    }
-
-    fn get(&mut self, key: GeometryKey) -> Option<CachedGeometry> {
-        let entry = self.map.get_mut(&key)?;
-        entry.referenced = true;
-        Some(entry.geometry.clone())
-    }
-
-    fn insert(&mut self, key: GeometryKey, geometry: CachedGeometry) {
-        let bytes = geometry.bytes();
-        // One exceptionally complex shape must not flush everything else.
-        // Its caller still owns and paints the result for this frame.
-        if bytes > self.budget_bytes || self.entry_limit == 0 {
-            return;
-        }
-        // Clock replacement gives recently reused entries a second chance.
-        // Each resident entry has exactly one queue slot; hits only set a bit,
-        // so neither geometry nor recency records allocate on a warm paint.
-        while self.resident_bytes + bytes > self.budget_bytes || self.map.len() >= self.entry_limit
-        {
-            let old = self
-                .clock
-                .pop_front()
-                .expect("cache entry has a clock slot");
-            let entry = self
-                .map
-                .get_mut(&old)
-                .expect("clock slot has a cache entry");
-            if std::mem::take(&mut entry.referenced) {
-                self.clock.push_back(old);
-            } else if let Some(entry) = self.map.remove(&old) {
-                self.resident_bytes -= entry.geometry.bytes();
-            }
-        }
-        self.resident_bytes += bytes;
-        self.map.insert(
-            key,
-            GeometryEntry {
-                geometry,
-                referenced: false,
-            },
-        );
-        self.clock.push_back(key);
-    }
-
-    pub(crate) fn get_or_tessellate(
-        &mut self,
-        node_id: NodeId,
-        key: u64,
-        build: impl FnOnce() -> InkMesh,
-    ) -> Shared<CachedInkMesh> {
-        let key = (node_id, key, false);
-        if let Some(CachedGeometry::Stroke(c)) = self.get(key) {
-            return c;
-        }
-        self.tess_misses = self.tess_misses.saturating_add(1);
-        let cached = Shared::new(CachedInkMesh::from(build()));
-        self.insert(key, CachedGeometry::Stroke(cached.clone()));
-        cached
-    }
-
-    pub(crate) fn get_or_fill_tris(
-        &mut self,
-        node_id: NodeId,
-        key: u64,
-        build: impl FnOnce() -> (Vec<[f32; 2]>, Vec<u32>),
-    ) -> Shared<FillTriangles> {
-        let key = (node_id, key, true);
-        if let Some(CachedGeometry::Fill(t)) = self.get(key) {
-            return t;
-        }
-        self.tess_misses = self.tess_misses.saturating_add(1);
-        let t = Shared::new(build());
-        self.insert(key, CachedGeometry::Fill(t.clone()));
-        t
-    }
-
-    #[cfg(test)]
-    pub(crate) fn stroke_len(&self) -> usize {
-        self.map.keys().filter(|(_, _, fill)| !fill).count()
-    }
+    last_seen_frame: u64,
 }
 
 pub fn zoom_bucket(z: f32) -> i64 {
@@ -867,6 +719,8 @@ pub(crate) fn ink_mesh_to_epaint(
     fade: impl Fn(Color32) -> Color32,
 ) -> egui::Mesh {
     use egui::epaint::{Vertex, WHITE_UV};
+    #[cfg(test)]
+    let _probe_conversion = cache_probe::Conversion::begin(cached);
     let mut mesh = egui::Mesh::default();
     mesh.vertices.reserve(cached.vertices.len());
     let tinted = cached.colors.len() == cached.vertices.len();
@@ -886,7 +740,7 @@ pub(crate) fn ink_mesh_to_epaint(
 
 /// Screen-consistent pick slop in world units (~4 px at the current zoom).
 pub fn pick_slop_world(zoom: f32) -> f32 {
-    PICK_SLOP_PX / zoom.max(0.05)
+    PICK_SLOP_PX / zoom.max(atlas_core::display::SLATE_BOARD.min)
 }
 
 /// World endpoints of a legacy bbox line (`ShapeKind::Line` + `flip`) or a
@@ -1037,42 +891,6 @@ pub fn hit_shape_stroke(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: 
     if stroke_picks(shape) && picking::hit_painted_stroke(node, shape, &bez, &style, [wx, wy], slop)
     {
         return true;
-    }
-    false
-}
-
-pub fn hit_path_node(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32) -> bool {
-    let styled = slate_doc::vertex_style::closed_form_paint_shape(shape, node.rect);
-    let shape = styled.as_ref().unwrap_or(shape);
-    if erased_at(node, shape, wx, wy) {
-        return false;
-    }
-    if hit_brush_dab(node, shape, wx, wy, zoom) {
-        return true;
-    }
-    if shape_uses_stroke_pick(node, shape) {
-        return hit_shape_stroke(node, shape, wx, wy, zoom);
-    }
-    let Some(path) = shape.path.as_ref().filter(|p| !p.is_empty()) else {
-        return slate_doc::geom::point_in_node_outline(node, wx, wy, 0.25)
-            || hit_shape_stroke(node, shape, wx, wy, zoom);
-    };
-    let bez = shape_path_world_bez(node, shape, path);
-    let style = stroke_style_world(&shape.stroke, zoom);
-    let slop = pick_slop_world(zoom);
-    if stroke_picks(shape) && picking::hit_painted_stroke(node, shape, &bez, &style, [wx, wy], slop)
-    {
-        return true;
-    }
-    if path.closed {
-        if let Some(fill) = shape.fill {
-            if fill.0[3] > 0 {
-                let contours = flatten_contours(&bez, 0.25);
-                if vector_ink::point_in_polygon(&contours, [wx, wy]) {
-                    return true;
-                }
-            }
-        }
     }
     false
 }
@@ -1399,7 +1217,7 @@ pub fn marquee_hits_node(
 }
 
 use picking::brush_dab_disc;
-pub use picking::{board_pick_node, board_pick_node_filtered};
+pub use picking::{board_pick_node, board_pick_node_filtered, hit_path_node};
 #[cfg(test)]
 pub use picking::{board_pick_node_ex, board_pick_node_routed};
 
@@ -4688,7 +4506,7 @@ fn draft_stroke_ink_ends(
     ends: [Cap; 2],
     soft_edge: f32,
 ) -> (InkMesh, Color32) {
-    let floor = 1.0 / zoom.max(0.05);
+    let floor = 1.0 / zoom.max(atlas_core::display::SLATE_BOARD.min);
     let tips: Vec<PlacedTip> = tips
         .iter()
         .map(|t| PlacedTip {
@@ -4707,7 +4525,7 @@ fn draft_stroke_ink_ends(
         taper: None,
         dash: None,
     };
-    let feather = (FEATHER_PX / zoom.max(0.05)).max(soft_edge);
+    let feather = (FEATHER_PX / zoom.max(atlas_core::display::SLATE_BOARD.min)).max(soft_edge);
     let tolerance = curve_tolerance(zoom);
     let tipped = tips.iter().any(|t| *t != first).then(|| {
         let (rect, mut data) = bezpath_to_path_data(bez, closed);
@@ -5569,7 +5387,6 @@ impl SlateApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vector_ink::stroke_mesh;
 
     #[test]
     fn pending_erase_cleanup_keeps_the_committing_author() {
@@ -6611,149 +6428,5 @@ mod tests {
             path_fill_hash(&plain, rect, 0.0, corner, 8),
             path_fill_hash(&overridden, rect, 0.0, corner, 8)
         );
-    }
-
-    #[test]
-    fn path_mesh_cache_evicts_oldest_instead_of_clearing() {
-        let mut cache = PathMeshCache {
-            entry_limit: 256,
-            ..Default::default()
-        };
-        let empty = InkMesh::default;
-        for i in 0..300u64 {
-            cache.get_or_tessellate(NodeId(i), i, empty);
-        }
-        let n = cache.stroke_len();
-        assert_eq!(n, 256, "empty meshes must still obey the metadata bound");
-        assert!(
-            n > 0,
-            "nuclear clear would leave the cache empty after a burst"
-        );
-        assert!(!cache.map.contains_key(&(NodeId(0), 0, false)));
-    }
-
-    fn triangle_ink() -> InkMesh {
-        InkMesh {
-            vertices: [[0.0, 0.0], [10.0, 0.0], [0.0, 10.0]]
-                .into_iter()
-                .map(|pos| vector_ink::InkVertex { pos, alpha: 1.0 })
-                .collect(),
-            indices: vec![0, 1, 2],
-            colors: Vec::new(),
-        }
-    }
-
-    fn triangle_fill() -> FillTriangles {
-        (vec![[0.0, 0.0], [10.0, 0.0], [0.0, 10.0]], vec![0, 1, 2])
-    }
-
-    #[test]
-    fn ten_thousand_visible_paths_stay_warm_in_paint_order() {
-        let mut cache = PathMeshCache::default();
-        for id in 0..10_000 {
-            cache.get_or_fill_tris(NodeId(id), 0, triangle_fill);
-            cache.get_or_tessellate(NodeId(id), 0, triangle_ink);
-        }
-        assert_eq!(cache.tess_misses, 20_000);
-        cache.tess_misses = 0;
-        for _ in 0..3 {
-            for id in 0..10_000 {
-                cache.get_or_fill_tris(NodeId(id), 0, || panic!("warm fill rebuilt"));
-                cache.get_or_tessellate(NodeId(id), 0, || panic!("warm stroke rebuilt"));
-            }
-        }
-        assert_eq!(cache.tess_misses, 0);
-        assert!(cache.resident_bytes <= CACHE_BYTES);
-        assert!(cache.map.len() <= CACHE_ENTRIES);
-        assert_eq!(cache.clock.len(), cache.map.len());
-    }
-
-    #[test]
-    fn cache_hits_share_geometry_without_copying_vectors() {
-        let mut cache = PathMeshCache::default();
-        let stroke = cache.get_or_tessellate(NodeId(1), 7, triangle_ink);
-        let hit = cache.get_or_tessellate(NodeId(1), 7, || panic!("cache miss"));
-        assert!(Shared::ptr_eq(&stroke, &hit));
-        let fill = cache.get_or_fill_tris(NodeId(1), 7, triangle_fill);
-        let hit = cache.get_or_fill_tris(NodeId(1), 7, || panic!("cache miss"));
-        assert!(Shared::ptr_eq(&fill, &hit));
-    }
-
-    #[test]
-    fn stroke_and_fill_share_a_byte_budget_and_hits_get_a_second_chance() {
-        let mut cache = PathMeshCache {
-            budget_bytes: 84, // One 48-byte stroke and one 36-byte fill.
-            ..Default::default()
-        };
-        cache.get_or_tessellate(NodeId(1), 0, triangle_ink);
-        cache.get_or_fill_tris(NodeId(2), 0, triangle_fill);
-        assert_eq!(cache.resident_bytes, 84);
-        cache.get_or_tessellate(NodeId(1), 0, || panic!("cache miss"));
-        cache.get_or_fill_tris(NodeId(3), 0, triangle_fill);
-        assert!(cache.map.contains_key(&(NodeId(1), 0, false)));
-        assert!(!cache.map.contains_key(&(NodeId(2), 0, true)));
-        assert_eq!(cache.resident_bytes, 84);
-        for id in 4..100 {
-            cache.get_or_fill_tris(NodeId(id), 0, triangle_fill);
-            assert!(cache.resident_bytes <= cache.budget_bytes);
-            assert_eq!(cache.clock.len(), cache.map.len());
-        }
-    }
-
-    #[test]
-    fn oversized_geometry_renders_without_flushing_the_cache() {
-        let mut cache = PathMeshCache {
-            budget_bytes: 48,
-            ..Default::default()
-        };
-        let resident = cache.get_or_tessellate(NodeId(1), 0, triangle_ink);
-        let large = cache.get_or_tessellate(NodeId(2), 0, || InkMesh {
-            vertices: vec![
-                vector_ink::InkVertex {
-                    pos: [1.0, 2.0],
-                    alpha: 1.0
-                };
-                20
-            ],
-            indices: vec![],
-            colors: Vec::new(),
-        });
-        assert_eq!(large.vertices.len(), 20);
-        assert_eq!(cache.resident_bytes, 48);
-        assert_eq!(cache.map.len(), 1);
-        let hit = cache.get_or_tessellate(NodeId(1), 0, || panic!("resident flushed"));
-        assert!(Shared::ptr_eq(&resident, &hit));
-    }
-
-    #[test]
-    fn rotating_a_warm_path_rebuilds_the_stroke_geometry() {
-        let path = PathData {
-            start: [0.0, 0.0],
-            segs: vec![PathSeg::Line { to: [1.0, 0.0] }],
-            ..Default::default()
-        };
-        let stroke = default_curve_stroke(Rgba::BLACK);
-        let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
-        let mut cache = PathMeshCache::default();
-        let mut paint = |rotation| {
-            let key = path_content_hash(
-                &path,
-                &stroke,
-                rect,
-                rotation,
-                slate_doc::scene::Corner::Square,
-                zoom_bucket(1.0),
-            );
-            cache.get_or_tessellate(NodeId(1), key, || {
-                let bez = path_data_to_world_bez(&path, rect, rotation);
-                stroke_mesh(&bez, &stroke_style_world(&stroke, 1.0), FEATHER_PX, 0.25)
-            })
-        };
-        let initial = paint(0.0);
-        let rotated = paint(90.0);
-        let restored = paint(0.0);
-        assert_ne!(initial.vertices, rotated.vertices);
-        assert!(Shared::ptr_eq(&initial, &restored));
-        assert_eq!(cache.tess_misses, 2);
     }
 }

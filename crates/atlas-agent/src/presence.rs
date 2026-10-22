@@ -23,7 +23,9 @@ pub const HELPER_DEPTH_LIMIT: usize = 2;
 pub const HELPERS_PER_PARENT: usize = 4;
 pub const QUEUE_LIMIT: usize = 8;
 pub const TARGET_LIMIT: usize = 16;
-pub const ACTION_LIMIT: usize = 128;
+/// Bound retained replay IDs while allowing a 4096-call task to witness up to
+/// 16 target motions per call. This cap is independent of caller grant limits.
+pub const ACTION_LIMIT: usize = 65_536;
 pub const REQUEST_LIMIT: usize = 128;
 pub const PHASE_MS_LIMIT: u32 = 30_000;
 pub const VISIBLE_STEP_MS: f64 = 50.0;

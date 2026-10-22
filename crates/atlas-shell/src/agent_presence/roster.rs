@@ -339,6 +339,14 @@ pub fn presence_preferences_ui(ui: &mut Ui, reduced_motion: &mut bool) -> bool {
     ui.small("Keeps visible travel and progress; reduces expressions, prop loops and departures.");
     changed
 }
+pub fn website_access_preferences_ui(ui: &mut Ui, allow_all: &mut bool) -> bool {
+    ui.separator();
+    ui.strong("Website access");
+    let changed = ui.checkbox(allow_all, "Allow all websites").changed();
+    ui.small("All agents and Web portals, across all Slate workbooks on this device. Remembered for this user.");
+    ui.small("Off uses individual site permissions. Provider Full access and source-file access are separate.");
+    changed
+}
 #[cfg(test)]
 #[path = "roster_tests.rs"]
 mod tests;

@@ -317,7 +317,27 @@ fn foreground_composer_press_holds_crop_without_takeover_or_terminal_commit() {
         f.step();
         assert_eq!(f.h.app.presence.chrome.active_chat(), Some("self"));
         let composer = egui::Id::new(("presence-composer", "self"));
-        let at = widget_center(&f, composer);
+        // Opening chat can update the dynamic composer height during paint;
+        // capture its actual response only after that layout has settled.
+        let mut at = widget_center(&f, composer);
+        let mut stable_frames = 0;
+        for _ in 0..8 {
+            f.step();
+            let next = widget_center(&f, composer);
+            if next == at {
+                stable_frames += 1;
+            } else {
+                stable_frames = 0;
+            }
+            at = next;
+            if stable_frames == 2 {
+                break;
+            }
+        }
+        assert!(
+            stable_frames == 2,
+            "composer layout must settle before crop overlap"
+        );
         let world = f.h.app.board_xf().s2w(at);
         let target = f.images[0];
         f.h.app.patch_nodes(&[target], |node| {

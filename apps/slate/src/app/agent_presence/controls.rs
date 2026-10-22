@@ -46,6 +46,9 @@ impl SlateApp {
             Retry { id, message } => self.presence_retry_message(&id, &message)?,
             ConnectPeople => self.presence.human_chat.setup.open = true,
             SetupWorkspace => self.ai.pick_workspace(),
+            WebsiteAccessSettings => {
+                self.web_consent_command("portal.web.access_settings");
+            }
             Draft { id, text } => self.presence_save_draft(&id, &text)?,
             SetPhoto { id } => self.presence_choose_photo(ctx, &id)?,
             RemovePhoto { id } => self.presence_remove_photo(&id)?,
@@ -245,6 +248,12 @@ impl SlateApp {
             Pause { id, paused } => {
                 if paused {
                     self.set_presence_paused(&id, true, PauseCause::Human)?;
+                } else if !self.presence.agents.iter().any(|agent| {
+                    agent.profile.id == id
+                        && agent.tab == self.tab().id
+                        && agent.departure.is_none()
+                }) {
+                    self.ensure_saved_presence_joined(&id)?;
                 } else {
                     self.presence_resume_chat(&id)?;
                 }

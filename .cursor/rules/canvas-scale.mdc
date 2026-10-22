@@ -27,6 +27,14 @@ defect (`paint_atlas_empty` vs `paint_portal_empty`).
 - Path-edit handles: anchor squares, Bézier handle lines and knobs, and
  draft rubber-band markers while drawing or directly editing a path. The
  path itself still scales.
+- Ephemeral selection control frames and pointer hit regions, only as named
+  in `docs/keymap/contracts/selection-hit-regions.md` / **P1.node.hit-regions**.
+  Their screen-space reach depends on projected host size and cursor proximity.
+  Transient wire-port dots, their matching host cutouts, and port-role labels
+  share that domain's projected-size relevance and bounded screen presentation.
+  Transient fillet-grip squares share Resize prominence and bounded screen paint.
+  This exception does not enlarge or clamp authored object paint, authored or
+  content labels, property strips, dimension stringers, or portal tabs.
 
 A tab on a portal frame is a canvas object, not window chrome. Maximized,
 that same tab may stay screen-sized because it has become window chrome.
@@ -36,7 +44,8 @@ are canvas objects too. See `crates/atlas-shell/DYNAMIC_PANELS.md` for their
 shared layout and viewport-edge behavior; a floating appearance is not a
 screen-chrome exception.
 
-Linear size (fillets, strokes, insets, node resize-handle squares, tab radii) goes
+Except for those named editing overlays, linear size (fillets, strokes, insets,
+node resize-handle squares, tab radii) goes
 through `atlas-shell::canvas_scale::px` — one definition, no floor, no
 ceiling. Type goes through `atlas-shell::canvas_text` (`text` / `layout`),
 never `Painter::text` on the canvas. Focused/overflowing editors also follow

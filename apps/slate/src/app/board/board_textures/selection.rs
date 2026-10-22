@@ -18,6 +18,17 @@ impl SlateApp {
         if self.field_selection() == Some(n.id) {
             return;
         }
+        if self.node_offers_bbox_transform(n) && self.board_crop.is_none() {
+            let geom = self.node_interaction_geom(n, xf);
+            board_handles::paint_control_frame(painter, &geom, select_tint);
+            if let Some(rect) = self.interaction_move_header(n, &geom, xf) {
+                atlas_shell::selection_tools::hit_regions::paint_move_header(
+                    painter,
+                    rect,
+                    select_tint,
+                );
+            }
+        }
         // Rectangular media and portals announce selection with their shared
         // soft shadow. Keep curve outlines and manipulation grips independent.
         if self.board_sel.len() == 1 && matches!(n.kind, NodeKind::Image(_) | NodeKind::Portal(_)) {

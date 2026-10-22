@@ -22,6 +22,12 @@ fn retained(h: &mut Harness, parent: &str, count: usize, escaped: bool) -> Vec<S
     for (n, id) in ids.iter().enumerate() {
         // Existing lifecycle tests verify capture; these are already-retained public facts.
         h.app.presence.helper_endpoints.insert(id.clone());
+        let result = if escaped {
+            "\0".repeat(2048)
+        } else {
+            "🦀".repeat(2048)
+        };
+        let total_bytes = result.len();
         h.app
             .presence
             .helper_results
@@ -34,11 +40,9 @@ fn retained(h: &mut Harness, parent: &str, count: usize, escaped: bool) -> Vec<S
                 } else {
                     format!("Helper {n}")
                 },
-                result: if escaped {
-                    "\0".repeat(2048)
-                } else {
-                    "🦀".repeat(2048)
-                },
+                result,
+                total_bytes,
+                truncated: false,
                 status: if escaped {
                     "\0".repeat(2048)
                 } else {
@@ -63,6 +67,9 @@ fn call(h: &Harness, sequence: u64, ids: Vec<String>, offset: usize) -> BoardCal
             participant_ids: ids,
             offset,
             limit: 8,
+            text_cursor: None,
+            text_limit: None,
+            text_generation: None,
         },
     }
 }
@@ -87,6 +94,9 @@ fn finish(h: &mut Harness) -> BoardReply {
 fn read(h: &mut Harness, call: &BoardCall) -> BoardReply {
     begin(h, call).unwrap_or_else(|| finish(h))
 }
+
+#[path = "participant_read_helper_binding_tests.rs"]
+mod helper_binding;
 
 #[test]
 fn retained_participants_have_an_independent_cursor_and_direct_provenance_lookup() {
@@ -178,6 +188,77 @@ fn escaped_participant_pages_follow_actual_emitted_count_within_wire_budget() {
 }
 
 #[test]
+fn retained_helper_text_pages_use_utf8_cursor_independent_of_list_offset() {
+    let (mut h, who) = joined();
+    let ids = retained(&mut h, &who, 1, false);
+    let original = format!("{}tail", "🦀".repeat(2500));
+    h.app.presence.helper_results[0].total_bytes = original.len();
+    h.app.presence.helper_results[0].result = original.clone();
+    let mut cursor = Some(0usize);
+    let generation = Some(h.app.presence.helper_results[0].request_id.clone());
+    let mut sequence = 0;
+    let mut assembled = String::new();
+    while let Some(text_cursor) = cursor {
+        let parent = &h.app.presence.agents[0];
+        let query = BoardCall {
+            id: format!("helper-text-{sequence}"),
+            session: parent.binding.clone(),
+            request_id: parent.request.clone(),
+            sequence,
+            operation: BoardOperation::ReadParticipants {
+                participant_ids: vec![ids[0].clone()],
+                offset: if sequence == 0 { 1_000_000 } else { 0 },
+                limit: 8,
+                text_cursor: Some(text_cursor),
+                text_limit: Some(1024),
+                text_generation: generation.clone(),
+            },
+        };
+        let reply = read(&mut h, &query);
+        assert!(reply.success, "{reply:?}");
+        assert_eq!(reply.result["total_bytes"], original.len());
+        assert!(!reply.result["truncated"].as_bool().unwrap());
+        assert_eq!(reply.result["text_cursor"], text_cursor);
+        assert_eq!(
+            reply.result["text_generation"],
+            generation.as_deref().unwrap()
+        );
+        assembled.push_str(reply.result["text"].as_str().unwrap());
+        cursor = reply.result["next_text_cursor"]
+            .as_u64()
+            .map(|value| value as usize);
+        sequence += 1;
+    }
+    assert!(sequence > 1);
+    assert_eq!(assembled, original);
+}
+
+#[test]
+fn participant_preview_advertises_utf8_remainder_and_storage_truncation() {
+    let (mut h, who) = joined();
+    let ids = retained(&mut h, &who, 1, false);
+    let result = h
+        .app
+        .presence
+        .helper_results
+        .iter()
+        .find(|item| item.id == ids[0])
+        .unwrap();
+    let total_bytes = result.total_bytes;
+    let generation = result.request_id.clone();
+    assert_eq!(total_bytes, result.result.len());
+    let query = call(&h, 0, vec![ids[0].clone()], 0);
+    let reply = read(&mut h, &query);
+    assert!(reply.success, "{reply:?}");
+    let descriptor = &reply.result["participants"][0];
+    assert_eq!(descriptor["total_bytes"], total_bytes);
+    assert_eq!(descriptor["next_text_cursor"], 512);
+    assert_eq!(descriptor["truncated"], true);
+    assert_eq!(descriptor["text_pageable"], true);
+    assert_eq!(descriptor["text_generation"], generation);
+}
+
+#[test]
 fn participant_scope_includes_the_removed_caller_exactly_once_and_can_remove_it() {
     let (mut h, who) = joined();
     let query = call(&h, 0, vec![who.clone()], 0);
@@ -216,7 +297,22 @@ fn participant_reads_keep_parent_isolation_and_expired_scope_pruning() {
         .as_str()
         .unwrap()
         .contains("only to its parent"));
-    let query = call(&h, 1, vec![], 0);
+    let mut page = call(&h, 1, vec![ids[1].clone()], 0);
+    page.operation = BoardOperation::ReadParticipants {
+        participant_ids: vec![ids[1].clone()],
+        offset: 0,
+        limit: 8,
+        text_cursor: Some(0),
+        text_limit: Some(1024),
+        text_generation: Some(h.app.presence.helper_results[1].request_id.clone()),
+    };
+    let refused_page = read(&mut h, &page);
+    assert!(!refused_page.success);
+    assert!(refused_page.result["error"]
+        .as_str()
+        .unwrap()
+        .contains("only to its parent"));
+    let query = call(&h, 2, vec![], 0);
     let scoped = read(&mut h, &query);
     assert!(scoped.success);
     assert_eq!(scoped.result["total"], 1);
@@ -229,7 +325,7 @@ fn participant_reads_keep_parent_isolation_and_expired_scope_pruning() {
         .unwrap()
         .conversation_ids
         .contains(&ids[0]));
-    let query = call(&h, 2, vec![ids[0].clone()], 0);
+    let query = call(&h, 3, vec![ids[0].clone()], 0);
     let stale = read(&mut h, &query);
     assert!(!stale.success);
     assert!(stale.result["error"].as_str().unwrap().contains("outside"));
@@ -299,10 +395,14 @@ fn participant_dispatch_enforces_duplicate_sequences_and_action_limits() {
     duplicate.id = "different-call-same-sequence".into();
     let refused = read(&mut h, &duplicate);
     assert!(!refused.success);
-    assert!(refused.result["error"]
-        .as_str()
-        .unwrap()
-        .contains("duplicate sequence"));
+    assert!(
+        refused.result["error"]
+            .as_str()
+            .unwrap()
+            .contains("Duplicate board call sequence"),
+        "{:?}",
+        refused.result
+    );
     assert_eq!(h.app.presence.agents[0].calls, 1);
     let query = call(&h, 1, vec![], 0);
     assert!(read(&mut h, &query).success);

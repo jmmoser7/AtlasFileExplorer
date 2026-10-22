@@ -1,6 +1,17 @@
 use super::*;
 
 pub(super) const TASK_LIMIT_SECS: u64 = 300;
+pub(super) const RETAINED_RESULT_MAX_BYTES: usize = 65_536;
+
+fn retain_public_text(source: &str) -> (String, usize, bool) {
+    let total_bytes = source.len();
+    let truncated = total_bytes > RETAINED_RESULT_MAX_BYTES;
+    let mut end = total_bytes.min(RETAINED_RESULT_MAX_BYTES);
+    while !source.is_char_boundary(end) {
+        end -= 1;
+    }
+    (source[..end].to_owned(), total_bytes, truncated)
+}
 
 pub(super) struct TaskOutcome {
     pub request_id: String,
@@ -32,6 +43,8 @@ pub(super) struct HelperResult {
     pub request_id: String,
     pub name: String,
     pub result: String,
+    pub total_bytes: usize,
+    pub truncated: bool,
     pub status: String,
     pub outcome: String,
     pub expired: bool,
@@ -104,7 +117,7 @@ impl SlateApp {
                     .helper_outcome
                     .as_ref()
                     .map_or(a.request.as_str(), |o| o.request_id.as_str());
-                let result = self
+                let source = self
                     .presence
                     .conversations
                     .get(&a.profile.id)
@@ -115,8 +128,8 @@ impl SlateApp {
                             .rev()
                             .find(|t| t.request == request_id && t.role == "assistant")
                     })
-                    .map(|t| t.text.chars().take(2048).collect())
-                    .unwrap_or_default();
+                    .map_or("", |turn| turn.text.as_str());
+                let (result, total_bytes, truncated) = retain_public_text(source);
                 if self.presence.helper_results.len() >= 32 {
                     self.presence.helper_results.remove(0);
                 }
@@ -126,6 +139,8 @@ impl SlateApp {
                     request_id: request_id.into(),
                     name: a.profile.name.clone(),
                     result,
+                    total_bytes,
+                    truncated,
                     status: status.chars().take(2048).collect(),
                     outcome: outcome.into(),
                     expired,
@@ -134,5 +149,32 @@ impl SlateApp {
             }
         }
         self.depart_presence(who, chrome::RANDOM_DEPARTURE, completed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{retain_public_text, RETAINED_RESULT_MAX_BYTES};
+
+    #[test]
+    fn retained_public_result_caps_at_utf8_boundary_and_keeps_original_byte_count() {
+        let source = format!("{}🦀tail", "a".repeat(RETAINED_RESULT_MAX_BYTES - 2));
+        assert!(!source.is_char_boundary(RETAINED_RESULT_MAX_BYTES));
+        let (retained, total_bytes, truncated) = retain_public_text(&source);
+        assert!(retained.len() <= RETAINED_RESULT_MAX_BYTES);
+        assert!(retained.is_char_boundary(retained.len()));
+        assert_eq!(total_bytes, source.len());
+        assert_eq!(total_bytes, RETAINED_RESULT_MAX_BYTES + 6);
+        assert!(truncated);
+        assert_eq!(retained.len(), RETAINED_RESULT_MAX_BYTES - 2);
+        assert_eq!(retained, "a".repeat(RETAINED_RESULT_MAX_BYTES - 2));
+    }
+
+    #[test]
+    fn retained_public_result_keeps_complete_short_text() {
+        let (retained, total_bytes, truncated) = retain_public_text("Hello 🦀");
+        assert_eq!(retained, "Hello 🦀");
+        assert_eq!(total_bytes, retained.len());
+        assert!(!truncated);
     }
 }

@@ -306,7 +306,7 @@ impl SlateApp {
     }
 
     fn trim_extend_hover(&self, world: Pos2) -> Option<TrimHover> {
-        let z = self.board_xf().z.max(0.05);
+        let z = self.board_xf().z.max(atlas_core::display::SLATE_BOARD.min);
         let slop = trim_tokens::END_SLOP / z;
         let p = [world.x, world.y];
         for n in self.doc().scene.nodes.iter().rev() {
@@ -386,7 +386,7 @@ impl SlateApp {
     }
 
     fn split_part_hover(&self, world: Pos2) -> Option<TrimHover> {
-        let z = self.board_xf().z.max(0.05);
+        let z = self.board_xf().z.max(atlas_core::display::SLATE_BOARD.min);
         let slop = trim_tokens::SPAN_SLOP / z;
         let p = [world.x, world.y];
         let mut best: Option<(f32, NodeId)> = None;
@@ -447,7 +447,7 @@ impl SlateApp {
     }
 
     fn trim_part_hover(&self, world: Pos2) -> Option<TrimHover> {
-        let z = self.board_xf().z.max(0.05);
+        let z = self.board_xf().z.max(atlas_core::display::SLATE_BOARD.min);
         let slop = trim_tokens::SPAN_SLOP / z;
         let p = [world.x, world.y];
         let mut best: Option<(f32, NodeId, usize)> = None;

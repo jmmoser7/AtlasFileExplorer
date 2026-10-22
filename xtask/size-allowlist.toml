@@ -5,12 +5,12 @@
 
 [[entry]]
 file = "apps/file-atlas/src/app/commands.rs"
-ceiling = 825
+ceiling = 721
 reason = "File Atlas app; extract one concern per module"
 
 [[entry]]
 file = "apps/file-atlas/src/app/mod.rs"
-ceiling = 8371
+ceiling = 8093
 reason = "File Atlas app; extract one concern per module"
 
 [[entry]]
@@ -18,10 +18,6 @@ file = "apps/file-atlas/src/app/tests.rs"
 ceiling = 1717
 reason = "integration tests; split by module under test"
 
-[[entry]]
-file = "apps/file-atlas/src/app/ui/tools.rs"
-ceiling = 782
-reason = "File Atlas app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/bench_brush.rs"
@@ -84,11 +80,6 @@ ceiling = 2233
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
-file = "apps/slate/src/app/board_handles.rs"
-ceiling = 884
-reason = "Slate app; extract one concern per module"
-
-[[entry]]
 file = "apps/slate/src/app/board_image_layers.rs"
 ceiling = 740
 reason = "Slate app; extract one concern per module"
@@ -100,7 +91,7 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_path.rs"
-ceiling = 7060
+ceiling = 6433
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -136,11 +127,6 @@ reason = "Slate app; extract one concern per module"
 [[entry]]
 file = "apps/slate/src/app/board_tip_hud.rs"
 ceiling = 1279
-reason = "Slate app; extract one concern per module"
-
-[[entry]]
-file = "apps/slate/src/app/board_transform.rs"
-ceiling = 559
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -180,12 +166,12 @@ reason = "Slate board interpreter; split on banner seams"
 
 [[entry]]
 file = "apps/slate/src/app/commands.rs"
-ceiling = 2344
+ceiling = 2303
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/dispatch.rs"
-ceiling = 1486
+ceiling = 1482
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -260,7 +246,7 @@ reason = "core backend; atlas-core owner"
 
 [[entry]]
 file = "crates/atlas-core/src/tree.rs"
-ceiling = 1252
+ceiling = 1218
 reason = "core backend; atlas-core owner"
 
 [[entry]]
@@ -305,7 +291,7 @@ reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/file_picker.rs"
-ceiling = 1177
+ceiling = 1085
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
@@ -360,7 +346,7 @@ reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/widgets.rs"
-ceiling = 1060
+ceiling = 958
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]

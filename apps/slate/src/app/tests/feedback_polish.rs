@@ -61,6 +61,7 @@ fn corner_shrink_with_a_zero_width_wire_stays_uniform() {
         before,
         group_before: group,
         handle: 4,
+        grab_offset: EVec2::ZERO,
         dup: false,
     });
     h.app

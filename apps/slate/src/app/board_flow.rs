@@ -7,7 +7,6 @@
 
 mod ports;
 mod text_note;
-pub(crate) use ports::PORT_RADIUS;
 
 use std::collections::HashMap;
 
@@ -33,10 +32,10 @@ mod spawn_flow;
 
 /// Designed width of a picture an agent generates.
 const AGENT_PICTURE_W: f32 = 480.0;
-/// Designed size of port labels and the text block's type.
+/// Fully relevant ephemeral port label size in screen px.
 const PORT_LABEL_PX: f32 = 11.0;
 const BLOCK_TEXT_PX: f32 = 14.0;
-/// Ports show while the pointer is this near a flow node (designed px).
+/// Maximum pointer proximity for ephemeral port reveal in screen px.
 const PORT_REVEAL: f32 = 56.0;
 /// Pointer travel that still counts as a click on the output port (screen px).
 const CLICK_SLOP: f32 = 4.0;

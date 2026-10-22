@@ -29,10 +29,12 @@ use super::board_portal_chrome::{layout_portal_chrome, PortalChromeLayout};
 use super::SlateApp;
 
 mod agent_access;
+mod consent;
 mod layout;
 use layout::css_size;
 
 mod input;
+pub use input::WebInput;
 mod package;
 mod presentation;
 mod scheduler;
@@ -209,44 +211,6 @@ impl WebRequest {
         let css = self.width_css.max(1) as f64;
         (self.raster_w.max(1) as f64 / css).max(0.01)
     }
-}
-
-/// Input forwarded to the one portal holding input focus (D22). Composition
-/// hosting gives the app no HWND for the page, so every event is explicit.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum WebInput {
-    /// Pointer position in page CSS pixels. `buttons` is the bitmask of what is
-    /// currently held (1 = left, 2 = right, 4 = middle) — without it a page
-    /// sees a bare hover and drag-selecting text does nothing.
-    Move {
-        x: f32,
-        y: f32,
-        buttons: u8,
-    },
-    Down {
-        x: f32,
-        y: f32,
-        button: u8,
-    },
-    Up {
-        x: f32,
-        y: f32,
-        button: u8,
-    },
-    /// Wheel in page units; `horizontal` distinguishes the two axes.
-    Wheel {
-        x: f32,
-        y: f32,
-        delta: f32,
-        horizontal: bool,
-    },
-    /// The pointer left the frame, so hover states can clear.
-    Leave,
-    Key {
-        key: egui::Key,
-        pressed: bool,
-    },
-    Text(char),
 }
 
 /// The one thing in this feature that knows what a browser is.
@@ -489,15 +453,6 @@ struct SourcePoll {
     mtime: Option<SystemTime>,
 }
 
-/// `web-consent.json` in the per-user Atlas data folder.
-#[derive(serde::Serialize, serde::Deserialize)]
-struct SavedConsent {
-    #[serde(default)]
-    version: u32,
-    #[serde(default)]
-    workbooks: HashMap<String, HashSet<String>>,
-}
-
 /// Board-wide web portal state. One per app, not per portal.
 pub struct WebRuntime {
     views: HashMap<NodeId, WebView>,
@@ -509,6 +464,8 @@ pub struct WebRuntime {
     /// per-user Atlas data folder. None in tests and tools.
     consent_file: Option<std::path::PathBuf>,
     saved_consent: HashMap<String, HashSet<String>>,
+    /// Explicit user choice applying to remote Web origins on this device.
+    allow_all_websites: bool,
     /// The active workbook and its saved origins, swapped only on change so
     /// the per-frame check never allocates.
     consent_workbook: Option<std::path::PathBuf>,
@@ -567,6 +524,7 @@ impl Default for WebRuntime {
             consent: HashSet::new(),
             consent_file: None,
             saved_consent: HashMap::new(),
+            allow_all_websites: false,
             consent_workbook: None,
             workbook_consent: HashSet::new(),
             focused: None,
@@ -705,84 +663,6 @@ impl WebRuntime {
     /// How many webviews currently hold a pool slot.
     pub fn live_count(&self) -> usize {
         self.views.values().filter(|v| v.live).count()
-    }
-
-    pub fn has_consent(&self, origin: &str) -> bool {
-        self.consent.contains(origin) || self.workbook_consent.contains(origin)
-    }
-
-    /// Permit one origin: for this session, and for the active saved workbook
-    /// in later sessions. Local state only — never a journal command, never
-    /// saved into the workbook (D32).
-    pub fn grant_consent(&mut self, origin: impl Into<String>) {
-        let origin = origin.into();
-        self.consent.insert(origin.clone());
-        if let Some(key) = self.consent_key() {
-            self.workbook_consent.insert(origin.clone());
-            self.saved_consent.entry(key).or_default().insert(origin);
-            self.save_consent();
-        }
-    }
-
-    pub fn revoke_consent(&mut self, origin: &str) {
-        self.consent.remove(origin);
-        if let Some(key) = self.consent_key() {
-            self.workbook_consent.remove(origin);
-            if let Some(origins) = self.saved_consent.get_mut(&key) {
-                origins.remove(origin);
-            }
-            self.save_consent();
-        }
-    }
-
-    /// Keep grants across sessions in `path`, loading what is already there.
-    pub fn use_consent_file(&mut self, path: std::path::PathBuf) {
-        self.saved_consent = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<SavedConsent>(&bytes).ok())
-            .map(|saved| saved.workbooks)
-            .unwrap_or_default();
-        self.consent_file = Some(path);
-        self.workbook_consent = self.saved_for_active();
-    }
-
-    /// Follow the active tab. Cheap when unchanged.
-    pub fn set_consent_workbook(&mut self, workbook: Option<&std::path::Path>) {
-        if self.consent_workbook.as_deref() == workbook {
-            return;
-        }
-        self.consent_workbook = workbook.map(std::path::Path::to_path_buf);
-        self.workbook_consent = self.saved_for_active();
-    }
-
-    fn consent_key(&self) -> Option<String> {
-        self.consent_file.as_ref()?;
-        Some(
-            self.consent_workbook
-                .as_ref()?
-                .to_string_lossy()
-                .into_owned(),
-        )
-    }
-
-    fn saved_for_active(&self) -> HashSet<String> {
-        self.consent_key()
-            .and_then(|key| self.saved_consent.get(&key).cloned())
-            .unwrap_or_default()
-    }
-
-    fn save_consent(&self) {
-        let Some(path) = &self.consent_file else {
-            return;
-        };
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let saved = SavedConsent {
-            version: 1,
-            workbooks: self.saved_consent.clone(),
-        };
-        let _ = atlas_ai::agent::atomic_write_json(path, &saved);
     }
 
     fn generation(&mut self) -> u64 {
@@ -1890,13 +1770,7 @@ impl SlateApp {
     /// Permit the selected portal's origin and let it load (D32). Local state,
     /// never journaled — which is why this is not a `SceneCmd`.
     pub(crate) fn web_allow_origin(&mut self, id: NodeId) -> Option<String> {
-        let node = self.doc().scene.node(id)?;
-        let NodeKind::Portal(p) = &node.kind else {
-            return None;
-        };
-        let origin = web_origin(&p.source.as_ref()?.locator)?;
-        self.web.grant_consent(origin.clone());
-        Some(origin)
+        self.set_web_portal_consent(id, true)
     }
 
     /// Bind or rebind a locator. One journaled `Patch`; the cached poster goes
@@ -2005,6 +1879,7 @@ impl SlateApp {
         &mut self,
         id: NodeId,
         dir: &std::path::Path,
+        capture_id: Option<&str>,
     ) -> Result<Option<PathBuf>, String> {
         self.absorb_cached_captures();
         let live = self
@@ -2015,10 +1890,10 @@ impl SlateApp {
             .filter(|img| web_frame_has_content(img));
         if let Some(frame) = live {
             self.remember_live_pixels(id, &frame);
-            return self.write_page_png(dir, id, &frame).map(Some);
+            return self.write_page_png(dir, id, &frame, capture_id).map(Some);
         }
         if let Some((frame, at)) = self.take_cached_page_image(id) {
-            let path = self.write_page_png(dir, id, &frame)?;
+            let path = self.write_page_png(dir, id, &frame, capture_id)?;
             self.toast(stale_capture_line(at));
             return Ok(Some(path));
         }
@@ -2088,7 +1963,7 @@ impl SlateApp {
         let Some((frame, at)) = self.take_cached_page_image(id) else {
             return Ok(None);
         };
-        let path = self.write_page_png(dir, id, &frame)?;
+        let path = self.write_page_png(dir, id, &frame, None)?;
         self.toast(stale_capture_line(at));
         Ok(Some(path))
     }
@@ -2263,9 +2138,17 @@ impl SlateApp {
         dir: &std::path::Path,
         id: NodeId,
         frame: &WebFrame,
+        capture_id: Option<&str>,
     ) -> Result<PathBuf, String> {
+        if capture_id.is_some_and(|value| !atlas_agent::collaborator::valid_call_id(value)) {
+            return Err("Invalid Web capture identifier".into());
+        }
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        let path = dir.join(format!("web-{}.png", id.0));
+        let name = capture_id.map_or_else(
+            || format!("web-{}.png", id.0),
+            |capture_id| format!("web-{}-{capture_id}.png", id.0),
+        );
+        let path = dir.join(name);
         super::model3d::write_fast_png(&path, frame, false)?;
         Ok(path)
     }
@@ -3109,6 +2992,48 @@ mod tests {
     }
 
     #[test]
+    fn on_demand_web_captures_are_immutable_and_stable_cache_name_is_unchanged() {
+        let dir = std::env::temp_dir().join(format!(
+            "slate-web-capture-snapshots-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let ctx = egui::Context::default();
+        let app = SlateApp::with_ctx(&ctx, None);
+        let id = NodeId(99);
+        let red = std::sync::Arc::new(egui::ColorImage::new([2, 2], Color32::RED));
+        let blue = std::sync::Arc::new(egui::ColorImage::new([2, 2], Color32::BLUE));
+
+        let first = app
+            .write_page_png(&dir, id, &red, Some("call-one"))
+            .expect("first snapshot");
+        let first_bytes = std::fs::read(&first).expect("first snapshot bytes");
+        let second = app
+            .write_page_png(&dir, id, &blue, Some("call-two"))
+            .expect("second snapshot");
+        assert_ne!(first, second);
+        assert_eq!(std::fs::read(&first).unwrap(), first_bytes);
+        assert_ne!(std::fs::read(&second).unwrap(), first_bytes);
+
+        let stable = app
+            .write_page_png(&dir, id, &blue, None)
+            .expect("stable cache image");
+        assert_eq!(stable, dir.join("web-99.png"));
+
+        let invalid_dir = dir.join("invalid");
+        let escape = app.write_page_png(&invalid_dir, id, &red, Some("../escape"));
+        assert!(escape.is_err(), "malformed capture IDs are rejected");
+        assert!(
+            !invalid_dir.exists(),
+            "validation happens before creating the output directory"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn blank_capture_and_refresh_never_replace_the_last_good_poster() {
         let ctx = egui::Context::default();
         let mut app = SlateApp::with_ctx(&ctx, None);
@@ -3335,7 +3260,9 @@ mod tests {
         let mut page = None;
         while page.is_none() && std::time::Instant::now() < deadline {
             app.web_pump(&ctx);
-            page = app.capture_web_page(id, &out).expect("no hard failure");
+            page = app
+                .capture_web_page(id, &out, None)
+                .expect("no hard failure");
             std::thread::sleep(Duration::from_millis(10));
         }
         let page = page.expect("the run got the kept picture");

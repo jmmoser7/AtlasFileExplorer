@@ -120,6 +120,26 @@ fn outside_image_press_disarms_brush_and_reselection_restores_only_the_palette()
 }
 
 #[test]
+fn outside_image_press_disarms_hosted_brush_with_no_editor_open() {
+    let (mut h, id) = fixture("image_brush_closed_editor_click_away");
+    h.app.board_sel = [id].into();
+    h.app.set_board_tool(BoardTool::Brush);
+    h.frame();
+    pause(&mut h);
+    assert!(h.app.shape_properties.panel.is_none());
+    assert!(h.app.agent_picture_draw_mode(id));
+    let original = h.app.doc().scene.nodes.clone();
+    let depth = h.app.tab().journal.undo_depth();
+    let outside = h.app.board_xf().w2s(Pos2::new(380.0, 0.0));
+    click_board(&mut h, outside);
+    assert_eq!(h.app.board_tool, BoardTool::Select);
+    assert!(!h.app.board_sel.contains(&id));
+    assert!(h.app.image_paint_session().is_none());
+    assert_eq!(h.app.doc().scene.nodes, original);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+}
+
+#[test]
 fn locked_and_read_only_images_disable_active_layer_controls() {
     for locked in [true, false] {
         let (mut h, id) = fixture("image_palette_gate");

@@ -33,6 +33,7 @@ fn a_resize_records_its_size_and_fit_to_text_forgets_it() {
         id: root,
         before,
         handle: 0,
+        grab_offset: egui::Vec2::ZERO,
         dup: false,
     });
     h.app
@@ -325,6 +326,47 @@ fn the_model_list_stays_open_while_the_wheel_zooms_the_board() {
         zooms.iter().cloned().fold(0.0, f32::max) > 2.0,
         "the board zoomed in: {zooms:?}"
     );
+}
+
+#[test]
+fn a_large_model_list_fits_the_right_edge_and_selects_its_visible_row() {
+    let mut h = board("model_menu_large_edge");
+    let card = codex_card_with_models(&mut h);
+    open_model_menu(&mut h, card, 1.0);
+    let out = h.frame_output(|_| {});
+    let title = painted_at(&out)
+        .into_iter()
+        .find(|(text, _)| text == "Astra")
+        .expect("the model title")
+        .1;
+    h.app.zoom_at(title.center(), 8.0);
+    let xf = h.app.board_xf();
+    // Pan the visible title close to the right edge. The menu must fit its
+    // current natural size immediately, rather than last frame's 1× size.
+    let title_at = Pos2::new(1380.0, 180.0);
+    h.app.tab_mut().cam.offset += (title.center() - title_at) / xf.z;
+    let out = h.frame_output(|_| {});
+    assert_eq!(h.app.tab().cam.z, 8.0);
+    assert_eq!(h.app.agents.model_menu, Some(card));
+    assert!(
+        menu_items_painted(&out),
+        "every model row must fit on the first large frame: {:?}",
+        painted_clipped(&out)
+    );
+    let terra = painted_clipped(&out)
+        .into_iter()
+        .find(|(text, rect, clip)| text == "Terra" && clip.contains_rect(*rect))
+        .expect("the visible Terra row")
+        .1;
+    assert!(
+        terra.height() > 40.0,
+        "model labels retain their natural zoom"
+    );
+    press(&mut h, terra.center());
+    let agent = slate_doc::agent_chat::agent(h.app.doc().scene.node(card).unwrap()).unwrap();
+    assert_eq!(agent.model.as_deref(), Some("gpt-6-terra"));
+    assert_eq!(h.app.agents.model_menu, None);
+    assert_eq!(h.app.tab().cam.z, 8.0, "the row click does not zoom");
 }
 
 #[test]

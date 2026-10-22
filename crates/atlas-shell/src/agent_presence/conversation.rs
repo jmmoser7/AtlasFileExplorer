@@ -2,6 +2,8 @@ use super::{controls, hats, model::*, state::*, ui as chrome, PresencePainter};
 use crate::theme::Palette;
 use eframe::egui::{self, Align2, Id, Pos2, Rect, Sense, Ui, Vec2};
 
+const COMPOSER_MAX_HEIGHT: f32 = 96.0;
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn show(
     ui: &mut Ui,
@@ -43,7 +45,10 @@ pub(super) fn show(
         }
         occupied += 110.0;
     }
-    let composer_height = (if attached { 62.0 } else { 74.0 })
+    let editor_height = state.edits.get(p.id).map_or(44.0, |edit| {
+        edit.composer_height.clamp(44.0, COMPOSER_MAX_HEIGHT)
+    });
+    let composer_height = (editor_height + if attached { 18.0 } else { 30.0 })
         + if p.attachments.is_empty() || p.human {
             0.0
         } else {
@@ -127,15 +132,42 @@ pub(super) fn show(
     ui.horizontal_top(|ui| {
         ui.add_space(8.0);
         let edit = state.edits.entry(p.id.into()).or_default();
-        let response = ui.add_sized(
-            Vec2::new((width - if p.human { 74.0 } else { 104.0 }).max(60.0), 44.0),
-            egui::TextEdit::multiline(&mut edit.message)
-                .id(Id::new(("presence-composer", p.id)))
-                .frame(false)
-                .font(chrome::font(ui, if attached { 14.0 } else { 17.0 }))
-                .hint_text(egui::RichText::new("Message").color(palette.sub))
-                .desired_rows(2),
+        let composer_width = (width - if p.human { 74.0 } else { 104.0 }).max(60.0);
+        let composer_rect = Rect::from_min_size(
+            ui.next_widget_position(),
+            Vec2::new(composer_width, COMPOSER_MAX_HEIGHT),
         );
+        let response = ui
+            .scope_builder(
+                egui::UiBuilder::new()
+                    .max_rect(composer_rect)
+                    .layout(egui::Layout::top_down(egui::Align::Min)),
+                |ui| {
+                    let output = egui::ScrollArea::vertical()
+                        .id_salt(("presence-composer-scroll", p.id))
+                        .min_scrolled_height(44.0)
+                        .max_height(COMPOSER_MAX_HEIGHT)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            ui.set_width(composer_width);
+                            ui.add(
+                                egui::TextEdit::multiline(&mut edit.message)
+                                    .id(Id::new(("presence-composer", p.id)))
+                                    .frame(false)
+                                    .font(chrome::font(ui, if attached { 14.0 } else { 17.0 }))
+                                    .hint_text(egui::RichText::new("Message").color(palette.sub))
+                                    .desired_rows(2),
+                            )
+                        });
+                    let height = output.inner_rect.height();
+                    if edit.composer_height != height {
+                        edit.composer_height = height;
+                        ui.ctx().request_repaint();
+                    }
+                    output.inner
+                },
+            )
+            .inner;
         if response.changed() {
             edit.last_draft = edit.message.clone();
             actions.push(PresenceAction::Draft {
@@ -281,18 +313,23 @@ fn header_ui(
         );
     } else {
         let mut x = identity_end;
-        for (glyph, label) in [
-            (chrome::Glyph::Locate, "Find on board"),
-            (
-                if p.paused {
-                    chrome::Glyph::Play
-                } else {
-                    chrome::Glyph::Pause
-                },
-                if p.paused { "Resume" } else { "Pause" },
-            ),
-            (chrome::Glyph::Stop, "Stop task"),
-        ] {
+        let controls: &[(chrome::Glyph, &str)] = if p.inactive {
+            &[(chrome::Glyph::Play, "Resume")]
+        } else {
+            &[
+                (chrome::Glyph::Locate, "Find on board"),
+                (
+                    if p.paused {
+                        chrome::Glyph::Play
+                    } else {
+                        chrome::Glyph::Pause
+                    },
+                    if p.paused { "Resume" } else { "Pause" },
+                ),
+                (chrome::Glyph::Stop, "Stop task"),
+            ]
+        };
+        for (glyph, label) in controls.iter().copied() {
             let r = Rect::from_min_size(
                 Pos2::new(x, header.center().y - slot * 0.5),
                 Vec2::splat(slot),
@@ -314,6 +351,10 @@ fn header_ui(
                 actions.push(match label {
                     "Find on board" => PresenceAction::Locate { id: p.id.into() },
                     "Stop task" => PresenceAction::Cancel { id: p.id.into() },
+                    "Resume" if p.inactive => PresenceAction::Pause {
+                        id: p.id.into(),
+                        paused: false,
+                    },
                     _ => PresenceAction::Pause {
                         id: p.id.into(),
                         paused: !p.paused,
@@ -322,7 +363,7 @@ fn header_ui(
             }
             x += slot + 3.0;
         }
-        if !attached {
+        if !attached && !p.inactive {
             let r = Rect::from_min_size(
                 Pos2::new(x, header.center().y - 15.0),
                 Vec2::new(34.0, 30.0),
@@ -400,7 +441,7 @@ fn header_ui(
             }
         }
     }
-    if !p.human && !attached {
+    if !p.human && !p.inactive && !attached {
         let more = Rect::from_center_size(
             Pos2::new(right - 47.0, header.center().y),
             Vec2::splat(24.0),

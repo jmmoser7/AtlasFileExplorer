@@ -98,7 +98,7 @@ impl SlateApp {
                     tab.lease_holder = holder;
                     let view = tab.doc.view.clone();
                     tab.cam.offset = egui::Vec2::new(view.cam_x, view.cam_y);
-                    tab.cam.z = atlas_core::display::SLATE_CANVAS.clamp(view.zoom);
+                    tab.cam.z = Self::zoom_profile_for_view(view.active_view).clamp(view.zoom);
                 }
                 self.load_create_style_from_doc();
                 self.selection.clear();
@@ -468,7 +468,7 @@ impl SlateApp {
         self.new_tab();
         let tab = self.tab_mut();
         tab.cam.offset = egui::vec2(doc.view.cam_x, doc.view.cam_y);
-        tab.cam.z = atlas_core::display::SLATE_CANVAS.clamp(doc.view.zoom);
+        tab.cam.z = Self::zoom_profile_for_view(doc.view.active_view).clamp(doc.view.zoom);
         tab.doc = doc;
         // The recovered document is a load baseline. Undo must not undo the
         // safety pause and silently restart a previously live generator.

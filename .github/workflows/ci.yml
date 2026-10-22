@@ -56,6 +56,70 @@ jobs:
           set -o pipefail
           cargo test --locked --workspace --no-fail-fast 2>&1 | tee test-output.log
 
+      # Reuse the warm test build for this bounded diagnostic. Dev CPU timings
+      # identify cache behavior; they do not measure native input latency.
+      - name: Measure synthetic pen cache working set (dev CPU)
+        if: startsWith(github.head_ref, 'codex/slate-performance-audit-')
+        env:
+          SLATE_STRESS_LABEL: hosted-dev
+          SLATE_CACHE_PROBE_FRAMES: 3
+        run: |
+          set -o pipefail
+          cargo test --locked -p slate --lib bench_native_pen_cache_probe -- --ignored --nocapture --test-threads=1 2>&1 | tee path-cache-probe.log
+
+      - name: Exercise large mixed boards (dev CPU)
+        if: startsWith(github.head_ref, 'codex/slate-performance-audit-')
+        timeout-minutes: 10
+        env:
+          SLATE_STRESS_LABEL: hosted-dev-large
+          SLATE_STRESS_COUNTS: 5000,10000
+          SLATE_STRESS_FRAMES: 10
+        run: |
+          set -o pipefail
+          if [ -x /usr/bin/time ]; then
+            /usr/bin/time -v cargo test --locked -p slate --lib bench_mixed_board -- --ignored --nocapture --test-threads=1 2>&1 | tee mixed-board-large.log
+          else
+            cargo test --locked -p slate --lib bench_mixed_board -- --ignored --nocapture --test-threads=1 2>&1 | tee mixed-board-large.log
+          fi
+
+      - name: Preserve synthetic pen cache diagnostics
+        if: always() && startsWith(github.head_ref, 'codex/slate-performance-audit-')
+        uses: actions/upload-artifact@v4
+        with:
+          name: slate-path-cache-dev-${{ github.sha }}
+          path: |
+            path-cache-probe.log
+            target/slate-perf-audit/path-cache-probe-hosted-dev.json
+            mixed-board-large.log
+            target/slate-perf-audit/mixed-hosted-dev-large.json
+          if-no-files-found: warn
+
+      # Reuse the test build; this generated fake-host diagnostic includes real
+      # egui tessellation but excludes WebView2, GPU submission and display.
+      - name: Measure focused web portals on large canvases (dev CPU)
+        if: github.head_ref == 'codex/slate-consolidation-20261021'
+        timeout-minutes: 3
+        env:
+          SLATE_WEB_PERF_LABEL: hosted-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -o pipefail
+          if [ -x /usr/bin/time ]; then
+            /usr/bin/time -v timeout --kill-after=5s 115s cargo test --locked --workspace app::bench_web::perf_probe::bench_web_large_canvas_cpu -- --ignored --exact --nocapture --test-threads=1 2>&1 | tee web-large-canvas.log
+          else
+            timeout --kill-after=5s 115s cargo test --locked --workspace app::bench_web::perf_probe::bench_web_large_canvas_cpu -- --ignored --exact --nocapture --test-threads=1 2>&1 | tee web-large-canvas.log
+          fi
+          test -s "target/slate-web-perf-audit/web-large-canvas-${SLATE_WEB_PERF_LABEL}.json"
+
+      - name: Preserve web CPU diagnostic
+        if: always() && github.head_ref == 'codex/slate-consolidation-20261021'
+        uses: actions/upload-artifact@v4
+        with:
+          name: slate-web-cpu-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            web-large-canvas.log
+            target/slate-web-perf-audit/web-large-canvas-hosted-${{ github.run_id }}-${{ github.run_attempt }}.json
+          if-no-files-found: warn
+
       # Job logs need a signed-in account; annotations are public.
       - name: Name failing tests
         if: failure()

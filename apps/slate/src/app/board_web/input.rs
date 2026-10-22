@@ -3,6 +3,46 @@
 
 use super::*;
 
+/// Input forwarded to the one portal holding input focus (D22). Composition
+/// hosting gives the app no HWND for the page, so every event is explicit.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WebInput {
+    /// Pointer position in page CSS pixels. `buttons` is the bitmask of what is
+    /// currently held (1 = left, 2 = right, 4 = middle) — without it a page
+    /// sees a bare hover and drag-selecting text does nothing.
+    Move {
+        x: f32,
+        y: f32,
+        buttons: u8,
+    },
+    Down {
+        x: f32,
+        y: f32,
+        button: u8,
+    },
+    Up {
+        x: f32,
+        y: f32,
+        button: u8,
+    },
+    /// Wheel in page units; `horizontal` distinguishes the two axes.
+    Wheel {
+        x: f32,
+        y: f32,
+        delta: f32,
+        horizontal: bool,
+    },
+    /// The pointer left the frame, so hover states can clear.
+    Leave,
+    Key {
+        key: egui::Key,
+        pressed: bool,
+        modifiers: egui::Modifiers,
+    },
+    /// One complete platform text or paste payload; never split Unicode scalars.
+    Text(String),
+}
+
 /// Whether a screen point belongs to the live page rather than Slate's frame
 /// band or chrome (D17/D22). Chrome takes priority where the inset page hit
 /// region overlaps it; native scrollbar tracks remain reachable at the edge.
@@ -186,25 +226,88 @@ impl SlateApp {
     /// Keys the focused page is allowed to hear. Esc is Slate's, always: it is
     /// how focus is peeled back off the page (D22).
     fn web_keyboard_events(&self, ui: &egui::Ui) -> Vec<WebInput> {
-        let mut events = Vec::new();
-        ui.input(|i| {
-            for event in &i.events {
-                match event {
-                    egui::Event::Key { key, pressed, .. } if *key != egui::Key::Escape => {
-                        events.push(WebInput::Key {
-                            key: *key,
-                            pressed: *pressed,
+        if ui.ctx().wants_keyboard_input() || self.palette_state.open {
+            return Vec::new();
+        }
+        ui.input(|i| keyboard_events(&i.events))
+            .into_iter()
+            .filter(|event| {
+                !matches!(event, WebInput::Key { key, modifiers, .. }
+                if self.slate_owns_web_key(*key, *modifiers))
+            })
+            .collect()
+    }
+}
+
+/// The platform already supplies committed text. Raw keys carry shortcuts and
+/// editing; a paste payload replaces its shortcut so it cannot also read the
+/// browser clipboard and insert twice.
+fn keyboard_events(input: &[egui::Event]) -> Vec<WebInput> {
+    let pasted = input
+        .iter()
+        .any(|event| matches!(event, egui::Event::Paste(_)));
+    let mut output = Vec::new();
+    let mut clipboard_sent = [false; 2];
+    for event in input {
+        match event {
+            egui::Event::Key {
+                key,
+                pressed,
+                modifiers,
+                ..
+            } if *key != egui::Key::Escape
+                && !(pasted
+                    && ((*key == egui::Key::V && (modifiers.command || modifiers.ctrl))
+                        || (*key == egui::Key::Insert && modifiers.shift))) =>
+            {
+                output.push(WebInput::Key {
+                    key: *key,
+                    pressed: *pressed,
+                    modifiers: *modifiers,
+                });
+            }
+            egui::Event::Text(text)
+                if !(pasted
+                    && input.iter().any(
+                        |other| matches!(other, egui::Event::Paste(paste) if paste == text),
+                    ))
+                    && !text.is_empty() =>
+            {
+                output.push(WebInput::Text(text.clone()))
+            }
+            egui::Event::Paste(text) if !text.is_empty() => {
+                output.push(WebInput::Text(text.clone()))
+            }
+            egui::Event::Copy | egui::Event::Cut => {
+                let key = if matches!(event, egui::Event::Copy) {
+                    egui::Key::C
+                } else {
+                    egui::Key::X
+                };
+                // Platforms can supply either the shortcut or a clipboard
+                // event. Invoke the page action once, without reading bytes.
+                let duplicate =
+                    std::mem::replace(&mut clipboard_sent[usize::from(key == egui::Key::X)], true);
+                if !duplicate
+                    && !input.iter().any(|other| {
+                        matches!(other,
+                    egui::Event::Key { key: other, pressed: true, modifiers, .. }
+                        if *other == key && (modifiers.ctrl || modifiers.command))
+                    })
+                {
+                    for pressed in [true, false] {
+                        output.push(WebInput::Key {
+                            key,
+                            pressed,
+                            modifiers: egui::Modifiers::CTRL,
                         });
                     }
-                    egui::Event::Text(t) => {
-                        events.extend(t.chars().map(WebInput::Text));
-                    }
-                    _ => {}
                 }
             }
-        });
-        events
+            _ => {}
+        }
     }
+    output
 }
 
 fn page_input_is_interactive(event: &WebInput) -> bool {
@@ -220,159 +323,4 @@ fn page_input_is_interactive(event: &WebInput) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::app::tests::{only_portal, web_board, with_fake_host, FakeWebHost, Harness};
-
-    fn focused_page(tag: &str) -> (Harness, FakeWebHost, NodeId, Pos2) {
-        let mut h = web_board(tag);
-        let host = with_fake_host(&mut h);
-        h.app
-            .paste_web_url("https://example.com/dashboard", Pos2::ZERO);
-        let (id, _) = only_portal(&h);
-        h.app.web_allow_origin(id);
-        h.frame();
-        h.app.web_focus(id);
-        let node = h.app.doc().scene.node(id).unwrap();
-        let point = h.app.board_xf().rect_w2s(node.rect).center();
-        (h, host, id, point)
-    }
-
-    fn moves(host: &FakeWebHost) -> Vec<WebInput> {
-        host.inputs()
-            .into_iter()
-            .filter(|event| matches!(event, WebInput::Move { .. }))
-            .collect()
-    }
-
-    #[test]
-    fn moving_hover_is_interactive_but_a_parked_pointer_sends_nothing() {
-        let (mut h, host, id, point) = focused_page("web_pointer_dedupe");
-        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(point)));
-        assert_eq!(moves(&host).len(), 1);
-        let active_at = h.app.web.last_page_input;
-        assert!(active_at.is_some());
-        assert_eq!(
-            h.app.web.focused_frame_interval(id),
-            Duration::from_secs_f32(1.0 / INTERACTIVE_FPS)
-        );
-        for _ in 0..4 {
-            h.frame();
-        }
-        assert_eq!(
-            moves(&host).len(),
-            1,
-            "repaints do not synthesize browser mousemoves"
-        );
-        assert_eq!(
-            h.app.web.last_page_input, active_at,
-            "parked input does not extend the burst"
-        );
-        h.frame_with(|input| {
-            input
-                .events
-                .push(egui::Event::PointerMoved(point + egui::vec2(3.0, 0.0)))
-        });
-        assert_eq!(moves(&host).len(), 2);
-        assert!(h.app.web.last_page_input > active_at);
-    }
-
-    #[test]
-    fn button_changes_forward_once_without_repeating_a_held_drag() {
-        let (mut h, host, _, point) = focused_page("web_pointer_buttons");
-        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(point)));
-        for pressed in [true, false] {
-            h.frame_with(|input| {
-                input.events.push(egui::Event::PointerButton {
-                    pos: point,
-                    button: egui::PointerButton::Primary,
-                    pressed,
-                    modifiers: egui::Modifiers::NONE,
-                })
-            });
-            h.frame();
-        }
-        assert_eq!(
-            moves(&host).len(),
-            3,
-            "entry, down, and up each change the sample once"
-        );
-        assert_eq!(
-            host.sent(|event| match event {
-                WebInput::Move { buttons, .. } => Some(*buttons),
-                _ => None,
-            }),
-            vec![0, 1, 0]
-        );
-        assert_eq!(
-            host.sent(|event| matches!(event, WebInput::Down { .. }).then_some(()))
-                .len(),
-            1
-        );
-        assert_eq!(
-            host.sent(|event| matches!(event, WebInput::Up { .. }).then_some(()))
-                .len(),
-            1
-        );
-    }
-
-    #[test]
-    fn holding_a_button_keeps_capture_fast_without_synthetic_moves() {
-        let mut web = WebRuntime {
-            focused: Some(NodeId(1)),
-            pointer_down: 1,
-            last_page_input: None,
-            ..Default::default()
-        };
-        assert_eq!(
-            web.focused_frame_interval(NodeId(1)),
-            Duration::from_secs_f32(1.0 / INTERACTIVE_FPS)
-        );
-        assert!(web.pointer_move(10.0, 20.0, 1).is_some());
-        assert!(web.pointer_move(10.0, 20.0, 1).is_none());
-        web.pointer_down = 0;
-        assert_eq!(
-            web.focused_frame_interval(NodeId(1)),
-            Duration::from_secs_f32(1.0 / FOCUSED_FPS)
-        );
-    }
-
-    #[test]
-    fn pointer_tracking_resets_on_leave_focus_and_source_changes() {
-        let (mut h, host, id, point) = focused_page("web_pointer_reset");
-        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(point)));
-        h.frame_with(|input| {
-            input
-                .events
-                .push(egui::Event::PointerMoved(Pos2::new(-100.0, -100.0)))
-        });
-        h.frame();
-        assert_eq!(
-            host.sent(|event| matches!(event, WebInput::Leave).then_some(()))
-                .len(),
-            1
-        );
-        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(point)));
-        assert_eq!(
-            moves(&host).len(),
-            2,
-            "re-entry forwards the first sample again"
-        );
-        h.app.web_blur();
-        h.app.web_focus(id);
-        h.frame();
-        assert_eq!(
-            moves(&host).len(),
-            3,
-            "refocus forwards the current pointer"
-        );
-        h.app
-            .bind_web_source(id, "https://example.com/other-dashboard".into());
-        h.frame();
-        assert_eq!(
-            moves(&host).len(),
-            4,
-            "a new browser receives its first sample"
-        );
-    }
-}
+mod tests;

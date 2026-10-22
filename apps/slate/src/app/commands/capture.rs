@@ -92,9 +92,14 @@ pub(super) const RESUME: CommandSpec = spec(
     &["resume recording", "continue recording"],
 );
 pub(super) const SAVE_FILE: CommandSpec = spec(
-    "portal.capture.save.file", "Board", "Save paused portal video to File",
+    "portal.capture.save.file",
+    "Board",
+    "Save paused portal video to File",
     "Paused recording → Save to File: choose MP4 output and finalize asynchronously; cancel leaves recording paused",
-    None, Repeat::Never, BOARD, &["save recording", "recording file"],
+    None,
+    Repeat::Never,
+    BOARD,
+    &["save recording", "recording file"],
 );
 pub(super) const SAVE_CANVAS: CommandSpec = spec(
     "portal.capture.save.canvas",

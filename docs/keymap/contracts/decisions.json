@@ -1,7 +1,142 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-10-18",
+  "updated": "2026-10-20",
   "tools": {
+    "selection-hit-regions": {
+      "status": "agreed",
+      "family": "tool",
+      "reference": "User approval of Selection hit-zone studio Adaptive regions and foreground-priority iteration, 20 October 2026; native implementation authorized, native acceptance pending.",
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P1.wire",
+        "P1.curve.grips",
+        "P1.curve.pick",
+        "P1.shape.properties"
+      ],
+      "canvas": "selection-hit-studio",
+      "decisions": {
+        "D01": {
+          "behavior": "Existing Select activation and P0.7/P0.8. P1.node.transform retains hover entry; this contract adds no tool, binding, or palette alias.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        },
+        "D02": {
+          "behavior": "Existing Select/crop modes and P0.4. Region relevance is derived per view and never re-arms or disarms an editing tool.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        },
+        "D03": {
+          "behavior": "P1.node.hit-regions supplies the hover/press resolver; P0.1–P0.3 and the existing operation own press → drag → release/cancel. Crossing fields, layers, or relevance thresholds cannot retarget an active gesture.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        },
+        "D04": {
+          "behavior": "Keep each existing editing command's travel threshold and click meaning. The resolver uses the original press; a later drag-start event cannot pick a different region.",
+          "source": "precedent",
+          "confidence": 95,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        },
+        "D05": {
+          "behavior": "Inherit P1.node.select, P1.node.transform, P1.curve.grips, and the active crop/wire command. No new modifier; Shift selection and Shift-drag must keep their existing distinct meanings.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        },
+        "D06": {
+          "behavior": "Inherit P1.node.move/osnap/transform and the active command's contract. Region expansion chooses a gesture owner only; resolved authored points still pass through the existing snap owner for preview and commit.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        },
+        "D07": {
+          "behavior": "Inherit the active editing command. Region arbitration introduces no Tab lock or parameter lock.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        },
+        "D08": {
+          "behavior": "Inherit P1.shape.properties and existing corner/dimension entry. The compact frame adds no numeric-entry surface and cannot take typing from a focused editor.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        },
+        "D09": {
+          "behavior": "P1.node.hit-regions. Any region visualization and hover cursor consume the same winner as press. deviates P0.9: only the ephemeral editing frame and pointer hit regions use the named selection-control exception; authored paint and property/stringer layout retain P0.9.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        },
+        "D10": {
+          "behavior": "Inherit P1.node.transform and the active grip/crop/wire cursor. Cursor ownership follows the resolved region, including host layer and adjacency arbitration in P1.node.hit-regions.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        },
+        "D11": {
+          "behavior": "Inherit P0.2/P0.3 and the original editing command's journal path. Hit-region layout changes no scene data; one completed manipulation is one undo step, and no-op gestures add none.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        },
+        "D12": {
+          "behavior": "Inherit P0.1. Esc restores all press-time authored state without a commit, retains the selection/mode as the existing command specifies, and clears the held-region capture.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        },
+        "D13": {
+          "behavior": "P1.node.hit-regions owns relevance and compact/buried control frames. P1.curve.grips/pick, explicit vertex/side controls, P1.shape.properties, and portal nonrotation/capability gating remain authoritative.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        },
+        "D14": {
+          "behavior": "Each later gesture resolves from the current camera, geometry, layer order, and pointer under P1.node.hit-regions. Existing authored edit and undo/redo paths remain the sole mutation owners.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        },
+        "D15": {
+          "behavior": "No reserve-point grid, new rotation capability, curve bounding-box editing, crop-mask redesign, changed property-panel layout, authored-scene scaling exception, or portal-internal input redesign. Native and browser evidence remain distinct.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        },
+        "D16": {
+          "behavior": "n/a. Selection-region derivation neither consumes nor changes creation-style memory. The chosen editing command retains its existing property behavior.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        },
+        "D17": {
+          "behavior": "P1.node.hit-regions is the one shared policy for continuous fields, projected-size relevance, cursor expansion, overlap priority, and adjacent-corner ties. P1.node.select and P1.curve.pick retain actual shape/stroke picking; eligible wire geometry/identity remains P1.wire.ports/flow-datum.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-20"
+        }
+      }
+    },
     "agent-conversation": {
       "status": "agreed",
       "family": "tool",
@@ -2017,11 +2152,11 @@
           "decided": "2026-08-15"
         },
         "D32": {
-          "behavior": "Remote origins are Blocked until the human permits them; grants key on (workbook, origin), live in local app state, and are never journaled or written into the .slate, so a workbook you receive cannot arrive pre-trusting a host. Grants for a saved workbook persist for this user in the Atlas data folder (web-consent.json), so reopening that board in a later session is not asked again; unsaved boards keep session grants only. Packaging and export refuse that file. Placing a default web portal is the human permitting the start locator's origin for that workbook, matching paste/drop behavior. Local sources under the workbook root need no prompt. The webview user-data folder lives under the per-user Atlas data directory, never beside the workbook. Each remote origin gets its own WebView2 profile, so a sign-in on one site is not a sign-in on another; local files share a profile with no remote cookies. Cookies are not shared with the system browser. Packaging and HTML export refuse the webview folder and the machine secret store. Denied outright: downloads, popups (except sign-in style pop-ups in a Slate-owned window on the portal's own profile - D15 amendment of 25 September 2026), notifications / geolocation / camera / mic / clipboard-read, and any host object or postMessage bridge (D15). Exports sandbox what they embed: packaged local content gets sandbox=\"allow-scripts allow-same-origin\", because a dashboard must fetch its own sibling data files; remote iframes get allow-scripts only. Page stills and the agent capture cache (visible text and pixels only) live in that per-user data folder, are keyed by locator rather than by profile or cookies, and are never packaged.",
+          "behavior": "Remote origins are Blocked until the human permits them; grants key on (workbook, origin), live in local app state, and are never journaled or written into the .slate, so a workbook you receive cannot arrive pre-trusting a host. Grants for a saved workbook persist for this user in the Atlas data folder (web-consent.json), so reopening that board in a later session is not asked again; unsaved boards keep session grants only. Packaging and export refuse that file. Placing a default web portal is the human permitting the start locator's origin for that workbook, matching paste/drop behavior. Local sources under the workbook root need no prompt. The webview user-data folder lives under the per-user Atlas data directory, never beside the workbook. Each remote origin gets its own WebView2 profile, so a sign-in on one site is not a sign-in on another; local files share a profile with no remote cookies. Cookies are not shared with the system browser. Packaging and HTML export refuse the webview folder and the machine secret store. Denied outright: downloads, popups (except sign-in style pop-ups in a Slate-owned window on the portal's own profile - D15 amendment of 25 September 2026), notifications / geolocation / camera / mic / clipboard-read, and any host object or postMessage bridge (D15). Exports sandbox what they embed: packaged local content gets sandbox=\"allow-scripts allow-same-origin\", because a dashboard must fetch its own sibling data files; remote iframes get allow-scripts only. Page stills and the agent capture cache (visible text and pixels only) live in that per-user data folder, are keyed by locator rather than by profile or cookies, and are never packaged. Amended 19 October 2026 at the user's request: a human can choose Allow all websites once for all agents and Web portals across all Slate workbooks on this device. This per-user global policy defaults off and persists in the same machine-local web-consent.json; it never enters a workbook, journal, package, or export and is distinct from provider Full access and source-file grants. Switching it off immediately closes unpermitted remote pages, including redirects, and releases their agent focus while retaining individual site grants. Existing scheme, browser sandbox, and local-file boundaries still apply.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-10-19"
         },
         "D33": {
           "behavior": "**P1.portal.chrome.** One plain full-width bar shows the page name or URL centered on the whole bar; web viewers have no blister or live-dot tab. The bar overlays the full-bleed page and retracts after 1.2 seconds without activity or when the pointer leaves. Page interaction or hovering its top edge reveals it. Native page scrollbars share that visibility and a proportional thickness; transparent idle thumbs preserve their gutter so hiding never reflows the page or disables wheel scrolling. Maximized bars use the Slate index top-bar height and typography, and scrollbars use the same scale. Canvas bars retain node-local scaling. Maximize remains at the far right; Escape restores even while controls are hidden. Explicit Hide/Show tab remains available; manually folded chrome uses the existing top-interior reveal strip.",
@@ -2038,11 +2173,11 @@
           "decided": "2026-08-15"
         },
         "D35": {
-          "behavior": "P1.portal.local-ui. Bind, consent, viewport, and page controls live on this portal (inspector / chrome). None appear in Document Settings.",
+          "behavior": "P1.portal.local-ui. Bind, consent, viewport, and page controls live on this portal (inspector / chrome). None appear in Document Settings. User-directed global exception, 19 October 2026: Advanced → Website access owns Allow all websites. Agent settings → Website access opens that same setting. A portal in global mode displays All sites on and opens the same setting instead of offering a misleading per-site revoke action. Per-origin controls remain portal-local in individual-site mode.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-15"
+          "decided": "2026-10-19"
         }
       }
     },
@@ -2248,11 +2383,11 @@
           "decided": "2026-08-15"
         },
         "D09": {
-          "behavior": "No second frame — each selected shape keeps its own silhouette. The alignment bars retain their positions: one button pitch beyond align.frame_outset (20 px) outside the left union edge, and one pitch beyond the bottom stringer clearance (STRINGER_GAP × zoom). Only the distribution stems reflect outward, keeping the two clusters' hit areas separate even for tiny selections. Quiet theme surfaces, ink outlines and directional arrow glyphs match the reference without its background text. Hover: icon invert + action name beyond the whole cluster. No ghost outlines, axis guide or numeric readout.",
+          "behavior": "No second frame — each selected shape keeps its own silhouette. The alignment bars retain their positions: one button pitch beyond align.frame_outset (20 px) outside the left union edge, and one pitch beyond the bottom stringer clearance (BOTTOM_STRINGER_GAP × zoom). Only the distribution stems reflect outward, keeping the two clusters' hit areas separate even for tiny selections. Quiet theme surfaces, ink outlines and directional arrow glyphs match the reference without its background text. Hover: icon invert + action name beyond the whole cluster. No ghost outlines, axis guide or numeric readout. When current property-menu hit boxes or selected-host wire reach would overlap, move the entire cluster outward until its live buttons are clear; paint and hit testing consume the same resulting layout. Reserve the final property-strip footprint during its reveal so alignment buttons do not move away between hover and press.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-10-14"
+          "decided": "2026-10-19"
         },
         "D10": {
           "behavior": "PointingHand over an enabled icon. Transform resize/rotate cursors yield.",
@@ -5331,11 +5466,11 @@
           "decided": "2026-09-26"
         },
         "D02": {
-          "behavior": "Crop stays on until Off is chosen in the Corners panel, Enter, Esc, or a tool other than Select. It is not a sticky drawing tool. A finished crop gesture joins repeat-last (P0.4): afterwards, a Space tap or Enter while idle re-enters crop mode on whatever image is selected then, however crop was first entered.",
+          "behavior": "Crop stays on until Enter, Esc, or a tool other than Select. Selection is retained; the property squircle/notch menu is hidden during crop. A finished crop gesture joins repeat-last (P0.4): afterwards, a Space tap or Enter while idle re-enters crop mode on whatever image is selected then, however crop was first entered.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-10-19"
         },
         "D03": {
           "behavior": "Ordinary image edge cropping retains existing frame semantics. Inside-crop dragging pans pixels behind the window. A closed-shape image fill keeps its exact clip, holes, frame, rotation and stroke fixed; crop grips scale the source uniformly at or above minimum cover. Double-click enters the same crop mode, with dim ghost pixels outside the mask.",
@@ -5380,18 +5515,18 @@
           "decided": "2026-09-24"
         },
         "D09": {
-          "behavior": "Crop brackets and bars remain live; full-picture ghost extends outside the crop window. A crop handle or image-body press reaches the crop gesture immediately and retains selection/palette. Shape-fill crop shows content grips independently of the fixed mask.",
+          "behavior": "Crop brackets and bars remain live; full-picture ghost extends outside the crop window. A crop handle or image-body press reaches the crop gesture immediately and retains selection. While crop is active, squircle and notch menus, their temporary image cutout, and their hit regions are suppressed immediately. Shape-fill crop shows content grips independently of the fixed mask.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-10-11"
+          "decided": "2026-10-19"
         },
         "D10": {
-          "behavior": "Hit zones are screen-space and never smaller than HIT_SLOP_PX (8), like other board handles (canvas_scale::hit_px). A corner is a disc of radius CROP_ARM_PX + CROP_HIT_PAD_PX (16 at 1:1) around the corner point. An edge is a band of half-width CROP_BAR_THICK_PX / 2 + CROP_HIT_PAD_PX (6.5, floored to 8) along the whole side, not only the painted bar. Both reach outside the box. Hovering a zone shows its cursor: left and right use the horizontal resize cursor, top and bottom the vertical, corners the diagonals.",
+          "behavior": "Hit zones use canvas_scale::hit_px with the ordinary 8px floor. Corners use CROP_ARM_PX + CROP_HIT_PAD_PX; edges use CROP_BAR_THICK_PX / 2 + CROP_HIT_PAD_PX along the full side. On a small screen-space host, paint and hit reach shrink together so neighboring handles remain distinct and the interior remains available for content panning. Hovering each handle shows its resize cursor.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-25"
+          "decided": "2026-10-19"
         },
         "D11": {
           "behavior": "Pointer-up writes one journal group: the grabbed image's new frame and Crop, and the same Crop on every other selected croppable image, each frame resized so its own picture stays put. An unchanged drag adds no undo step. Undo restores every image in that group. Every path that sends this image to an agent uses only the visible crop window. The hidden part of the source file is omitted.",
@@ -5408,11 +5543,11 @@
           "decided": "2026-09-24"
         },
         "D13": {
-          "behavior": "Crop on paints Photoshop crop chrome: a white corner bracket on each corner and a short white bar across the middle of each side, each with a dark edge. Ordinary resize handles hide on those images until crop turns off. The fillet stays in the same Corners squircle.",
+          "behavior": "Crop on paints white corner brackets and short white edge bars, each with a dark edge. Ordinary resize handles and property squircle/notch menus hide until crop turns off. Crop paint and hit sizes adapt together on small images; the Corners entry returns after exiting crop.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-24"
+          "decided": "2026-10-19"
         },
         "D14": {
           "behavior": "Crop persists through save and export. Dropping an image into a closed rectangle, ellipse, polygon or closed path replaces its fill with a linked image at centered minimum cover, retaining exact mask/holes, outline, transform and shape text. Source layers and filters travel with the image. Ordinary move consumes the source; Alt retains it. One undo restores both.",

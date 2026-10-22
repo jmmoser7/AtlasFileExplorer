@@ -24,7 +24,7 @@ pub fn agent_datum(
     scene: &slate_doc::Scene,
     zoom: f32,
 ) -> WorldRect {
-    let threshold = 14.0 / zoom.max(0.01);
+    let threshold = 14.0 / zoom.max(atlas_core::display::SLATE_BOARD.min);
     let mut result = rect;
     let mut dx = threshold;
     let mut dy = threshold;

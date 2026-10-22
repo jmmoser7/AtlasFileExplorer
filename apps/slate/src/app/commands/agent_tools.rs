@@ -1,6 +1,43 @@
 //! Registered drawing and scoped portal actions. The main SPECS table is the one registry.
 use super::*;
 
+pub(super) const TAG_CREATE: CommandSpec = spec(
+    "board.tags.create",
+    "Board",
+    "Create workbook tag",
+    "Agent tag creation uses the reversible workbook metadata journal",
+    None,
+    Repeat::Never,
+    BOARD,
+    &["tag", "facet", "classification"],
+);
+pub(super) const TAG_ASSIGN: CommandSpec = spec(
+    "board.tags.assign",
+    "Board",
+    "Assign tag to images or frames",
+    "Assign an existing tag to linked images or semantic frames",
+    None,
+    Repeat::Never,
+    BOARD,
+    &["tag", "layer", "classify"],
+);
+pub(super) const TAG_UNASSIGN: CommandSpec = spec(
+    "board.tags.unassign",
+    "Board",
+    "Remove tag assignment",
+    "Clear an existing facet assignment from linked images or semantic frames",
+    None,
+    Repeat::Never,
+    BOARD,
+    &["tag", "layer", "uncategorize"],
+);
+
+pub(super) const BOARD_PREVIEW: CommandSpec = spec(
+    "presence.preview", "Participants", "Read a board or frame preview",
+    "Collaborator: read actual production board pixels for one granted frame or board, without moving the camera",
+    None, Repeat::Never, BOARD, &["preview", "slide render"],
+);
+
 pub(super) const BRUSH_STROKE: CommandSpec = spec(
     "board.brush.stroke",
     "Board",
@@ -177,4 +214,52 @@ pub(super) const WEB_KEY: CommandSpec = spec(
     Repeat::Never,
     BOARD,
     &[],
+);
+
+pub(super) const WEB_ALLOW_ORIGIN: CommandSpec = spec(
+    "portal.web.allow_origin",
+    "Board",
+    "Web portal: allow this origin",
+    "Selected Web portal; permits its remote origin for this workbook. Human local consent, separate from agent Full access, never journaled",
+    None,
+    Repeat::Never,
+    BOARD,
+    &["allow origin", "trust host", "permit site"],
+);
+
+pub(super) const WEB_REVOKE_ORIGIN: CommandSpec = spec(
+    "portal.web.revoke_origin",
+    "Board",
+    "Web portal: revoke origin access",
+    "Selected Web portal; blocks its remote origin for this workbook again. Human local consent, separate from agent Full access, never journaled",
+    None,
+    Repeat::Never,
+    BOARD,
+    &["revoke origin", "block site", "forget website consent"],
+);
+
+pub(super) const WEB_ALLOW_ALL_SITES: CommandSpec = spec(
+    "portal.web.allow_all_sites", "Preferences", "Allow all websites",
+    "Human global website permission, remembered for this user across all Slate workbooks on this device",
+    None, Repeat::Never, GLOBAL, &["agent web access", "allow any website"],
+);
+pub(super) const WEB_RESTRICT_SITES: CommandSpec = spec(
+    "portal.web.restrict_sites",
+    "Preferences",
+    "Use individual website permissions",
+    "Disable global website permission; retain individual grants and close newly unpermitted pages",
+    None,
+    Repeat::Never,
+    GLOBAL,
+    &["restrict web access", "website permissions"],
+);
+pub(super) const WEB_ACCESS_SETTINGS: CommandSpec = spec(
+    "portal.web.access_settings",
+    "Preferences",
+    "Website access settings",
+    "Open Advanced → Website access, including the persistent Allow all websites choice",
+    None,
+    Repeat::Never,
+    GLOBAL,
+    &["global web access", "website permissions"],
 );

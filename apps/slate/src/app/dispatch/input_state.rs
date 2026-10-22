@@ -9,6 +9,7 @@ impl super::SlateApp {
         let tag_edit = super::super::ui::tools::tags::editor_open(self, ctx);
         if (tag_edit || (!self.shape_property_keys(ctx) && !self.tip_numeric_keys(ctx)))
             && self.desktop_sample.is_none()
+            && !self.presence_captures_shortcut(ctx)
         {
             self.hotkeys(ctx);
         }

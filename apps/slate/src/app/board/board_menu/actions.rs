@@ -89,6 +89,13 @@ impl SlateApp {
             "board.model_display" => {
                 self.dispatch(ctx, atlas_commands::CommandId(entry), Some("menu".into()));
             }
+            "board.image.save_as" => {
+                self.dispatch(
+                    ctx,
+                    atlas_commands::CommandId(entry),
+                    Some(id.0.to_string()),
+                );
+            }
             _ => {
                 self.dispatch(ctx, atlas_commands::CommandId(entry), None);
             }

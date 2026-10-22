@@ -101,7 +101,7 @@ impl Fixture {
         a.reply_from = 0;
         a.snapshot = None;
         a.calls = 0;
-        a.sequences = 0;
+        a.sequences.clear();
         self.h
             .app
             .presence

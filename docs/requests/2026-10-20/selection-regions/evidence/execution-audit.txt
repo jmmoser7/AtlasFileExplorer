@@ -1,0 +1,3 @@
+Microsoft-Windows-CodeIntegrity/Operational : No events were found that match the specified selection criteria.
+Microsoft-Windows-AppLocker/EXE and DLL : No events were found that match the specified selection criteria.
+Microsoft-Windows-Windows Defender/Operational : No events were found that match the specified selection criteria.

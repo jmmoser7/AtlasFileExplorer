@@ -1,0 +1,193 @@
+{
+  "scope": "Nine October19 reports only; moderate; existing owners; isolated from concurrent chat.",
+  "baseCommit": "f32767dfeb3a02bed30d0b22bcc59111564d6612",
+  "branch": "codex/suggestion-box-20261019",
+  "originalReportsArchived": 0,
+  "validation": {
+    "format": "Current changed application owners: direct rustfmt --edition2021 --config skip_children=true check PASS. Previous cargo fmt --all check retained historically; no new local Cargo invocation.",
+    "diff": "PASS: CRLF-aware git diff --cached --check on final source changes, including exact zero-context vendor policy patch. Patch reverse-application check passed.",
+    "rustTests": "Current repair source f8507720: CI187 queued/in progress; focused Rust runtime tests not yet executed locally because prior helper execution denied OSerror5. Earlier d880 source CI178 Windows/Clippy PASS, workspace3919passed/1failed/93ignored; earlier combined344 CI183 Windows/Clippy PASS, workspace3923passed/1failed/93ignored (concurrent roster-test size cap). These earlier outcomes do not verify the new fixes.",
+    "nativeUI": "RUN01 COMPLETE as an evaluation, not resolution. Exact344 executable 0E9764DB21121B206047E254DED6F25BCB748391809DD8A8B330853209C87983. All9 report areas exercised through native computer use; confirmed115519 first-drag/empty-frame and172555 initial-folder replacement prompt failures. Other cases remain partial; no human acceptance. See agentNativeEvaluation.",
+    "documentUI": "PASS for document only: nine cases visible, crop instructions expand, verdict controls disabled before build-confirmed run."
+  },
+  "authoredTestFilters": {
+    "wire_host::rail_tests": "Original image output uses shared top datum; short offers and saved anchors are preserved.",
+    "collapsed_generate": "Collapsed Play uses the existing hover-only parent and button owner.",
+    "image_import::tests": "Completion validates captured output identity independently of displayed album pick.",
+    "first_press_image_drag": "Select body drag can claim the canvas on first press without a selection click.",
+    "transform_stack_order": "Per-node front-to-back handles/body; a covered rear resize cannot win.",
+    "small_selection_alignment": "Alignment paint/input share clearance from current property controls and wire reach.",
+    "crop": "Crop suppresses temporary image UI and shrinks paint/hit reach together on tiny hosts.",
+    "board_flow::result_actions::save::tests": "Ordinary and generated images use the existing picker/compositor, with exact snapshots and source protection.",
+    "board_portal::capture::output::tests": "Unique publication numbers collisions atomically; completed saves report final paths.",
+    "board::board_menu::tests": "Save as appears in applicable image context recipes and preserves the clicked target.",
+    "selected_image_yields_first_drag_to_another_image_in_both_format_orders": "Real PNG/JPEG files, selectedotherobject, bothformatorders,60x40screen drag, sameobjectshape, otherobjectunchanged, oneUndo, then reversal afterUndo retains selection.",
+    "outside_image_press_disarms_hosted_brush_with_no_editor_open": "Actual closed-editor hostedBrush state, outsideclick cleanup; no scene or journal mutation.",
+    "a_new_empty_wired_generator_body_moves_before_its_first_result": "Real output-spawn path and exact native empty frame geometry; full-frame bodyclick/helddrag240/oneUndo, sourceunchanged, noGeneration; repeatafterfirstresult.",
+    "file_picker::request::tests": "Ordinary requests retain overwrite confirmation; unique image workflow alone optsout."
+  },
+  "independentReview": {
+    "intent": "Original9 reports, recorded steps and screenshot reviewed before implementation by acceptance_image_ui.",
+    "source": "Dedicated read-only secondary review compared fixes to original user outcomes. The hard-link-only Windows save defect was identified and corrected using existing MoveFileExW owner without replacement.",
+    "acceptance": "No source review or authored tests establish native/provider/user acceptance.",
+    "alignment": "Dedicated read-only reviewer traced numeric hit capture through shape_properties_ui into model_toolbar_captures and confirmed the shared68u lane fix. Raw action-specific geometry test remains intact. Native spacing and viewport-edge reach remain unverified.",
+    "repeatSave": "Dedicated secondary reviewer found that substituting an unprobed alternate extension could collide. Fixed by independently probing PNG/JPG/JPEG/WebP on the existing worker and choosing only a matching cached path. Regression preoccupies WebP004 and requires a free WebP003 while preserving004 bytes. Cancellation and advisory failure preserve completed-save success. Reviewer rechecked source; no native result claimed.",
+    "nativeFollowup": "Dedicated read-only reviewer personally inspected native screenshots02/03,12,34,37, traced original failures, found and prevented a closed-editor hostedBrush regression in the first guard, and approved the revised clear_tab guard plus dependency-owner Windows picker policy in source. No complete native/human Pass awarded."
+  },
+  "knownLimits": [
+    "Run01 confirmed first-drag selection-transfer and empty-generator-body failures. The collapsed-palette outside-press guard and actual PNG/JPEG both-order Undo regression are under repair; native recheck on the next binary is required.",
+    "Run01 confirmed Windows replacement prompt in the first unknown folder before final atomic collision-safe publication. A bounded opt-in Windows policy extension at pinned rfd save-dialog owner is under repair; no ordinary-save default is changed.",
+    "Real paired generation succeeded in both start orders with distinct source images/prompts/counts/histories; inactive-tab completion was retained. B completed around StopA, so continued B progress after Stop acknowledgement is still unproven.",
+    "Normal/tiny/notch crop and several small-object menu/alignment interactions were observed. Escape during held crop drag is unavailable through atomic drag API; actual visible tiny-wire start and another zoom remain untested.",
+    "Cropped PNG, alpha WebP, JPEG and historical generated copy were saved and reopened in Windows Photos. Different-current-generated-result comparison and edited-image picker cancellation remain untested.",
+    "The native run used100% board zoom in the first fixture and98% after Home fit in the provider fixture. OS display DPI was not independently confirmed."
+  ],
+  "reportPolicy": "All9 reports remain active. feedback/README.md and .cursor/rules/feedback-archive.mdc already govern evidence-preserving archival; age alone never closes a report.",
+  "hostedValidation": [
+    {
+      "source": "bce9c679f10fc46d0ac946848c44206ea1c893fa",
+      "run": 172,
+      "runId": 39343637318,
+      "windowsCompile": "PASS",
+      "linuxWorkspace": {
+        "passed": 3907,
+        "failed": 8,
+        "ignored": 93
+      },
+      "linuxClippy": "FAIL:7 singleton-clone test warnings; corrected in pending follow-up.",
+      "followup": "Pending rerun: quick Play Area now reserves bounds; alignment reserves final property-strip footprint during fade; normal body hover stays preview-only. Import assertions resolve workbook-relative locators; crop-paint fixture follows uncropped layer coordinates; source-wire gesture fixtures use shared host anchors."
+    },
+    {
+      "source": "4c665d1ae3f6d25a86ef27995dee32f36caa58ed",
+      "run": 175,
+      "runId": 39345485931,
+      "windowsCompile": "PASS",
+      "linuxClippy": "PASS",
+      "linuxWorkspace": {
+        "passed": 3916,
+        "failed": 2,
+        "ignored": 93
+      },
+      "linuxSlate": {
+        "passed": 2075,
+        "failed": 2,
+        "ignored": 69
+      },
+      "failures": [
+        {
+          "test": "small_selection_alignment_clicks_clear_properties_and_wires",
+          "cause": "CenterH click lies exactly on the horizontal width numeric hit boundary: stale24u alignment lane versus current68u width stringer.",
+          "correction": "5788e47c shares BOTTOM_STRINGER_GAP between existing shell alignment and app stringer lane. Exact requested-action geometry and one-undo assertions retained."
+        },
+        {
+          "test": "foreground_chat_owns_input_over_a_focused_web_page",
+          "ownership": "Concurrent base-branch chat owns test correction and runtime validation. No edit by this task."
+        }
+      ]
+    },
+    {
+      "source": "5788e47cae0f2b9ca67016a1acdab3d342c5bd27",
+      "run": 177,
+      "runId": 39347270310,
+      "windowsCompile": "PASS",
+      "linuxClippy": "PASS",
+      "linuxWorkspace": {
+        "passed": 3917,
+        "failed": 1,
+        "ignored": 93
+      },
+      "linuxSlate": {
+        "passed": 2076,
+        "failed": 1,
+        "ignored": 69
+      },
+      "failures": [
+        {
+          "test": "foreground_chat_owns_input_over_a_focused_web_page",
+          "ownership": "Concurrent base-branch chat owns inline/maximized fixture repair; untouched by this task."
+        }
+      ],
+      "suggestionBatch": "PASS for authored source/input regressions, including exact CenterH action and stable strip reveal. No native UI acceptance implied."
+    },
+    {
+      "source": "d880d9606a1d39cc45d53b6fc606849725274666",
+      "run": 178,
+      "runId": 39348315960,
+      "windowsCompile": "PASS",
+      "linuxClippy": "PASS",
+      "linuxWorkspace": {
+        "passed": 3919,
+        "failed": 1,
+        "ignored": 93
+      },
+      "linuxSlate": {
+        "passed": 2078,
+        "failed": 1,
+        "ignored": 69
+      },
+      "suggestionBatch": "PASS for all authored input/save regressions including independently free alternate-format suggestion and advisory-overflow success.",
+      "failures": [
+        {
+          "test": "foreground_chat_owns_input_over_a_focused_web_page",
+          "location": "apps/slate/src/app/agent_presence/chat_canvas_tests.rs:32",
+          "ownership": "Old concurrent base fixture; root did not edit/copy it. Owner reports focused inline correction PASS; combined snapshot still pending."
+        }
+      ]
+    }
+  ],
+  "sourceCommit": "f8507720e6932119560e6413ffa73fb021f1f751",
+  "nativeFixture": {
+    "path": "target/suggestion-native-fixture/suggestion-qa.slate",
+    "manifest": "target/suggestion-native-fixture/ui-setup-manifest.json",
+    "scope": "Disposable original images and8image nodes, overlapping and tiny. Setup only; not native evidence. UI-created independent sessions required for provider tests."
+  },
+  "handoffPatch": {
+    "path": "target/suggestion-box-source.patch",
+    "bytes": 145337,
+    "sha256": "df8533ea86d46ea89bfa5a490603531ef1aaf6e4a41bd36c9ba6fdf65ee19c3b",
+    "cachedReverseCheck": "PASS",
+    "source": "d880d960",
+    "scopes": [
+      "apps/slate",
+      "crates/slate-doc",
+      "crates/atlas-shell",
+      "docs/keymap/contracts",
+      "xtask/size-allowlist.toml"
+    ]
+  },
+  "coordination": {
+    "peerThread": "01a14606-1f05-7100-9f63-e06ce8b54706",
+    "peerTitle": "Add Free-Running Board Agent",
+    "plan": "Peer reviews its autonomous workflow, then one ordinary combined build of coherent repair source and a renewed explicit native lease. Root has not run Cargo or changed the primary checkout/index.",
+    "sourcePatchConfirmed": "d880d960;145337bytes;SHA256df8533ea86d46ea89bfa5a490603531ef1aaf6e4a41bd36c9ba6fdf65ee19c3b. No agent_presence, chat fixture or board.rs delta.",
+    "nativeLease": "Run01 exclusive native lease2026-10-20T01:07:38Z through01:35:54.049Z completed/released. Peer owns desktop/build again; root sent no native input after release."
+  },
+  "agentNativeEvaluation": {
+    "ledger": "native-evidence/agent-native-run-01.json",
+    "binarySha256": "0E9764DB21121B206047E254DED6F25BCB748391809DD8A8B330853209C87983",
+    "sourceRevision": "344988a4459e2575b8ae95b39f8bae1a597b359f",
+    "confirmedFailureReports": [
+      "115519",
+      "172555"
+    ],
+    "completeCasePasses": 0,
+    "humanAcceptances": 0,
+    "remainingChecks": [
+      "First-drag/empty-generator/outer-grip native recheck after repairs",
+      "First-unknown-folder collision picker after repair",
+      "Definitive other-frame progress after Stop acknowledgement",
+      "Crop Escape while pointer held (atomic drag API limitation)",
+      "Visible tiny wire grip and alternate zoom",
+      "Generated current-result switching and edited-image picker cancellation"
+    ]
+  },
+  "pendingNativeFollowup": {
+    "source": "f8507720e6932119560e6413ffa73fb021f1f751",
+    "firstDrag": "Implemented in existing image_palette via clear_tab guard, preserving open-editor and hostedBrush/lasso dismissal. New actual PNG/JPEG both-order/Undo and closed-editorBrush regressions; runtime/native verification pending.",
+    "emptyGenerator": "Exact output-spawned empty480x319.6875 frame regression, then first-result comparison. No independent picture/editor cause established, so no speculative geometry/layer override. Native recheck required.",
+    "savePicker": "Pinnedrfd0.15.4 upstream snapshot with3file opt-inWindows policy patch, samefeatures/version/profile. Only uniqueimageSave optsout of nativeReplaceprompt; existing atomic no-replace publication and sourceprotection retained. Direct request default and Windows COM-options tests authored; vendor excludedfromworkspace, COM test unrun.",
+    "dependencyBuildImpact": "New local rfd source path may produce a new build-helper variant. Required APIgap extension; no relocation/configuration change to evade prior OSerror5. Original upstream57packagefiles,54byte-identical; license+crateSHA+exactpatch retained.",
+    "sourceReviews": "Independent intent/UX review passed for both surgical repairs; existing files/architecture reused."
+  },
+  "initialSuggestionSourceCommit": "d880d9606a1d39cc45d53b6fc606849725274666"
+}

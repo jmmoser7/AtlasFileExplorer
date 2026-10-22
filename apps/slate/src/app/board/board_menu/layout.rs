@@ -128,6 +128,7 @@ impl SlateApp {
             return false;
         };
         match entry {
+            "board.image.save_as" => self.board_image_save_available(id),
             "board.open_location" => self.board_node_local_path(id).is_some(),
             "board.shape.edit" => self.object_properties_available(targets),
             "board.crop" => self.croppable_image(id),

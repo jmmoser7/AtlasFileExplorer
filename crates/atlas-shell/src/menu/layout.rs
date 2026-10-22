@@ -1,6 +1,48 @@
 //! Measured menu geometry without changing the global chrome tokens.
 use super::*;
 
+/// An anchored menu whose natural size may change this frame (for example,
+/// with its canvas host's zoom). The body runs first in a disabled, invisible
+/// sizing UI, then once interactively; it must not perform work merely on entry.
+#[allow(clippy::too_many_arguments)]
+pub fn anchored_measured<R>(
+    ctx: &egui::Context,
+    id: egui::Id,
+    opener: egui::LayerId,
+    at: Pos2,
+    dark: bool,
+    max_width: f32,
+    armed: Option<&mut bool>,
+    mut add_contents: impl FnMut(&mut Ui) -> R,
+) -> Anchored<R> {
+    let transform = ctx.layer_transform_to_global(opener).unwrap_or_default();
+    let viewport = transform.inverse() * ctx.screen_rect();
+    let mut measure = Ui::new(
+        ctx.clone(),
+        id.with("measure"),
+        egui::UiBuilder::new()
+            .layer_id(opener)
+            .max_rect(viewport)
+            .sizing_pass()
+            .invisible(),
+    );
+    let measured = frame(dark).show(&mut measure, |ui| {
+        prepare(ui, dark);
+        ui.set_max_width(max_width);
+        add_contents(ui);
+        ui.min_size()
+    });
+    let size = measured.response.rect.size();
+    let content_size = measured.inner;
+    // Area constrains using its previous size. Fit with the measured size
+    // before opening it so growing labels never spend a frame off screen.
+    let fitted = crate::selection_tools::fit_popup(size, at, viewport).min;
+    anchored(ctx, id, opener, fitted, dark, max_width, armed, |ui| {
+        ui.set_max_size(content_size);
+        add_contents(ui)
+    })
+}
+
 #[derive(Clone, Copy, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Metrics {
@@ -85,6 +127,70 @@ impl Metrics {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn measured_growth_fits_immediately_and_only_the_visible_menu_selects() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 400.0));
+        let mut row = Rect::NOTHING;
+        let mut selected = 0;
+        let mut original_width = 0.0;
+        for step in 0..6 {
+            let pointer = row.center();
+            let events = if step >= 4 {
+                vec![
+                    egui::Event::PointerMoved(pointer),
+                    egui::Event::PointerButton {
+                        pos: pointer,
+                        button: egui::PointerButton::Primary,
+                        pressed: step == 4,
+                        modifiers: Default::default(),
+                    },
+                ]
+            } else {
+                vec![]
+            };
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    let menu = anchored_measured(
+                        ctx,
+                        egui::Id::new("growing-menu"),
+                        egui::LayerId::background(),
+                        Pos2::new(470.0, 40.0),
+                        true,
+                        screen.width(),
+                        None,
+                        |ui| {
+                            ui.style_mut().override_font_id =
+                                Some(FontId::proportional(if step < 2 { 13.0 } else { 104.0 }));
+                            let response = ui.selectable_label(false, "Default");
+                            if !ui.is_sizing_pass() {
+                                row = response.rect;
+                            }
+                            response.clicked()
+                        },
+                    );
+                    selected += usize::from(menu.inner);
+                    assert!(screen.contains_rect(menu.rect));
+                    if step == 1 {
+                        original_width = menu.rect.width();
+                    } else if step >= 2 {
+                        assert!(menu.rect.width() > original_width);
+                        assert!(
+                            screen.contains_rect(row),
+                            "new size fits in its first frame"
+                        );
+                    }
+                },
+            );
+        }
+        assert_eq!(selected, 1, "the measurement pass cannot select a row");
+    }
 
     #[test]
     fn measured_menu_does_not_modify_global_tokens() {

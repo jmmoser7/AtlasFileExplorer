@@ -1,7 +1,7 @@
 //! Project and chat pick list.
 
 use super::*;
-
+use atlas_core::display::SLATE_BOARD;
 impl SlateApp {
     #[allow(clippy::too_many_arguments)] // Existing portal paint adapter.
     pub(super) fn paint_agent_pick_list(
@@ -53,7 +53,7 @@ impl SlateApp {
                 n.rect.w = n.rect.w.max(380.0);
             });
         }
-        let z = xf.z.max(0.01);
+        let z = xf.z.max(SLATE_BOARD.min);
         let body = layout.body;
         let palette = self.palette();
         let interactive = !self.tab().read_only;

@@ -90,7 +90,10 @@ the draft. Existing `board.model_screenshot*` IDs remain aliases and preserve
 Web portals accept dropped page links and selected HTTP(S) URL text on the
 Board: empty canvas creates a portal; an unlocked web portal receives a new
 URL. Both are undoable. Native Chrome/Edge tab-strip docking is not supported;
-drag the address-bar URL or a page link instead.
+drag the address-bar URL or a page link instead. A focused live page owns
+Copy, Cut and Paste, including platform clipboard events. Other registered
+Slate shortcuts (including Save and Undo), Escape and focused Slate text
+fields retain their existing keyboard ownership.
 
 1. **Register it** in `apps/slate/src/app/commands.rs` → `SPECS` as an
    `atlas_commands::CommandSpec`: stable namespaced `id`
@@ -984,3 +987,13 @@ Image-palette click-away recovery lasts **1.5 seconds from dismissal**. Returnin
 Targeted `board.shape.edit` / `board.wire.edit` take `{edits:[...]}` and reuse the existing Property transform with no vertex scope. Supported edits are FillRgb, StrokeRgb, StrokeWidth (0–10000), TextFamily, TextSize (1–512), TextAlign, TextRgb, TextBold, TextItalic and TextUnderline. Each call contains 1–16 typed edits; unsupported target/property pairs, unknown arguments, locked targets and net no-ops are refused. The ordinary human property palette keeps its existing full property request. These commands do not modify linked files, select objects, open a caret, or reposition the camera.
 
 Collaborator conversations remain open while the board is used. `presence.attach` / `presence.attach.remove` manage explicit chat images; `presence.full_access` sets the independent Codex provider permission through the machine-local access owner. Board autonomy, source reads and provider access are separate remembered choices for the same identity, harness and workbook/workspace. `app.save` is available to an authorized independent collaborator for the current saved writable workbook; pending proposals remain pending. `app.feedback.report` records bounded local problem reports without posting externally.
+
+Conversation text supports drag selection and copy. With the transcript focused, Ctrl+A selects the full public conversation and Ctrl+C copies its text in chronological order, including messages outside the bounded render window. The composer retains its normal text-selection shortcuts.
+
+Collaborator board reads expose the current task's consumed, remaining and maximum action counts. Independent tasks default to 4096 calls; scoped helpers remain capped at 32. Exhaustion preserves completed work and the conversation. Sending Continue starts a new bounded task under the retained authority. `slate_participants_read` can page a retained helper result with its independent UTF-8 text cursor and returned generation; list pagination is separate.
+
+`presence.preview` produces a read-only PNG of one explicitly granted frame, or the granted board with empty targets, using the production board painter. It does not move the camera or create authored content. Missing host/texture content is reported as incomplete. Board descriptors include frame slide order and basic authored styles. `board.tags.create`, `.assign` and `.unassign` reuse the existing tag/scene journals, require explicit mutation autonomy, and accept stable linked-image or frame targets. Frame and linked-image assignments are separate reversible actions.
+
+Generator creation and `portal.agent.run` accept the existing aspect values (`source`, `square`, `landscape`, `portrait`, `wide`) and integer output count 1–8. Board reads report job status, actual output count and known imported pixel dimensions. A Web portal's tab exposes **Allow site** / **Revoke site** for its exact workbook-local origin; `portal.web.allow_origin` and `.revoke_origin` are human consent actions, separate from provider Full access.
+
+**Agent settings → Website access** opens the global **Allow all websites** choice in Advanced (`portal.web.access_settings`). Enabling it (`portal.web.allow_all_sites`) permits new HTTP(S) websites for all agents and Web portals across all Slate workbooks on this device, remembered for this user. It defaults off, stays in the machine-local consent file, and never travels with a workbook or export. Turning it off (`portal.web.restrict_sites`) returns to individual grants and immediately closes unpermitted pages and releases their focus. The portal displays **All sites on** while global permission is active; clicking it opens the same setting. Browser sandbox, source-file grants, and provider Full access remain separate.

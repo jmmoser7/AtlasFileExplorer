@@ -1,0 +1,51 @@
+{
+  "schema": "slate-acceptance-document-qa/v1",
+  "checkedAt": "2026-10-20T01:48:50.040093+00:00",
+  "scope": "Document schema, generated HTML and existing renderer state logic only; no native Slate execution or source-fix test result.",
+  "catalogHash": "f501b9d606469433443f5f7febb3de5f5764d8b5072378f07e33bed34caa5f35",
+  "reports": 9,
+  "cases": 9,
+  "checks": 62,
+  "embeddedOriginalAttachments": 1,
+  "checksPerformed": [
+    "Catalog covers exactly all nine original report IDs with unique case/check IDs.",
+    "Generated HTML parses, embeds original attachment, contains complete catalog, and has no renderer placeholders.",
+    "Generated application JavaScript syntax parses.",
+    "Existing renderer state functions initialize all nine cases and reports Untested with no results, unconfirmed build and unlocked context.",
+    "Synthetic form-state checks preserve incomplete-context gating and blocked/fail precedence; synthetic states were never exported as user observations.",
+    "Browser computer-use inspection: all nine cases visible; crop steps expand; verdict selectors disabled before a build-confirmed run. This verifies the document only.",
+    "Refreshed browser document after adding horizontal-center and dimension-editor ownership checks: all9 cases Untested; updated criteria visible and verdicts disabled before confirmed-build run.",
+    "Current nine-case catalog checked against actual renderer core: all fresh results Untested/unconfirmed, evidence gate and failure precedence, new-build history retention; synthetic states never saved.",
+    "Browser refresh and expanded first-drag case: PNG/JPEG and empty-frame setup visible; empty-generator and closed-editorBrush clauses present; all verdict controls disabled before confirmed run.",
+    "Reusable test-state.cjs could not load its historical October16 catalog in this worktree. Current catalog core checks above ran separately; no claim that the legacy harness passed in this worktree."
+  ],
+  "candidate": {
+    "available": true,
+    "sha256": "0E9764DB21121B206047E254DED6F25BCB748391809DD8A8B330853209C87983",
+    "binaryPath": "C:/Users/jmoser/source/repos/AtlasFileExplorer/target/release/slate.exe",
+    "nativeDelivery": "run01 evaluated; known failures open; repaired candidate pending"
+  },
+  "userAcceptancesRecorded": 0,
+  "sourceAndHeadlessImplementationEvidence": "Source checks and agent UI observations are separate from human acceptance. Suggestion source d880d960: CI178 Windows compilation and Clippy PASS; workspace3919 passed/1 failed/93 ignored, with the sole failure owned by the concurrent agent chat. Combined344: CI183 Windows/Clippy PASS; workspace3923 passed/1 failed/93 ignored (size cap in concurrent agent roster tests). Native run01 on executable SHA256 0E9764DB21121B206047E254DED6F25BCB748391809DD8A8B330853209C87983 exercised all9 reports through ordinary Windows UI, including real paired image generation and reopening saved outputs. It confirmed selected-A to first-drag-B/empty-frame failures (115519) and the first-unknown-folder replacement prompt (172555). Other clauses have partial observations, not complete case passes. The raw agent ledger, screenshots and remaining checks are retained in native-evidence/agent-native-run-01.json; implementation-evidence.json records follow-up repairs. Every human verdict starts Untested.",
+  "agentNativeEvaluation": {
+    "ledger": "native-evidence/agent-native-run-01.json",
+    "binarySha256": "0E9764DB21121B206047E254DED6F25BCB748391809DD8A8B330853209C87983",
+    "sourceRevision": "344988a4459e2575b8ae95b39f8bae1a597b359f",
+    "confirmedFailureReports": [
+      "115519",
+      "172555"
+    ],
+    "completeCasePasses": 0,
+    "humanAcceptances": 0,
+    "remainingChecks": [
+      "First-drag/empty-generator/outer-grip native recheck after repairs",
+      "First-unknown-folder collision picker after repair",
+      "Definitive other-frame progress after Stop acknowledgement",
+      "Crop Escape while pointer held (atomic drag API limitation)",
+      "Visible tiny wire grip and alternate zoom",
+      "Generated current-result switching and edited-image picker cancellation"
+    ]
+  },
+  "agentNativeReportsPartiallyExercised": 9,
+  "completeAgentNativeCasePasses": 0
+}

@@ -86,6 +86,10 @@ When you add or change any user-facing input binding:
   or corner fillet. Collapsed folders over the **stack threshold** (default
   100) become one cover tile — click to expand. **Field aspect** stretches
   the whole sheet wide or tall.
+- **Display slider ranges** (view.display_slider_domain) — right-click grid
+  columns, stack threshold or row spacing to edit its minimum and maximum.
+  Changes are session-local. Defaults stay unchanged; whole-number bounds must
+  keep their original minimum floor. Row spacing can explicitly exceed 300%.
 - **Display dock → stack threshold** — child-count at which a collapsed folder
   paints as a **group preview**. This is not a Slate portal (Art. V); the
   internal field is still `portal_threshold`.

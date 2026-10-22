@@ -12,6 +12,7 @@ use std::{
 const PENDING: usize = 16;
 const PER_FRAME: usize = 2;
 const REMEMBER: usize = 256;
+const MAX_DIMENSION_PROBE_BYTES: u64 = 256 * 1024 * 1024;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 struct Identity {
@@ -29,10 +30,15 @@ struct Work {
     identity: Identity,
     root: PathBuf,
 }
-type Completion = (Identity, Result<ReadyFile, String>);
+struct ImportedImage {
+    file: ReadyFile,
+    dimensions: Option<[u32; 2]>,
+}
+type Completion = (Identity, Result<ImportedImage, String>);
 
 struct ImportRecord {
     error: Option<String>,
+    dimensions: Option<[u32; 2]>,
     failures: u8,
     retry_at: Instant,
 }
@@ -101,7 +107,13 @@ impl KnownImageImports {
             .unwrap_or_default()
     }
 
-    fn remember(&mut self, identity: Identity, error: Option<String>, now: Instant) {
+    fn remember(
+        &mut self,
+        identity: Identity,
+        error: Option<String>,
+        dimensions: Option<[u32; 2]>,
+        now: Instant,
+    ) {
         let failures = if error.is_some() {
             self.completed
                 .get(&identity)
@@ -120,6 +132,7 @@ impl KnownImageImports {
             identity,
             ImportRecord {
                 error,
+                dimensions,
                 failures,
                 retry_at: now + backoff,
             },
@@ -127,7 +140,7 @@ impl KnownImageImports {
     }
 }
 
-fn inspect(work: &Work) -> Result<ReadyFile, String> {
+fn inspect(work: &Work) -> Result<ImportedImage, String> {
     // Canonicalization is deliberately on this worker. Reject traversal and
     // links escaping the provider's generated-output root before metadata is
     // admitted to the linked-item owner. No file bytes are opened.
@@ -142,17 +155,32 @@ fn inspect(work: &Work) -> Result<ReadyFile, String> {
         return Err("Download this generated image before placing it".into());
     }
     // Keep the original stable locator after checking its canonical location.
-    ReadyFile::read(work.identity.path.clone())
+    let file = ReadyFile::read(work.identity.path.clone())?;
+    // Header probing is bounded and stays on the existing worker. Large or
+    // unsupported outputs remain importable; their dimensions are unknown.
+    let dimensions = (file.size <= MAX_DIMENSION_PROBE_BYTES)
+        .then(|| image::image_dimensions(&path).ok())
+        .flatten()
+        .filter(|(width, height)| *width > 0 && *height > 0)
+        .map(|(width, height)| [width, height]);
+    Ok(ImportedImage { file, dimensions })
 }
 
 impl SlateApp {
-    fn known_image_import(&self, node: NodeId) -> Option<Work> {
+    fn known_image_import_for_output(
+        &self,
+        node: NodeId,
+        output: &str,
+        request: &str,
+    ) -> Option<Work> {
         let agent = slate_doc::agent_chat::agent(self.doc().scene.node(node)?)?;
         if !atlas_ai::agent::local_image_engine(&agent.provider) {
             return None;
         }
         let images = self.agent_images(node);
-        let image = images.get(self.agent_shown_index(node)?)?;
+        let image = images
+            .iter()
+            .find(|image| image.id == output && image.request == request)?;
         if image.id.is_empty() || image.request.is_empty() || image.source.is_empty() {
             return None;
         }
@@ -193,11 +221,35 @@ impl SlateApp {
         })
     }
 
+    fn known_image_import(&self, node: NodeId) -> Option<Work> {
+        let images = self.agent_images(node);
+        let image = images.get(self.agent_shown_index(node)?)?;
+        self.known_image_import_for_output(node, &image.id, &image.request)
+    }
+
+    pub(crate) fn known_agent_image_dimensions(
+        &self,
+        node: NodeId,
+        output: &str,
+        request: &str,
+    ) -> Option<[u32; 2]> {
+        let identity = self
+            .known_image_import_for_output(node, output, request)?
+            .identity;
+        self.agents
+            .image_imports
+            .completed
+            .get(&identity)
+            .and_then(|record| record.dimensions)
+    }
+
     fn known_image_import_current(&self, identity: &Identity) -> bool {
         !self.tab().read_only
             && !self.at_home
+            && self.tab().id == identity.tab
+            && self.tab().path == identity.workbook
             && self
-                .known_image_import(identity.node)
+                .known_image_import_for_output(identity.node, &identity.output, &identity.request)
                 .is_some_and(|work| work.identity == *identity)
             && self.agents.cancelled_generations.get(&identity.node) != Some(&identity.request)
     }
@@ -225,14 +277,16 @@ impl SlateApp {
             if !self.known_image_import_current(&identity) {
                 continue;
             }
-            let error = match result {
-                Ok(file) => {
-                    self.item_for_ready_path(&file.path, file.size, file.mtime);
-                    None
+            let (error, dimensions) = match result {
+                Ok(image) => {
+                    self.item_for_ready_path(&image.file.path, image.file.size, image.file.mtime);
+                    (None, image.dimensions)
                 }
-                Err(error) => Some(error),
+                Err(error) => (Some(error), None),
             };
-            self.agents.image_imports.remember(identity, error, now);
+            self.agents
+                .image_imports
+                .remember(identity, error, dimensions, now);
         }
         if self.tab().read_only || self.at_home {
             return;

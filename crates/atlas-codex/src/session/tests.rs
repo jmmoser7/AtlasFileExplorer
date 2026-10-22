@@ -74,6 +74,44 @@ fn activity_uses_observed_categories_and_never_guesses_targets() {
 }
 
 #[test]
+fn board_activity_names_only_the_observed_public_command() {
+    let mut session = AgentSession::default();
+    for (method, status) in [
+        ("item/started", "inProgress"),
+        ("item/completed", "completed"),
+        ("item/completed", "failed"),
+    ] {
+        collect_activity(
+            method,
+            &json!({"item":{"id":"board-call","type":"dynamicToolCall",
+                "tool":"slate_board_command","status":status,
+                "arguments":{"command":"portal.web.read_text","targets":["private-target"],
+                    "arguments":{"secret":"private-input"}},"output":"private-output"}}),
+            &mut session,
+        );
+        assert!(session
+            .activity
+            .last()
+            .unwrap()
+            .text
+            .ends_with("portal.web.read_text"));
+    }
+    collect_activity(
+        "item/started",
+        &json!({"item":{"id":"bad","type":"dynamicToolCall","tool":"slate_board_command",
+            "arguments":{"command":"private-input\nnot-a-command"}}}),
+        &mut session,
+    );
+    assert_eq!(
+        session.activity.last().unwrap().text,
+        "Using a connected tool"
+    );
+    assert!(!serde_json::to_string(&session.activity)
+        .unwrap()
+        .contains("private-"));
+}
+
+#[test]
 fn public_progress_excludes_reasoning_and_tool_payloads() {
     let mut session = AgentSession {
         request: "r".into(),

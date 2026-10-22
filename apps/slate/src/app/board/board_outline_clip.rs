@@ -80,7 +80,7 @@ pub(crate) fn node_texture_vertices(
     mirror: Mirror,
 ) -> Vec<(Pos2, Pos2)> {
     corner
-        .outline(tex_rect, 0.25 / xf.z.max(0.01))
+        .outline(tex_rect, 0.25 / xf.z.max(ZOOM_MIN))
         .into_iter()
         .map(|[x, y]| {
             let [wx, wy] = node_rect.rotate_point([x, y], rotation_deg);

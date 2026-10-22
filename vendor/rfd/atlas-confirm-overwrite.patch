@@ -1,0 +1,100 @@
+diff --git a/src/file_dialog.rs b/src/file_dialog.rs
+index 73050e55..c171deee 100644
+--- a/src/file_dialog.rs
++++ b/src/file_dialog.rs
+@@ -19 +19 @@ pub(crate) struct Filter {
+-#[derive(Default, Debug, Clone)]
++#[derive(Debug, Clone)]
+@@ -27,0 +28,16 @@ pub struct FileDialog {
++    pub(crate) confirm_overwrite: bool,
++}
++
++impl Default for FileDialog {
++    fn default() -> Self {
++        Self {
++            filters: Vec::new(),
++            starting_directory: None,
++            file_name: None,
++            title: None,
++            parent: None,
++            parent_display: None,
++            can_create_directories: None,
++            confirm_overwrite: true,
++        }
++    }
+@@ -107,0 +124,24 @@ impl FileDialog {
++
++    /// Whether a Windows save dialog asks before choosing an existing file.
++    /// Defaults to true. Other platform backends currently ignore this policy.
++    /// Disabling confirmation does not provide collision-safe file publication.
++    pub fn set_confirm_overwrite(mut self, confirm: bool) -> Self {
++        self.confirm_overwrite = confirm;
++        self
++    }
++}
++
++#[cfg(test)]
++mod overwrite_tests {
++    use super::FileDialog;
++
++    #[test]
++    fn overwrite_confirmation_is_opt_out() {
++        assert!(FileDialog::default().confirm_overwrite);
++        assert!(FileDialog::new().confirm_overwrite);
++        assert!(
++            !FileDialog::new()
++                .set_confirm_overwrite(false)
++                .confirm_overwrite
++        );
++    }
+diff --git a/src/backend/win_cid/file_dialog/com.rs b/src/backend/win_cid/file_dialog/com.rs
+index acb192c4..dab40d1b 100644
+--- a/src/backend/win_cid/file_dialog/com.rs
++++ b/src/backend/win_cid/file_dialog/com.rs
+@@ -199 +199 @@ pub(super) struct IFileDialogV {
+-    GetOptions:
++    pub(super) GetOptions:
+diff --git a/src/backend/win_cid/file_dialog/dialog_ffi.rs b/src/backend/win_cid/file_dialog/dialog_ffi.rs
+index 29e9dd33..5192d5a1 100644
+--- a/src/backend/win_cid/file_dialog/dialog_ffi.rs
++++ b/src/backend/win_cid/file_dialog/dialog_ffi.rs
+@@ -15 +15 @@ use windows_sys::{
+-            FOS_PICKFOLDERS,
++            FOS_OVERWRITEPROMPT, FOS_PICKFOLDERS,
+@@ -83,0 +84,8 @@ impl DialogInner {
++    #[inline]
++    unsafe fn options(&self) -> Result<FILEOPENDIALOGOPTIONS> {
++        let (d, v) = self.fd();
++        let mut options = 0;
++        wrap_err((v.GetOptions)(d, &mut options))?;
++        Ok(options)
++    }
++
+@@ -149,0 +158,19 @@ pub struct IDialog(DialogInner, Option<HWND>);
++#[cfg(test)]
++mod overwrite_tests {
++    use super::*;
++
++    #[test]
++    fn unique_save_changes_only_the_windows_overwrite_prompt_flag() {
++        super::super::super::utils::init_com(|| {
++            let ordinary = IDialog::build_save_file(&FileDialog::default()).unwrap();
++            let unique =
++                IDialog::build_save_file(&FileDialog::new().set_confirm_overwrite(false)).unwrap();
++            let ordinary_options = unsafe { ordinary.0.options().unwrap() };
++            let unique_options = unsafe { unique.0.options().unwrap() };
++            assert_ne!(ordinary_options & FOS_OVERWRITEPROMPT, 0);
++            assert_eq!(unique_options, ordinary_options & !FOS_OVERWRITEPROMPT);
++        })
++        .unwrap();
++    }
++}
++
+@@ -303,0 +331,7 @@ impl IDialog {
++        if !opt.confirm_overwrite {
++            unsafe {
++                let options = dialog.0.options()?;
++                dialog.0.set_options(options & !FOS_OVERWRITEPROMPT)?;
++            }
++        }
++

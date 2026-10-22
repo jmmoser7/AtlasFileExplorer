@@ -63,8 +63,11 @@ impl SlateApp {
         ui: &egui::Ui,
         painter: &egui::Painter,
         xf: &super::super::board::BoardXf,
+        source_view: Option<&slate_doc::scene::WorldRect>,
     ) {
-        let view = self.board_paint_view(self.canvas_rect);
+        let view = source_view
+            .cloned()
+            .unwrap_or_else(|| self.board_paint_view(self.canvas_rect));
         let active = self
             .presence
             .agents

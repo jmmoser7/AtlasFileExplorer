@@ -19,6 +19,7 @@ use super::path_edit_overlay::{
     PathEditAnchorColors, PathEditAnchorPaint, PathEditHit,
 };
 use super::{board_line, board_path, SlateApp};
+use atlas_core::display::SLATE_BOARD;
 use eframe::egui::{self, Pos2, Rect};
 use slate_doc::scene::{Node, NodeKind, SceneCmd, ShapeKind, StrokeCap, StrokeEnd, WorldRect};
 use slate_doc::vertex_style::{self, VertexStyle};
@@ -30,7 +31,6 @@ use vector_ink::{
     move_anchor, segment_hit, toggle_anchor_kind, translate_segment, Anchor, AnchorKind,
     HandleDrag, HandleEnd, JoinSource,
 };
-
 /// Segment pick radius (screen px).
 const SEGMENT_HIT_PX: f32 = 6.0;
 /// World length below which a handle is its anchor.
@@ -1178,7 +1178,7 @@ impl SlateApp {
             }
             // Segment press: select its two anchors, drag reshapes.
             let bez = bezpath_from_anchors(&anchors, closed);
-            let radius = (SEGMENT_HIT_PX / xf.z.max(0.05)) as f64;
+            let radius = (SEGMENT_HIT_PX / xf.z.max(SLATE_BOARD.min)) as f64;
             if let Some(seg) = segment_hit(&bez, to_point(world), radius) {
                 let n = anchors.len();
                 self.direct.anchors.clear();
@@ -1411,7 +1411,7 @@ impl SlateApp {
             if let Some(id) = self.direct.node {
                 if let Some((anchors, closed)) = self.direct_anchors_of(id) {
                     let bez = bezpath_from_anchors(&anchors, closed);
-                    let radius = (SEGMENT_HIT_PX / xf.z.max(0.05)) as f64;
+                    let radius = (SEGMENT_HIT_PX / xf.z.max(SLATE_BOARD.min)) as f64;
                     if let Some(seg) = segment_hit(&bez, to_point(world), radius) {
                         let n = anchors.len();
                         self.direct.anchors.clear();
@@ -1495,7 +1495,7 @@ impl SlateApp {
 
     /// Public wrapper over the private snap threshold (world units).
     pub(crate) fn board_snap_threshold_pub(&self) -> f32 {
-        super::board_snap::SNAP_SCREEN_PX / self.tab().cam.z.max(0.05)
+        super::board_snap::SNAP_SCREEN_PX / self.tab().cam.z.max(SLATE_BOARD.min)
     }
 
     // ---------- painting ----------
