@@ -190,7 +190,7 @@ mod tests {
 
     #[test]
     fn bgra_conversion_preserves_premultiplied_colors_and_skips_row_padding() {
-        let mut source = vec![
+        let mut source: Vec<u8> = vec![
             30, 20, 10, 128, 60, 50, 40, 255, 99, 99, 99, 99, 3, 2, 1, 4, 0, 0, 0, 0, 88, 88, 88,
             88,
         ];
