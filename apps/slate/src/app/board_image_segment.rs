@@ -92,6 +92,8 @@ impl SlateApp {
         pointer: Option<Pos2>,
         world: Option<Pos2>,
     ) {
+        #[cfg(test)]
+        crate::app::board::brush_prof::lap("hover_segment_entry");
         self.image_segments.receive();
         if self.image_segments.drag.is_some() {
             return;

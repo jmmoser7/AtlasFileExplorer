@@ -370,14 +370,22 @@ impl SlateApp {
         ctx: &egui::Context,
         wire_grip_hovered: bool,
     ) {
+        #[cfg(test)]
+        crate::app::board::brush_prof::lap("hover_transform_entry");
         self.board_hover_hit = None;
         self.board_hover_node = None;
         self.board_sides_hover = None;
         let Some(p) = pointer else { return };
-        if self.pointer_on_portal_maximize(p, xf) {
+        let maximize = self.pointer_on_portal_maximize(p, xf);
+        #[cfg(test)]
+        crate::app::board::brush_prof::lap("hover_portal_maximize");
+        if maximize {
             return;
         }
-        if let Some((id, vertex)) = self.fillet_grip_hit_at(p) {
+        let fillet = self.fillet_grip_hit_at(p);
+        #[cfg(test)]
+        crate::app::board::brush_prof::lap("hover_fillet_grip");
+        if let Some((id, vertex)) = fillet {
             self.board_hover_hit = Some(board_handles::BoardHitTarget::FilletRadius);
             self.board_hover_node = Some(id);
             self.board_hover_grip_vertex = vertex;
@@ -392,14 +400,25 @@ impl SlateApp {
             return;
         }
         self.board_sides_hover = self.polygon_sides_hover_at(p, xf);
-        if self.polygon_sides_glyph_at(p, xf).is_some() {
+        #[cfg(test)]
+        crate::app::board::brush_prof::lap("hover_polygon_sides");
+        let glyph = self.polygon_sides_glyph_at(p, xf).is_some();
+        #[cfg(test)]
+        crate::app::board::brush_prof::lap("hover_polygon_glyph");
+        if glyph {
             ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
             return;
         }
-        if self.curve_grip_under(p) {
+        let curve = self.curve_grip_under(p);
+        #[cfg(test)]
+        crate::app::board::brush_prof::lap("hover_curve_grip");
+        if curve {
             return;
         }
-        let Some((node, hit)) = self.transform_hit_at(p) else {
+        let transform = self.transform_hit_at(p);
+        #[cfg(test)]
+        crate::app::board::brush_prof::lap("hover_transform_hit");
+        let Some((node, hit)) = transform else {
             return;
         };
         if hit == board_handles::BoardHitTarget::Body {

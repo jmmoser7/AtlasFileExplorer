@@ -399,6 +399,8 @@ impl SlateApp {
     /// Body under the pointer, excluding edge / rotate chrome and the
     /// current selection. Edge hover is cursor-only.
     pub(crate) fn hover_preview_target(&self, world: Option<Pos2>) -> Option<NodeId> {
+        #[cfg(test)]
+        crate::app::board::brush_prof::lap("hover_preview_entry");
         if matches!(
             self.board_hover_hit,
             Some(board_handles::BoardHitTarget::Resize(_))

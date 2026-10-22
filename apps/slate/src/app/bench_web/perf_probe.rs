@@ -406,13 +406,19 @@ fn bench_web_large_canvas_cpu() {
         .open(&path)
         .expect("existing evidence must be retained; choose a new label");
     let mut rows = Vec::new();
-    let mut report = json!({"schema":2,"label":label,"status":"running",
+    let mut report = json!({"schema":3,"label":label,"status":"running",
         "os":std::env::consts::OS,"arch":std::env::consts::ARCH,
         "build":if cfg!(debug_assertions) { "dev" } else { "release" },
-        "instrumentation":{"revision":2,"board_laps":{"owner":"board::brush_prof (existing test-only begin/take)",
+        "instrumentation":{"revision":3,"board_laps":{"owner":"board::brush_prof (existing test-only begin/take)",
             "encoding":"Ordered [stage_name, elapsed_ms] pairs; repeated names are retained.",
             "scope":"begin before app clock; app_ms captured immediately after ctx.run; take before texture accounting/tessellation.",
             "interpretation":"Laps are intervals since the preceding lap; they do not cover all app work and must not be summed as total app_ms.",
+            "hover_partition":"Inserted hover laps partition the old broad phase. Per frame, sum ordered intervals after each input boundary through its following hover boundary, then calculate percentiles. The final hover lap alone is residual; never sum separate stage percentiles.",
+            "hover_regions":{"input_to_hover_transform_entry":"pre-transform/align",
+                "transform_entry_to_call_laps":"portal maximize, fillet, polygon sides, polygon glyph, curve grip, transform hit, in original lazy order",
+                "last_transform_lap_to_hover_preview_entry":"remaining transform/video",
+                "hover_preview_entry_to_hover_segment_entry":"preview/tick",
+                "hover_segment_entry_to_hover":"image segment; markers appear only when the original method is reached"},
             "overhead":"Enabled lap clocks, thread-local access and Vec growth run inside app_ms; begin/take and serialization are outside. Profiled and earlier unprofiled timing are not directly equivalent."}},
         "percentiles":"nearest rank ceil(q*N)-1; CPU intervals exclude pacing",
         "limits":{"main_frames":FRAMES,"warmup_frames":WARMUP,"cooperative_deadline_seconds":110,"pace_us":16667},
