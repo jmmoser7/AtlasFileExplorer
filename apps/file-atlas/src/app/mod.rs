@@ -33,6 +33,7 @@ use atlas_shell::folder_map::{
 use atlas_shell::menu::{self, MenuIcon};
 use atlas_shell::minimap::{minimap_ui, MinimapAction, MinimapModel, MinimapState};
 use atlas_shell::theme::{dark_visuals, light_visuals, Palette};
+use atlas_shell::widgets::{chip, group_digits};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{
     self, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2,
@@ -8048,31 +8049,6 @@ fn ago_string(at: SystemTime) -> String {
     } else {
         format!("{} h ago", secs / 3600)
     }
-}
-
-fn chip(ui: &mut egui::Ui, text: &str, active: bool, base: Color32) -> egui::Response {
-    let fill = if active {
-        base
-    } else {
-        Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), 90)
-    };
-    let btn = egui::Button::new(egui::RichText::new(text).size(11.0).color(Color32::WHITE))
-        .fill(fill)
-        .corner_radius(CornerRadius::same(10))
-        .sense(Sense::click_and_drag());
-    ui.add(btn)
-}
-
-fn group_digits(n: u64) -> String {
-    let s = n.to_string();
-    let mut out = String::with_capacity(s.len() + s.len() / 3);
-    for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
 }
 
 /// The never-scanned list as editable text, one folder name per line.

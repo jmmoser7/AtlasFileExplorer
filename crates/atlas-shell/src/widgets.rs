@@ -657,14 +657,14 @@ pub fn thin_sidebar_slider_i32(
 
 pub fn group_digits(n: u64) -> String {
     let s = n.to_string();
-    let mut out = String::new();
-    for (i, c) in s.chars().rev().enumerate() {
-        if i > 0 && i.is_multiple_of(3) {
+    let mut out = String::with_capacity(s.len() + s.len() / 3);
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
     }
-    out.chars().rev().collect()
+    out
 }
 
 /// Upper-left gear: opens a menu of optional sub-panels.
