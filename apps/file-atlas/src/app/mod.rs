@@ -20,7 +20,7 @@ use atlas_core::pack_sheet::{PackedSheet, SheetSort};
 use atlas_core::scanner::{self, ScanHandle, ScanMsg};
 use atlas_core::thumbs::{cache_key, ThumbPool, ThumbRequest};
 use atlas_core::timeline::{ActivityIndex, TimePicks};
-use atlas_core::tree::{FilePlace, Hit, LayoutConfig, Orient, Tree};
+use atlas_core::tree::{FilePlace, Hit, Orient, Tree};
 use atlas_core::types::{
     common_ancestor, date_string, human_size, normalize_folder_selection, ExtGroup, Family,
     FileEntry, FAMILIES, SECS_PER_DAY,
@@ -33,7 +33,7 @@ use atlas_shell::folder_map::{
 use atlas_shell::menu::{self, MenuIcon};
 use atlas_shell::minimap::{minimap_ui, MinimapAction, MinimapModel, MinimapState};
 use atlas_shell::theme::{dark_visuals, light_visuals, Palette};
-use atlas_shell::widgets::{chip, group_digits};
+use atlas_shell::widgets::{chip, group_digits, SliderDomain};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{
     self, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2,
@@ -45,6 +45,7 @@ use std::time::{Duration, Instant, SystemTime};
 mod chrome;
 mod cloud_transfer;
 mod commands;
+mod display_settings;
 mod editprefs;
 mod home;
 #[cfg(test)]
@@ -756,6 +757,7 @@ pub struct AtlasApp {
     sheet_aspect_pct: usize,
     packed_sheet: Option<PackedSheet>,
     grid_cols: usize,
+    display_slider_domains: [SliderDomain; 3],
     portal_threshold: usize,
     align_groups_to_lowest: bool,
     row_spacing: usize,
@@ -1265,6 +1267,7 @@ impl AtlasApp {
             sheet_aspect_pct: 100,
             packed_sheet: None,
             grid_cols: 10,
+            display_slider_domains: display_settings::default_domains(),
             portal_threshold: 100,
             align_groups_to_lowest: true,
             row_spacing: 40, // minimum datum spacing by default
@@ -1492,17 +1495,6 @@ impl AtlasApp {
             self.dark_mode = dark;
             self.apply_theme(ctx);
         }
-    }
-
-    fn layout_config(&self) -> LayoutConfig {
-        LayoutConfig {
-            grid_cols: self.grid_cols,
-            portal_threshold: self.portal_threshold,
-            align_groups_to_lowest: self.align_groups_to_lowest,
-            row_spacing: self.row_spacing,
-            root_folder_gap: self.root_folder_gap,
-        }
-        .normalized()
     }
 
     // ---------- root / scanning ----------

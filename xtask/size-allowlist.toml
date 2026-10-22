@@ -5,12 +5,12 @@
 
 [[entry]]
 file = "apps/file-atlas/src/app/commands.rs"
-ceiling = 825
+ceiling = 720
 reason = "File Atlas app; extract one concern per module"
 
 [[entry]]
 file = "apps/file-atlas/src/app/mod.rs"
-ceiling = 8371
+ceiling = 8317
 reason = "File Atlas app; extract one concern per module"
 
 [[entry]]
@@ -18,10 +18,6 @@ file = "apps/file-atlas/src/app/tests.rs"
 ceiling = 1717
 reason = "integration tests; split by module under test"
 
-[[entry]]
-file = "apps/file-atlas/src/app/ui/tools.rs"
-ceiling = 782
-reason = "File Atlas app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/bench_brush.rs"
@@ -250,7 +246,7 @@ reason = "core backend; atlas-core owner"
 
 [[entry]]
 file = "crates/atlas-core/src/tree.rs"
-ceiling = 1252
+ceiling = 1217
 reason = "core backend; atlas-core owner"
 
 [[entry]]
@@ -350,7 +346,7 @@ reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/widgets.rs"
-ceiling = 1060
+ceiling = 957
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]

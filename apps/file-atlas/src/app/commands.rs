@@ -12,6 +12,9 @@ use eframe::egui;
 
 pub use atlas_shell::commands::{CommandEntry, TurboPanState};
 
+mod key_map;
+pub use key_map::map_key;
+
 const ATLAS: Availability = Availability::ATLAS;
 const GLOBAL: Availability = Availability::GLOBAL;
 const ATLAS_SEL: Availability = Availability::ATLAS.union(Availability::NEEDS_SELECTION);
@@ -182,6 +185,13 @@ pub const SPECS: &[CommandSpec] = &[
         "Layout: packed",
         "Navigation",
         "Display dock → Packed",
+        ATLAS,
+    ),
+    gesture(
+        "view.display_slider_domain",
+        "Edit display slider range",
+        "Navigation",
+        "Right-click grid columns, stack threshold or row spacing → range",
         ATLAS,
     ),
     gesture(
@@ -691,74 +701,6 @@ pub const SPECS: &[CommandSpec] = &[
 /// The registry every consumer reads: chord dispatch, the Advanced
 /// reference, history repeat, and (later) the palette/agent surface.
 pub const REGISTRY: Registry = Registry::new(SPECS);
-
-/// Map an egui key to the registry's renderer-free key enum (Constitution
-/// Art. I: `atlas-commands` never sees egui types).
-pub fn map_key(key: egui::Key) -> Option<Key> {
-    use egui::Key as E;
-    Some(match key {
-        E::A => Key::A,
-        E::B => Key::B,
-        E::C => Key::C,
-        E::D => Key::D,
-        E::E => Key::E,
-        E::F => Key::F,
-        E::G => Key::G,
-        E::H => Key::H,
-        E::I => Key::I,
-        E::J => Key::J,
-        E::K => Key::K,
-        E::L => Key::L,
-        E::M => Key::M,
-        E::N => Key::N,
-        E::O => Key::O,
-        E::P => Key::P,
-        E::Q => Key::Q,
-        E::R => Key::R,
-        E::S => Key::S,
-        E::T => Key::T,
-        E::U => Key::U,
-        E::V => Key::V,
-        E::W => Key::W,
-        E::X => Key::X,
-        E::Y => Key::Y,
-        E::Z => Key::Z,
-        E::F1 => Key::F1,
-        E::F2 => Key::F2,
-        E::F3 => Key::F3,
-        E::F4 => Key::F4,
-        E::F5 => Key::F5,
-        E::F6 => Key::F6,
-        E::F7 => Key::F7,
-        E::F8 => Key::F8,
-        E::F9 => Key::F9,
-        E::F10 => Key::F10,
-        E::F11 => Key::F11,
-        E::F12 => Key::F12,
-        E::ArrowUp => Key::ArrowUp,
-        E::ArrowDown => Key::ArrowDown,
-        E::ArrowLeft => Key::ArrowLeft,
-        E::ArrowRight => Key::ArrowRight,
-        E::Space => Key::Space,
-        E::Enter => Key::Enter,
-        E::Escape => Key::Escape,
-        E::Tab => Key::Tab,
-        E::Delete => Key::Delete,
-        E::Backspace => Key::Backspace,
-        E::Home => Key::Home,
-        E::End => Key::End,
-        E::PageUp => Key::PageUp,
-        E::PageDown => Key::PageDown,
-        E::OpenBracket => Key::OpenBracket,
-        E::CloseBracket => Key::CloseBracket,
-        E::Comma => Key::Comma,
-        E::Period => Key::Period,
-        // Both the dedicated + key and Shift+= reach zoom-in.
-        E::Plus | E::Equals => Key::Plus,
-        E::Minus => Key::Minus,
-        _ => return None,
-    })
-}
 
 /// Reference table for Advanced settings, rendered straight from [`SPECS`].
 pub fn shortcuts_reference_ui(ui: &mut egui::Ui) {

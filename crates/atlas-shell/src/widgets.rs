@@ -4,6 +4,11 @@ use crate::theme::Palette;
 use crate::tokens;
 use eframe::egui::{self, Color32, CornerRadius, Id, Pos2, Rect, Sense, Stroke, Ui, Vec2};
 
+mod thin_slider;
+pub use thin_slider::{
+    thin_sidebar_slider, thin_sidebar_slider_i32, SidebarSliderRange, SliderDomain,
+};
+
 pub fn trunc(s: &str, n: usize) -> String {
     if s.chars().count() > n {
         let cut: String = s.chars().take(n.saturating_sub(1)).collect();
@@ -476,6 +481,7 @@ pub fn slider_value_editing(ctx: &egui::Context, id: Id) -> bool {
 }
 
 struct ThinRail {
+    response: egui::Response,
     changed: bool,
     handle_click: bool,
     handle: Pos2,
@@ -533,6 +539,7 @@ fn thin_slider_rail(ui: &mut Ui, frac: &mut f32, hover: &str, freeze: bool) -> T
         changed: resp.changed(),
         handle_click: hit.handle_click,
         handle: Pos2::new(cx, rect.center().y),
+        response: resp,
     }
 }
 
@@ -546,113 +553,6 @@ fn thin_field_chrome(ui: &Ui, text: Color32) -> FieldChrome {
         selection: visuals.selection.bg_fill,
         caret: visuals.text_color(),
     }
-}
-
-fn thin_slider_label_row(ui: &mut Ui, label: &str, value_text: &str, sub_color: Color32) {
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).small().color(sub_color));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(egui::RichText::new(value_text).small().color(sub_color));
-        });
-    });
-}
-
-pub fn thin_sidebar_slider(
-    ui: &mut Ui,
-    value: &mut usize,
-    range: std::ops::RangeInclusive<usize>,
-    label: &str,
-    unit: &str,
-    hover: &str,
-    sub_color: Color32,
-) -> bool {
-    let (lo, hi) = (*range.start(), *range.end());
-    let before = *value;
-    *value = (*value).clamp(lo, hi);
-    ui.scope(|ui| {
-        ui.spacing_mut().item_spacing.y = THIN_SLIDER_LABEL_GAP;
-        let mut frac = if hi > lo {
-            (*value - lo) as f32 / (hi - lo) as f32
-        } else {
-            0.0
-        };
-        let editing = slider_value_editing(ui.ctx(), ui.id().with((label, "thin")));
-        let rail = thin_slider_rail(ui, &mut frac, hover, editing);
-        // A handle click keeps the value until the field commits.
-        if rail.changed && !rail.handle_click {
-            *value = lo + (frac * (hi - lo) as f32).round() as usize;
-        }
-        let field_id = ui.id().with((label, "thin"));
-        let field = slider_value_field(
-            ui,
-            field_id,
-            rail.handle + Vec2::new(0.0, -16.0),
-            1.0,
-            *value as f32,
-            lo as f32..=hi as f32,
-            unit,
-            rail.handle_click,
-            thin_field_chrome(ui, sub_color),
-        );
-        if let Some(v) = field.committed {
-            *value = v.round().clamp(lo as f32, hi as f32) as usize;
-        }
-        if !field.open {
-            thin_slider_label_row(ui, label, &format!("{} {}", *value, unit), sub_color);
-        } else {
-            thin_slider_label_row(ui, label, "", sub_color);
-        }
-    });
-    *value != before
-}
-
-/// Signed variant of [`thin_sidebar_slider`] for ranges spanning zero
-/// (e.g. hue rotation in degrees). Same rail, grip, and label layout.
-pub fn thin_sidebar_slider_i32(
-    ui: &mut Ui,
-    value: &mut i32,
-    range: std::ops::RangeInclusive<i32>,
-    label: &str,
-    unit: &str,
-    hover: &str,
-    sub_color: Color32,
-) -> bool {
-    let (lo, hi) = (*range.start(), *range.end());
-    let before = *value;
-    *value = (*value).clamp(lo, hi);
-    ui.scope(|ui| {
-        ui.spacing_mut().item_spacing.y = THIN_SLIDER_LABEL_GAP;
-        let mut frac = if hi > lo {
-            (*value - lo) as f32 / (hi - lo) as f32
-        } else {
-            0.0
-        };
-        let editing = slider_value_editing(ui.ctx(), ui.id().with((label, "thin")));
-        let rail = thin_slider_rail(ui, &mut frac, hover, editing);
-        if !rail.handle_click && rail.changed {
-            *value = lo + (frac * (hi - lo) as f32).round() as i32;
-        }
-        let field = slider_value_field(
-            ui,
-            ui.id().with((label, "thin")),
-            rail.handle + Vec2::new(0.0, -16.0),
-            1.0,
-            *value as f32,
-            lo as f32..=hi as f32,
-            unit,
-            rail.handle_click,
-            thin_field_chrome(ui, sub_color),
-        );
-        if let Some(v) = field.committed {
-            *value = v.round().clamp(lo as f32, hi as f32) as i32;
-        }
-        if !field.open {
-            thin_slider_label_row(ui, label, &format!("{} {}", *value, unit), sub_color);
-        } else {
-            thin_slider_label_row(ui, label, "", sub_color);
-        }
-    });
-    *value != before
 }
 
 pub fn group_digits(n: u64) -> String {

@@ -24,42 +24,8 @@ pub const THUMB_H: f32 = 84.0;
 const GRID_GX: f32 = 14.0;
 const GRID_GY: f32 = 14.0;
 
-#[derive(Clone, Copy)]
-pub struct LayoutConfig {
-    pub grid_cols: usize,
-    pub portal_threshold: usize,
-    /// Align all direct image/file groups in a branch to the lowest group top,
-    /// creating a single visual datum instead of following each folder midpoint.
-    pub align_groups_to_lowest: bool,
-    /// Percent scale for the offset between row datums (depth step).
-    pub row_spacing: usize,
-    /// Percent scale for the breadth gap between root-level folders.
-    pub root_folder_gap: usize,
-}
-
-impl Default for LayoutConfig {
-    fn default() -> Self {
-        Self {
-            grid_cols: 10,
-            portal_threshold: 100,
-            align_groups_to_lowest: false,
-            row_spacing: 100,
-            root_folder_gap: 100,
-        }
-    }
-}
-
-impl LayoutConfig {
-    pub fn normalized(self) -> Self {
-        Self {
-            grid_cols: self.grid_cols.clamp(2, 30),
-            portal_threshold: self.portal_threshold.clamp(10, 10_000),
-            align_groups_to_lowest: self.align_groups_to_lowest,
-            row_spacing: self.row_spacing.clamp(40, 300),
-            root_folder_gap: self.root_folder_gap.clamp(40, 300),
-        }
-    }
-}
+mod config;
+pub use config::LayoutConfig;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Orient {
