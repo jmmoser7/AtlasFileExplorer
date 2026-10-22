@@ -165,23 +165,27 @@ pub fn cover_flow_home(ui: &Ui, palette: &Palette, model: HomeModel<'_>) -> Home
 
     ui.ctx().data_mut(|d| d.insert_temp(state_id, flow));
 
-    // Sole CTA — New / Select folder. Opening is the album flow.
+    // Home actions share the same pill styling. Opening is the album flow.
     if model.interactive && !model.new_label.is_empty() {
         let type_px = rect.height() * (14.0 / 780.0);
         let cta = match model.cta {
             HomeCta::Bottom => Pos2::new(rect.center().x, rect.max.y - type_px * 3.7),
             HomeCta::Center => rect.center(),
         };
-        if pill_button(
+        if let Some(index) = pill_buttons(
             ui,
             &painter,
             cta,
-            model.new_label,
+            [model.new_label, model.secondary_label.unwrap_or("")],
             palette.accent,
             Color32::WHITE,
             type_px,
         ) {
-            action = Some(HomeAction::New);
+            action = Some(if index == 0 {
+                HomeAction::New
+            } else {
+                HomeAction::Secondary
+            });
         }
     }
 
@@ -251,4 +255,54 @@ fn paint_caption(
         color.gamma_multiply(alpha),
     );
     ui.ctx().data_mut(|data| data.insert_temp(id, caption));
+}
+
+fn pill_buttons(
+    ui: &Ui,
+    painter: &egui::Painter,
+    center: Pos2,
+    labels: [&str; 2],
+    fill: Color32,
+    text: Color32,
+    type_px: f32,
+) -> Option<usize> {
+    if type_px < crate::canvas_text::consts::MIN_RENDER_PX {
+        return None;
+    }
+    let pad = Vec2::new(type_px * 1.28, type_px * 0.57);
+    let gap = type_px * 0.8;
+    let galleys = labels.map(|label| {
+        (!label.is_empty())
+            .then(|| painter.layout_no_wrap(label.to_owned(), FontId::proportional(type_px), text))
+    });
+    let width = galleys
+        .iter()
+        .flatten()
+        .map(|galley| galley.size().x + pad.x * 2.0)
+        .sum::<f32>()
+        + gap * galleys.iter().flatten().count().saturating_sub(1) as f32;
+    let mut left = center.x - width * 0.5;
+    let mut clicked = None;
+    for (index, galley) in galleys.into_iter().enumerate() {
+        let Some(galley) = galley else {
+            continue;
+        };
+        let size = galley.size() + pad * 2.0;
+        let rect = Rect::from_center_size(Pos2::new(left + size.x * 0.5, center.y), size);
+        let id = ui.id().with(("home_pill", galley.text()));
+        let resp = ui.interact(rect, id, Sense::click());
+        let fill = if resp.hovered() {
+            fill.gamma_multiply(1.08)
+        } else {
+            fill
+        };
+        let radius = (type_px * 1.14).round().clamp(4.0, 32.0) as u8;
+        painter.rect_filled(rect, CornerRadius::same(radius), fill);
+        painter.galley(rect.center() - galley.size() * 0.5, galley, text);
+        if resp.clicked() {
+            clicked = Some(index);
+        }
+        left += size.x + gap;
+    }
+    clicked
 }

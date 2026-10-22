@@ -4,7 +4,7 @@ use super::*;
 impl AtlasApp {
     pub(super) fn welcome(&mut self, ui: &mut egui::Ui) {
         let palette = self.palette();
-        match self.home.show(ui, &palette, &self.recents) {
+        match self.home.show(ui, &palette, &self.recents, None) {
             Some(atlas_shell::home::HomeScreenAction::Remove(path)) => {
                 self.recents.entries.retain(|entry| entry.path != path);
                 self.recents.save("file-atlas");
@@ -24,7 +24,7 @@ impl AtlasApp {
                     self.recents.save("file-atlas");
                 }
             }
-            None => {}
+            Some(atlas_shell::home::HomeScreenAction::Secondary) | None => {}
         }
     }
 }

@@ -108,6 +108,7 @@ impl eframe::App for Preview {
                     HomeModel {
                         id: Id::new("cover-flow-preview"),
                         new_label: "New",
+                        secondary_label: None,
                         covers: &self.covers,
                         focus: self.focus,
                         backdrop: true,
