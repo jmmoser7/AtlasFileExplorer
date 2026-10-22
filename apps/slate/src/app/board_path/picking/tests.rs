@@ -161,7 +161,7 @@ fn clips_and_actual_authored_paths_outside_bounds_are_not_rejected() {
     let mut node = rectangle(WorldRect::new(0.0, 0.0, 100.0, 100.0));
     let point = [-50.0, 50.0];
     assert!(!node.rect.contains(point[0], point[1]));
-    node.clip = Some(outside_loop().into());
+    node.clip = Some(outside_loop());
     assert!(hit_path_node(&node, shape(&node), point[0], point[1], 1.0));
     assert_eq!(
         hit_path_node(&node, shape(&node), point[0], point[1], 1.0),
