@@ -5,7 +5,7 @@ pub(super) const OPEN: atlas_commands::CommandSpec = spec(
     "app.recovery.open",
     "Application",
     "Recover workbooks",
-    "Advanced → Autosave & recovery → Recover workbooks",
+    "Home → Recover workbooks; Advanced → Autosave & recovery → Recover workbooks",
     None,
     Repeat::Never,
     GLOBAL,

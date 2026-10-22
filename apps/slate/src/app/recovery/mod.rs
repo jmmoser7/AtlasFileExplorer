@@ -247,7 +247,6 @@ impl SlateApp {
                 }
                 Event::Scan { entries, issues } => {
                     self.recovery.status = self.recovery.failed_keys.values().next().cloned();
-                    self.recovery.window_open |= !entries.is_empty() || !issues.is_empty();
                     self.recovery.entries = entries;
                     self.recovery.issues = issues;
                 }

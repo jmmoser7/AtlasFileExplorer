@@ -279,8 +279,18 @@ impl SlateApp {
     /// Cover Flow home — recent workbooks (same shared `HomeScreen` as Atlas).
     pub(crate) fn home_screen(&mut self, ui: &mut egui::Ui) {
         let palette = self.palette();
-        match self.home.show(ui, &palette, &self.recents) {
+        match self
+            .home
+            .show(ui, &palette, &self.recents, Some("Recover workbooks"))
+        {
             Some(atlas_shell::home::HomeScreenAction::New) => self.home_new_workspace(),
+            Some(atlas_shell::home::HomeScreenAction::Secondary) => {
+                self.dispatch(
+                    ui.ctx(),
+                    atlas_commands::CommandId("app.recovery.open"),
+                    None,
+                );
+            }
             Some(atlas_shell::home::HomeScreenAction::Remove(path)) => {
                 self.recents.entries.retain(|entry| entry.path != path);
                 #[cfg(not(test))]
