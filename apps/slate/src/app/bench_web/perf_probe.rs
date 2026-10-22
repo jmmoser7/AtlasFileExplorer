@@ -6,6 +6,9 @@ use serde_json::{json, Value};
 use slate_doc::scene::{Corner, NodeKind, Rgba, ShapeKind, ShapeNode, Stroke, WorldRect};
 use std::path::{Path, PathBuf};
 
+mod reporting;
+use reporting::{artifact, checkpoint, percentile, FailureReport};
+
 const FRAMES: usize = 20;
 const WARMUP: usize = 12;
 const PACE: Duration = Duration::from_micros(16_667);
@@ -201,13 +204,6 @@ fn pace(start: Instant) {
         std::thread::sleep(rest);
     }
 }
-fn percentile(samples: &[Sample], value: impl Fn(&Sample) -> f64) -> Value {
-    let mut values: Vec<_> = samples.iter().map(value).collect();
-    values.sort_by(f64::total_cmp);
-    let at = |q: f64| values[((q * values.len() as f64).ceil() as usize).saturating_sub(1)];
-    json!({"count":values.len(),"p50":at(0.5),"p95":at(0.95),"p99":at(0.99),
-        "max":values.last(),"over_16_67_ms":values.iter().filter(|v| **v>16.67).count()})
-}
 fn assert_delivery(sample: &Sample, name: &str) {
     let wheel = name == "focused_wheel";
     let expected: &[&str] = if wheel {
@@ -263,141 +259,115 @@ fn assert_delivery(sample: &Sample, name: &str) {
         }
     }
 }
-fn checkpoint(clock: Instant, path: &Path, name: &str, warmup: &[Sample], samples: &[Sample]) {
-    if clock.elapsed() < DEADLINE {
-        return;
-    }
-    let mut report: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-    report["status"] = json!("incomplete_deadline");
-    report["elapsed_ms"] = json!(clock.elapsed().as_secs_f64() * 1000.0);
-    report["in_progress"] = json!({"scenario":name,"warmup":warmup,"samples":samples});
-    std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
-    panic!("web CPU diagnostic crossed cooperative 110 second deadline; partial evidence retained");
-}
-
-struct FailureReport(PathBuf);
-impl Drop for FailureReport {
-    fn drop(&mut self) {
-        if !std::thread::panicking() {
-            return;
-        }
-        let report = std::fs::read(&self.0)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
-        if let Some(mut report) = report.filter(|report| report["status"] == "running") {
-            report["status"] = json!("incomplete_failure");
-            let _ = serde_json::to_vec_pretty(&report).map(|bytes| std::fs::write(&self.0, bytes));
-        }
-    }
-}
 fn scenario(b: &mut Bench, clock: Instant, name: &str, path: &Path) -> Value {
-    b.app.web_blur();
-    let focused = name.starts_with("focused_");
-    if name == "fit_idle" {
-        b.app.fit_board();
-    } else {
-        b.focus_card(0, 2.0);
-    }
-    if focused {
-        b.app.web_focus(b.ids[0]);
-    }
     let mut warmup = Vec::with_capacity(WARMUP);
-    for frame in 0..WARMUP {
-        checkpoint(clock, path, name, &warmup, &[]);
-        let start = Instant::now();
-        let point = target_frame(b).center();
-        let events = if focused {
-            vec![egui::Event::PointerMoved(point)]
-        } else {
-            vec![egui::Event::PointerGone]
-        };
-        warmup.push(b.cpu_sample(clock, frame, events));
-        checkpoint(clock, path, name, &warmup, &[]);
-        pace(start);
-    }
-    let id = b.ids[0];
-    if focused {
-        assert_eq!(b.app.web.focused, Some(id), "page never held focus");
-        assert_eq!(
-            b.app.contents_focused(),
-            Some(id),
-            "shared portal focus disagrees"
-        );
-        assert!(b.app.web.is_live(id), "focused page was not admitted");
-        assert!(b.host.0.borrow().admitted.contains(&id));
-        assert!(
-            b.app.web.has_still(id),
-            "focused page has no painted picture"
-        );
-    }
-    b.host.reset_counts();
-    let before = camera(b);
-    let anchor = target_frame(b).center();
     let mut samples = Vec::with_capacity(FRAMES);
-    for frame in 0..FRAMES {
-        checkpoint(clock, path, name, &warmup, &samples);
-        let start = Instant::now();
-        let mut events = Vec::new();
-        match name {
-            "focused_wheel" => {
-                events.push(egui::Event::PointerMoved(anchor));
-                events.push(egui::Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Point,
-                    delta: EVec2::new(0.0, if frame.is_multiple_of(2) { -40.0 } else { 40.0 }),
-                    modifiers: egui::Modifiers::NONE,
-                });
-            }
-            "focused_pointer" | "camera_pan" => {
-                let point = anchor + EVec2::new((frame + 1) as f32 * 2.0, 3.0);
-                events.push(egui::Event::PointerMoved(point));
-                if frame == 0 || frame + 1 == FRAMES {
-                    events.push(egui::Event::PointerButton {
-                        pos: point,
-                        button: if focused {
-                            egui::PointerButton::Primary
-                        } else {
-                            egui::PointerButton::Middle
-                        },
-                        pressed: frame == 0,
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        b.app.web_blur();
+        let focused = name.starts_with("focused_");
+        if name == "fit_idle" {
+            b.app.fit_board();
+        } else {
+            b.focus_card(0, 2.0);
+        }
+        if focused {
+            b.app.web_focus(b.ids[0]);
+        }
+        for frame in 0..WARMUP {
+            checkpoint(clock, path, name, &warmup, &[]);
+            let start = Instant::now();
+            let point = target_frame(b).center();
+            let events = if focused {
+                vec![egui::Event::PointerMoved(point)]
+            } else {
+                vec![egui::Event::PointerGone]
+            };
+            warmup.push(b.cpu_sample(clock, frame, events));
+            checkpoint(clock, path, name, &warmup, &[]);
+            pace(start);
+        }
+        let id = b.ids[0];
+        if focused {
+            assert_eq!(b.app.web.focused, Some(id), "page never held focus");
+            assert_eq!(
+                b.app.contents_focused(),
+                Some(id),
+                "shared portal focus disagrees"
+            );
+            assert!(b.app.web.is_live(id), "focused page was not admitted");
+            assert!(b.host.0.borrow().admitted.contains(&id));
+            assert!(
+                b.app.web.has_still(id),
+                "focused page has no painted picture"
+            );
+        }
+        b.host.reset_counts();
+        let before = camera(b);
+        let anchor = target_frame(b).center();
+        for frame in 0..FRAMES {
+            checkpoint(clock, path, name, &warmup, &samples);
+            let start = Instant::now();
+            let mut events = Vec::new();
+            match name {
+                "focused_wheel" => {
+                    events.push(egui::Event::PointerMoved(anchor));
+                    events.push(egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: EVec2::new(0.0, if frame.is_multiple_of(2) { -40.0 } else { 40.0 }),
                         modifiers: egui::Modifiers::NONE,
                     });
                 }
+                "focused_pointer" | "camera_pan" => {
+                    let point = anchor + EVec2::new((frame + 1) as f32 * 2.0, 3.0);
+                    events.push(egui::Event::PointerMoved(point));
+                    if frame == 0 || frame + 1 == FRAMES {
+                        events.push(egui::Event::PointerButton {
+                            pos: point,
+                            button: if focused {
+                                egui::PointerButton::Primary
+                            } else {
+                                egui::PointerButton::Middle
+                            },
+                            pressed: frame == 0,
+                            modifiers: egui::Modifiers::NONE,
+                        });
+                    }
+                }
+                _ => {}
             }
-            _ => {}
-        }
-        let sample = b.cpu_sample(clock, frame, events);
-        assert!(sample.target_visible, "target page is offscreen in {name}");
-        if focused {
-            assert_eq!(sample.focused, Some(id.0), "lost page focus in {name}");
-            assert!(sample.target_live && sample.target_has_picture);
-            assert_eq!(sample.camera, before, "page input moved the board camera");
-            assert!(sample.delivered.iter().all(|input| input["portal"] == id.0));
-            if matches!(name, "focused_wheel" | "focused_pointer") {
-                assert_delivery(&sample, name);
+            samples.push(b.cpu_sample(clock, frame, events));
+            let sample = samples.last().unwrap();
+            assert!(sample.target_visible, "target page is offscreen in {name}");
+            if focused {
+                assert_eq!(sample.focused, Some(id.0), "lost page focus in {name}");
+                assert!(sample.target_live && sample.target_has_picture);
+                assert_eq!(sample.camera, before, "page input moved the board camera");
+                assert!(sample.delivered.iter().all(|input| input["portal"] == id.0));
+                if matches!(name, "focused_wheel" | "focused_pointer") {
+                    assert_delivery(sample, name);
+                }
             }
+            checkpoint(clock, path, name, &warmup, &samples);
+            pace(start);
         }
-        samples.push(sample);
-        checkpoint(clock, path, name, &warmup, &samples);
-        pace(start);
-    }
-    if name == "focused_idle" {
-        assert!(
-            samples.iter().all(|sample| sample.delivered.is_empty()),
-            "parked pointer synthesized page input"
-        );
-    } else if name == "camera_pan" {
-        assert_ne!(
-            camera(b),
-            before,
-            "middle drag never moved the actual board camera"
-        );
-        assert!(b.app.web.focused.is_none());
-        assert!(
-            samples.iter().all(|sample| sample.delivered.is_empty()),
-            "camera gesture leaked into a page"
-        );
-    }
-    let summary = json!({"app_ms":percentile(&samples, |s| s.app_ms),
+        if name == "focused_idle" {
+            assert!(
+                samples.iter().all(|sample| sample.delivered.is_empty()),
+                "parked pointer synthesized page input"
+            );
+        } else if name == "camera_pan" {
+            assert_ne!(
+                camera(b),
+                before,
+                "middle drag never moved the actual board camera"
+            );
+            assert!(b.app.web.focused.is_none());
+            assert!(
+                samples.iter().all(|sample| sample.delivered.is_empty()),
+                "camera gesture leaked into a page"
+            );
+        }
+        let summary = json!({"app_ms":percentile(&samples, |s| s.app_ms),
         "tessellation_ms":percentile(&samples, |s| s.tessellation_ms),
         "cpu_ms":percentile(&samples, |s| s.cpu_ms),
         "texture_payload_bytes":samples.iter().map(|s| s.texture_payload_bytes).sum::<usize>(),
@@ -406,20 +376,15 @@ fn scenario(b: &mut Bench, clock: Instant, name: &str, path: &Path) -> Value {
         "host_opens":samples.iter().map(|s| s.host_opens).sum::<usize>(),
         "host_closes":samples.iter().map(|s| s.host_closes).sum::<usize>(),
         "delivered_inputs":samples.iter().map(|s| s.delivered.len()).sum::<usize>()});
-    json!({"scenario":name,"warmup":warmup,"samples":samples,"summary":summary})
-}
-fn artifact(label: &str) -> PathBuf {
-    assert!(
-        !label.is_empty()
-            && label.len() <= 48
-            && label
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_'),
-        "restricted diagnostic label required"
-    );
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/slate-web-perf-audit")
-        .join(format!("web-large-canvas-{label}.json"))
+        json!({"scenario":name,"warmup":warmup,"samples":samples,"summary":summary})
+    }));
+    match outcome {
+        Ok(evidence) => evidence,
+        Err(error) => {
+            reporting::scenario_failure(path, name, &warmup, &samples);
+            std::panic::resume_unwind(error)
+        }
+    }
 }
 
 #[test]
