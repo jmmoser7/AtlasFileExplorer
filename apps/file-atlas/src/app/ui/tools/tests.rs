@@ -115,7 +115,11 @@ impl Harness {
                 events,
                 ..Default::default()
             },
-            |ctx| floating_tools_dock(&mut self.app, ctx),
+            |ctx| {
+                // Match update_app: app shortcuts run before the dock/menu draw.
+                self.app.hotkeys(ctx);
+                floating_tools_dock(&mut self.app, ctx);
+            },
         )
     }
 
@@ -308,3 +312,5 @@ fn atlas_display_menu_preserves_form_settings_and_fit_action() {
         assert_eq!(h.app.edit_mode, EditMode::View);
     }
 }
+
+mod display_domain;

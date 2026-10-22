@@ -10,7 +10,7 @@ reason = "File Atlas app; extract one concern per module"
 
 [[entry]]
 file = "apps/file-atlas/src/app/mod.rs"
-ceiling = 8317
+ceiling = 8092
 reason = "File Atlas app; extract one concern per module"
 
 [[entry]]
