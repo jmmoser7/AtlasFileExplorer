@@ -895,42 +895,6 @@ pub fn hit_shape_stroke(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: 
     false
 }
 
-pub fn hit_path_node(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32) -> bool {
-    let styled = slate_doc::vertex_style::closed_form_paint_shape(shape, node.rect);
-    let shape = styled.as_ref().unwrap_or(shape);
-    if erased_at(node, shape, wx, wy) {
-        return false;
-    }
-    if hit_brush_dab(node, shape, wx, wy, zoom) {
-        return true;
-    }
-    if shape_uses_stroke_pick(node, shape) {
-        return hit_shape_stroke(node, shape, wx, wy, zoom);
-    }
-    let Some(path) = shape.path.as_ref().filter(|p| !p.is_empty()) else {
-        return slate_doc::geom::point_in_node_outline(node, wx, wy, 0.25)
-            || hit_shape_stroke(node, shape, wx, wy, zoom);
-    };
-    let bez = shape_path_world_bez(node, shape, path);
-    let style = stroke_style_world(&shape.stroke, zoom);
-    let slop = pick_slop_world(zoom);
-    if stroke_picks(shape) && picking::hit_painted_stroke(node, shape, &bez, &style, [wx, wy], slop)
-    {
-        return true;
-    }
-    if path.closed {
-        if let Some(fill) = shape.fill {
-            if fill.0[3] > 0 {
-                let contours = flatten_contours(&bez, 0.25);
-                if vector_ink::point_in_polygon(&contours, [wx, wy]) {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
 /// Topmost closed shape whose interior contains the point. Used when a
 /// double-click misses a stroke-only pick, so an unfilled closed path still
 /// opens text editing.
@@ -1253,7 +1217,7 @@ pub fn marquee_hits_node(
 }
 
 use picking::brush_dab_disc;
-pub use picking::{board_pick_node, board_pick_node_filtered};
+pub use picking::{board_pick_node, board_pick_node_filtered, hit_path_node};
 #[cfg(test)]
 pub use picking::{board_pick_node_ex, board_pick_node_routed};
 

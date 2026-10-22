@@ -91,7 +91,7 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_path.rs"
-ceiling = 7060
+ceiling = 6433
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
