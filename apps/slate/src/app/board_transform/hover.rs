@@ -18,6 +18,23 @@ impl SlateApp {
             return None;
         }
         let xf = self.board_xf();
+        if !self
+            .board_sel
+            .iter()
+            .filter_map(|id| self.doc().scene.node(*id))
+            .any(|node| {
+                let grips = self.corner_grips(node, &xf);
+                if grips.is_empty() {
+                    return false;
+                }
+                let geom = board_handles::selection_geom(&xf, node.rect, node.rotation_deg);
+                grips
+                    .into_iter()
+                    .any(|(_, grip)| board_handles::hit_test_fillet_grip(screen, &geom, grip))
+            })
+        {
+            return None;
+        }
         let world = xf.s2w(screen);
         let body = self.board_pick_node(world.x, world.y);
         let glyph = self.polygon_sides_glyph_at(screen, &xf).map(|g| g.id);
