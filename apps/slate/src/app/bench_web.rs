@@ -1,22 +1,10 @@
-//! Frame-time bench for a board full of web portals.
+//! CPU benchmarks for a board of 58 generated web portals.
+//! Run: `cargo test -p slate --release --lib bench_web -- --ignored --nocapture`.
+//! `perf_probe` adds bounded large-canvas, input and egui tessellation evidence.
 //!
-//! The reference corpus is the climate/weather dashboard: 58 remote pages in an
-//! 8-column grid, every one of them animated. `#[ignore]`d, like the Atlas load
-//! benchmarks — this is the evidence behind the web-portal section of
-//! `docs/performance.md`, not a pass/fail gate.
-//!
-//! Run it:
-//!
-//! ```powershell
-//! cargo test -p slate --release --lib bench_web -- --ignored --nocapture
-//! ```
-//!
-//! What it measures is Slate's own per-frame cost: the pump, the admission
-//! sort, texture uploads, and the paint of every card. The pixel backend is a
-//! fake that hands out real-sized (1280×720) images, because the costs that
-//! actually bit — a full-frame `ColorImage` clone per readback and a fresh GPU
-//! texture per upload — are on our side of the [`WebHost`] seam, not inside
-//! WebView2.
+//! The fake host hands out 1280×720 images. App scheduling, copies,
+//! texture payload requests and card paint are measured on the Slate side of
+//! [`WebHost`]. No JavaScript, actual GPU upload or displayed frame is measured.
 
 use super::board_web::{self, WebHost, WebInput, WebRequest};
 use super::board_web_stills::StillCache;
@@ -24,6 +12,8 @@ use super::*;
 use eframe::egui::{Pos2, Rect as ERect, Vec2 as EVec2};
 use slate_doc::{NodeId, ViewKind};
 use std::time::{Duration, Instant};
+
+mod perf_probe;
 
 /// Page size a live portal lays out at, matching `viewport.width_css` = 1280
 /// with a 16:9 frame — the size the real capture path reads back.
@@ -49,6 +39,7 @@ struct BenchLog {
     posters_taken: usize,
     /// Every request for pixels, answered or not.
     take_calls: usize,
+    inputs: Vec<(NodeId, WebInput)>,
     /// Pages that have not painted, and so answer nothing.
     starving: bool,
     /// Pages handing back the flat frame a webview produces while it navigates,
@@ -72,6 +63,7 @@ impl BenchHost {
         log.frames_taken = 0;
         log.posters_taken = 0;
         log.take_calls = 0;
+        log.inputs.clear();
         log.opens = 0;
         log.closes = 0;
     }
@@ -165,7 +157,9 @@ impl WebHost for BenchHost {
         let log = self.0.borrow();
         (log.admitted.contains(&id) && !log.starving).then(page_image)
     }
-    fn send_input(&mut self, _id: NodeId, _input: WebInput) {}
+    fn send_input(&mut self, id: NodeId, input: WebInput) {
+        self.0.borrow_mut().inputs.push((id, input));
+    }
     fn cursor(&self, _id: NodeId) -> Option<egui::CursorIcon> {
         None
     }
@@ -187,6 +181,8 @@ impl Bench {
         let mut app = SlateApp::with_ctx(&ctx, None);
         app.agents.hold_catalog_probes_for_test();
         app.kits = kits::KitState::builtin_only();
+        app.ai.config.workspace_dir = None;
+        app.web.set_stills(StillCache::disabled());
         app.leave_home();
         app.ensure_work_tab();
         app.doc_mut().view.active_view = ViewKind::Board;
