@@ -7,6 +7,16 @@ impl SlateApp {
     /// and curve grips sit on the vertices, so where their reaches overlap
     /// the nearer one takes the press (a tie goes to the vertex).
     pub(crate) fn fillet_grip_hit_at(&self, screen: Pos2) -> Option<(NodeId, Option<usize>)> {
+        if self.board_crop.is_some()
+            || !self.board_sel.iter().any(|id| {
+                self.doc()
+                    .scene
+                    .node(*id)
+                    .is_some_and(|node| self.node_supports_fillet_grip(node))
+            })
+        {
+            return None;
+        }
         let xf = self.board_xf();
         let world = xf.s2w(screen);
         let body = self.board_pick_node(world.x, world.y);
