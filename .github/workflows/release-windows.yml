@@ -79,7 +79,7 @@ jobs:
         if: always() && github.head_ref == 'codex/slate-consolidation-20261021'
         uses: actions/upload-artifact@v4
         with:
-          name: slate-web-readback-${{ github.sha }}
+          name: slate-web-readback-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: web-readback-conversion.log
           if-no-files-found: warn
       - name: Rerun focused File Atlas failure diagnostic
