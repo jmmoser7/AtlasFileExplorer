@@ -189,6 +189,14 @@ fn diagnostic_url_retains_page_paths_without_query_or_fragment() {
         );
         assert_eq!(host.current_url(portal_id).as_deref(), Some(current));
     }
-    host.set_current_url(portal_id, "not a URL");
-    assert!(h.app.agent_web_current_url(portal_id).is_none());
+    for unsupported in [
+        "not a URL",
+        "data:text/plain,synthetic-secret",
+        "javascript:synthetic_secret()",
+        "about:blank",
+    ] {
+        host.set_current_url(portal_id, unsupported);
+        assert!(h.app.agent_web_current_url(portal_id).is_none());
+        assert_eq!(host.current_url(portal_id).as_deref(), Some(unsupported));
+    }
 }

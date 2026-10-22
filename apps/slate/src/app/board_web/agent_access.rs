@@ -67,6 +67,9 @@ impl SlateApp {
     /// Diagnostic page identity only; navigation keeps the host's original URL.
     pub(crate) fn agent_web_current_url(&self, id: NodeId) -> Option<String> {
         let mut page = url::Url::parse(&self.web.host.current_url(id)?).ok()?;
+        if !matches!(page.scheme(), "http" | "https" | "file") {
+            return None;
+        }
         if !page.username().is_empty() {
             page.set_username("").ok()?;
         }
