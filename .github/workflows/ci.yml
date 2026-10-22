@@ -94,6 +94,28 @@ jobs:
             target/slate-perf-audit/mixed-hosted-dev-large.json
           if-no-files-found: warn
 
+      # Reuse the test build; this generated fake-host diagnostic includes real
+      # egui tessellation but excludes WebView2, GPU submission and display.
+      - name: Measure focused web portals on large canvases (dev CPU)
+        if: github.head_ref == 'codex/slate-consolidation-20261021'
+        timeout-minutes: 3
+        env:
+          SLATE_WEB_PERF_LABEL: hosted-dev
+        run: |
+          set -o pipefail
+          cargo test --locked -p slate --lib bench_web_large_canvas_cpu -- --ignored --nocapture --test-threads=1 2>&1 | tee web-large-canvas.log
+          test -s target/slate-web-perf-audit/web-large-canvas-hosted-dev.json
+
+      - name: Preserve web CPU diagnostic
+        if: always() && github.head_ref == 'codex/slate-consolidation-20261021'
+        uses: actions/upload-artifact@v4
+        with:
+          name: slate-web-cpu-${{ github.sha }}
+          path: |
+            web-large-canvas.log
+            target/slate-web-perf-audit/*.json
+          if-no-files-found: warn
+
       # Job logs need a signed-in account; annotations are public.
       - name: Name failing tests
         if: failure()

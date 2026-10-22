@@ -251,14 +251,16 @@ mod tests {
                 assert_eq!(image.pixels[0].to_array(), [127, 0, 0, 255]);
                 drop(image);
             }
-            samples.sort_by(f64::total_cmp);
+            let mut sorted = samples.clone();
+            sorted.sort_by(f64::total_cmp);
             println!(
                 "web_readback_conversion {}",
                 serde_json::json!({
                     "width": width, "height": height, "row_pitch": pitch,
                     "output_bytes": width * height * 4, "samples_ms": samples,
-                    "p50_ms": samples[19], "p95_ms": samples[37],
-                    "p99_ms": samples[39], "max_ms": samples[39],
+                    "p50_ms": sorted[19], "p95_ms": sorted[37],
+                    "p99_ms": sorted[39], "max_ms": sorted[39],
+                    "debug_assertions": cfg!(debug_assertions),
                     "scope": "CPU allocation and BGRA conversion only; no GPU map/upload/display"
                 })
             );
