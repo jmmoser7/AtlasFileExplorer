@@ -86,7 +86,7 @@ jobs:
         if: failure() && steps.workspace_tests.outcome == 'failure'
         shell: pwsh
         run: |
-          & cargo test --locked -p native-file-atlas delete_key_removes_the_card_under_the_cursor -j2 -- --nocapture
+          & cargo test --locked --workspace app::tests::delete::delete_key_removes_the_card_under_the_cursor -j2 -- --exact --nocapture
           $cargoExit = $LASTEXITCODE
           Write-Host "Focused diagnostic Cargo exit code: $cargoExit"
           exit $cargoExit
