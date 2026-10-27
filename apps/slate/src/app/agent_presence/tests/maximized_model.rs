@@ -114,6 +114,11 @@ fn maximized_native_model_keeps_ordinary_board_witness_waiting_until_restore() {
     assert_eq!(h.app.doc().scene.node(model).unwrap().rect, before);
     assert!(h.app.presence.proposals.is_empty());
     assert!(h.app.portal_restore());
+    assert_eq!(h.app.contents_focused(), Some(model));
+    // Restoring size retains native input ownership; return focus to the board
+    // before asking the ordinary board witness to resume against this target.
+    h.app.contents_blur();
+    assert_eq!(h.app.contents_focused(), None);
     for _ in 0..80 {
         tick(&mut h);
         if h.app.presence.agents[0].work.is_none() {
@@ -130,7 +135,10 @@ fn maximized_native_model_keeps_ordinary_board_witness_waiting_until_restore() {
             .proposals
             .values()
             .any(|p| p.call.id == call.id),
-        "the restored witness publishes this exact pending command for approval"
+        "the restored witness publishes this exact pending command for approval; status={}, activity={}, proposals={}",
+        h.app.presence.agents[0].status,
+        h.app.presence.agents[0].activity,
+        h.app.presence.proposals.len()
     );
     assert_eq!(h.app.doc().scene.node(model).unwrap().rect, before);
 }
