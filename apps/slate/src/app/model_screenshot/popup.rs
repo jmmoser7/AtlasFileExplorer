@@ -11,7 +11,9 @@ use atlas_shell::selection_tools::{
 impl SlateApp {
     pub(crate) fn open_portal_capture_menu(&mut self, ctx: &egui::Context, node: NodeId) {
         self.apply_shape_preview(ctx, true);
-        self.board_sel = std::iter::once(node).collect();
+        if self.portal_chrome.maximized != Some(node) {
+            self.board_sel = std::iter::once(node).collect();
+        }
         self.open_object_panel(Panel::Capture);
         ctx.request_repaint();
     }

@@ -11,8 +11,10 @@ impl SlateApp {
         screen: Rect,
     ) -> Option<(Rect, f32)> {
         let node = self.doc().scene.node(id)?;
-        let NodeKind::Portal(portal) = &node.kind else {
-            return None;
+        let kind = match &node.kind {
+            NodeKind::Portal(p) => p.kind,
+            NodeKind::Image(_) if self.model_node_info(id).is_some() => PortalKind::Agent,
+            _ => return None,
         };
         let height = if self.portal_capture_status(id).is_some() {
             // Keep source scale stable through Recording, Pause and Saving.
@@ -20,7 +22,13 @@ impl SlateApp {
         } else if self.portal_capture_launch_source() == Some(id) {
             capture::launch_height(self.portal_capture_can_video(id), node.rect.w)
         } else {
-            let host = maximized_host_rect(portal.kind, node.rect, screen);
+            let host = if self.model_node_info(id).is_some() {
+                let assembly =
+                    WorldRect::new(node.rect.x, node.rect.y, node.rect.w, node.rect.h + 64.0);
+                fit_xf(assembly, screen).rect_w2s(node.rect)
+            } else {
+                maximized_host_rect(kind, node.rect, screen)
+            };
             return Some((host, fit_xf(node.rect, host).z));
         };
         let assembly = WorldRect::new(node.rect.x, node.rect.y, node.rect.w, node.rect.h + height);

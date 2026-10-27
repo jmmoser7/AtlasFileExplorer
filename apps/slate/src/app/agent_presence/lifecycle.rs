@@ -1,52 +1,17 @@
 use super::*;
+#[path = "lifecycle_join.rs"]
+mod join;
 
 const SPAWN_CLEARANCE: f64 = 64.0;
 
 impl SlateApp {
-    pub(super) fn ensure_saved_presence_joined(&mut self, who: &str) -> Result<(), String> {
-        if self.presence.agents.iter().any(|agent| {
-            agent.profile.id == who && agent.tab == self.tab().id && agent.departure.is_none()
-        }) {
-            return Ok(());
-        }
-        let profile = self
-            .settings
-            .collaborators
-            .iter()
-            .find(|profile| profile.id == who && !profile.retired)
-            .cloned()
-            .ok_or("This collaborator is retired; restore it from Advanced first")?;
-        self.join_presence(profile, None)
-    }
-
-    pub(super) fn join_presence(
-        &mut self,
-        profile: StoredAgent,
-        parent: Option<String>,
-    ) -> Result<(), String> {
-        let scope = parent
-            .map(|who| {
-                self.presence
-                    .agents
-                    .iter()
-                    .find(|a| a.profile.id == who)
-                    .and_then(|a| a.grant.clone().map(|g| (who, a.motion.clone(), g)))
-                    .ok_or_else(|| "Parent grant is unavailable".to_owned())
-            })
-            .transpose()?;
-        self.join_scoped_presence(profile, scope)
-    }
-    pub(super) fn join_scoped_presence(
+    pub(super) fn join_scoped_presence_at(
         &mut self,
         profile: StoredAgent,
         parent: Option<(String, PresenceId, CollaboratorGrant)>,
+        ws: PathBuf,
     ) -> Result<(), String> {
-        let ws = self
-            .ai
-            .config
-            .valid_workspace()
-            .ok_or("Set the AI workspace before adding a collaborator")?
-            .to_path_buf();
+        let production = self.presence.production_actors.contains_key(&profile.id);
         if self.at_home || self.tabs.is_empty() {
             return Err("Open a board workbook before adding a collaborator".into());
         }
@@ -72,10 +37,14 @@ impl SlateApp {
                 return Err("Helper limit reached".into());
             }
         }
-        let conversations = parent.as_ref().map_or_else(
-            || self.presence_conversations(),
-            |p| p.2.conversation_ids.clone(),
-        );
+        let conversations = if production {
+            Vec::new()
+        } else {
+            parent.as_ref().map_or_else(
+                || self.presence_conversations(),
+                |p| p.2.conversation_ids.clone(),
+            )
+        };
         if conversations.len() >= 128
             || self
                 .presence
@@ -164,7 +133,7 @@ impl SlateApp {
             max_actions: DEFAULT_TASK_ACTIONS,
         };
         let mut provider_full_access = false;
-        if parent.is_none() {
+        if parent.is_none() && !production {
             if let Some(scope) =
                 consent_policy::ConsentScope::workbook_or_workspace(self.tab().path.as_deref(), &ws)
             {
@@ -221,19 +190,20 @@ impl SlateApp {
         self.presence.agents.retain(|a| a.profile.id != profile.id);
         // A human join explicitly names this endpoint to current collaborators.
         let new_id = profile.id.clone();
-        if !grant.conversation_ids.contains(&new_id) {
+        if !production && !grant.conversation_ids.contains(&new_id) {
             grant.conversation_ids.push(new_id.clone());
         }
         if parent.is_some() {
             self.presence.helper_endpoints.insert(new_id.clone());
         }
         let tab_id = self.tab().id;
-        for existing in self
-            .presence
-            .agents
-            .iter_mut()
-            .filter(|a| a.tab == tab_id && a.departure.is_none())
-        {
+        let production_ids: HashSet<_> = self.presence.production_actors.keys().cloned().collect();
+        for existing in self.presence.agents.iter_mut().filter(|a| {
+            !production
+                && !production_ids.contains(&a.profile.id)
+                && a.tab == tab_id
+                && a.departure.is_none()
+        }) {
             if let Some(g) = existing.grant.as_mut() {
                 if g.conversation_ids.len() < 128 && !g.conversation_ids.contains(&new_id) {
                     g.conversation_ids.push(new_id.clone());
@@ -247,6 +217,7 @@ impl SlateApp {
             binding,
             grant: Some(grant),
             dir,
+            workspace: ws,
             request: String::new(),
             sequences: HashSet::new(),
             calls: 0,

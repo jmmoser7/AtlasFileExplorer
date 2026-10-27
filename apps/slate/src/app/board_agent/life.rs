@@ -18,6 +18,7 @@ use super::super::SlateApp;
 use super::{AgentAwait, AgentRuntime};
 
 mod process;
+mod queued_send;
 mod sessions;
 use sessions::{completed_exchange, tab_sessions};
 
@@ -273,31 +274,6 @@ impl SlateApp {
 
     pub(crate) fn agent_connecting(&self, id: NodeId) -> bool {
         self.agents.life.connecting.contains(&id)
-    }
-
-    /// Send pressed before the conversation connected: wait, and send once it
-    /// does. False when there is no conversation to wait for.
-    pub(super) fn queue_agent_send(&mut self, portal: NodeId) -> bool {
-        let Some(channel) = self
-            .doc()
-            .scene
-            .node(portal)
-            .and_then(slate_doc::agent_chat::agent)
-            .and_then(|a| a.channel.clone())
-        else {
-            return false;
-        };
-        if self.agents.connection_rx.is_none() {
-            if let Some((session, _)) = self.agent_session_for(portal) {
-                self.agents.life.rejoined.insert(session);
-            }
-            self.load_agent_connection(portal, channel, true);
-            if self.agents.connection_rx.is_none() {
-                return false;
-            }
-        }
-        self.agents.life.connecting.insert(portal);
-        true
     }
 
     /// Queued sends whose conversation connected through its session file go

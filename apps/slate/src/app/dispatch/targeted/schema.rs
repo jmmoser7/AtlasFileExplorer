@@ -72,7 +72,7 @@ pub(super) const DEFINITIONS: &[Definition] = &[
         command: "board.objects.create_portal",
         targets: "Empty. Journaled placement using the existing Web/File Atlas portal constructors; requires explicit source-input permission. Does not grant new source, origin, filesystem-write or browser authority.",
         arguments: &[
-            ("kind", "atlas|web"),
+            ("kind", "atlas|web|application"),
             ("source", "explicit folder locator or web URL"),
             ("x", "finite world x"),
             ("y", "finite world y"),
@@ -153,6 +153,27 @@ pub(super) const DEFINITIONS: &[Definition] = &[
         arguments: &[
             ("key", "supported key name"),
             ("pressed", "boolean key state"),
+        ],
+    },
+    Definition {
+        command: "board.model.connector.inspect",
+        targets: "Exactly one existing Rhino model node with an already active native binding, a readable target and an explicit linked/wired source grant. Returns validated binding and advertised command information; never activates, launches or rebinds a model.",
+        arguments: &[(
+            "command_id",
+            "optional exact advertised native command ID for its descriptor and closed parameter schema; omitted inspects the binding and command catalogue",
+        )],
+    },
+    Definition {
+        command: "board.model.connector.capture",
+        targets: "Exactly one existing Rhino model node with an already active native binding, a readable target and an explicit linked/wired source grant. Captures the actual native view into a host-owned AI workspace PNG artifact; never activates or focuses a model. No output path or destination argument is accepted.",
+        arguments: &[],
+    },
+    Definition {
+        command: "board.model.connector.invoke",
+        targets: "Exactly one existing Rhino model node with an already active native binding and explicit linked/wired source grant. Use an advertised closed command only. Draft edits require a human-opened isolated Rhino copy, current workspace autonomy and an exact collaborator/document/command grant. No scripts, lifecycle changes or source write-back.",
+        arguments: &[
+            ("command_id", "required exact advertised native command ID obtained from inspect"),
+            ("parameters", "required object matching that command's closed parameter schema, including an empty object for parameterless commands"),
         ],
     },
     Definition {

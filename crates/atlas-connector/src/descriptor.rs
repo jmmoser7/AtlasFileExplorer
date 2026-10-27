@@ -14,6 +14,8 @@ pub struct ProtocolVersion {
 }
 
 pub const V0_1: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
+/// Explicitly granted, isolated-draft agent commands; the wire shapes are unchanged.
+pub const V0_2: ProtocolVersion = ProtocolVersion { major: 0, minor: 2 };
 
 /// Capability groups are independent. Unknown optional offers are ignored;
 /// unknown required offers cause negotiation to fail.
@@ -181,7 +183,7 @@ pub struct HostPolicy {
 impl Default for HostPolicy {
     fn default() -> Self {
         Self {
-            versions: vec![V0_1],
+            versions: vec![V0_2, V0_1],
             capabilities: CapabilityGroup::ALL.to_vec(),
             required: vec![CapabilityGroup::Lifecycle],
             max_cached_requests: 1024,

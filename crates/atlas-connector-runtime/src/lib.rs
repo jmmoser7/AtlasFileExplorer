@@ -8,6 +8,7 @@ pub(crate) mod deadline;
 pub mod host;
 #[cfg(windows)]
 mod pipe;
+pub mod registration;
 #[cfg(windows)]
 mod security;
 pub mod surface;

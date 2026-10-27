@@ -392,6 +392,9 @@ impl SlateApp {
         Ok(())
     }
     pub(crate) fn presence_send_chat(&mut self, who: &str, text: &str) -> Result<(), String> {
+        if self.is_chat_train_identity(who) {
+            return Err("Send from the existing chat-train composer; this membership controls that chat's board access".into());
+        }
         if who.starts_with("human:") {
             return self.presence_send_human(who, text);
         }

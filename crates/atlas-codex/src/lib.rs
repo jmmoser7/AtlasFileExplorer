@@ -6,7 +6,7 @@ use atlas_agent::{
 use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, VecDeque},
-    io::{BufRead, BufReader, Write},
+    io::Write,
     path::Path,
     process::{Child, ChildStdin, Command, Stdio},
     sync::{
@@ -23,6 +23,7 @@ mod catalog;
 mod images;
 mod run;
 mod session;
+mod startup;
 #[cfg(test)]
 use images::picture_files;
 use images::Pictures;
@@ -33,6 +34,7 @@ use session::{collect_artifacts, MessageStream};
 /// One connection to a new or explicitly selected provider conversation.
 pub struct Client {
     child: Child,
+    startup: startup::Diagnostics,
     input: ChildStdin,
     events: mpsc::Receiver<Result<Value, String>>,
     pending: VecDeque<Value>,
@@ -47,6 +49,8 @@ pub struct Client {
     /// The folder Codex runs in; fresh threads for one-shot runs start here.
     cwd: std::path::PathBuf,
     board_session: Option<atlas_agent::collaborator::BoardLinkSession>,
+    /// Host-authorized AI artifact workspace, independent of the execution folder.
+    board_image_workspace: Option<std::path::PathBuf>,
     board_cloud_guard: Option<fn(&Path) -> bool>,
     deadline: Option<Instant>,
     replay_visible_history: bool,
@@ -143,7 +147,7 @@ impl Client {
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null());
+            .stderr(Stdio::piped());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -151,22 +155,19 @@ impl Client {
         }
         let mut child = command
             .spawn()
-            .map_err(|e| format!("Could not start Codex: {e}. Install Codex or set CODEX_BIN."))?;
+            .map_err(|e| format!("Could not start Codex at {executable:?} (cwd={cwd:?}): {e}. Install Codex or set CODEX_BIN."))?;
         let input = child.stdin.take().ok_or("Codex stdin unavailable")?;
         let output = child.stdout.take().ok_or("Codex stdout unavailable")?;
+        let startup = startup::Diagnostics::new(
+            executable,
+            cwd,
+            child.stderr.take().ok_or("Codex stderr unavailable")?,
+        );
         let (tx, events) = mpsc::sync_channel(128);
-        std::thread::spawn(move || {
-            for line in BufReader::new(output).lines() {
-                let result = line
-                    .map_err(|e| e.to_string())
-                    .and_then(|s| serde_json::from_str(&s).map_err(|e| e.to_string()));
-                if tx.send(result).is_err() {
-                    break;
-                }
-            }
-        });
+        startup.stdout_reader(output, tx);
         let mut c = Self {
             child,
+            startup,
             input,
             events,
             pending: VecDeque::new(),
@@ -178,18 +179,12 @@ impl Client {
             image_dir: None,
             cwd: cwd.to_path_buf(),
             board_session: None,
+            board_image_workspace: None,
             board_cloud_guard: None,
             deadline,
             replay_visible_history: false,
         };
-        c.rpc("initialize",json!({"clientInfo":{"name":"slate","title":"Slate agent portal","version":"0.1.0"},"capabilities":{"experimentalApi":true}}))?;
-        c.write(json!({"method":"initialized","params":{}}))?;
-        let account = c.rpc("account/read", json!({"refreshToken":false}))?;
-        if account.get("account").is_none_or(Value::is_null) {
-            return Err(
-                "Sign in to Codex with ChatGPT using `codex login`, then send again.".into(),
-            );
-        }
+        c.initialize_connection()?;
         Ok(c)
     }
     /// A no-model-call connection check. Returns no account details.
@@ -298,6 +293,11 @@ impl Client {
     /// Collaborator tool reads fail closed until this worker-safe callback is installed.
     pub fn set_board_cloud_guard(&mut self, guard: fn(&Path) -> bool) {
         self.board_cloud_guard = Some(guard);
+    }
+    /// Set only from the host's established AI workspace, never from a tool call.
+    /// This authorizes artifact transport; it does not change Codex's cwd or grants.
+    pub fn set_board_image_workspace(&mut self, workspace: &Path) {
+        self.board_image_workspace = Some(workspace.to_path_buf());
     }
     /// Image runs (requests with `image` params) copy pictures here.
     pub fn set_image_dir(&mut self, dir: std::path::PathBuf) {

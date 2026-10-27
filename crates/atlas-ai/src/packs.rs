@@ -127,6 +127,11 @@ impl PackSession {
         self.catalog.set_health(&PackId::new(id), health);
     }
 
+    /// Compatible installed native application connectors; no launch or source access.
+    pub fn application_offers(&self) -> Vec<atlas_packs::ApplicationOffer> {
+        self.catalog.application_offers()
+    }
+
     pub fn cursor_ok(&self) -> bool {
         self.health("cursor") == PackHealth::Ok
     }

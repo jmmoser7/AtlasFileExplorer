@@ -70,6 +70,7 @@ pub struct WireHost {
     flow: &'static [crate::agent_inputs::InputPort],
     ports_enabled: bool,
     image: bool,
+    ordinary_image: bool,
     /// Chat-card side ports resolve on the header dot, not the edge midpoint.
     chat: bool,
 }
@@ -112,6 +113,7 @@ impl WireHost {
             flow: &[],
             ports_enabled: true,
             image: false,
+            ordinary_image: false,
             chat: false,
         }
     }
@@ -124,6 +126,7 @@ impl WireHost {
             flow: &[],
             ports_enabled: false,
             image: false,
+            ordinary_image: false,
             chat: false,
         }
     }
@@ -141,6 +144,7 @@ impl WireHost {
                 flow: &[],
                 ports_enabled: false,
                 image: false,
+                ordinary_image: false,
                 chat: false,
             };
         }
@@ -160,6 +164,7 @@ impl WireHost {
                 _ => true,
             },
             image: matches!(node.kind, NodeKind::Image(_)),
+            ordinary_image: matches!(&node.kind, NodeKind::Image(image) if image.agent.is_none()),
             chat,
         }
     }
@@ -271,8 +276,15 @@ impl WireHost {
     /// their existing normalized geometry. Compact rails fit continuously;
     /// normal train cards retain their fixed top datum and pitch.
     fn flow_anchor_t(&self, side: Side, t: f32) -> Option<f32> {
-        // A raster source can reveal generation inputs during a wire drag.
-        // Its output datum must not move when that optional rail is revealed.
+        // Ordinary images keep their midpoint output when inputs are revealed.
+        // Generated images retain their top-aligned input/output rail.
+        if self.flow.is_empty()
+            || (self.ordinary_image
+                && side == Side::Right
+                && (t - crate::agent_inputs::OUTPUT_T).abs() < EPS)
+        {
+            return None;
+        }
         let rows = self.flow.len().max(if self.image {
             crate::agent_inputs::GENERATOR_PORTS.len()
         } else {
@@ -280,12 +292,6 @@ impl WireHost {
         });
         let needed = FLOW_PORT_TOP + (rows - 1) as f32 * FLOW_PORT_PITCH + 14.0;
         let scale = (self.rect.h / needed).clamp(0.0, 1.0);
-        if self.flow.is_empty() {
-            return (self.image
-                && side == Side::Right
-                && (t - crate::agent_inputs::OUTPUT_T).abs() < EPS)
-                .then_some(FLOW_PORT_TOP * scale / self.rect.h.max(f32::EPSILON));
-        }
         if self
             .flow
             .iter()

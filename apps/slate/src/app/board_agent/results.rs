@@ -143,6 +143,12 @@ impl SlateApp {
     }
 
     fn stop_agent_at(&mut self, id: NodeId, expected_request: Option<&str>) -> bool {
+        if let Some(request) = expected_request
+            .map(str::to_owned)
+            .or_else(|| self.agents.requests.get(&id).cloned())
+        {
+            self.revoke_chat_train_request(id, &request);
+        }
         let artifact = self
             .doc()
             .scene

@@ -19,6 +19,7 @@ pub fn schema_documents() -> BTreeMap<String, Value> {
         ("request", schema_for!(RequestEnvelope)),
         ("reply", schema_for!(ReplyEnvelope)),
         ("view-snapshot", schema_for!(ViewSnapshot)),
+        ("capture-metadata", schema_for!(CaptureMetadata)),
         ("artifact-transfer", schema_for!(ArtifactTransfer)),
         ("artifact-completion", schema_for!(ArtifactCompletion)),
         ("artifact-receipt", schema_for!(ArtifactReceipt)),

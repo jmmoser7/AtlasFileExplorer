@@ -37,6 +37,10 @@ impl SlateApp {
         origin: super::runtime::ChatSendOrigin,
         inputs: atlas_agent::InputSnapshot,
     ) -> Option<NodeId> {
+        if let Err(error) = self.validate_chat_train_send(portal) {
+            self.fail_agent_await(portal, error);
+            return None;
+        }
         let (portal, history) = self.prepare_agent_train_send(portal, &ws)?;
         if !origin.preserve_composer {
             self.consume_agent_context(composer);
@@ -49,8 +53,18 @@ impl SlateApp {
             self.agent_focus(portal);
         }
         let (session, _) = self.agent_session_for(portal)?;
+        let request_id = atlas_ai::agent::request_id();
+        let provider_workspace = self.agent_folder_for(portal).unwrap_or_else(|| ws.clone());
+        let collaborator =
+            match self.bind_chat_train_request(portal, &provider_workspace, &request_id) {
+                Ok(binding) => binding,
+                Err(error) => {
+                    self.fail_agent_await(portal, error);
+                    return None;
+                }
+            };
         let req = AgentRequest {
-            collaborator: None,
+            collaborator,
             model: self
                 .doc()
                 .scene
@@ -66,7 +80,7 @@ impl SlateApp {
                 .unwrap_or_default(),
             history,
             inputs,
-            id: atlas_ai::agent::request_id(),
+            id: request_id,
             prompt,
             at: atlas_ai::context::now_secs(),
             image: None,
@@ -78,6 +92,7 @@ impl SlateApp {
             goal: self.crosstalk_goal(&session),
         };
         if !self.submit_prepared_agent_request(portal, req.clone(), &ws) {
+            self.revoke_chat_train_request(portal, &req.id);
             return None;
         }
         let turn = AgentTurn {
@@ -136,6 +151,66 @@ impl SlateApp {
             self.agents.prompt_mut(composer).clear();
         }
         Some(portal)
+    }
+}
+
+#[cfg(test)]
+mod native_tools_tests {
+    use super::*;
+    use slate_doc::scene::{ConnectorEnd, Side};
+
+    #[test]
+    fn dispatched_chat_train_request_carries_real_board_membership() {
+        let mut h = crate::app::tests::Harness::new("chat_native_membership");
+        h.app.leave_home();
+        h.app.ensure_work_tab();
+        h.app.ai.config.workspace_dir = Some(h.base.clone());
+        let (model, _peer) = crate::app::application_connector::native::test_support::install(
+            &mut h,
+            atlas_connector::SourceMode::Linked,
+        );
+        let chat = super::super::train_setup::train(&mut h, Pos2::new(800.0, 0.0), "codex");
+        let wire = h.app.build_connector_with(
+            ConnectorEnd::Anchored {
+                node: model,
+                side: Side::Right,
+                t: 0.5,
+            },
+            ConnectorEnd::Anchored {
+                node: chat,
+                side: Side::Left,
+                t: 0.5,
+            },
+            &[],
+        );
+        h.app.add_nodes(vec![wire]);
+        h.app.board_sel = std::iter::once(chat).collect();
+        assert!(h.app.open_chat_train_board_access());
+        let workspace = h.base.clone();
+        let sent = h.app.send_agent_prompt_prepared(
+            chat,
+            chat,
+            "Inspect the wired Rhino model".into(),
+            workspace,
+            super::super::runtime::ChatSendOrigin {
+                typing_here: false,
+                relayed_from: None,
+                preserve_composer: false,
+            },
+            Default::default(),
+        );
+        assert!(sent.is_some());
+        let (_, request) = h
+            .app
+            .agents
+            .dispatched
+            .last()
+            .expect("real outbound request captured");
+        assert!(request
+            .collaborator
+            .as_ref()
+            .is_some_and(|binding| binding.validate().is_ok()));
+        assert_eq!(request.prompt, "Inspect the wired Rhino model");
     }
 }
 

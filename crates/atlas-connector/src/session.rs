@@ -36,6 +36,7 @@ pub struct Session {
     pub(crate) max_entries: usize,
     pub(crate) max_bytes: usize,
     pub(crate) retained_bytes: usize,
+    pub(crate) draft_grants: BTreeMap<String, DraftAuthorityGrant>,
 }
 
 impl Session {
@@ -73,7 +74,7 @@ impl Session {
             .versions
             .iter()
             .copied()
-            .filter(|v| *v == V0_1 && hello.versions.contains(v))
+            .filter(|v| matches!(*v, V0_1 | V0_2) && hello.versions.contains(v))
             .max()
             .ok_or_else(|| {
                 error(
@@ -170,6 +171,7 @@ impl Session {
             max_entries: policy.max_cached_requests,
             max_bytes: policy.max_cached_bytes,
             retained_bytes: 0,
+            draft_grants: BTreeMap::new(),
         };
         Ok((session, welcome))
     }
@@ -221,6 +223,7 @@ impl Session {
         }
         self.welcome.generation = generation;
         self.entries.clear();
+        self.draft_grants.clear();
         self.retained_bytes = 0;
         self.binding = None;
         self.surface = None;

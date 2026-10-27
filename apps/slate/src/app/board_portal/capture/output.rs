@@ -163,20 +163,26 @@ impl SlateApp {
         item: slate_doc::ItemId,
     ) -> Option<NodeId> {
         let source = self.doc().scene.node(source)?.rect;
-        self.place_capture_at(source, item, source.h)
+        self.place_capture_at(source, item, source.h, slate_doc::scene::CmdAuthor::Human)
     }
 
-    pub(crate) fn place_capture_pixels_beside(
+    pub(crate) fn place_capture_pixels_beside_as(
         &mut self,
         source: NodeId,
         item: slate_doc::ItemId,
         size: [u32; 2],
+        author: slate_doc::scene::CmdAuthor,
     ) -> Option<NodeId> {
         if size[0] == 0 || size[1] == 0 {
             return None;
         }
         let source = self.doc().scene.node(source)?.rect;
-        self.place_capture_at(source, item, source.w * size[1] as f32 / size[0] as f32)
+        self.place_capture_at(
+            source,
+            item,
+            source.w * size[1] as f32 / size[0] as f32,
+            author,
+        )
     }
 
     fn place_capture_at(
@@ -184,13 +190,15 @@ impl SlateApp {
         source: WorldRect,
         item: slate_doc::ItemId,
         height: f32,
+        author: slate_doc::scene::CmdAuthor,
     ) -> Option<NodeId> {
         let rect = WorldRect::new(source.x + source.w + 24.0, source.y, source.w, height);
         let node = self
-            .doc_mut()
+            .doc()
             .scene
+            .node_preparation()
             .build_node(rect, NodeKind::Image(ImageNode::new(item)));
-        self.add_nodes(vec![node]).into_iter().next()
+        self.add_nodes_as(vec![node], author).into_iter().next()
     }
 
     /// Existing web and Atlas bake commands share output, provenance layout,

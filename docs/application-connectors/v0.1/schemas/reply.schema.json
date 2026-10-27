@@ -1,0 +1,708 @@
+{
+  "$defs": {
+    "ArtifactTransfer": {
+      "description": "Transfer IDs resolve only through the authenticated runtime's bounded store.\nArbitrary filesystem paths and remote URLs are deliberately not wire options.",
+      "properties": {
+        "byte_length": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "sha256": {
+          "description": "Lowercase SHA-256 hex of the transferred bytes, checked by the runtime.",
+          "type": "string"
+        },
+        "transfer_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "transfer_id",
+        "byte_length",
+        "media_type",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "CaptureConsistency": {
+      "oneOf": [
+        {
+          "const": "atomic",
+          "description": "Adapter guarantees source, view and pixels describe the same revision.",
+          "type": "string"
+        },
+        {
+          "const": "best_effort",
+          "description": "Adapter cannot guarantee atomicity; publication must retain this fact.",
+          "type": "string"
+        }
+      ]
+    },
+    "CaptureMetadata": {
+      "properties": {
+        "captured_at": {
+          "description": "RFC 3339 UTC time supplied by the adapter; no ordering assumption.",
+          "type": "string"
+        },
+        "consistency": {
+          "$ref": "#/$defs/CaptureConsistency"
+        },
+        "height_px": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceScope"
+        },
+        "view": {
+          "$ref": "#/$defs/ViewSnapshot"
+        },
+        "width_px": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source",
+        "view",
+        "captured_at",
+        "width_px",
+        "height_px",
+        "consistency"
+      ],
+      "type": "object"
+    },
+    "CaptureResult": {
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactTransfer"
+        },
+        "metadata": {
+          "$ref": "#/$defs/CaptureMetadata"
+        }
+      },
+      "required": [
+        "metadata",
+        "artifact"
+      ],
+      "type": "object"
+    },
+    "CommandDescriptor": {
+      "properties": {
+        "agent_allowed": {
+          "description": "Offer only; host policy and scoped authority independently admit calls.",
+          "type": "boolean"
+        },
+        "cancellable": {
+          "type": "boolean"
+        },
+        "effect": {
+          "$ref": "#/$defs/CommandEffect"
+        },
+        "id": {
+          "description": "Application-namespaced, closed operation identifier, never script text.",
+          "type": "string"
+        },
+        "parameters": {
+          "description": "Bounded JSON Schema dialect enforced by validate_parameters."
+        },
+        "title": {
+          "type": "string"
+        },
+        "undo": {
+          "$ref": "#/$defs/UndoOwner"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "effect",
+        "undo",
+        "cancellable",
+        "agent_allowed",
+        "parameters"
+      ],
+      "type": "object"
+    },
+    "CommandEffect": {
+      "enum": [
+        "inspect",
+        "ephemeral_view",
+        "slate_proposal",
+        "draft_mutation",
+        "source_write_back"
+      ],
+      "type": "string"
+    },
+    "ErrorCode": {
+      "enum": [
+        "incompatible_protocol",
+        "required_capability_missing",
+        "invalid_descriptor",
+        "invalid_request",
+        "unsupported_operation",
+        "unsupported_schema",
+        "session_mismatch",
+        "stale_generation",
+        "source_not_bound",
+        "source_mismatch",
+        "stale_revision",
+        "authority_denied",
+        "request_id_conflict",
+        "request_pending",
+        "request_cache_full",
+        "request_not_found",
+        "outcome_unknown",
+        "cancellation_unsupported",
+        "dirty_document",
+        "detached",
+        "invalid_result",
+        "transfer_too_large"
+      ],
+      "type": "string"
+    },
+    "OperationState": {
+      "enum": [
+        "pending",
+        "cancellation_requested",
+        "completed",
+        "outcome_unknown"
+      ],
+      "type": "string"
+    },
+    "ProcessOwnership": {
+      "enum": [
+        "attached_existing",
+        "launched_dedicated"
+      ],
+      "type": "string"
+    },
+    "ProtocolError": {
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "PublicationBehavior": {
+      "enum": [
+        "poster_and_pointer",
+        "portable_artifact"
+      ],
+      "type": "string"
+    },
+    "PublicationResult": {
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactTransfer"
+        },
+        "behavior": {
+          "$ref": "#/$defs/PublicationBehavior"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceScope"
+        }
+      },
+      "required": [
+        "source",
+        "behavior",
+        "artifact"
+      ],
+      "type": "object"
+    },
+    "ReplyBody": {
+      "oneOf": [
+        {
+          "properties": {
+            "status": {
+              "const": "ack",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "binding": {
+              "$ref": "#/$defs/SourceBinding"
+            },
+            "status": {
+              "const": "source_bound",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "binding"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "commands": {
+              "items": {
+                "$ref": "#/$defs/CommandDescriptor"
+              },
+              "type": "array"
+            },
+            "status": {
+              "const": "commands",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "commands"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "surfaces",
+              "type": "string"
+            },
+            "surfaces": {
+              "items": {
+                "$ref": "#/$defs/SurfaceDescriptor"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "status",
+            "surfaces"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "revision": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "const": "command_result",
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "schemas": {
+              "items": {
+                "$ref": "#/$defs/ViewSchema"
+              },
+              "type": "array"
+            },
+            "status": {
+              "const": "view_schemas",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "schemas"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "view",
+              "type": "string"
+            },
+            "view": {
+              "$ref": "#/$defs/ViewSnapshot"
+            }
+          },
+          "required": [
+            "status",
+            "view"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "capture": {
+              "$ref": "#/$defs/CaptureResult"
+            },
+            "status": {
+              "const": "captured",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "capture"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "publication": {
+              "$ref": "#/$defs/PublicationResult"
+            },
+            "status": {
+              "const": "published",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "publication"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Stopping is requested only; committed effects are never claimed rolled back.",
+          "properties": {
+            "rollback": {
+              "type": "boolean"
+            },
+            "status": {
+              "const": "cancellation_requested",
+              "type": "string"
+            },
+            "target_request_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "target_request_id",
+            "rollback"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "state": {
+              "$ref": "#/$defs/OperationState"
+            },
+            "status": {
+              "const": "operation_state",
+              "type": "string"
+            },
+            "target_request_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "target_request_id",
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "application_terminated": {
+              "type": "boolean"
+            },
+            "preserved_unsaved": {
+              "type": "boolean"
+            },
+            "status": {
+              "const": "detached",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "preserved_unsaved",
+            "application_terminated"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/ProtocolError"
+            },
+            "status": {
+              "const": "failure",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "error"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "status": {
+              "const": "outcome_unknown",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SourceBinding": {
+      "properties": {
+        "dirty": {
+          "type": "boolean"
+        },
+        "document_id": {
+          "description": "Ephemeral native document identity; never serialize into a workbook.",
+          "type": "string"
+        },
+        "mode": {
+          "$ref": "#/$defs/SourceMode"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef"
+        }
+      },
+      "required": [
+        "source",
+        "document_id",
+        "mode",
+        "dirty"
+      ],
+      "type": "object"
+    },
+    "SourceLocator": {
+      "description": "Stable, portable locator. A detected root requires its relative form.\nResolving paths and checking filesystem access remain adapter responsibilities.",
+      "properties": {
+        "absolute": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "relative": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "root_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "SourceMode": {
+      "enum": [
+        "linked",
+        "isolated_draft"
+      ],
+      "type": "string"
+    },
+    "SourceRef": {
+      "description": "Revisions are opaque equality tokens, never assumed ordered or content hashes.",
+      "properties": {
+        "locator": {
+          "$ref": "#/$defs/SourceLocator"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "locator",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "SourceScope": {
+      "properties": {
+        "revision": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "SurfaceDescriptor": {
+      "properties": {
+        "can_detach": {
+          "type": "boolean"
+        },
+        "mode": {
+          "$ref": "#/$defs/SurfaceMode"
+        },
+        "native_handle": {
+          "default": null,
+          "description": "Decimal OS window handle for native modes; session-local, never durable.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "process_ownership": {
+          "$ref": "#/$defs/ProcessOwnership"
+        },
+        "surface_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "surface_id",
+        "mode",
+        "process_ownership",
+        "can_detach"
+      ],
+      "type": "object"
+    },
+    "SurfaceMode": {
+      "enum": [
+        "native_full_ui",
+        "native_viewport",
+        "companion_window",
+        "headless"
+      ],
+      "type": "string"
+    },
+    "UndoOwner": {
+      "enum": [
+        "none",
+        "native_application",
+        "slate_journal"
+      ],
+      "type": "string"
+    },
+    "ViewFidelity": {
+      "enum": [
+        "exact_native",
+        "shared_approximation",
+        "poster_only"
+      ],
+      "type": "string"
+    },
+    "ViewSchema": {
+      "properties": {
+        "namespace": {
+          "type": "string"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "namespace",
+        "version"
+      ],
+      "type": "object"
+    },
+    "ViewSnapshot": {
+      "description": "Native state is opaque data scoped to a reverse-domain application namespace;\nv0 deliberately defines no portable 3D camera until the camera owner exports it.",
+      "properties": {
+        "fidelity": {
+          "$ref": "#/$defs/ViewFidelity"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceScope"
+        },
+        "state": true
+      },
+      "required": [
+        "source",
+        "schema",
+        "schema_version",
+        "fidelity",
+        "state"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "generation": {
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "outcome": {
+      "$ref": "#/$defs/ReplyBody"
+    },
+    "request_id": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceScope"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "session_id",
+    "generation",
+    "request_id",
+    "outcome"
+  ],
+  "title": "ReplyEnvelope",
+  "type": "object"
+}

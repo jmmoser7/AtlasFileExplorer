@@ -198,9 +198,18 @@ impl SlateApp {
                         .and_then(scene::artifact)
                         .is_some()
                 })
-                .map_or(chrome::AGENT_HEIGHT, |id| {
-                    self.artifact_editor_height(painter, id, width_units)
-                }),
+                .map_or_else(
+                    || {
+                        chrome::AGENT_HEIGHT
+                            + self
+                                .shape_properties
+                                .ids
+                                .first()
+                                .copied()
+                                .map_or(0.0, |id| self.model_chat_starter_extra_height(id))
+                    },
+                    |id| self.artifact_editor_height(painter, id, width_units),
+                ),
             Panel::ModelDisplay => self.model_display_editor_height(),
             Panel::Capture => chrome::capture::launch_height(
                 self.shape_properties

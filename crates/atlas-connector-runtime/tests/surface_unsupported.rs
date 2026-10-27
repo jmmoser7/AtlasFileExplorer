@@ -8,4 +8,8 @@ fn native_surfaces_explicitly_refuse_unsupported_platforms() {
         NativeSurface::attach(1, 1, 2),
         Err(SurfaceError::UnsupportedPlatform)
     ));
+    assert!(matches!(
+        NativeSurface::attach_full_ui(1, 1, 2),
+        Err(SurfaceError::UnsupportedPlatform)
+    ));
 }

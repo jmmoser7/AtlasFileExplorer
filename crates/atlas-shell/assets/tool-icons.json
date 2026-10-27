@@ -1,4 +1,5 @@
 {
+  "Rhino": {"path":"M3 16 5 10 10 8 15 9 18 7 19 3 21 9 22 12 19 14 18 18 15 18 14 15 9 15 8 19 5 19 5 15ZM10 8 10 5 13 8M19 11H19.1","filled":false},
   "AlignLeft": {"path":"M4 4V20M19 12H8M12 7 7 12 12 17","filled":false},
   "AlignCenterH": {"path":"M4 19H20M12 4V16M7 11 12 16 17 11","filled":false},
   "AlignRight": {"path":"M20 4V20M5 12H16M12 7 17 12 12 17","filled":false},

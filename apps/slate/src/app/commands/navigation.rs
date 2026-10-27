@@ -33,3 +33,15 @@ pub(super) const PAN_SCROLL: CommandSpec = spec(
     GLOBAL,
     &[],
 );
+
+pub(super) const ZOOM_TOOL: CommandSpec = spec(
+    "canvas.tool.zoom",
+    "Navigation",
+    "Zoom tool",
+    "Z — click = zoom in, Alt + click = out, drag = zoom window; \
+         Esc or Z disarms (Board)",
+    Some(Chord::bare(Key::Z)),
+    Repeat::Never,
+    Availability::BOARD_VIEW,
+    &["magnify", "zoom window"],
+);

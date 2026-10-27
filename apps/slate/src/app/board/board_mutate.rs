@@ -146,6 +146,14 @@ impl SlateApp {
 
     /// Insert new nodes as one undo group. Returns their ids.
     pub fn add_nodes(&mut self, nodes: Vec<Node>) -> Vec<NodeId> {
+        self.add_nodes_as(nodes, slate_doc::scene::CmdAuthor::Human)
+    }
+
+    pub(crate) fn add_nodes_as(
+        &mut self,
+        nodes: Vec<Node>,
+        author: slate_doc::scene::CmdAuthor,
+    ) -> Vec<NodeId> {
         if self.refuse_read_only_edit() {
             return Vec::new();
         }
@@ -162,7 +170,7 @@ impl SlateApp {
                 node,
             })
             .collect();
-        if self.commit_scene(cmds) {
+        if self.commit_scene_as(cmds, author) {
             self.note_view_wires_added(&ids);
             ids
         } else {

@@ -47,6 +47,8 @@ impl SlateApp {
             self.selected_model_viewport()
         } else if let Some(detail) = detail {
             detail.parse::<u64>().ok().map(NodeId)
+        } else if self.portal_chrome.maximized.is_some() {
+            self.portal_chrome.maximized
         } else if self.board_sel.len() == 1 {
             self.board_sel.iter().next().copied()
         } else {
@@ -54,7 +56,9 @@ impl SlateApp {
         };
         let Some(node) = node.filter(|id| {
             self.doc().scene.node(*id).is_some_and(|n| {
-                matches!(n.kind, NodeKind::Portal(_)) || self.model_has_viewport(*id)
+                matches!(n.kind, NodeKind::Portal(_))
+                    || self.model_has_viewport(*id)
+                    || self.application_connector_active(*id)
             })
         }) else {
             return false;

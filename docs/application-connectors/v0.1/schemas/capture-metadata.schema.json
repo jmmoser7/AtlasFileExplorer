@@ -1,0 +1,105 @@
+{
+  "$defs": {
+    "CaptureConsistency": {
+      "oneOf": [
+        {
+          "const": "atomic",
+          "description": "Adapter guarantees source, view and pixels describe the same revision.",
+          "type": "string"
+        },
+        {
+          "const": "best_effort",
+          "description": "Adapter cannot guarantee atomicity; publication must retain this fact.",
+          "type": "string"
+        }
+      ]
+    },
+    "SourceScope": {
+      "properties": {
+        "revision": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "ViewFidelity": {
+      "enum": [
+        "exact_native",
+        "shared_approximation",
+        "poster_only"
+      ],
+      "type": "string"
+    },
+    "ViewSnapshot": {
+      "description": "Native state is opaque data scoped to a reverse-domain application namespace;\nv0 deliberately defines no portable 3D camera until the camera owner exports it.",
+      "properties": {
+        "fidelity": {
+          "$ref": "#/$defs/ViewFidelity"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceScope"
+        },
+        "state": true
+      },
+      "required": [
+        "source",
+        "schema",
+        "schema_version",
+        "fidelity",
+        "state"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "captured_at": {
+      "description": "RFC 3339 UTC time supplied by the adapter; no ordering assumption.",
+      "type": "string"
+    },
+    "consistency": {
+      "$ref": "#/$defs/CaptureConsistency"
+    },
+    "height_px": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceScope"
+    },
+    "view": {
+      "$ref": "#/$defs/ViewSnapshot"
+    },
+    "width_px": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "source",
+    "view",
+    "captured_at",
+    "width_px",
+    "height_px",
+    "consistency"
+  ],
+  "title": "CaptureMetadata",
+  "type": "object"
+}

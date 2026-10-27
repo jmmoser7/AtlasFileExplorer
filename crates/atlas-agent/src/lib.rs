@@ -194,6 +194,7 @@ pub use activity::*;
 mod activity_semantics;
 pub use activity_semantics::*;
 pub mod collaborator;
+pub mod control;
 #[cfg(test)]
 mod manifest_tests;
 pub mod presence;

@@ -74,57 +74,11 @@ pub(crate) enum BoardMark {
     Tags(slate_doc::TagCommand),
 }
 
-/// The node a scene command adds, removes, or patches.
-pub(crate) fn cmd_node_id(cmd: &SceneCmd) -> NodeId {
-    match cmd {
-        SceneCmd::Add { node, .. }
-        | SceneCmd::Remove { node, .. }
-        | SceneCmd::LayerNodeAdd { node, .. }
-        | SceneCmd::LayerNodeRemove { node, .. } => node.id,
-        SceneCmd::Patch { after, .. } | SceneCmd::LayerNodePatch { after, .. } => after.id,
-    }
-}
+mod command_targets;
+pub(crate) use command_targets::cmd_node_id;
 
-pub(crate) struct SheetMark {
-    pub item: ItemId,
-    pub path: PathBuf,
-    pub row: usize,
-    pub col: usize,
-    pub prior: atlas_core::office::PriorCell,
-}
-
-#[derive(Clone)]
-pub(crate) struct SheetHit {
-    pub node: NodeId,
-    pub item: ItemId,
-    pub row: usize,
-    pub col: usize,
-    pub rect: Rect,
-    pub add: bool,
-}
-
-pub(crate) struct SheetEdit {
-    pub node: NodeId,
-    pub item: ItemId,
-    pub row: usize,
-    pub col: usize,
-    pub buf: String,
-    pub origin: String,
-    /// The edit started as a new column, so naming it stays one undo step.
-    pub fresh: bool,
-    pub screen: Rect,
-    pub font_px: f32,
-}
-
-/// A column or row boundary the open spreadsheet can drag.
-#[derive(Clone, Copy)]
-pub(crate) struct SheetGrip {
-    pub node: NodeId,
-    pub rect: Rect,
-    /// Column to the left of this boundary. `None` is a row boundary.
-    pub col: Option<usize>,
-    pub row: Option<usize>,
-}
+mod sheet_state;
+pub(crate) use sheet_state::{SheetEdit, SheetGrip, SheetHit, SheetMark};
 
 /// In-flight click/drag text-box compose. Nothing is journaled until
 /// [`SlateApp::commit_text_box_draft`] runs with non-empty content.
@@ -477,7 +431,20 @@ impl SlateApp {
         // Alt+right is size. Shift+right is opacity. Ctrl+right is the color
         // wheel. Ctrl and Alt beat Shift. Each chord owns the button before
         // turbo pan or a plain right-drag pan.
-        let model_pointer = wp.is_some_and(|world| self.live_model_at(world.x, world.y).is_some());
+        let model_pointer = matches!(
+            self.board_drag,
+            Some(BoardDrag::ModelOrbit {
+                button: egui::PointerButton::Secondary,
+                ..
+            })
+        ) || wp
+            .is_some_and(|world| self.live_model_at(world.x, world.y).is_some());
+        self.model_secondary_navigation(
+            ui,
+            &xf,
+            pointer,
+            !tag_popup && !button_capture && !model_toolbar_captures && !external_capture,
+        );
         let claim_right = !model_pointer
             && (self.brush_hud.is_some()
                 || self.tip_numeric_eats()
@@ -1118,7 +1085,7 @@ impl SlateApp {
                     .or(pointer)
                     .is_some_and(|p| self.curve_grip_under(p) || self.hovered_vertex(p).is_some())
         };
-        if resp.double_clicked()
+        if self.canvas_media_double_clicked(ui, &resp)
             && (!self.board_align_eat_press || (ordered_drawing && !self.tip_numeric_eats()))
             && !zoom_tool
             && !web_capture
@@ -1226,6 +1193,7 @@ impl SlateApp {
         }
         let secondary = resp.secondary_clicked()
             && !page_capture
+            && !model_pointer
             && !self.turbo_pan.should_suppress_context_menu()
             && !hold_right;
         self.turbo_pan.acknowledge_context_menu();
@@ -1283,13 +1251,7 @@ impl SlateApp {
                 .is_some_and(|g| g.hovered.is_some());
             self.hover_transform_chrome(pointer, &xf, ui.ctx(), wire_grip_hovered);
         }
-        if hover_live && self.board_hover_hit.is_none() {
-            if let Some(w) = wp {
-                self.video_pointer(w);
-            }
-        } else {
-            self.video_clear_hover();
-        }
+        self.update_video_hover(wp, hover_live);
         let hover_target = if hover_live && !align_hovered {
             self.hover_preview_target(wp)
         } else {
@@ -2209,7 +2171,9 @@ impl SlateApp {
                 }
                 self.update_image_drop_offer(world, &ids);
             }
-            Some(BoardDrag::ModelOrbit { id, last_screen }) => {
+            Some(BoardDrag::ModelOrbit {
+                id, last_screen, ..
+            }) => {
                 let id = *id;
                 let last = *last_screen;
                 let xf = self.board_xf();

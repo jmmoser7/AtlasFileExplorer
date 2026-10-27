@@ -197,11 +197,11 @@ impl Session {
                 }
                 match &request.caller {
                     CallerAuthority::Agent { .. }
-                        if !command.agent_allowed || command.effect != CommandEffect::Inspect =>
+                        if !self.agent_command_allowed(&request.caller, command) =>
                     {
                         return Err(error(
                             ErrorCode::AuthorityDenied,
-                            "v0 agents may invoke inspection commands only, regardless of autonomy or descriptor claims",
+                            "agent command requires an eligible effect and, for isolated drafts, a scoped host grant",
                         ));
                     }
                     CallerAuthority::Human { target_source, .. }

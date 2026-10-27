@@ -3,18 +3,72 @@
 use super::*;
 
 impl SlateApp {
+    /// An admitted right drag belongs to the model until that button releases,
+    /// including when the pointer briefly crosses the viewport edge.
+    pub(super) fn model_secondary_navigation(
+        &mut self,
+        ui: &egui::Ui,
+        xf: &BoardXf,
+        pointer: Option<Pos2>,
+        allowed: bool,
+    ) {
+        let secondary = egui::PointerButton::Secondary;
+        if allowed
+            && self.board_tool == BoardTool::Select
+            && self.board_drag.is_none()
+            && ui.input(|i| i.pointer.button_pressed(secondary))
+        {
+            if let Some((at, id)) = pointer.and_then(|at| {
+                let world = xf.s2w(at);
+                self.live_model_at(world.x, world.y).map(|id| (at, id))
+            }) {
+                self.board_sel = std::iter::once(id).collect();
+                self.board_drag = Some(BoardDrag::ModelOrbit {
+                    id,
+                    last_screen: at,
+                    button: secondary,
+                });
+            }
+        }
+        if matches!(self.board_drag, Some(BoardDrag::ModelOrbit { button, .. }) if button == secondary)
+        {
+            if ui.input(|i| i.pointer.button_down(secondary)) {
+                if let Some(at) = pointer {
+                    self.update_gesture(xf.s2w(at), ui.input(|i| i.modifiers));
+                }
+            } else {
+                self.board_drag = None;
+            }
+        }
+    }
+
     /// Rhino's Perspective navigation: right orbit, Shift pan, Ctrl dolly.
     pub(super) fn drag_live_model(&mut self, id: NodeId, delta: Vec2, zoom: f32) {
-        if self.ctrl_down {
+        let height = self.doc().scene.node(id).map_or(1.0, |n| n.rect.h * zoom);
+        self.navigate_model(
+            id,
+            delta,
+            height,
+            egui::Modifiers {
+                ctrl: self.ctrl_down,
+                shift: self.shift_down,
+                ..Default::default()
+            },
+        );
+    }
+
+    /// One camera mapping for inline and maximized standard 3D portals.
+    pub(crate) fn navigate_model(
+        &mut self,
+        id: NodeId,
+        delta: Vec2,
+        height: f32,
+        modifiers: egui::Modifiers,
+    ) {
+        if modifiers.ctrl || modifiers.command {
             self.model_scroll(id, -delta.y * 4.0);
         } else {
-            let viewport_h = self
-                .doc()
-                .scene
-                .node(id)
-                .map(|node| node.rect.h * zoom)
-                .unwrap_or(1.0);
-            self.model_drag(id, delta.x, delta.y, self.shift_down, viewport_h);
+            self.model_drag(id, delta.x, delta.y, modifiers.shift, height);
         }
     }
     /// A placed 3D model (`MediaKind::Model`, or a confirmed Enscape
@@ -35,6 +89,9 @@ impl SlateApp {
         name: &str,
         alpha: f32,
     ) {
+        if self.paint_application_connector(ui, painter, node_id, srect) {
+            return;
+        }
         let tint = Color32::WHITE.gamma_multiply(alpha);
         let live = self.model3d.live.contains_key(&node_id);
         let adjust = self.model_adjust_for_paint(node_id);

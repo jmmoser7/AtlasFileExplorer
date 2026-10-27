@@ -31,7 +31,10 @@ fn old_manifests_need_no_connector_and_round_trip_without_new_fields() {
     ))
     .unwrap();
     fixture.application.as_ref().unwrap().validate().unwrap();
-    for manifest in atlas_packs::shipped_manifests() {
+    for manifest in atlas_packs::shipped_manifests()
+        .into_iter()
+        .filter(|m| m.id.as_str() != "org.slate.rhino-inside")
+    {
         assert!(manifest.application.is_none());
         let value = serde_json::to_value(&manifest).unwrap();
         assert!(value.get("application").is_none());
@@ -92,4 +95,25 @@ fn a_program_without_a_connector_remains_a_legacy_program() {
         vec![PackId::new("legacy")]
     );
     assert!(catalog.application_offers().is_empty());
+}
+
+#[test]
+fn rhino_pack_is_optional_and_advertises_the_generic_protocol() {
+    let manifest = atlas_packs::shipped_manifests()
+        .into_iter()
+        .find(|m| m.id.as_str() == "org.slate.rhino-inside")
+        .unwrap();
+    let descriptor = manifest.application.as_ref().unwrap();
+    descriptor.validate().unwrap();
+    assert!(descriptor.supports_version(atlas_connector::V0_2));
+    let value = serde_json::to_value(&manifest).unwrap();
+    assert_eq!(
+        serde_json::from_value::<PackManifest>(value).unwrap(),
+        manifest
+    );
+    let catalog = Catalog::from_manifests(vec![manifest]);
+    assert!(
+        catalog.application_offers().is_empty(),
+        "unprobed installations do not become launch offers"
+    );
 }

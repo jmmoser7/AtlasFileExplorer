@@ -135,6 +135,7 @@ impl SlateApp {
                 BoardReply::error(&work.call, &error)
             }
         };
+        self.presence.observe_production_reply(&reply);
         let _ = self.presence.links.reply(&a.dir, reply);
         a.last_active = now;
     }
@@ -273,6 +274,7 @@ impl SlateApp {
         call: &BoardCall,
         prepared: &PreparedBoardCommand,
     ) -> Result<(), String> {
+        self.validate_production_presence(a)?;
         if self.tab().read_only
             || a.departure.is_some()
             || a.tab != self.tab().id

@@ -153,6 +153,14 @@ fn a_reload_rewrites_the_cached_session_only_when_it_adds_messages() {
     assert_eq!(store_reloaded(&dir, same).unwrap(), shown);
     assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), old);
 
+    let mut stale = state(vec![turn("user", "old recalled prompt", 0)]);
+    stale.conversation = "replaced-provider-thread".into();
+    stale.request.clear();
+    let bytes_before = std::fs::read(&path).unwrap();
+    assert_eq!(store_reloaded(&dir, stale).unwrap(), shown);
+    assert_eq!(std::fs::read(&path).unwrap(), bytes_before);
+    assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), old);
+
     let more = state(vec![
         turn("user", "q0", 0),
         turn("assistant", "a0", 0),

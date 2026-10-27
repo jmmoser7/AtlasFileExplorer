@@ -41,7 +41,10 @@ impl SlateApp {
                     return None;
                 }
                 if !(mods.ctrl && mods.shift) {
-                    if let Some(id) = self.tiny_body_owns_pointer(screen) {
+                    if let Some(id) = self
+                        .tiny_body_owns_pointer(screen)
+                        .filter(|id| mods.alt || self.live_model_at(world.x, world.y) != Some(*id))
+                    {
                         return self.begin_select_body_drag(id, world, mods);
                     }
                 }
@@ -127,6 +130,7 @@ impl SlateApp {
                         return Some(BoardDrag::ModelOrbit {
                             id,
                             last_screen: screen,
+                            button: egui::PointerButton::Primary,
                         });
                     }
                 }

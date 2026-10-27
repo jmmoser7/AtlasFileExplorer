@@ -218,7 +218,14 @@ impl SlateApp {
         // Sorted, so the strip resets on membership only: `board_sel` is a
         // HashSet whose iteration order can change without its contents
         // changing (a rehash on insert of an already selected id).
-        let mut ids: Vec<_> = self.board_sel.iter().copied().collect();
+        // Maximized model chrome belongs to its visible source, even when a
+        // capture selects a newly placed image elsewhere on the board.
+        let mut ids: Vec<_> = self
+            .portal_chrome
+            .maximized
+            .filter(|id| self.model_node_info(*id).is_some())
+            .map(|id| vec![id])
+            .unwrap_or_else(|| self.board_sel.iter().copied().collect());
         ids.sort_unstable_by_key(|id| id.0);
         let changed =
             self.shape_properties.tab != self.tab().id || self.shape_properties.ids != ids;

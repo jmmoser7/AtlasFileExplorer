@@ -37,6 +37,15 @@ pub(super) fn prepare(
         return Err("Portal geometry is outside the board bounds".into());
     }
     let node = match kind {
+        "application" => {
+            let reference = slate_doc::application_surface::ApplicationSurface::parse(source)
+                .ok_or("Invalid application surface locator")?;
+            if app.model_node_info(reference.parent).is_none() {
+                return Err("Application surface needs an existing model parent".into());
+            }
+            let mut scratch = app.doc().scene.node_preparation();
+            scratch.build_node(rect, NodeKind::Portal(reference.portal(&reference.surface)))
+        }
         "atlas" => {
             let path = PathBuf::from(source);
             let portal = app.bound_atlas_portal(&path, Vec::new());

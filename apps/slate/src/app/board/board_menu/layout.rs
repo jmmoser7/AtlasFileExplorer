@@ -108,6 +108,7 @@ impl SlateApp {
             NodeKind::Connector(_) => "wire",
             NodeKind::Portal(p) => match (p.kind, p.source.is_some()) {
                 (PortalKind::Web, _) => "web",
+                (PortalKind::Application, _) => "application",
                 (PortalKind::FileAtlas, true) => "atlas",
                 (PortalKind::FileAtlas, false) => "atlas-empty",
                 (PortalKind::Slate, true) => "slate",

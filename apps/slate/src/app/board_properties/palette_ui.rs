@@ -2,24 +2,13 @@
 use super::*;
 mod apron;
 mod media;
+mod model_actions;
+mod state;
 pub(crate) use apron::EditorHost;
+pub(super) use state::LastChrome;
 
 #[cfg(test)]
 mod tests;
-
-#[derive(Clone)]
-pub(super) struct LastChrome {
-    pub(super) host: Option<(u64, NodeId)>,
-    pub(super) bounds: WorldRect,
-    pub(super) items: Vec<StripItem>,
-    pub(super) count: usize,
-    generation: (u64, u64),
-    picked_vertices: bool,
-    pub(super) bottom: Pos2,
-    pub(super) blister: bool,
-    pub(super) image: bool,
-    pub(super) media: Option<media::PreparedBlister>,
-}
 
 impl SlateApp {
     /// Runs before board input. Layout is recomputed from the host transform every frame.
@@ -134,7 +123,11 @@ impl SlateApp {
             }
             return false;
         }
-        let z = xf.z;
+        let maximized = matches!(
+            self.shape_properties.ids.as_slice(),
+            [id] if self.portal_is_maximized(*id)
+        );
+        let z = super::super::board_portal_chrome::portal_chrome_scale(maximized, xf.z);
         if canvas_scale::too_small(12.0 * z) {
             self.clear_prepared_media_blister();
             // The strip and its panel are not painted, but screen-constant
@@ -198,6 +191,9 @@ impl SlateApp {
         let mut requested_agent = None;
         let mut requested_measure = false;
         let mut requested_screenshot = false;
+        let mut requested_connector = false;
+        let mut requested_connector_draft = None;
+        let mut requested_maximize = false;
         let mut captures = false;
         let strip_ui_id = ui.id().with("selection-strip-input");
         let mut strip_ui = chrome::object_ui(ui, strip_ui_id, strip);
@@ -252,6 +248,21 @@ impl SlateApp {
                     button_live,
                 )
             };
+            if button_live && matches!(item, StripItem::ApplicationConnector) {
+                let model = self.shape_properties.ids.first().copied();
+                response.context_menu(|ui| {
+                    if ui
+                        .add_enabled(
+                            enabled && model.is_some(),
+                            egui::Button::new("Open isolated Rhino copy"),
+                        )
+                        .clicked()
+                    {
+                        requested_connector_draft = model;
+                        ui.close_menu();
+                    }
+                });
+            }
             #[cfg(test)]
             if matches!(
                 item,
@@ -273,6 +284,8 @@ impl SlateApp {
                     StripItem::Agent(expand) => requested_agent = Some(*expand),
                     StripItem::ModelMeasure => requested_measure = true,
                     StripItem::ModelScreenshot => requested_screenshot = true,
+                    StripItem::ApplicationConnector => requested_connector = true,
+                    StripItem::ModelMaximize => requested_maximize = true,
                 }
             }
             captures |= button_live && grip_probe.is_some_and(|p| r.contains(p));
@@ -324,31 +337,14 @@ impl SlateApp {
             self.shape_properties.number = None;
             self.run_frame_strip_action(&ctx, action);
         }
-        if requested_measure {
-            self.apply_shape_preview(&ctx, true);
-            self.shape_properties.number = None;
-            if let Some(id) = self.shape_properties.ids.first().copied() {
-                self.dispatch(
-                    &ctx,
-                    CommandId("board.model_measure"),
-                    Some(id.0.to_string()),
-                );
-            }
-        }
-        if requested_screenshot {
-            let was_open = self.shape_properties.panel == Some(Panel::Capture);
-            self.apply_shape_preview(&ctx, true);
-            self.shape_properties.number = None;
-            if let Some(id) = self
-                .shape_properties
-                .ids
-                .first()
-                .copied()
-                .filter(|_| !was_open)
-            {
-                self.dispatch(&ctx, CommandId("portal.capture"), Some(id.0.to_string()));
-            }
-        }
+        self.run_model_strip_actions(
+            &ctx,
+            requested_measure,
+            requested_connector,
+            requested_connector_draft,
+            requested_maximize,
+            requested_screenshot,
+        );
         captures |= self.paint_property_dimensions(ui, xf, live, enabled);
         if self.shape_properties.panel != Some(Panel::Filter) {
             self.shape_properties.filter_aim = None;

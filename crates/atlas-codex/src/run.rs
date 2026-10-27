@@ -14,6 +14,26 @@ fn recover_request_history(request: &AgentRequest, session: &AgentSession) -> Op
     (!replay.history.is_empty()).then_some(replay)
 }
 
+fn request_for_thread(
+    replay: bool,
+    request: &AgentRequest,
+    session: &AgentSession,
+) -> Option<AgentRequest> {
+    if replay {
+        if request.history.is_empty() {
+            recover_request_history(request, session)
+        } else {
+            Some(request.clone())
+        }
+    } else if !request.history.is_empty() {
+        let mut current = request.clone();
+        current.history.clear();
+        Some(current)
+    } else {
+        None
+    }
+}
+
 fn completed_before_interrupt(status: Option<&str>, error: Option<&str>) -> bool {
     status == Some("completed")
         && error
@@ -43,28 +63,19 @@ impl Client {
         steering: Option<&std::sync::mpsc::Receiver<SteerCommand>>,
         mut changed: impl FnMut(&AgentSession),
     ) -> Result<(), String> {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Codex request cancelled before submission.".into());
+        }
+        self.prepare_board_session(request)?;
         let replay_history = self.replay_visible_history;
         self.replay_visible_history = false;
-        let request_for_thread = if replay_history {
-            if request.history.is_empty() {
-                recover_request_history(request, session)
-            } else {
-                Some(request.clone())
-            }
-        } else if !request.history.is_empty() {
-            let mut current = request.clone();
-            current.history.clear();
-            Some(current)
-        } else {
-            None
-        };
+        let request_for_thread = request_for_thread(replay_history, request, session);
         let request = request_for_thread.as_ref().unwrap_or(request);
         if cancel.load(Ordering::Relaxed) {
             return Err("Codex request cancelled before submission.".into());
         }
         session.request = request.id.clone();
         session.activity.clear();
-        self.prepare_board_session(request)?;
         // A text block or picture run is one-shot: a fresh thread, so earlier
         // runs never ride along as context.
         if request.oneshot || request.image.is_some() {
@@ -381,5 +392,40 @@ mod tests {
         assert_eq!(text.matches("Prior conversation checkpoint").count(), 1);
         assert_eq!(text.matches("First question").count(), 1);
         assert_eq!(text.matches("First answer").count(), 1);
+    }
+
+    #[test]
+    fn replacement_tools_thread_replays_visible_training_but_not_hidden_events() {
+        let request = AgentRequest {
+            prompt: "Use the wired model".into(),
+            ..Default::default()
+        };
+        let session = AgentSession {
+            turns: vec![
+                AgentTurn {
+                    role: "user".into(),
+                    text: "Use metres and preserve accessibility".into(),
+                    at: 1,
+                },
+                AgentTurn {
+                    role: "assistant".into(),
+                    text: "I will apply those design criteria".into(),
+                    at: 2,
+                },
+                AgentTurn {
+                    role: "tool".into(),
+                    text: "private tool event".into(),
+                    at: 3,
+                },
+            ],
+            ..Default::default()
+        };
+        let replay = request_for_thread(true, &request, &session).unwrap();
+        assert_eq!(replay.history.len(), 2);
+        assert!(replay
+            .prompt_with_history()
+            .contains("preserve accessibility"));
+        assert!(!replay.prompt_with_history().contains("private tool event"));
+        assert!(request_for_thread(false, &request, &session).is_none());
     }
 }

@@ -410,7 +410,7 @@ fn render_portal(
     html.push_str("\">");
 
     match portal.kind {
-        PortalKind::Web => {
+        PortalKind::Application | PortalKind::Web => {
             let pointer = portal
                 .source
                 .as_ref()

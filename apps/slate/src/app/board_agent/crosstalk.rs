@@ -338,7 +338,7 @@ impl SlateApp {
 
     /// The turn policy of a message this session sends: read-only while it
     /// reviews in a crosstalk that has not ended.
-    pub(super) fn crosstalk_policy(&self, session: &str) -> atlas_agent::TurnPolicy {
+    pub(crate) fn crosstalk_policy(&self, session: &str) -> atlas_agent::TurnPolicy {
         let scene = &self.doc().scene;
         let reviews = xt::chain_of_session(scene, session)
             .and_then(|chain| xt::owner(scene, &chain).map(|(_, x)| x.clone()))

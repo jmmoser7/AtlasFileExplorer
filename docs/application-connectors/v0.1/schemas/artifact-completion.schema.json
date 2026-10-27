@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Terminal binary-pipe marker, sent after exactly `byte_length` payload bytes.\nThis strict transfer handshake deliberately rejects unknown fields.",
+  "properties": {
+    "complete": {
+      "type": "boolean"
+    },
+    "transfer_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "transfer_id",
+    "complete"
+  ],
+  "title": "ArtifactCompletion",
+  "type": "object"
+}

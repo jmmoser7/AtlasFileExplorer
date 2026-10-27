@@ -260,7 +260,9 @@ impl SlateApp {
             wires.push((order, slot, path));
         }
         wires.sort_by(|a, b| a.0.cmp(&b.0));
-        self.web.link_cache.script(id, wires, ctx)
+        let mut script = self.web.link_cache.script(id, wires, ctx);
+        script.push_str(atlas_agent::control::INSTALL_SCRIPT);
+        script
     }
 }
 

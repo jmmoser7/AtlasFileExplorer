@@ -192,6 +192,7 @@ impl SlateApp {
                 None
             };
             if let Some(session) = self.agents.sources.poll(&dir, context.as_ref()) {
+                self.sync_chat_train_provider_channel(id, &session);
                 if self
                     .agents
                     .sessions

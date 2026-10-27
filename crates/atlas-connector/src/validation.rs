@@ -4,7 +4,7 @@ pub(crate) fn error(code: ErrorCode, message: &str) -> ProtocolError {
     ProtocolError::new(code, message)
 }
 
-pub(crate) fn valid_id(value: &str) -> bool {
+pub fn valid_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
         && value
@@ -201,7 +201,7 @@ pub(crate) fn validate_capture(
 
 // The wire profile uses RFC3339 UTC seconds with optional 1..9 fractional
 // digits. Leap-second notation is outside this capture timestamp profile.
-fn valid_utc_timestamp(value: &str) -> bool {
+pub(crate) fn valid_utc_timestamp(value: &str) -> bool {
     let bytes = value.as_bytes();
     if !(20..=30).contains(&bytes.len())
         || bytes.last() != Some(&b'Z')

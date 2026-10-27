@@ -4,13 +4,23 @@ use windows::core::PCWSTR;
 use windows::Win32::Foundation::{
     GetLastError, SetLastError, HANDLE, HWND, POINT, RECT, WIN32_ERROR,
 };
-use windows::Win32::Graphics::Gdi::ScreenToClient;
+
 use windows::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 const OWNER_PROPERTY: PCWSTR = windows::core::w!("AtlasConnector.BorrowedSurface.v1");
 const HOST_PROPERTY: PCWSTR = windows::core::w!("AtlasConnector.SurfaceHost.v1");
+mod placement;
+mod region;
+mod saved;
+use region::WindowRegion;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AttachmentKind {
+    Child,
+    OwnedFullUi,
+}
 
 struct SavedWindow {
     parent: Option<HWND>,
@@ -20,6 +30,7 @@ struct SavedWindow {
     placement: WINDOWPLACEMENT,
     rect: RECT,
     visible: bool,
+    region: WindowRegion,
 }
 
 /// A borrowed HWND with reversible parenting. It is intentionally neither
@@ -37,6 +48,7 @@ pub struct NativeSurface {
     pid: u32,
     child_thread: u32,
     host_thread: u32,
+    kind: AttachmentKind,
     identity: Box<u8>,
     saved: SavedWindow,
     attached: bool,
@@ -47,6 +59,29 @@ impl NativeSurface {
     /// `expected_pid` must come from an authenticated OS peer, not a claim in
     /// application JSON. The host HWND must belong to this process/UI thread.
     pub fn attach(child: isize, expected_pid: u32, parent: isize) -> Result<Self, SurfaceError> {
+        Self::attach_kind(child, expected_pid, parent, AttachmentKind::Child)
+    }
+
+    /// Hosts a full native UI as an owned top-level window, retaining its native
+    /// menu while removing the outer caption/resize frame inside the portal.
+    /// Original styles and window region are restored on detach.
+    /// Both HWNDs must already be top-level windows.
+    /// The caller must place/park it with the portal: ownership does not clip it
+    /// to the host client area. Authentication and UI-thread rules match `attach`.
+    pub fn attach_full_ui(
+        window: isize,
+        expected_pid: u32,
+        owner: isize,
+    ) -> Result<Self, SurfaceError> {
+        Self::attach_kind(window, expected_pid, owner, AttachmentKind::OwnedFullUi)
+    }
+
+    fn attach_kind(
+        child: isize,
+        expected_pid: u32,
+        parent: isize,
+        kind: AttachmentKind,
+    ) -> Result<Self, SurfaceError> {
         let child = HWND(child as *mut _);
         let host = HWND(parent as *mut _);
         let (pid, child_thread) = window_identity(child)?;
@@ -73,12 +108,19 @@ impl NativeSurface {
             return Err(SurfaceError::AlreadyAttached);
         }
         let saved = SavedWindow::read(child)?;
+        if kind == AttachmentKind::OwnedFullUi
+            && (saved.style as u32 & WS_CHILD.0 != 0
+                || get_long(host, GWL_STYLE)? as u32 & WS_CHILD.0 != 0)
+        {
+            return Err(SurfaceError::InvalidWindow);
+        }
         let mut guard = Self {
             child,
             host,
             pid,
             child_thread,
             host_thread,
+            kind,
             saved,
             identity: Box::new(0),
             attached: false,
@@ -91,10 +133,36 @@ impl NativeSurface {
             .map_err(|_| win32("SetPropW (host)"))?;
         let result = (|| {
             guard.validate()?;
-            let style = (guard.saved.style as u32 & !(WS_POPUP.0 | WS_CAPTION.0 | WS_THICKFRAME.0))
-                | WS_CHILD.0;
-            set_long(child, GWL_STYLE, style as isize)?;
-            set_parent(child, Some(host))?;
+            match kind {
+                AttachmentKind::Child => {
+                    let style = (guard.saved.style as u32
+                        & !(WS_POPUP.0 | WS_CAPTION.0 | WS_THICKFRAME.0))
+                        | WS_CHILD.0;
+                    set_long(child, GWL_STYLE, style as isize)?;
+                    set_parent(child, Some(host))?;
+                }
+                // Top-level ownership retains the native menu. Only the
+                // exterior frame belongs to Slate while the surface is hosted.
+                AttachmentKind::OwnedFullUi => {
+                    // Hide its former desktop extent until the first host placement.
+                    WindowRegion::clip(child, 0, 0, 0, 0)?;
+                    set_long(child, GWLP_HWNDPARENT, host.0 as isize)?;
+                    let style = guard.saved.style as u32
+                        & !(WS_CAPTION.0
+                            | WS_THICKFRAME.0
+                            | WS_BORDER.0
+                            | WS_DLGFRAME.0
+                            | WS_MAXIMIZE.0
+                            | WS_MINIMIZE.0);
+                    let exstyle = guard.saved.exstyle as u32
+                        & !(WS_EX_WINDOWEDGE.0
+                            | WS_EX_CLIENTEDGE.0
+                            | WS_EX_DLGMODALFRAME.0
+                            | WS_EX_STATICEDGE.0);
+                    set_long(child, GWL_STYLE, style as isize)?;
+                    set_long(child, GWL_EXSTYLE, exstyle as isize)?;
+                }
+            }
             unsafe {
                 SetWindowPos(
                     child,
@@ -113,29 +181,14 @@ impl NativeSurface {
         Ok(guard)
     }
 
+    pub fn process_id(&self) -> Result<u32, SurfaceError> {
+        self.validate()?;
+        Ok(self.pid)
+    }
+
     pub fn handle(&self) -> Result<isize, SurfaceError> {
         self.validate()?;
         Ok(self.child.0 as isize)
-    }
-
-    /// Moving a surface does not focus it. A click or explicit `focus` does.
-    pub fn place(&self, rect: SurfaceRect) -> Result<(), SurfaceError> {
-        self.validate_host()?;
-        if rect.width <= 0 || rect.height <= 0 {
-            return Err(SurfaceError::InvalidRect);
-        }
-        unsafe {
-            SetWindowPos(
-                self.child,
-                None,
-                rect.x,
-                rect.y,
-                rect.width,
-                rect.height,
-                SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_ASYNCWINDOWPOS,
-            )
-        }
-        .map_err(|_| win32("SetWindowPos"))
     }
 
     /// Queues hide without waiting for the foreign UI. Success means accepted
@@ -179,11 +232,21 @@ impl NativeSurface {
     /// Restores parent/owner, both styles, placement, bounds and visibility.
     /// Errors leave the guard attached so a caller can retry before dropping it.
     pub fn detach(&mut self) -> Result<(), SurfaceError> {
+        self.detach_visibility(true)
+    }
+
+    /// Release the host slot and restore native ownership/styles/placement
+    /// while leaving the application parked. Never closes its document.
+    pub fn detach_hidden(&mut self) -> Result<(), SurfaceError> {
+        self.detach_visibility(false)
+    }
+
+    fn detach_visibility(&mut self, restore_visible: bool) -> Result<(), SurfaceError> {
         if !self.attached {
             return Ok(());
         }
         self.validate()?;
-        self.saved.restore(self.child)?;
+        self.saved.restore(self.child, restore_visible)?;
         unsafe { RemovePropW(self.child, OWNER_PROPERTY) }.map_err(|_| win32("RemovePropW"))?;
         self.release_host();
         self.attached = false;
@@ -238,84 +301,6 @@ impl Drop for NativeSurface {
                 let _ = unsafe { RemovePropW(self.child, OWNER_PROPERTY) };
             }
         }
-    }
-}
-
-impl SavedWindow {
-    fn read(child: HWND) -> Result<Self, SurfaceError> {
-        let style = get_long(child, GWL_STYLE)?;
-        let exstyle = get_long(child, GWL_EXSTYLE)?;
-        let parent = unsafe { GetParent(child) }.ok();
-        let mut placement = WINDOWPLACEMENT {
-            length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
-            ..Default::default()
-        };
-        let mut rect = RECT::default();
-        unsafe { GetWindowPlacement(child, &mut placement) }
-            .map_err(|_| win32("GetWindowPlacement"))?;
-        unsafe { GetWindowRect(child, &mut rect) }.map_err(|_| win32("GetWindowRect"))?;
-        Ok(Self {
-            parent: if style as u32 & WS_CHILD.0 != 0 {
-                parent
-            } else {
-                None
-            },
-            owner: if style as u32 & WS_CHILD.0 == 0 {
-                get_long(child, GWLP_HWNDPARENT)?
-            } else {
-                0
-            },
-            style,
-            exstyle,
-            placement,
-            rect,
-            // IsWindowVisible also tests ancestors. Preserve this window's own
-            // visibility bit when its original parent happens to be hidden.
-            visible: style as u32 & WS_VISIBLE.0 != 0,
-        })
-    }
-
-    fn restore(&self, child: HWND) -> Result<(), SurfaceError> {
-        set_parent(child, self.parent)?;
-        set_long(child, GWL_STYLE, self.style)?;
-        set_long(child, GWL_EXSTYLE, self.exstyle)?;
-        if self.style as u32 & WS_CHILD.0 == 0 {
-            set_long(child, GWLP_HWNDPARENT, self.owner)?;
-        }
-        let mut origin = POINT {
-            x: self.rect.left,
-            y: self.rect.top,
-        };
-        if let Some(parent) = self.parent {
-            if !unsafe { ScreenToClient(parent, &mut origin).as_bool() } {
-                return Err(win32("ScreenToClient"));
-            }
-        }
-        unsafe {
-            SetWindowPos(
-                child,
-                None,
-                origin.x,
-                origin.y,
-                self.rect.right - self.rect.left,
-                self.rect.bottom - self.rect.top,
-                SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-            )
-        }
-        .map_err(|_| win32("SetWindowPos"))?;
-        unsafe { SetWindowPlacement(child, &self.placement) }
-            .map_err(|_| win32("SetWindowPlacement"))?;
-        unsafe {
-            let _ = ShowWindow(
-                child,
-                if self.visible {
-                    SHOW_WINDOW_CMD(self.placement.showCmd as i32)
-                } else {
-                    SW_HIDE
-                },
-            );
-        }
-        Ok(())
     }
 }
 

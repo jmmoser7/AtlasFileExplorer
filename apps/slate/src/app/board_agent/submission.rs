@@ -88,7 +88,13 @@ impl SlateApp {
                     .unwrap_or_else(|| workspace.to_path_buf());
                 let workbook = self.tab().path.clone();
                 let runtime = self.agents.codex.entry(session.clone()).or_insert_with(|| {
-                    atlas_ai::runtime::CodexLink::start_beside(dir, cwd, provider.clone(), workbook)
+                    atlas_ai::runtime::CodexLink::start_beside(
+                        dir,
+                        cwd,
+                        provider.clone(),
+                        workbook,
+                        Some(workspace.to_path_buf()),
+                    )
                 });
                 if let Err(error) = runtime.send(request) {
                     self.fail_agent_await(portal, error);

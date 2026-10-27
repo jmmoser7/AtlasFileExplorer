@@ -23,6 +23,7 @@ pub(super) fn command_activity(command: &str) -> &'static str {
 
 impl SlateApp {
     pub(crate) fn presence_pump(&mut self, ctx: &egui::Context) {
+        self.maintain_chat_train_memberships();
         self.presence_release_avatar_hold(ctx, None, false);
         self.presence.conversations.poll();
         self.pump_presence_people(ctx);
@@ -43,17 +44,18 @@ impl SlateApp {
             // interaction priority until the native view is parked.
             && !native_view_active
             && !ctx.input(|i| i.viewport().minimized.unwrap_or(false));
-        let maximized_portal =
-            self.portal_chrome.maximized.filter(|id| {
-                !self.at_home
-                    && self.doc().view.active_view == slate_doc::ViewKind::Board
-                    && self.presenting.is_none()
-                    && !native_view_active
-                    && !ctx.input(|i| i.viewport().minimized.unwrap_or(false))
-                    && self.doc().scene.node(*id).is_some_and(|node| {
-                        matches!(&node.kind, slate_doc::scene::NodeKind::Portal(_))
-                    })
-            });
+        let maximized_portal = self.portal_chrome.maximized.filter(|id| {
+            !self.at_home
+                && self.doc().view.active_view == slate_doc::ViewKind::Board
+                && self.presenting.is_none()
+                && !native_view_active
+                && !ctx.input(|i| i.viewport().minimized.unwrap_or(false))
+                && self.doc().scene.node(*id).is_some_and(|node| {
+                    matches!(&node.kind, slate_doc::scene::NodeKind::Portal(_))
+                        || (matches!(&node.kind, slate_doc::scene::NodeKind::Image(_))
+                            && self.model_node_info(*id).is_some())
+                })
+        });
         let vanished: Vec<_> = self
             .presence
             .agents

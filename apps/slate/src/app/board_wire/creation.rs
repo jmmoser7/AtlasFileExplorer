@@ -62,6 +62,9 @@ impl SlateApp {
         pending: &[Node],
     ) -> Option<slate_doc::agent_inputs::WireBinding> {
         let ends = [a, b].map(slate_doc::agent_inputs::endpoint_node);
+        if let Some(binding) = self.dashboard_control_wire(a, b) {
+            return Some(binding);
+        }
         if !pending.iter().any(|n| ends.contains(&Some(n.id))) {
             let paths = self.wire_item_paths(&[a, b]);
             return slate_doc::agent_inputs::infer_binding_with(&self.doc().scene, a, b, &|id| {
@@ -100,6 +103,9 @@ impl SlateApp {
         old: &slate_doc::scene::ConnectorNode,
         new: &slate_doc::scene::ConnectorNode,
     ) -> Option<slate_doc::agent_inputs::WireBinding> {
+        if let Some(binding) = self.dashboard_control_wire(&new.a, &new.b) {
+            return Some(binding);
+        }
         let paths = self.wire_item_paths(&[&new.a, &new.b]);
         slate_doc::agent_inputs::rebind_with(&self.doc().scene, old, new, &|id| {
             paths.get(&id).map(std::path::PathBuf::as_path)
