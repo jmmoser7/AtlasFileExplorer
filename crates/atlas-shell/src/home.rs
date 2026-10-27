@@ -13,7 +13,6 @@
 //! (`P1.portal.contents-focus`).
 
 use crate::mesh_aa::feather_boundary;
-
 use crate::recent::{RecentEntry, RecentList};
 use crate::theme::Palette;
 use crate::tokens::{self, HomeTokens};
