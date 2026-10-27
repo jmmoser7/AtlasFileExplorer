@@ -43,8 +43,13 @@ fn maximized_native_model_pump_advances_board_read_and_scoped_inspection() {
         h.app.presence.last_tick = Some(Instant::now() - Duration::from_secs(1));
         h.app.presence_pump(&h.ctx);
     };
-    for _ in 0..8 {
+    // Presence motion is capped at 50 ms per visible tick even when the
+    // supplied elapsed time is larger; allow the real read witness to finish.
+    for _ in 0..80 {
         pump(&mut h);
+        if h.app.presence.agents[0].read.is_none() {
+            break;
+        }
     }
     assert!(
         h.app.presence.agents[0].read.is_none(),
@@ -68,7 +73,7 @@ fn maximized_native_model_pump_advances_board_read_and_scoped_inspection() {
         .is_none());
     h.app.presence.agents.insert(0, actor);
     let mut dispatched = None;
-    for _ in 0..8 {
+    for _ in 0..80 {
         pump(&mut h);
         if let Some(request) = peer.next() {
             dispatched = Some(request);
@@ -84,10 +89,12 @@ fn maximized_native_model_keeps_ordinary_board_witness_waiting_until_restore() {
     use crate::app::agent_presence::tests::proposal_support::{begin_command, tick};
     use crate::app::application_connector::native::test_support;
     let mut h = web_board("maximized_native_board_witness");
+    // Proposal publication requires a saved workbook, as in the human flow.
+    h.app.tab_mut().path = Some(h.base.join("maximized-native-board.slate"));
     let (model, _peer) = test_support::install(&mut h, atlas_connector::SourceMode::Linked);
     let who = join(&mut h);
     let before = h.app.doc().scene.node(model).unwrap().rect;
-    begin_command(
+    let call = begin_command(
         &mut h,
         &who,
         "board.objects.move",
@@ -117,5 +124,13 @@ fn maximized_native_model_keeps_ordinary_board_witness_waiting_until_restore() {
         h.app.presence.agents[0].work.is_none(),
         "the same board witness resumes after restore"
     );
-    assert!(!h.app.presence.proposals.is_empty());
+    assert!(
+        h.app
+            .presence
+            .proposals
+            .values()
+            .any(|p| p.call.id == call.id),
+        "the restored witness publishes this exact pending command for approval"
+    );
+    assert_eq!(h.app.doc().scene.node(model).unwrap().rect, before);
 }

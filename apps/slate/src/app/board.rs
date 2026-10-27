@@ -488,7 +488,7 @@ impl SlateApp {
                 || (space && resp.dragged_by(egui::PointerButton::Primary))
                 || (resp.dragged_by(egui::PointerButton::Secondary)
                     && !turbo_pan_active
-                    && !hold_right)
+                    && !(hold_right || model_pointer))
                 || (hand_pan && resp.dragged_by(egui::PointerButton::Primary))
                 || through_palette.is_some());
         if hand_pan && resp.hovered() {
