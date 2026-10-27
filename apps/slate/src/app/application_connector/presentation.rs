@@ -69,11 +69,9 @@ impl SlateApp {
             self.portal_enter_interactive(id);
             return false;
         }
+        let window = &rhino_window::GRASSHOPPER;
         let has_grasshopper = self.native_binding(id).is_ok_and(|binding| {
-            binding
-                .commands
-                .iter()
-                .any(|c| c.id == "org.slate.rhino.grasshopper_show")
+            rhino_window::offered(&binding.commands, window.surface, window.open).is_some()
         });
         if let Some(button) = footer.child.filter(|_| has_grasshopper) {
             if atlas_shell::tabs::portal_action_button(
@@ -84,11 +82,7 @@ impl SlateApp {
                 "Grasshopper",
                 zoom,
             ) {
-                self.open_application_surface(
-                    id,
-                    "grasshopper",
-                    "org.slate.rhino.grasshopper_show",
-                );
+                self.open_application_surface(id, window.surface, window.open);
                 return true;
             }
         }

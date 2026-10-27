@@ -6,6 +6,7 @@ use slate_doc::scene::{Node, NodeKind, PortalKind, PortalNode};
 use std::time::Instant;
 mod launch;
 mod launch_state;
+mod parking;
 pub(super) use launch::LaunchRequest;
 pub(super) use launch_state::LaunchToken;
 
@@ -22,6 +23,8 @@ pub(super) struct ChildSurface {
     handoff_ready: bool,
     launch_node: Option<(NodeId, String)>,
     waiting_launch: Option<LaunchRequest>,
+    parking_key: Option<native::BindingKey>,
+    hide_command: Option<String>,
 }
 impl Default for ChildSurface {
     fn default() -> Self {
@@ -38,6 +41,8 @@ impl Default for ChildSurface {
             handoff_ready: false,
             launch_node: None,
             waiting_launch: None,
+            parking_key: None,
+            hide_command: None,
         }
     }
 }
@@ -50,18 +55,17 @@ impl SlateApp {
     }
     pub(crate) fn application_surfaces_blur(&mut self) -> bool {
         let mut changed = false;
-        for child in self.connectors.children.values_mut() {
+        for ((tab, parent, surface), child) in &mut self.connectors.children {
             child.launch.cancel();
             child.handoff_ready = false;
             child.launch_node = None;
             child.waiting_launch = None;
-            if let Some(mut surface) = child.native.take() {
-                let _ = surface.park();
-                let _ = surface.hide();
-                let _ = surface.detach_hidden();
-                changed = true;
+            if let Some(session) = self.connectors.sessions.get(&(*tab, *parent)) {
+                if let Some(binding) = &session.binding {
+                    changed |= child.native.is_some();
+                    child.park_until_ack(&session.tx, &binding.key(), surface);
+                }
             }
-            child.host.parked();
         }
         changed
     }
@@ -89,6 +93,12 @@ impl SlateApp {
             })
             .collect();
         for (node, reference) in nodes {
+            let worker = self
+                .connectors
+                .sessions
+                .get(&(tab, parent))
+                .and_then(|s| s.binding.as_ref())
+                .map(|b| b.worker.clone());
             if let Some(surface) = surfaces
                 .iter()
                 .find(|s| s.surface_id == reference.surface && s.native_handle.is_some())
@@ -96,35 +106,44 @@ impl SlateApp {
                 let child = self
                     .connectors
                     .children
-                    .entry((tab, parent, reference.surface))
+                    .entry((tab, parent, reference.surface.clone()))
                     .or_default();
-                if child
-                    .descriptor
-                    .as_ref()
-                    .and_then(|d| d.native_handle.as_ref())
-                    != surface.native_handle.as_ref()
+                if child.worker != worker
+                    || child
+                        .descriptor
+                        .as_ref()
+                        .and_then(|d| d.native_handle.as_ref())
+                        != surface.native_handle.as_ref()
                 {
-                    if let Some(mut old) = child.native.take() {
-                        let _ = old.detach_hidden();
+                    if !child.close_scope() {
+                        continue;
                     }
                 }
                 child.node = Some(node);
                 child.descriptor = Some(surface.clone());
                 child.process_id = pid;
-                child.worker = self
+                child.hide_command = self
                     .connectors
                     .sessions
                     .get(&(tab, parent))
                     .and_then(|s| s.binding.as_ref())
-                    .map(|b| b.worker.clone());
+                    .and_then(|b| {
+                        rhino_window::offered(
+                            &b.commands,
+                            &reference.surface,
+                            &reference.open_command,
+                        )
+                    })
+                    .map(|pair| pair.hide.to_owned());
+                child.worker = worker;
                 child.status = "Native application window · Double-click to enter".into();
             } else if let Some(child) =
                 self.connectors
                     .children
                     .get_mut(&(tab, parent, reference.surface))
             {
-                if let Some(mut old) = child.native.take() {
-                    let _ = old.detach_hidden();
+                if !child.close_scope() {
+                    continue;
                 }
                 child.descriptor = None;
                 child.status = "Window closed · Double-click to open".into();
@@ -142,19 +161,20 @@ impl SlateApp {
             .filter(|n| !n.hidden)
             .map(|n| n.id)
             .collect();
-        for ((tab, parent, _), child) in &mut self.connectors.children {
+        for ((tab, parent, surface), child) in &mut self.connectors.children {
             let session = self.connectors.sessions.get(&(*tab, *parent));
             let epoch = session
                 .and_then(|s| s.binding.as_ref())
                 .map(|b| b.worker.clone());
             let source_alive = session.is_some_and(|s| !s.ended && s.enabled);
-            if !source_alive || (child.worker.is_some() && child.worker != epoch) {
+            if session.is_none_or(|s| s.ended) || (child.worker.is_some() && child.worker != epoch)
+            {
                 child.launch.cancel();
                 child.handoff_ready = false;
                 child.launch_node = None;
                 child.waiting_launch = None;
-                if let Some(mut surface) = child.native.take() {
-                    let _ = surface.detach();
+                if !child.close_scope() {
+                    continue;
                 }
                 child.descriptor = None;
                 child.worker = None;
@@ -171,12 +191,11 @@ impl SlateApp {
                 child.waiting_launch = None;
             }
             if !visible {
-                if let Some(mut surface) = child.native.take() {
-                    let _ = surface.park();
-                    let _ = surface.hide();
-                    let _ = surface.detach_hidden();
+                if let Some(session) = session {
+                    if let Some(binding) = &session.binding {
+                        child.park_until_ack(&session.tx, &binding.key(), surface);
+                    }
                 }
-                child.host.parked();
             }
             if active == Some(*tab) && child.node.is_some_and(|n| !live.contains(&n)) {
                 child.node = None;
@@ -188,19 +207,30 @@ impl SlateApp {
         tab: u64,
         parent: NodeId,
         surface: &str,
+        key: native::BindingKey,
         request: hosting::FocusRequest,
         result: Result<(), String>,
     ) {
+        let current = self
+            .connectors
+            .sessions
+            .get(&(tab, parent))
+            .and_then(|s| s.binding.as_ref())
+            .map(|b| b.key());
+        let has_intent = !self.at_home
+            && self.tab().id == tab
+            && self.contents_focused().is_some_and(|node| {
+                self.doc().scene.node(node).is_some_and(|n| !n.hidden)
+                    && self
+                        .application_surface_ref(node)
+                        .is_some_and(|r| r.parent == parent && r.surface == surface)
+            });
         if let Some(child) = self
             .connectors
             .children
             .get_mut(&(tab, parent, surface.to_owned()))
         {
-            if child.host.complete(request, result.is_ok()) {
-                if let Err(error) = result {
-                    child.status = format!("Application window focus: {error}");
-                }
-            }
+            child.complete_focus(&key, current.as_ref(), request, result, has_intent);
         }
     }
     pub(crate) fn paint_application_surface(
@@ -241,7 +271,8 @@ impl SlateApp {
         let child = self.connectors.children.entry(key).or_default();
         child.node = Some(node.id);
         let source_ready = live_worker.is_some();
-        let trusted_surface = source_ready && child.worker == live_worker;
+        let trusted_surface =
+            source_ready && child.worker == live_worker && child.hide_command.is_some();
         let descriptor_valid = child
             .descriptor
             .as_ref()
@@ -329,6 +360,7 @@ impl SlateApp {
                     if parent
                         .tx
                         .try_send(worker::Action::FocusChild {
+                            key: parent.binding.as_ref().unwrap().key(),
                             request,
                             surface: reference.surface.clone(),
                             command: reference.open_command.clone(),
@@ -339,10 +371,10 @@ impl SlateApp {
                     }
                 }
             }
-        } else if readable && host_active {
+        } else if focused && readable && host_active && child.parking_key.is_none() {
             child.host.take_revealed();
             child.host.suspend_focus();
-        } else {
+        } else if child.parking_key.is_none() {
             child.host.parked();
         }
         let label = if readable {

@@ -104,6 +104,11 @@ impl SlateApp {
             if child.launch.is_pending() {
                 return true;
             }
+            // An explicit re-entry may retry a failed hide; idle frames may not.
+            if child.parking_key.is_some() {
+                child.parking_key = None;
+                child.host.begin_intent();
+            }
         }
         if self.contents_focused() != Some(reference.parent) {
             self.portal_enter_interactive(reference.parent);
@@ -129,6 +134,7 @@ impl SlateApp {
         let key = (self.tab().id, reference.parent, reference.surface);
         let child = self.connectors.children.entry(key).or_default();
         child.node = Some(node);
+        child.parking_key = None;
         child.host.begin_intent();
         child.status = "Native application window".into();
     }

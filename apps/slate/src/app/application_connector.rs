@@ -11,6 +11,7 @@ mod children;
 mod hosting;
 pub(crate) mod native;
 mod presentation;
+mod rhino_window;
 mod worker;
 
 #[derive(Default)]
@@ -263,10 +264,11 @@ impl SlateApp {
                         }
                     }
                     worker::Event::ChildFocusApplied {
+                        key: binding_key,
                         surface,
                         request,
                         result,
-                    } => child_focus.push((key.0, key.1, surface, request, result)),
+                    } => child_focus.push((key.0, key.1, surface, binding_key, request, result)),
                     worker::Event::Surfaces(surfaces) => {
                         surface_updates.push((key.0, key.1, session.process_id, surfaces))
                     }
@@ -376,8 +378,15 @@ impl SlateApp {
         for (tab, parent, pid, surfaces) in surface_updates {
             self.register_application_surfaces(tab, parent, pid, surfaces);
         }
-        for (tab, parent, surface, request, result) in child_focus {
-            self.complete_application_surface_focus(tab, parent, &surface, request, result);
+        for (tab, parent, surface, binding_key, request, result) in child_focus {
+            self.complete_application_surface_focus(
+                tab,
+                parent,
+                &surface,
+                binding_key,
+                request,
+                result,
+            );
         }
         for (tab, parent, pid, ticket, result) in child_launches {
             self.complete_application_surface_launch(tab, parent, pid, ticket, result);
