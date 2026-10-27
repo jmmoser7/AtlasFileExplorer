@@ -1,6 +1,4 @@
 //! The Rhino adapter's one concrete native-window command pairing.
-use super::*;
-
 pub(super) struct WindowCommands {
     pub surface: &'static str,
     pub open: &'static str,

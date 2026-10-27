@@ -75,7 +75,6 @@ impl ChildSurface {
             ) {
                 // A destroyed/reused HWND cannot be shown by Drop; the shared
                 // guard only releases its own stale host property in this case.
-                drop(native);
                 self.parking_key = None;
                 self.host.parked();
                 return true;

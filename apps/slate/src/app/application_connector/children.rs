@@ -108,16 +108,14 @@ impl SlateApp {
                     .children
                     .entry((tab, parent, reference.surface.clone()))
                     .or_default();
-                if child.worker != worker
+                let replaced = child.worker != worker
                     || child
                         .descriptor
                         .as_ref()
                         .and_then(|d| d.native_handle.as_ref())
-                        != surface.native_handle.as_ref()
-                {
-                    if !child.close_scope() {
-                        continue;
-                    }
+                        != surface.native_handle.as_ref();
+                if replaced && !child.close_scope() {
+                    continue;
                 }
                 child.node = Some(node);
                 child.descriptor = Some(surface.clone());
