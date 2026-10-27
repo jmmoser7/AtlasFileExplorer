@@ -78,7 +78,9 @@ pub fn parse_capture_xmp(packet: &str) -> Result<Option<CaptureMetadata>, Protoc
     }
     let bytes: Vec<u8> = hex
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|v| {
             let digit = |b: u8| if b <= b'9' { b - b'0' } else { b - b'a' + 10 };
             digit(v[0]) * 16 + digit(v[1])
