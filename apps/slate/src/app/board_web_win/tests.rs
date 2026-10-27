@@ -11,6 +11,48 @@ use slate_doc::scene::WebSourceKind;
 use std::time::{Duration, Instant};
 
 #[test]
+fn navigation_start_invalidates_the_old_control_document_before_completion() {
+    let mut pending = Pending {
+        url: Some("file:///C:/board/control.html".into()),
+        ..Default::default()
+    };
+    let old_epoch = pending.document_generation;
+    pending.begin_navigation(Some(10));
+    assert!(pending.url.is_none());
+    assert_ne!(pending.document_generation, old_epoch);
+    assert!(!pending.finish_navigation(
+        Some(9),
+        Some("file:///C:/board/control.html".into()),
+        true
+    ));
+    assert!(pending.url.is_none());
+    assert!(pending.finish_navigation(Some(10), Some("https://example.com/".into()), true));
+    assert_eq!(pending.url.as_deref(), Some("https://example.com/"));
+    let replaced_epoch = pending.document_generation;
+    pending.begin_navigation(Some(11));
+    assert!(pending.url.is_none());
+    assert_ne!(pending.document_generation, replaced_epoch);
+    assert!(pending.finish_navigation(
+        Some(11),
+        Some("file:///C:/board/control.html".into()),
+        true
+    ));
+}
+
+#[test]
+fn failed_or_unknown_navigation_cannot_restore_control_readiness() {
+    let mut pending = Pending::default();
+    pending.begin_navigation(Some(20));
+    assert!(!pending.finish_navigation(None, Some("file:///C:/board/control.html".into()), true));
+    assert!(pending.finish_navigation(
+        Some(20),
+        Some("file:///C:/board/control.html".into()),
+        false
+    ));
+    assert!(pending.url.is_none());
+}
+
+#[test]
 fn a_windows_path_becomes_a_file_uri_and_a_url_is_left_alone() {
     let cases = [
         (

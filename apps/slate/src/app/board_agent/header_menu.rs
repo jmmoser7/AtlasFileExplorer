@@ -41,6 +41,12 @@ impl SlateApp {
                 let [window, chat_train, pairs] = agent_presentations(&agent.chat, running);
                 let rows = [
                     (
+                        1,
+                        Row::glyph(Icon::Agent, "Board access…"),
+                        "portal.agent.board_access",
+                        agent.provider == "codex" && !running,
+                    ),
+                    (
                         0,
                         Row::glyph(Icon::ChatWindow, "Single chat window"),
                         window.0,

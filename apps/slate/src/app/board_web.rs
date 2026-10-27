@@ -39,6 +39,7 @@ mod package;
 mod presentation;
 mod scheduler;
 
+mod control;
 mod table_links;
 
 // ---------------------------------------------------------------------------
@@ -223,6 +224,16 @@ impl WebRequest {
 /// every state above run and be tested on a machine with no WebView2 at all
 /// (Art. I.3).
 pub trait WebHost {
+    fn request_controls(&mut self, _id: NodeId) -> bool {
+        false
+    }
+    fn take_controls(&mut self, _id: NodeId) -> Option<Result<String, String>> {
+        None
+    }
+    fn control_state(&mut self, _id: NodeId, _state: &serde_json::Value) {}
+    fn control_epoch(&self, _id: NodeId) -> u64 {
+        0
+    }
     /// Escape intercepted by the native browser, forwarded to Slate's cancel stack.
     fn take_escape(&mut self) -> bool {
         false
@@ -497,6 +508,7 @@ pub struct WebRuntime {
     poll_rx: crossbeam_channel::Receiver<SourcePoll>,
     /// Bounded off-thread table refresh and cached dashboard scripts.
     link_cache: table_links::TableLinks,
+    controls: control::Controls,
     /// Pages whose text an agent run is waiting on.
     text_pending: HashSet<NodeId>,
     /// Disk stills and the visible-text cache. Derived, per-user, off the
@@ -540,6 +552,7 @@ impl Default for WebRuntime {
             poll_tx,
             poll_rx,
             link_cache: table_links::TableLinks::default(),
+            controls: control::Controls::default(),
             text_pending: HashSet::new(),
             stills: super::board_web_stills::StillCache::default(),
             still_inbox: Vec::new(),
@@ -1036,6 +1049,7 @@ impl SlateApp {
         self.web.host_ms = 0.0;
         self.drain_source_polls();
         self.drain_web_stills(ctx);
+        self.pump_dashboard_controls(ctx);
         let portals = self.web_portals();
         if portals.is_empty() {
             if !self.web.views.is_empty() {

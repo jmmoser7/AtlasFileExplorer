@@ -136,7 +136,7 @@ pub fn snapshot_with_source_check(
         let Some(binding) = owned.as_ref() else {
             continue;
         };
-        if binding.kind == InputKind::Memory {
+        if matches!(binding.kind, InputKind::Memory | InputKind::Control) {
             continue;
         }
         let source = binding.source_end(c);
@@ -163,7 +163,7 @@ pub fn snapshot_with_source_check(
         let mut value = item(source).ok_or("A connected source has no completed output yet.")?;
         value.slot = slot;
         match binding.kind {
-            InputKind::Memory => continue,
+            InputKind::Memory | InputKind::Control => continue,
             InputKind::Artifact => {
                 let source = artifact(
                     doc.scene

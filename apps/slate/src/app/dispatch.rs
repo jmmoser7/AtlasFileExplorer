@@ -195,6 +195,10 @@ impl SlateApp {
             command if Self::image_action_command(command) => {
                 self.dispatch_image_result_action(ctx, command, detail.as_deref())
             }
+            "board.objects.link_media" => self.dispatch_link_media(detail.as_deref()),
+            command if command.starts_with("board.model.connector.") => {
+                self.dispatch_application_connector(command, detail.as_deref())
+            }
             "board.model_display" => self.dispatch_model_display(detail.as_deref()),
             "board.model_materials" => self.dispatch_model_materials(detail.as_deref()),
             "board.model_measure" => self.dispatch_model_measure(detail.as_deref()),
@@ -527,6 +531,7 @@ impl SlateApp {
             "portal.agent.fork" => self.agent_fork_selected(detail.as_deref()),
             "portal.agent.collapse" => self.agent_fold(ctx, detail.as_deref()),
             "portal.agent.fit" => self.agent_fit_to_text(ctx),
+            "portal.agent.board_access" => self.open_chat_train_board_access(),
             "portal.agent.full_access" => self.agent_toggle_full_access(),
             "portal.artifact.full_access" => self.dashboard_set_full_access(detail.as_deref()),
             "portal.agent.model_parameter" => self.generator_set_parameter(detail.as_deref()),

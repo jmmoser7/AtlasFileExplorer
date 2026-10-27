@@ -109,7 +109,12 @@ impl SlateApp {
             .unwrap_or_default();
         let dir = atlas_core::index::data_dir()
             .join("comfy-inputs")
-            .join(&session);
+            .join(&session)
+            .join(&request.id);
+        let capture_agent = format!(
+            "slate-generator-{}",
+            model_preview::view_meta::hash_bytes(session.as_bytes())
+        );
         for item in &mut request.inputs.wired {
             let node = NodeId(item.node);
             // A web page on Prompt feeds its visible text, read once as the
@@ -159,7 +164,7 @@ impl SlateApp {
             if self.model_node_info(node).is_none() {
                 continue;
             }
-            match self.capture_model_inputs(node, &dir)? {
+            match self.capture_model_inputs(node, &dir, &capture_agent)? {
                 Some(capture) => {
                     item.images = vec![capture.view.to_string_lossy().into_owned()];
                     item.depth = capture
@@ -232,7 +237,13 @@ impl SlateApp {
             let cwd = self.agent_folder_for(id).unwrap_or_else(|| ws.clone());
             let workbook = self.tab().path.clone();
             let runtime = self.agents.codex.entry(session).or_insert_with(|| {
-                atlas_ai::runtime::CodexLink::start_beside(dir, cwd, provider, workbook)
+                atlas_ai::runtime::CodexLink::start_beside(
+                    dir,
+                    cwd,
+                    provider,
+                    workbook,
+                    Some(ws.clone()),
+                )
             });
             if let Err(error) = runtime.send(request) {
                 self.fail_agent_await(id, error);

@@ -13,7 +13,6 @@
 //! (`P1.portal.contents-focus`).
 
 use crate::mesh_aa::feather_boundary;
-
 use crate::recent::{RecentEntry, RecentList};
 use crate::theme::Palette;
 use crate::tokens::{self, HomeTokens};
@@ -77,6 +76,8 @@ pub enum HomeScreenAction {
     New,
     /// Remove only the recent-list entry; the source remains on disk.
     Remove(PathBuf),
+    /// Invoke the optional secondary home action.
+    Secondary,
 }
 
 impl HomeScreen {
@@ -112,6 +113,7 @@ impl HomeScreen {
         ui: &mut Ui,
         palette: &Palette,
         recents: &RecentList,
+        secondary_label: Option<&str>,
     ) -> Option<HomeScreenAction> {
         self.sync_covers(ui.ctx(), recents);
         self.metadata.poll(ui.ctx(), recents);
@@ -131,6 +133,7 @@ impl HomeScreen {
             HomeModel {
                 id: Id::new(self.id_salt),
                 new_label: "New",
+                secondary_label,
                 covers: &covers,
                 focus: self.focus,
                 backdrop: true,
@@ -144,6 +147,7 @@ impl HomeScreen {
         self.focus = result.focus;
         match result.action {
             Some(HomeAction::New) => Some(HomeScreenAction::New),
+            Some(HomeAction::Secondary) => Some(HomeScreenAction::Secondary),
             Some(HomeAction::Open(i)) => {
                 let c = covers.get(i)?;
                 Some(HomeScreenAction::Open(c.path.clone()))
@@ -348,10 +352,11 @@ pub enum HomeAction {
     Open(usize),
     /// Start a new workspace (folder pick / blank workbook).
     New,
+    Secondary,
     Remove(usize),
 }
 
-/// Where the sole CTA (New / Select folder) sits on the shelf.
+/// Where the home actions sit on the shelf.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum HomeCta {
     /// Home screen: above the bottom edge, clear of the focused album.
@@ -363,8 +368,10 @@ pub enum HomeCta {
 pub struct HomeModel<'a> {
     /// Salts interaction ids (Atlas vs Slate vs a specific portal).
     pub id: Id,
-    /// Label for the sole CTA (e.g. "New", "Select folder").
+    /// Primary action label (e.g. "New", "Select folder").
     pub new_label: &'a str,
+    /// Optional action beside the primary button, using the same styling.
+    pub secondary_label: Option<&'a str>,
     pub covers: &'a [HomeCover],
     /// Index of the focused cover in the flow.
     pub focus: usize,
@@ -1704,35 +1711,6 @@ fn point_in_tri(p: Pos2, a: Pos2, b: Pos2, c: Pos2) -> bool {
     let b2 = sign(p, b, c) < 0.0;
     let b3 = sign(p, c, a) < 0.0;
     b1 == b2 && b2 == b3
-}
-
-fn pill_button(
-    ui: &Ui,
-    painter: &egui::Painter,
-    center: Pos2,
-    label: &str,
-    fill: Color32,
-    text: Color32,
-    type_px: f32,
-) -> bool {
-    if type_px < crate::canvas_text::consts::MIN_RENDER_PX {
-        return false;
-    }
-    let galley = painter.layout_no_wrap(label.to_owned(), FontId::proportional(type_px), text);
-    let pad = Vec2::new(type_px * 1.28, type_px * 0.57);
-    let size = galley.size() + pad * 2.0;
-    let rect = Rect::from_center_size(center, size);
-    let id = ui.id().with(("home_pill", label));
-    let resp = ui.interact(rect, id, Sense::click());
-    let fill = if resp.hovered() {
-        fill.gamma_multiply(1.08)
-    } else {
-        fill
-    };
-    let radius = (type_px * 1.14).round().clamp(4.0, 32.0) as u8;
-    painter.rect_filled(rect, CornerRadius::same(radius), fill);
-    painter.galley(rect.center() - galley.size() * 0.5, galley, text);
-    resp.clicked()
 }
 
 #[cfg(test)]

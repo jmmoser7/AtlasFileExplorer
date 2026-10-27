@@ -793,17 +793,17 @@ is searchable.
   holds the port. A press inside a multi-selection's bounding box moves that
   selection. Polygon vertex rotation halos occlude port targets; hover and
   press share this exclusion (polygon D13).
-- **P1.wire.flow-datum** (user, 17 October 2026): typed generator inputs use
+- **P1.wire.flow-datum** (user, 17 October; image output repair, 23 October 2026): typed generator inputs use
   a fixed top datum and pitch in board units, independent of host height.
-  The output shares the first input's datum, so aligned image trains keep
-  straight wires across differently sized cards. An ordinary source image's
-  right output uses that same top datum before it acquires generator inputs;
+  Ordinary image outputs stay at the right-edge midpoint, including while
+  their optional inputs are revealed, so that grip can create an AI from the
+  image. Generated images and other flow hosts keep the first input's output datum;
   a host too short to contain its rail continuously compresses the shared
   derived rail to fit, so zoom can restore its ports under
   **P1.node.hit-regions**. `WireHost` uses
   `scale = min(1, height / (30 + (rows - 1) * 42 + 14))`, with lengths in board
-  units; an ordinary source output has one row. Normal hosts retain the fixed
-  datum and pitch. This changes derived placement, not saved port identities.
+  units. Normal input rails retain the fixed datum and pitch. This changes
+  derived placement, not saved port identities.
   Saved `Side` + `t` values remain port identities; `WireHost` resolves the
   new position for paint,
   picking, routing and export. Chat header/history rails and 3D View retain

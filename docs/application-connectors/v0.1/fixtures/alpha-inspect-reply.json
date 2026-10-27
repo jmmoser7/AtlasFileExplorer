@@ -1,0 +1,23 @@
+{
+  "kind": "reply",
+  "reply": {
+    "generation": 1,
+    "outcome": {
+      "revision": null,
+      "status": "command_result",
+      "value": {
+        "application_id": "org.example.alpha",
+        "source": {
+          "revision": "revision-1",
+          "source_id": "example-source"
+        }
+      }
+    },
+    "request_id": "inspect-1",
+    "session_id": "fixture-alpha",
+    "source": {
+      "revision": "revision-1",
+      "source_id": "example-source"
+    }
+  }
+}

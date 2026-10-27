@@ -252,6 +252,9 @@ fn public_command_schema_and_argument_validation_share_one_catalogue() {
     let entries = schema.as_object().unwrap();
     let approved = std::collections::BTreeSet::from([
         "board.eraser.stroke",
+        "board.model.connector.capture",
+        "board.model.connector.inspect",
+        "board.model.connector.invoke",
         "board.objects.create_frame",
         "board.objects.create_generator",
         "board.objects.create_portal",

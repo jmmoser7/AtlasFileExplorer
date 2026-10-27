@@ -1,6 +1,8 @@
 //! The semantic layer of existing board wires. Geometry remains in `wire_host`.
 //! Resolves one immutable run input; adapters never interpret a scene.
 mod context;
+mod control;
+pub use control::infer_control_binding;
 mod ports;
 use context::shape_brief;
 pub use context::{consumed_by, context_nodes, is_chat_card, pocket_holders, pocketed};
@@ -33,6 +35,8 @@ pub enum InputKind {
     Artifact,
     /// A conversation checkpoint; never part of a prompt's content snapshot.
     Memory,
+    /// A declared local dashboard input. Never implicit prompt context.
+    Control,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -426,6 +430,11 @@ pub fn rebind_with<'a>(
         return before.binding.clone();
     }
     if let Some(old) = &before.binding {
+        if old.kind == InputKind::Control {
+            return (endpoint_node(old.source_end(before)) == endpoint_node(old.source_end(after))
+                && endpoint_node(old.target_end(before)) == endpoint_node(old.target_end(after)))
+            .then(|| old.clone());
+        }
         if old.kind == InputKind::Memory {
             return artifact::rebind_memory(scene, before, after, old);
         }

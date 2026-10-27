@@ -5,11 +5,17 @@
 //! attempts the same restoration, but cannot run after an abrupt process kill.
 //! Applications must provide their own recovery for a crashed host; this is not
 //! crash-proof hosting. Native operations belong on the host window's UI thread.
+//! Windows may normalize completely off-screen saved placement back onto a
+//! monitor during restoration; exact off-screen bounds are not guaranteed.
 //! Windows parenting can couple foreign input queues: native embedding remains
 //! cooperative, best-effort hosting. Use a companion window for stall isolation.
 
 use std::fmt;
 
+#[cfg(windows)]
+mod capture;
+#[cfg(windows)]
+pub use capture::capture_window_rgba;
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
@@ -83,11 +89,39 @@ impl NativeSurface {
         Err(SurfaceError::UnsupportedPlatform)
     }
 
+    pub fn attach_full_ui(_: isize, _: u32, _: isize) -> Result<Self, SurfaceError> {
+        Err(SurfaceError::UnsupportedPlatform)
+    }
+
+    pub fn process_id(&self) -> Result<u32, SurfaceError> {
+        Err(SurfaceError::UnsupportedPlatform)
+    }
+
     pub fn handle(&self) -> Result<isize, SurfaceError> {
         Err(SurfaceError::UnsupportedPlatform)
     }
 
     pub fn place(&self, _: SurfaceRect) -> Result<(), SurfaceError> {
+        Err(SurfaceError::UnsupportedPlatform)
+    }
+
+    pub fn place_clipped(&self, _: SurfaceRect, _: SurfaceRect) -> Result<(), SurfaceError> {
+        Err(SurfaceError::UnsupportedPlatform)
+    }
+
+    pub fn place_clipped_ready(
+        &self,
+        _: SurfaceRect,
+        _: SurfaceRect,
+    ) -> Result<bool, SurfaceError> {
+        Err(SurfaceError::UnsupportedPlatform)
+    }
+
+    pub fn park(&self) -> Result<(), SurfaceError> {
+        Err(SurfaceError::UnsupportedPlatform)
+    }
+
+    pub fn host_is_foreground(&self) -> Result<bool, SurfaceError> {
         Err(SurfaceError::UnsupportedPlatform)
     }
 
@@ -104,6 +138,10 @@ impl NativeSurface {
     }
 
     pub fn detach(&mut self) -> Result<(), SurfaceError> {
+        Err(SurfaceError::UnsupportedPlatform)
+    }
+
+    pub fn detach_hidden(&mut self) -> Result<(), SurfaceError> {
         Err(SurfaceError::UnsupportedPlatform)
     }
 }

@@ -111,3 +111,124 @@ mod tests {
         assert!(error.contains("not a file"));
     }
 }
+
+/// Bounded explicit file-link jobs. File metadata stays on workers.
+#[derive(Default)]
+pub(crate) struct MediaLinkJobs {
+    pending: Vec<PendingMediaLink>,
+}
+struct PendingMediaLink {
+    tab: u64,
+    rect: slate_doc::scene::WorldRect,
+    ready: crossbeam_channel::Receiver<Result<ReadyFile, String>>,
+}
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MediaLinkRequest {
+    path: PathBuf,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+}
+impl SlateApp {
+    pub(crate) fn dispatch_link_media(&mut self, detail: Option<&str>) -> bool {
+        let request = detail.and_then(|s| serde_json::from_str::<MediaLinkRequest>(s).ok());
+        let Some(request) = request else {
+            self.toast("Link media requires explicit path, x, y, width and height.");
+            return false;
+        };
+        if self.at_home || self.tab().read_only || self.media_links.pending.len() >= 8 {
+            return false;
+        }
+        let rect =
+            slate_doc::scene::WorldRect::new(request.x, request.y, request.width, request.height);
+        if [rect.x, rect.y, rect.w, rect.h]
+            .iter()
+            .any(|n| !n.is_finite() || n.abs() > 1e9)
+            || rect.w <= 0.0
+            || rect.h <= 0.0
+            || request.path.as_os_str().len() > 4096
+        {
+            return false;
+        }
+        let path = request.path;
+        let (tx, ready) = crossbeam_channel::bounded(1);
+        std::thread::spawn(move || {
+            let result = if atlas_core::cloud::is_dehydrated(&path) {
+                Err("Make the selected media available locally first".into())
+            } else if slate_doc::media_kind(&path) == slate_doc::MediaKind::Workbook {
+                Err("Open a workbook as a tab".into())
+            } else {
+                ReadyFile::read(path)
+            };
+            let _ = tx.send(result);
+        });
+        self.media_links.pending.push(PendingMediaLink {
+            tab: self.tab().id,
+            rect,
+            ready,
+        });
+        true
+    }
+    pub(crate) fn poll_media_links(&mut self, ctx: &eframe::egui::Context) {
+        let mut pending = std::mem::take(&mut self.media_links.pending);
+        for job in pending.drain(..) {
+            if !self.tabs.iter().any(|tab| tab.id == job.tab) {
+                continue;
+            }
+            if self.at_home || self.tab().id != job.tab {
+                self.media_links.pending.push(job);
+                continue;
+            }
+            match job.ready.try_recv() {
+                Ok(Ok(file)) => {
+                    if let Err(error) =
+                        self.link_ready_media(job.rect, file, slate_doc::scene::CmdAuthor::Human)
+                    {
+                        self.toast(error);
+                    }
+                }
+                Ok(Err(error)) => self.toast(error),
+                Err(crossbeam_channel::TryRecvError::Empty) => self.media_links.pending.push(job),
+                Err(_) => self.toast("Media preparation stopped before a complete link arrived"),
+            }
+        }
+        if !self.media_links.pending.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        }
+    }
+    /// One linked-media command for human dispatch and scoped production callers.
+    pub(crate) fn link_ready_media(
+        &mut self,
+        rect: slate_doc::scene::WorldRect,
+        file: ReadyFile,
+        author: slate_doc::scene::CmdAuthor,
+    ) -> Result<slate_doc::NodeId, String> {
+        use slate_doc::scene::{ImageNode, NodeKind, SceneCmd};
+        if self.tab().read_only {
+            return Err("Workbook is read-only".into());
+        }
+        let item = self.item_for_ready_path(&file.path, file.size, file.mtime);
+        let node = self
+            .doc()
+            .scene
+            .node_preparation()
+            .build_node(rect, NodeKind::Image(ImageNode::new(item)));
+        let id = node.id;
+        let index = self.doc().scene.nodes.len();
+        if !self.commit_scene_as(vec![SceneCmd::Add { index, node }], author.clone()) {
+            return Err("Media journal refused the link".into());
+        }
+        let history_author = match author {
+            slate_doc::scene::CmdAuthor::Human => atlas_commands::CmdAuthor::Human,
+            slate_doc::scene::CmdAuthor::Agent(name) => atlas_commands::CmdAuthor::Agent(name),
+        };
+        self.push_history_as(
+            atlas_commands::CommandId("board.objects.link_media"),
+            Some(id.0.to_string()),
+            history_author,
+        );
+        Ok(id)
+    }
+}

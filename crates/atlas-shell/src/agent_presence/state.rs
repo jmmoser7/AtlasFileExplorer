@@ -89,6 +89,11 @@ impl RosterState {
         self.popover = None;
         self.just_opened = true;
     }
+    /// Open the existing scoped agent settings from another representation.
+    pub fn open_agent_settings(&mut self, id: &str) {
+        self.open_chat(id);
+        self.popover = Some(Popover::Advanced);
+    }
     /// The anchor is the screen-space top-left of a world-sized attached chat.
     pub fn open_chat_at(&mut self, id: &str, anchor: Pos2, zoom: f32) {
         self.open_chat(id);

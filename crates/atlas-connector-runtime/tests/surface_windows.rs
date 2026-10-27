@@ -1,8 +1,11 @@
 #![cfg(windows)]
+#[path = "surface_windows/parking.rs"]
+mod parking;
 
 use atlas_connector_runtime::surface::{NativeSurface, SurfaceError, SurfaceRect};
 use windows::core::w;
-use windows::Win32::Foundation::{HWND, RECT};
+use windows::Win32::Foundation::{HWND, POINT, RECT};
+use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -46,6 +49,8 @@ impl Drop for OwnedWindow {
 #[derive(Debug, PartialEq, Eq)]
 struct Snapshot {
     parent: isize,
+    owner: isize,
+    menu: isize,
     style: isize,
     exstyle: isize,
     rect: (i32, i32, i32, i32),
@@ -68,6 +73,8 @@ fn snapshot(window: &OwnedWindow) -> Snapshot {
         GetWindowPlacement(window.0, &mut placement).unwrap();
         Snapshot {
             parent: GetParent(window.0).unwrap_or_default().0 as isize,
+            owner: GetWindow(window.0, GW_OWNER).unwrap_or_default().0 as isize,
+            menu: GetMenu(window.0).0 as isize,
             style: GetWindowLongPtrW(window.0, GWL_STYLE),
             exstyle: GetWindowLongPtrW(window.0, GWL_EXSTYLE),
             rect: rect_tuple(rect),
@@ -248,4 +255,174 @@ fn destroyed_window_identity_is_refused_without_touching_replacement() {
     drop(surface);
     assert_eq!(snapshot(&replacement), before);
     attach(&replacement, &host).detach().unwrap();
+}
+
+// These windows stay off-screen so native acceptance can use the real desktop.
+fn full_ui_host() -> OwnedWindow {
+    let window = OwnedWindow::new(None, WS_OVERLAPPEDWINDOW, WINDOW_EX_STYLE::default());
+    unsafe {
+        SetWindowPos(
+            window.0,
+            None,
+            -30_000,
+            -30_000,
+            800,
+            600,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        )
+        .unwrap();
+    }
+    window
+}
+
+fn add_native_menu(window: &OwnedWindow) {
+    unsafe {
+        let menu = CreateMenu().unwrap();
+        AppendMenuW(menu, MF_STRING, 1, w!("File")).unwrap();
+        AppendMenuW(menu, MF_STRING, 2, w!("Edit")).unwrap();
+        AppendMenuW(menu, MF_STRING, 3, w!("View")).unwrap();
+        // DestroyWindow owns destruction of its assigned menu.
+        SetMenu(window.0, Some(menu)).unwrap();
+        assert_eq!(GetMenuItemCount(Some(menu)), 3);
+    }
+}
+
+#[test]
+fn full_ui_preserves_real_menu_without_border_places_and_restores_native_frame() {
+    let original_owner = full_ui_host();
+    let host = full_ui_host();
+    let window = OwnedWindow::new(
+        Some(original_owner.0),
+        WS_OVERLAPPEDWINDOW,
+        WS_EX_TOOLWINDOW,
+    );
+    add_native_menu(&window);
+    let before = snapshot(&window);
+    assert_eq!(before.owner, original_owner.raw());
+    assert_ne!(before.menu, 0);
+    let mut surface =
+        NativeSurface::attach_full_ui(window.raw(), unsafe { GetCurrentProcessId() }, host.raw())
+            .unwrap();
+    let attached = snapshot(&window);
+    assert_eq!(attached.owner, host.raw());
+    assert_eq!(
+        attached.style,
+        before.style
+            & !((WS_CAPTION | WS_THICKFRAME | WS_BORDER | WS_DLGFRAME | WS_MAXIMIZE | WS_MINIMIZE).0
+                as isize)
+    );
+    assert_eq!(
+        attached.exstyle,
+        before.exstyle
+            & !((WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_DLGMODALFRAME | WS_EX_STATICEDGE).0
+                as isize)
+    );
+    assert_eq!(attached.menu, before.menu);
+    assert!(!unsafe { IsChild(host.0, window.0).as_bool() });
+    let rect = SurfaceRect {
+        x: 21,
+        y: 25,
+        width: 320,
+        height: 240,
+    };
+    let mut origin = POINT {
+        x: rect.x,
+        y: rect.y,
+    };
+    assert!(unsafe { ClientToScreen(host.0, &mut origin).as_bool() });
+    surface.place(rect).unwrap();
+    assert_eq!(
+        snapshot(&window).rect,
+        (
+            origin.x,
+            origin.y,
+            origin.x + rect.width,
+            origin.y + rect.height
+        )
+    );
+    assert_eq!(snapshot(&window).menu, before.menu);
+    surface.hide().unwrap();
+    surface.detach().unwrap();
+    assert_eq!(snapshot(&window), before);
+    assert_eq!(surface.handle(), Err(SurfaceError::Detached));
+    NativeSurface::attach_full_ui(window.raw(), unsafe { GetCurrentProcessId() }, host.raw())
+        .unwrap()
+        .detach()
+        .unwrap();
+}
+
+#[test]
+fn full_ui_wrong_pid_thread_and_child_windows_are_refused_without_mutation() {
+    let host = full_ui_host();
+    let window = full_ui_host();
+    add_native_menu(&window);
+    let before = snapshot(&window);
+    let pid = unsafe { GetCurrentProcessId() };
+    assert!(matches!(
+        NativeSurface::attach_full_ui(window.raw(), pid + 1, host.raw()),
+        Err(SurfaceError::WrongProcess { .. })
+    ));
+    assert!(matches!(
+        NativeSurface::attach_full_ui(0, pid, host.raw()),
+        Err(SurfaceError::InvalidWindow)
+    ));
+    let (source, target) = (window.raw(), host.raw());
+    std::thread::spawn(move || {
+        assert!(matches!(
+            NativeSurface::attach_full_ui(source, pid, target),
+            Err(SurfaceError::WrongThread)
+        ));
+    })
+    .join()
+    .unwrap();
+    let child = OwnedWindow::new(Some(host.0), WS_CHILD, WINDOW_EX_STYLE::default());
+    let child_before = snapshot(&child);
+    assert!(matches!(
+        NativeSurface::attach_full_ui(child.raw(), pid, host.raw()),
+        Err(SurfaceError::InvalidWindow)
+    ));
+    assert!(matches!(
+        NativeSurface::attach_full_ui(window.raw(), pid, child.raw()),
+        Err(SurfaceError::InvalidWindow)
+    ));
+    assert_eq!(snapshot(&window), before);
+    assert_eq!(snapshot(&child), child_before);
+}
+
+#[test]
+fn full_ui_and_child_attachment_share_one_host_slot_and_drop_restoration() {
+    let host = full_ui_host();
+    let window = OwnedWindow::new(None, WS_OVERLAPPEDWINDOW, WINDOW_EX_STYLE::default());
+    let other = full_ui_host();
+    add_native_menu(&window);
+    let before = snapshot(&window);
+    let pid = unsafe { GetCurrentProcessId() };
+    {
+        let surface = NativeSurface::attach_full_ui(window.raw(), pid, host.raw()).unwrap();
+        assert!(matches!(
+            NativeSurface::attach(window.raw(), pid, host.raw()),
+            Err(SurfaceError::AlreadyAttached)
+        ));
+        assert!(matches!(
+            NativeSurface::attach(other.raw(), pid, host.raw()),
+            Err(SurfaceError::AlreadyAttached)
+        ));
+        assert!(matches!(
+            surface.place(SurfaceRect {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 50
+            }),
+            Err(SurfaceError::InvalidRect)
+        ));
+    }
+    assert_eq!(snapshot(&window), before);
+    let child_surface = attach(&other, &host);
+    assert!(matches!(
+        NativeSurface::attach_full_ui(window.raw(), pid, host.raw()),
+        Err(SurfaceError::AlreadyAttached)
+    ));
+    drop(child_surface);
+    assert_eq!(snapshot(&window), before);
 }

@@ -29,6 +29,8 @@ pub(crate) mod crosstalk;
 mod life;
 #[path = "board_agent_outputs.rs"]
 mod outputs;
+#[cfg(test)]
+mod refresh_tests;
 mod schedule;
 mod train_ux;
 

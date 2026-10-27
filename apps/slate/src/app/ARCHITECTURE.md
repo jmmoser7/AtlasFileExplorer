@@ -455,8 +455,15 @@ script serialization, and workbook-relative paths resolve through
 `board_portal::resolve_source` before entering the cache. No table filesystem
 probe or byte read occurs on the frame loop.
 
-The page has no channel back into Slate — web messages and host objects are
-disabled — which is what makes Art. VII.4 structural rather than a promise.
+Web messages and host objects remain disabled. The 26 October 2026 user-requested
+declared-control modality is a narrow exception: `board_web/control.rs` polls a
+fixed, bounded data queue from a workbook-local page. `atlas_agent::control`
+owns its versioned manifest and scalar intent schema. The existing
+`table_links::dashboard_link_script` owns injection alongside table inputs;
+declared actions resolve explicit board wires and registered commands in Slate,
+never page-selected scripts or private transport addresses. Current source,
+authority and value bounds are rechecked before dispatch. Article VII.4's
+arbitrary-script prohibition remains intact.
 
 A `window.open` that asks for a size or position (sign-in windows) opens in a
 small top-level window owned by the board window, hosting a second view from

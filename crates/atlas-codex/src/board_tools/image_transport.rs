@@ -17,7 +17,7 @@ const ARTIFACT_DIRS: [&str; 3] = [
 ];
 
 pub(super) fn content_items(
-    workspace: &Path,
+    workspace: Option<&Path>,
     cloud_guard: Option<fn(&Path) -> bool>,
     operation: &BoardOperation,
     success: bool,
@@ -30,6 +30,7 @@ pub(super) fn content_items(
     if !success || !image_operation(operation) {
         return Ok(items);
     }
+    let workspace = workspace.ok_or("The host has not authorized an AI image workspace")?;
     let path = result["image_source"]
         .as_str()
         .filter(|s| !s.is_empty())
@@ -52,7 +53,10 @@ fn image_operation(operation: &BoardOperation) -> bool {
     };
     matches!(
         command.as_str(),
-        "presence.read_image" | "presence.preview" | "portal.web.capture"
+        "presence.read_image"
+            | "presence.preview"
+            | "portal.web.capture"
+            | "board.model.connector.capture"
     ) || (command == "portal.atlas.read_file" && arguments["mode"] == "image")
 }
 
@@ -215,10 +219,77 @@ mod tests {
     }
 
     #[test]
+    fn staged_image_uses_authorized_ai_workspace_not_the_project_directory() {
+        let (workspace, path) = fixture();
+        let project = workspace.with_extension("project");
+        fs::create_dir_all(project.join("portal-captures")).unwrap();
+        let sibling = project.join("portal-captures/capture.png");
+        fs::copy(&path, &sibling).unwrap();
+        let operation = BoardOperation::Invoke {
+            command: "presence.read_image".into(),
+            targets: vec!["4".into()],
+            arguments: json!({}),
+        };
+
+        let prepared = json!({"image_source":path});
+        let items = content_items(
+            Some(&workspace),
+            Some(allow_cloud),
+            &operation,
+            true,
+            &prepared,
+        )
+        .unwrap();
+        assert_eq!(items[1]["type"], "inputImage");
+        assert!(content_items(
+            Some(&project),
+            Some(allow_cloud),
+            &operation,
+            true,
+            &prepared,
+        )
+        .is_err());
+        assert!(content_items(
+            Some(&workspace),
+            Some(allow_cloud),
+            &operation,
+            true,
+            &json!({"image_source":sibling}),
+        )
+        .is_err());
+        assert!(content_items(None, Some(allow_cloud), &operation, true, &prepared).is_err());
+        fs::remove_dir_all(project).unwrap();
+        fs::remove_dir_all(workspace).unwrap();
+    }
+
+    #[test]
+    fn missing_image_workspace_does_not_block_text_or_failed_commands() {
+        let normal = BoardOperation::Read {
+            node_ids: vec!["4".into()],
+            offset: 0,
+            limit: 1,
+        };
+        let result = json!({"text":"available without image authority"});
+        assert_eq!(
+            content_items(None, Some(allow_cloud), &normal, true, &result)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            content_items(None, Some(allow_cloud), &capture(), false, &result)
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
     fn emits_image_content_only_for_successful_image_commands() {
         let (root, path) = fixture();
         let result = json!({"image_source":path,"width":1,"height":1});
-        let items = content_items(&root, Some(allow_cloud), &capture(), true, &result).unwrap();
+        let items =
+            content_items(Some(&root), Some(allow_cloud), &capture(), true, &result).unwrap();
         assert_eq!(items.len(), 2);
         assert_eq!(items[1]["type"], "inputImage");
         assert!(items[1]["imageUrl"]
@@ -232,7 +303,7 @@ mod tests {
             limit: 1,
         };
         assert_eq!(
-            content_items(&root, Some(allow_cloud), &normal, true, &result)
+            content_items(Some(&root), Some(allow_cloud), &normal, true, &result)
                 .unwrap()
                 .len(),
             1
@@ -243,7 +314,7 @@ mod tests {
             arguments: json!({"mode":"image"}),
         };
         assert_eq!(
-            content_items(&root, Some(allow_cloud), &atlas_image, true, &result)
+            content_items(Some(&root), Some(allow_cloud), &atlas_image, true, &result)
                 .unwrap()
                 .len(),
             2
@@ -254,13 +325,13 @@ mod tests {
             arguments: json!({"mode":"text"}),
         };
         assert_eq!(
-            content_items(&root, Some(allow_cloud), &atlas_text, true, &result)
+            content_items(Some(&root), Some(allow_cloud), &atlas_text, true, &result)
                 .unwrap()
                 .len(),
             1
         );
         assert_eq!(
-            content_items(&root, Some(allow_cloud), &capture(), false, &result)
+            content_items(Some(&root), Some(allow_cloud), &capture(), false, &result)
                 .unwrap()
                 .len(),
             1
@@ -297,6 +368,67 @@ mod tests {
         let file = fs::File::create(&oversized).unwrap();
         file.set_len(MAX_PNG_BYTES + 1).unwrap();
         assert!(read_workspace_png(&root, &oversized, Some(allow_cloud)).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn native_capture_transports_pixels_without_enabling_other_native_results() {
+        let (root, path) = fixture();
+        let result = json!({"image_source":path,"width":1,"height":1});
+        let native = |command: &str| BoardOperation::Invoke {
+            command: command.into(),
+            targets: vec!["native-model".into()],
+            arguments: json!({}),
+        };
+        let operation = native("board.model.connector.capture");
+        let items =
+            content_items(Some(&root), Some(allow_cloud), &operation, true, &result).unwrap();
+        assert_eq!(items.len(), 2);
+        let encoded = items[1]["imageUrl"]
+            .as_str()
+            .unwrap()
+            .strip_prefix("data:image/png;base64,")
+            .unwrap();
+        assert_eq!(
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded).unwrap(),
+            fs::read(&path).unwrap()
+        );
+        for command in [
+            "board.model.connector.inspect",
+            "board.model.connector.invoke",
+            "board.model.connector.activate",
+            "board.model.connector.activate_draft",
+        ] {
+            assert_eq!(
+                content_items(
+                    Some(&root),
+                    Some(allow_cloud),
+                    &native(command),
+                    true,
+                    &result
+                )
+                .unwrap()
+                .len(),
+                1
+            );
+        }
+        assert_eq!(
+            content_items(Some(&root), Some(allow_cloud), &operation, false, &result)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(content_items(Some(&root), Some(deny_cloud), &operation, true, &result).is_err());
+        let outside = root.join("unowned.png");
+        fs::copy(&path, &outside).unwrap();
+        assert!(content_items(
+            Some(&root),
+            Some(allow_cloud),
+            &operation,
+            true,
+            &json!({"image_source":outside})
+        )
+        .is_err());
         fs::remove_dir_all(root).unwrap();
     }
 

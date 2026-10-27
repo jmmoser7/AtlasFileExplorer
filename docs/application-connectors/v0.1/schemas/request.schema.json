@@ -1,0 +1,615 @@
+{
+  "$defs": {
+    "CallerAuthority": {
+      "oneOf": [
+        {
+          "properties": {
+            "action_id": {
+              "description": "Trusted host-issued action receipt, scoped to this request ID.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "human",
+              "type": "string"
+            },
+            "target_source": {
+              "default": null,
+              "description": "Required for a source/draft mutation, naming the specific target.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "action_id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "agent_id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "agent",
+              "type": "string"
+            },
+            "workspace_autonomy": {
+              "default": false,
+              "description": "v0.2 draft edits additionally require a host-local scoped grant.\nThis field alone never grants mutation authority.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "agent_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DetachPolicy": {
+      "oneOf": [
+        {
+          "const": "preserve",
+          "description": "Return the surface to its owner; unsaved material stays open.",
+          "type": "string"
+        },
+        {
+          "const": "close_if_clean",
+          "description": "A close request is refused while dirty. No implicit save/discard exists.",
+          "type": "string"
+        }
+      ]
+    },
+    "Operation": {
+      "oneOf": [
+        {
+          "properties": {
+            "method": {
+              "const": "bind_source",
+              "type": "string"
+            },
+            "mode": {
+              "$ref": "#/$defs/SourceMode"
+            },
+            "selection_id": {
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/$defs/SourceRef"
+            }
+          },
+          "required": [
+            "method",
+            "source",
+            "mode",
+            "selection_id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "unbind_source",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "describe_commands",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "command_id": {
+              "type": "string"
+            },
+            "method": {
+              "const": "invoke_command",
+              "type": "string"
+            },
+            "parameters": true
+          },
+          "required": [
+            "method",
+            "command_id",
+            "parameters"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "action": {
+              "$ref": "#/$defs/SurfaceAction"
+            },
+            "method": {
+              "const": "surface",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "action"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "describe_surfaces",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "describe_view_schemas",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "snapshot_view",
+              "type": "string"
+            },
+            "schema": {
+              "$ref": "#/$defs/ViewSchema"
+            }
+          },
+          "required": [
+            "method",
+            "schema"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "restore_view",
+              "type": "string"
+            },
+            "view": {
+              "$ref": "#/$defs/ViewSnapshot"
+            }
+          },
+          "required": [
+            "method",
+            "view"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "capture",
+              "type": "string"
+            },
+            "schema": {
+              "$ref": "#/$defs/ViewSchema"
+            }
+          },
+          "required": [
+            "method",
+            "schema"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "publish",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "detach",
+              "type": "string"
+            },
+            "policy": {
+              "$ref": "#/$defs/DetachPolicy"
+            }
+          },
+          "required": [
+            "method",
+            "policy"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "cancel",
+              "type": "string"
+            },
+            "request_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "request_id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "operation_status",
+              "type": "string"
+            },
+            "request_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "request_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProcessOwnership": {
+      "enum": [
+        "attached_existing",
+        "launched_dedicated"
+      ],
+      "type": "string"
+    },
+    "SourceLocator": {
+      "description": "Stable, portable locator. A detected root requires its relative form.\nResolving paths and checking filesystem access remain adapter responsibilities.",
+      "properties": {
+        "absolute": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "relative": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "root_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "SourceMode": {
+      "enum": [
+        "linked",
+        "isolated_draft"
+      ],
+      "type": "string"
+    },
+    "SourceRef": {
+      "description": "Revisions are opaque equality tokens, never assumed ordered or content hashes.",
+      "properties": {
+        "locator": {
+          "$ref": "#/$defs/SourceLocator"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "locator",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "SourceScope": {
+      "properties": {
+        "revision": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "SurfaceAction": {
+      "oneOf": [
+        {
+          "properties": {
+            "action": {
+              "const": "attach",
+              "type": "string"
+            },
+            "surface": {
+              "$ref": "#/$defs/SurfaceDescriptor"
+            }
+          },
+          "required": [
+            "action",
+            "surface"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "place",
+              "type": "string"
+            },
+            "geometry": {
+              "$ref": "#/$defs/SurfaceGeometry"
+            }
+          },
+          "required": [
+            "action",
+            "geometry"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "show",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "hide",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "focus",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "blur",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SurfaceDescriptor": {
+      "properties": {
+        "can_detach": {
+          "type": "boolean"
+        },
+        "mode": {
+          "$ref": "#/$defs/SurfaceMode"
+        },
+        "native_handle": {
+          "default": null,
+          "description": "Decimal OS window handle for native modes; session-local, never durable.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "process_ownership": {
+          "$ref": "#/$defs/ProcessOwnership"
+        },
+        "surface_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "surface_id",
+        "mode",
+        "process_ownership",
+        "can_detach"
+      ],
+      "type": "object"
+    },
+    "SurfaceGeometry": {
+      "properties": {
+        "dpi": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "height_px": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "width_px": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "x_px": {
+          "description": "Parent client coordinates in physical pixels (not logical canvas units).",
+          "format": "int32",
+          "type": "integer"
+        },
+        "y_px": {
+          "format": "int32",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x_px",
+        "y_px",
+        "width_px",
+        "height_px",
+        "dpi"
+      ],
+      "type": "object"
+    },
+    "SurfaceMode": {
+      "enum": [
+        "native_full_ui",
+        "native_viewport",
+        "companion_window",
+        "headless"
+      ],
+      "type": "string"
+    },
+    "ViewFidelity": {
+      "enum": [
+        "exact_native",
+        "shared_approximation",
+        "poster_only"
+      ],
+      "type": "string"
+    },
+    "ViewSchema": {
+      "properties": {
+        "namespace": {
+          "type": "string"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "namespace",
+        "version"
+      ],
+      "type": "object"
+    },
+    "ViewSnapshot": {
+      "description": "Native state is opaque data scoped to a reverse-domain application namespace;\nv0 deliberately defines no portable 3D camera until the camera owner exports it.",
+      "properties": {
+        "fidelity": {
+          "$ref": "#/$defs/ViewFidelity"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceScope"
+        },
+        "state": true
+      },
+      "required": [
+        "source",
+        "schema",
+        "schema_version",
+        "fidelity",
+        "state"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "caller": {
+      "$ref": "#/$defs/CallerAuthority"
+    },
+    "generation": {
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "operation": {
+      "$ref": "#/$defs/Operation"
+    },
+    "request_id": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceScope"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "session_id",
+    "generation",
+    "request_id",
+    "caller",
+    "operation"
+  ],
+  "title": "RequestEnvelope",
+  "type": "object"
+}

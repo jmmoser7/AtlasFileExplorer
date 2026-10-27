@@ -1,6 +1,6 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-10-20",
+  "updated": "2026-10-27",
   "tools": {
     "selection-hit-regions": {
       "status": "agreed",
@@ -719,11 +719,11 @@
           "decided": "2026-10-16"
         },
         "D03": {
-          "behavior": "P1.wire.flow-datum: typed inputs keep constant top spacing and the output aligns with the first row; all anchor consumers share WireHost. Existing three-input raster conversion and gesture grammar remain unchanged.",
+          "behavior": "P1.wire.flow-datum: typed inputs keep constant top spacing. Ordinary images use the right-edge midpoint output to open AI creation choices; generated images retain the top output aligned with the first input. All anchor consumers share WireHost. Existing three-input raster conversion remains unchanged.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-10-17"
+          "decided": "2026-10-23"
         },
         "D04": {
           "behavior": "Layer and image circles preview on hover, select on click, drag after shared threshold; layer reorder slips adjacent thumbnails. A palette press never starts a stroke.",
@@ -1542,7 +1542,7 @@
       ],
       "decisions": {
         "D01": {
-          "behavior": "Palette: \"agent portal\" + Enter; Portals dock flyout; command `board.portal.agent`; board view only. Ollama and ComfyUI are no longer program tiles: text and image agents start from media, through the Agent squircle on a selected picture, video, 3D model, text or generated frame. Existing Ollama and ComfyUI cards keep working.",
+          "behavior": "Palette: \"agent portal\" + Enter; Portals dock flyout; command `board.portal.agent`; board view only. Ollama and ComfyUI are no longer program tiles: text and image agents start from media, through the Agent squircle on a selected picture, video, 3D model, text or generated frame. Existing Ollama and ComfyUI cards keep working. On a 3D model, the Agent squircle starter also offers Agent · chat train, reusing portal.agent.spawn to create an ordinary chat and source wire without running it or granting board access; native tools still require the chat's explicit Board access and an isolated copy plus mutation autonomy for edits.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1919,6 +1919,265 @@
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-08-07"
+        }
+      }
+    },
+    "portal-web-controls": {
+      "status": "agreed",
+      "family": "portal",
+      "reference": "User-requested reusable native dashboard controls, 26 October 2026; implementation authorized, remaining native acceptance pending.",
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P1.portal",
+        "P2.PortalHost",
+        "portal-web-embed"
+      ],
+      "decisions": {
+        "D01": {
+          "behavior": "Use the existing local Web portal, a validated version-1 declaration and an explicit semantic Control input wire; no new tool, binding or implicit target.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D02": {
+          "behavior": "The declaration remains available for the current page; each value change is a separate intent. Uncertain native effects are never automatically replayed.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D03": {
+          "behavior": "The fixed queue progresses from declared and ready to admitted native ticket to terminal reply; a returned sequence or queued ticket does not imply native completion.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D04": {
+          "behavior": "Inherit portal-web-embed contents focus and page click/drag handling. A packet cannot assert its own human-input provenance.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D05": {
+          "behavior": "Inherit portal-web-embed and P1.portal contents interaction; no additional Slate modifier grammar.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D06": {
+          "behavior": "Frame and wire edits inherit P1.node. Control values use their declared type and bounds; native parameters do not acquire canvas snapping.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D07": {
+          "behavior": "No additional Slate value-lock mode; the declaration fixes the allowed parameter leaf and value domain.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D08": {
+          "behavior": "Accept only the declared trigger, integer, finite number, boolean or bounded choice value; replace only its declared object-key parameter leaf.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D09": {
+          "behavior": "Publish readiness and bounded typed replies. Only completed native domain success confirms a change; partial and uncertain effects remain explicit.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D10": {
+          "behavior": "Inherit the existing Web page cursor and portal frame cursor; no second host pointer.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D11": {
+          "behavior": "Frame and wire edits use the SceneJournal. Native effects use the existing command ticket, validated receipt and native authority owner; the page cannot invent an author or receipt.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D12": {
+          "behavior": "Inherit the portal cancel stack. Leaving or rebinding invalidates pending publication; an already admitted native effect is retained truthfully rather than claimed rolled back.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D13": {
+          "behavior": "Inherit portal-web-embed and P1.node selection chrome; controls do not create additional board objects.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D14": {
+          "behavior": "Edit the linked page or its ordinary frame/wires through their existing owners. Withdrawing or changing a declaration invalidates its pending result.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D15": {
+          "behavior": "No arbitrary command names, lifecycle actions, source write-back, scripts, general page messaging, host objects or page-supplied identities and handles.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D16": {
+          "behavior": "Inherit portal-web-embed frame styling; page CSS stays page-owned and does not inherit board shape defaults.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D17": {
+          "behavior": "Inherit the existing portal and page hit-testing/input owner; controls do not add a parallel board pick route.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D18": {
+          "behavior": "This remains a host portal. Native mutation requires the existing isolated draft and focused recent direct human page input, without an agent focus lease; page data grants no authority.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D19": {
+          "behavior": "Bind only the validated local page within its existing source root and its explicit Control input wire. A decorative wire or a page-provided source ID cannot select a native target.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D20": {
+          "behavior": "The local declaration supplies a fixed registered command and bounded parameter leaf. Packets carry only version, control ID, sequence and value, never session or revision authority.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D21": {
+          "behavior": "Navigation, reload, declaration withdrawal/change, wire removal/rebind and native source replacement invalidate pending publication through existing epochs and binding snapshots.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D22": {
+          "behavior": "Inherit Web contents focus. Native mutation additionally requires recent input recorded by the host page-input owner; agent-owned focus never becomes human authority.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D23": {
+          "behavior": "Inherit portal-web-embed WebView pooling, canvas scale and contents LOD; controls do not introduce a separate live view.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D24": {
+          "behavior": "Inherit the existing local-page packaging/iframe and remote poster rules. Exported page controls acquire no Slate/native authority outside the running host.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D25": {
+          "behavior": "No new native bake command; inherit the existing Web poster bake. Native modeling remains in the registered native command owner.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D26": {
+          "behavior": "Authored page locators and semantic wires follow the document. Native sessions, request tickets, input focus and control readiness remain per-peer runtime state.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D27": {
+          "behavior": "Agents retain the existing scoped BoardCall native route. Declaring or editing a page does not allow an agent to obtain the direct-human control route.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D28": {
+          "behavior": "Validate each declared control and monotonic sequence in its current document epoch; retain the actual native receipt and recheck the same source/wire binding before publishing.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D29": {
+          "behavior": "Packets are at most 32 KiB, manifests 32 controls, batches eight intents and object-key paths four levels; poll at most eight times per second with one native ticket per connected source.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D30": {
+          "behavior": "Missing local sources, invalid declarations, values, commands or bindings and revoked input authority fail closed. Partial and outcome-unknown native replies remain distinct from success.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D31": {
+          "behavior": "The ordinary frame and wire are authored document state; queue sequences, tickets, readiness, replies and recent-input timestamps are ephemeral runtime state.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D32": {
+          "behavior": "Only the closed v1 local declaration adapter reaches registered native commands after all host checks. Existing Web messages, host objects and arbitrary script/transport bridges remain disabled.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D33": {
+          "behavior": "Inherit portal-web-embed identity, fold and context actions; this extension adds no separate host chrome.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D34": {
+          "behavior": "Inherit the shared portal maximize/restore and cancel owner; page controls do not resize or rehost a native window.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
+        },
+        "D35": {
+          "behavior": "Dashboard widgets stay inside their linked local page. No control-specific settings are added to Document Settings or another board-wide panel.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-27"
         }
       }
     },
@@ -6342,6 +6601,264 @@
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-27"
+        }
+      }
+    },
+    "portal-application-connector": {
+      "status": "agreed",
+      "family": "portal",
+      "reference": "User-directed Rhino.Inside integration and autonomous build, 25 October 2026; inherited host behavior; native acceptance pending.",
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P1.portal",
+        "P2.PortalHost"
+      ],
+      "decisions": {
+        "D01": {
+          "behavior": "Explicit Rhino blister activation on an eligible linked 3dm starts the selected registered connector; ordinary loading retains the existing Slate model preview.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D02": {
+          "behavior": "Activation is session-local for this model. Reusing the same blister returns to Slate preview while retaining native documents and unsaved changes.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D03": {
+          "behavior": "P2.PortalHost lifecycle and contents-focus govern entry and exit; runtime states distinguish opening, active, parked, unavailable, and failed.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D04": {
+          "behavior": "P1.node select/transform and P1.portal contents interaction retain the existing press and drag thresholds.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D05": {
+          "behavior": "P0 modifiers remain unchanged; Rhino receives native modifiers only while its contents own interaction.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D06": {
+          "behavior": "Board placement uses the shared snap owner. Rhino modeling constraints and view snaps belong to Rhino inside its portal.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D07": {
+          "behavior": "Native Rhino direction and value locks are handled by the foreign application while contents are focused.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D08": {
+          "behavior": "Native Rhino command entry remains inside its native UI; the board adds no duplicate Rhino numeric editor.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D09": {
+          "behavior": "Retain the existing preview while opening; display the actual registration, connection, runtime, or source failure. Never paint a mock native editing session.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D10": {
+          "behavior": "P1.portal contents-focus owns input handoff; outside contents use ordinary Slate cursors and hit rules.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D11": {
+          "behavior": "Linked captures and board geometry changes use named SceneCmd transactions. Rhino owns native geometry edits and native undo; connection state is ephemeral.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D12": {
+          "behavior": "P0 Esc layering releases foreign contents focus before leaving maximize. Detach preserves the native document; disconnection never grants save, discard, or process termination.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D13": {
+          "behavior": "P1.node selection and existing image-backed model properties remain available around the hosted contents.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D14": {
+          "behavior": "Return to either preview or native mode from the same source. Park other model sessions before attaching the selected native surface.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D15": {
+          "behavior": "No arbitrary-code endpoint, workbook executable paths, automatic original-file write-back, or claim that Rhino runs inside HTML export.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D16": {
+          "behavior": "Retain the existing image/model authored styling owners. Native capture records what Rhino reports with its own view schema and consistency.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D17": {
+          "behavior": "P1.node and P1.portal shared body/border hit ownership; reserve the Slate control apron outside the native child window.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D18": {
+          "behavior": "Host-class surface attached to an existing image-backed model node. Rhino owns native edits; Slate owns the frame and linked output journal.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D19": {
+          "behavior": "Resolve the linked model through board_portal source resolution and bind its stable source/revision only after explicit activation. Launch roots come from machine registration.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D20": {
+          "behavior": "Slate preview camera remains in its existing model. Native view data is namespaced and versioned; native handles, PIDs and process state never enter the workbook.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D21": {
+          "behavior": "Source rebind, deletion, closure and generation change invalidate old replies and captures. Preserve dirty native work rather than silently rebinding it.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D22": {
+          "behavior": "The Rhino blister changes the current model from Slate preview to the actual declared native Rhino surface and back. Native modeling works inside the focused contents.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D23": {
+          "behavior": "Use the shared host shell and existing model LOD. A parked or unavailable native surface leaves a useful preview/poster.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D24": {
+          "behavior": "Export the ordinary poster and source pointer. A native foreign editor is unavailable in exported HTML and is identified honestly.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D25": {
+          "behavior": "Capture uses the shared output/publication path to add one linked still beside the source without replacing the model.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D26": {
+          "behavior": "Board frame and authored linked assets follow existing collaboration. Each machine resolves its own connector, native process and license; live foreign contents are per-peer.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D27": {
+          "behavior": "Registered activation, deactivation, capture, view restore and invocation share human/agent dispatch. v0.2 agent draft edits require an explicit source/document/command grant; linked originals remain human-only.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D28": {
+          "behavior": "Capture retains source revision, native schema, projection/camera state, dimensions, timestamp and actual consistency. Foreign app state is not claimed deterministic.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D29": {
+          "behavior": "Launch, IPC, hashing, artifact I/O and native readback run on bounded workers; stale generations are discarded. Native window geometry stays on its required UI thread.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D30": {
+          "behavior": "Missing connector/runtime/license, failed authentication, wrong source/revision, unsupported schema, dirty rebind, lost window and uncertain outcomes are surfaced distinctly without fabricating success.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D31": {
+          "behavior": "The source locator and board frame are durable authored intent. Native runtime and per-peer view are ephemeral; captured view provenance is durable linked-asset metadata.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D32": {
+          "behavior": "Machine registration selects the executable and approved roots. Authenticated same-user pipes pin PID/session/creation time; no workbook or connector message grants launch or mutation authority.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D33": {
+          "behavior": "Retain the bottom blister and relevant Slate meta controls outside the native body; use atlas-shell layout, icons and scale owners.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D34": {
+          "behavior": "Use the existing shared portal maximize shell extended to eligible model images. Preserve the native surface and blister, resize with DPI-aware physical geometry, and use existing Esc peeling.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-25"
+        },
+        "D35": {
+          "behavior": "Rhino-specific controls stay on this model portal; no per-kind controls are added to board-wide Document Settings.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-25"
         }
       }
     }

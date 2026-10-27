@@ -1,0 +1,22 @@
+{
+  "kind": "request",
+  "request": {
+    "caller": {
+      "agent_id": "example-agent",
+      "kind": "agent",
+      "workspace_autonomy": false
+    },
+    "generation": 1,
+    "operation": {
+      "command_id": "org.slate.mock.inspect",
+      "method": "invoke_command",
+      "parameters": {}
+    },
+    "request_id": "inspect-1",
+    "session_id": "fixture-alpha",
+    "source": {
+      "revision": "revision-1",
+      "source_id": "example-source"
+    }
+  }
+}

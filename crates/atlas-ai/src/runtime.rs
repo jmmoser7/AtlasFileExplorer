@@ -215,6 +215,7 @@ impl Engine {
         cancel: &AtomicBool,
         preview: &atlas_comfy::PreviewSink,
         workbook: Option<&Path>,
+        board_image_workspace: Option<&Path>,
     ) -> Result<Self, String> {
         let leaf = crate::packs::leaf(provider);
         if leaf == Some("atlas-ollama") {
@@ -249,6 +250,9 @@ impl Engine {
         let mut c = atlas_codex::Client::start(&executable, cwd, previous.as_deref())?;
         c.set_approval_dir(dir);
         c.set_board_cloud_guard(atlas_core::cloud::is_dehydrated);
+        if let Some(workspace) = board_image_workspace {
+            c.set_board_image_workspace(workspace);
+        }
         std::fs::write(dir.join("codex-thread.txt"), c.thread_id()).map_err(|e| e.to_string())?;
         Ok(Self::Codex(Box::new(c)))
     }
@@ -278,15 +282,18 @@ impl CodexLink {
         Self::start_provider(dir, cwd, "codex".into())
     }
     pub fn start_provider(dir: PathBuf, cwd: PathBuf, provider: String) -> Self {
-        Self::start_beside(dir, cwd, provider, None)
+        Self::start_beside(dir, cwd, provider, None, None)
     }
     /// `workbook` is the `.slate` path when it has been saved. Generators then
     /// write under `assets/generated`. `None` keeps the data-directory folder.
+    /// `board_image_workspace` is the host's established AI workspace, not the
+    /// agent's project cwd. Without it, board image transport stays unavailable.
     pub fn start_beside(
         dir: PathBuf,
         cwd: PathBuf,
         provider: String,
         workbook: Option<PathBuf>,
+        board_image_workspace: Option<PathBuf>,
     ) -> Self {
         let (tx, rx) = bounded::<AgentRequest>(1);
         let (steer_tx, steer_rx) = std::sync::mpsc::sync_channel::<atlas_codex::SteerCommand>(16);
@@ -367,6 +374,7 @@ impl CodexLink {
                             &stop,
                             &frames,
                             workbook.as_deref(),
+                            board_image_workspace.as_deref(),
                         )?);
                     }
                     if !request.history.is_empty() && !dir.join("checkpoint.json").exists() {

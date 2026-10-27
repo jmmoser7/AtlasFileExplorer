@@ -217,7 +217,10 @@ impl SlateApp {
             } else {
                 continue;
             };
-            if !self.is_agent_portal(agent.0) {
+            let native_child = self.doc().scene.node(portal).is_some_and(|n| matches!(&n.kind, NodeKind::Portal(p) if p.kind == slate_doc::scene::PortalKind::Application));
+            if !self.is_agent_portal(agent.0)
+                && !(native_child && self.application_connector_eligible(agent.0))
+            {
                 continue;
             }
             let anchor = self
@@ -258,7 +261,7 @@ impl SlateApp {
         }
         wire
     }
-    pub(super) fn clear_spawn_rect(&self, mut rect: slate_doc::WorldRect) -> slate_doc::WorldRect {
+    pub(crate) fn clear_spawn_rect(&self, mut rect: slate_doc::WorldRect) -> slate_doc::WorldRect {
         let hits = |a: slate_doc::WorldRect, b: slate_doc::WorldRect| {
             a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
         };

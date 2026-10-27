@@ -11,6 +11,10 @@ impl SlateApp {
             self.portal_chrome.maximized = None;
             return;
         };
+        if matches!(node.kind, NodeKind::Image(_)) && self.model_node_info(id).is_some() {
+            self.paint_maximized_model(ui, &node);
+            return;
+        }
         let NodeKind::Portal(portal) = node.kind.clone() else {
             self.portal_chrome.maximized = None;
             return;
@@ -46,6 +50,10 @@ impl SlateApp {
         let fill = self.portal_frame_fill_color(&portal);
         painter.rect_filled(screen, 0.0, fill);
         match portal.kind {
+            PortalKind::Application => {
+                let xf = fit_xf(node.rect, layout.body);
+                self.paint_application_surface(ui, &painter, &xf, &node, &portal);
+            }
             PortalKind::Web => {
                 self.paint_web_portal_in_rect(ui, &painter, &node, &portal, &layout, 1.0);
                 self.paint_portal_capture(&painter, id, layout.body);
@@ -104,5 +112,52 @@ impl SlateApp {
         if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
             self.board_align_eat_press = false;
         }
+    }
+}
+
+impl SlateApp {
+    fn paint_maximized_model(&mut self, ui: &mut egui::Ui, node: &slate_doc::scene::Node) {
+        let screen = ui.max_rect();
+        self.canvas_rect = screen;
+        let Some((host, _)) = self.portal_capture_maximized_host(node.id, screen) else {
+            return;
+        };
+        let xf = fit_xf(node.rect, host);
+        let painter = ui.painter_at(screen);
+        painter.rect_filled(screen, 0.0, self.palette().card);
+        self.paint_board_node(ui, &painter, &xf, node, false);
+        let controls = self.shape_properties_ui(ui, &xf);
+        let layout = layout_for_portal(
+            PortalKind::Agent,
+            host,
+            false,
+            true,
+            self.node_resolved_corner(node),
+            xf.z,
+        );
+        if tabs::portal_maximize_button(ui, &self.palette(), layout.maximize, node.id.0, true) {
+            self.portal_restore();
+        }
+        if !controls
+            && !self.application_connector_active(node.id)
+            && host.contains(ui.ctx().pointer_hover_pos().unwrap_or(Pos2::ZERO))
+        {
+            let (scroll, _) = ui.input(Self::board_wheel_input);
+            if scroll != 0.0 {
+                self.model_scroll(node.id, scroll);
+            }
+            let (down, delta, modifiers) = ui.input(|i| {
+                (
+                    i.pointer.button_down(egui::PointerButton::Secondary),
+                    i.pointer.delta(),
+                    i.modifiers,
+                )
+            });
+            if down {
+                self.navigate_model(node.id, delta, host.height(), modifiers);
+            }
+        }
+        self.paint_portal_capture(&painter, node.id, host);
+        self.paint_model_screenshot_popup(ui.ctx());
     }
 }

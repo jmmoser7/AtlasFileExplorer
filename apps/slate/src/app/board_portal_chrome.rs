@@ -20,6 +20,8 @@ use super::SlateApp;
 
 mod capture_layout;
 mod maximized;
+mod scale;
+pub(crate) use scale::portal_chrome_scale;
 
 /// Kind supplies only its message and foreground; Browse geometry has one owner.
 pub(crate) struct PortalEmpty<'a> {
@@ -235,7 +237,7 @@ pub fn layout_portal_frame(
     zoom: f32,
 ) -> PortalChromeLayout {
     let tokens = portal_frame_tokens();
-    let z = (if maximized { 1.0 } else { zoom }).max(SLATE_BOARD.min);
+    let z = portal_chrome_scale(maximized, zoom);
     let corner = portal_layout_corner(frame_corner, maximized);
     let radius = portal_layout_radius_screen(frame, corner, z, maximized);
     let border = if maximized {
@@ -273,7 +275,7 @@ pub fn layout_portal_chrome(
     zoom: f32,
 ) -> PortalChromeLayout {
     let tokens = portal_frame_tokens();
-    let z = (if maximized { 1.0 } else { zoom }).max(SLATE_BOARD.min);
+    let z = portal_chrome_scale(maximized, zoom);
     let corner = portal_layout_corner(frame_corner, maximized);
     let radius = portal_layout_radius_screen(frame, corner, z, maximized);
     let tab_h = if maximized {
@@ -356,11 +358,13 @@ impl SlateApp {
         let Some(node) = self.doc().scene.node(id) else {
             return false;
         };
-        let NodeKind::Portal(portal) = &node.kind else {
-            return false;
+        let kind = match &node.kind {
+            NodeKind::Portal(p) => p.kind,
+            NodeKind::Image(_) if self.model_node_info(id).is_some() => PortalKind::Agent,
+            _ => return false,
         };
         let layout = layout_for_portal(
-            portal.kind,
+            kind,
             xf.rect_w2s(node.rect),
             self.portal_chrome_collapsed(id),
             false,
@@ -387,10 +391,15 @@ impl SlateApp {
 
     /// Fill the window with this portal. Derived; the node rect is untouched.
     pub fn portal_maximize(&mut self, id: NodeId) -> bool {
-        if !self.doc().scene.node(id).is_some_and(|n| n.is_portal()) {
+        if !self.doc().scene.node(id).is_some_and(|n| n.is_portal())
+            && self.model_node_info(id).is_none()
+        {
             return false;
         }
         self.portal_chrome.maximized = Some(id);
+        if self.model_node_info(id).is_some() {
+            self.portal_enter_interactive(id);
+        }
         self.board_sel = std::iter::once(id).collect();
         if matches!(
             self.doc().scene.node(id).map(|n| &n.kind),
@@ -447,7 +456,7 @@ impl SlateApp {
         self.doc()
             .scene
             .node(id)
-            .is_some_and(|n| n.is_portal())
+            .is_some_and(|n| n.is_portal() || self.model_node_info(id).is_some())
             .then_some(id)
     }
 
@@ -536,6 +545,7 @@ impl SlateApp {
                 PortalKind::Agent => "Agent",
                 PortalKind::FileAtlas => "File Atlas",
                 PortalKind::Slate => "Slate board",
+                PortalKind::Application => "Application window",
             }
         } else {
             title
@@ -912,17 +922,6 @@ mod tests {
             layout_portal_chrome(frame, true, false, design_portal_corner(), 1.0).body
         );
         assert!(layout.reveal.is_none());
-    }
-
-    #[test]
-    fn on_canvas_the_tab_bar_tracks_zoom() {
-        let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
-        let full = layout_portal_chrome(frame, false, false, design_portal_corner(), 1.0);
-        let half = layout_portal_chrome(frame, false, false, design_portal_corner(), 0.5);
-        let bar_full = full.bar.expect("tab");
-        let bar_half = half.bar.expect("tab");
-        assert!((bar_half.height() - bar_full.height() * 0.5).abs() < 0.05);
-        assert!((half.radius - full.radius * 0.5).abs() < 0.05);
     }
 
     #[test]

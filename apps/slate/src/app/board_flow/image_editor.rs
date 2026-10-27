@@ -213,6 +213,7 @@ impl SlateApp {
     ) -> f32 {
         self.image_agent_body_layout(painter, id, width_units.max(80.0))
             .height
+            + self.model_chat_starter_extra_height(id)
     }
 
     pub(super) fn paint_image_agent_editor(

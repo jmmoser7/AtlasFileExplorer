@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 mod agent_presence;
 mod agent_text_output;
+mod application_connector;
 mod artifact_export;
 pub mod association;
 #[cfg(test)]
@@ -99,6 +100,7 @@ pub mod present;
 pub mod preview;
 #[cfg(all(test, windows))]
 mod probe_web;
+mod production;
 mod recovery;
 mod screenshot;
 pub mod session;
@@ -451,6 +453,9 @@ pub struct SlateApp {
     frame_hwnd: isize,
     /// Interactive 3D model viewport state (see `model3d.rs`).
     pub model3d: model3d::ModelSpace,
+    connectors: application_connector::ConnectorRuntime,
+    production: production::ProductionRuntime,
+    media_links: items::MediaLinkJobs,
     model_shot_pending: Option<model_screenshot::PendingModelShot>,
     pending_view_drop: Option<model_screenshot::PendingViewDrop>,
     /// A saved view held over a model mid-drag. Derived; not journaled.
@@ -916,6 +921,9 @@ impl SlateApp {
             ctrl_down: false,
             gl: None,
             frame_hwnd: 0,
+            connectors: Default::default(),
+            production: production::ProductionRuntime::from_args(),
+            media_links: Default::default(),
             model3d: model3d::ModelSpace::default(),
             model_shot_pending: None,
             pending_view_drop: None,

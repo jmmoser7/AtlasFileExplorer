@@ -92,6 +92,7 @@ impl SlateApp {
             PortalKind::Agent => p.title == "Agent portal" || p.title.starts_with("Agent portal"),
             PortalKind::FileAtlas => p.title == "File Atlas" || p.title.starts_with("File Atlas"),
             PortalKind::Slate => p.title == "Board" || p.title.starts_with("Slate board"),
+            PortalKind::Application => false,
         };
         if rename {
             if let Some(name) = path.file_stem().and_then(|n| n.to_str()) {
@@ -109,6 +110,17 @@ impl SlateApp {
     }
 
     pub(crate) fn portal_enter_interactive(&mut self, id: NodeId) {
+        if self.model_node_info(id).is_some() {
+            self.contents_blur();
+            self.portals.contents = Some(id);
+            if self.application_connector_active(id) {
+                self.connector_enter_contents(id);
+            } else {
+                self.unlock_model(id);
+            }
+            self.board_sel = std::iter::once(id).collect();
+            return;
+        }
         let Some(kind) = self.doc().scene.node(id).and_then(|n| match &n.kind {
             NodeKind::Portal(p) => Some(p.kind),
             _ => None,
@@ -119,6 +131,9 @@ impl SlateApp {
             self.open_slate_portal(id);
             return;
         }
+        if kind == PortalKind::Application && self.stage_application_surface_open(id) {
+            return;
+        }
         self.contents_blur();
         self.portals.contents = Some(id);
         match kind {
@@ -126,6 +141,7 @@ impl SlateApp {
             PortalKind::Web => self.web_enter_contents(id),
             PortalKind::FileAtlas => self.atlas_enter_contents(id),
             PortalKind::Slate => {}
+            PortalKind::Application => self.application_surface_enter(id),
         }
         self.board_sel = std::iter::once(id).collect();
     }
@@ -173,8 +189,10 @@ impl SlateApp {
         let a = self.web_leave_contents();
         let b = self.agent_leave_contents();
         let c = self.atlas_leave_contents();
-        let d = self.portal_clear_focus();
-        a || b || c || d
+        let d = self.connector_leave_contents();
+        let e = self.application_surfaces_blur();
+        let f = self.portal_clear_focus();
+        a || b || c || d || e || f
     }
 
     /// Primary click outside the focused portal body (and not on its chrome)
@@ -201,13 +219,19 @@ impl SlateApp {
             self.contents_blur();
             return;
         };
-        let NodeKind::Portal(portal) = &node.kind else {
-            self.contents_blur();
-            return;
+        let kind = match &node.kind {
+            NodeKind::Portal(p) => p.kind,
+            NodeKind::Image(_) if self.model_node_info(id).is_some() => {
+                slate_doc::scene::PortalKind::Agent
+            }
+            _ => {
+                self.contents_blur();
+                return;
+            }
         };
         let srect = xf.rect_w2s(node.rect);
         let layout = super::board_portal_chrome::layout_for_portal(
-            portal.kind,
+            kind,
             srect,
             self.portal_chrome_collapsed(id),
             self.portal_is_maximized(id),

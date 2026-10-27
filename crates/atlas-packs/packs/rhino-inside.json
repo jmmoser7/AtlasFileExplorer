@@ -1,0 +1,6 @@
+{
+  "id":"org.slate.rhino-inside", "title":"Rhino.Inside", "contract":"program", "contract_version":1,
+  "install_note":"Install the independent SlateRhinoInside connector and register its executable with approved source roots. Rhino 8 and a valid local Rhino license are required.",
+  "probe":{"kind":"known-path","roots":["%LOCALAPPDATA%/NativeFileAtlas/application-connectors/org.slate.rhino-inside.json"],"names":[]},
+  "application":{"protocol":"slate.application","versions":[{"major":0,"minor":2},{"major":0,"minor":1}],"registration":"org.slate.rhino-inside","facets":["model3d"],"extensions":["3dm"],"capabilities":["lifecycle","sources","surfaces","commands","views","capture"]}
+}

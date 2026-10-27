@@ -13,10 +13,23 @@ impl SlateApp {
         now: Instant,
     ) {
         let mut read_budget = 256usize;
+        // A model's foreign HWND can cover board witnesses. Its readable
+        // source may advance reads/native calls, while ordinary board work
+        // retains the existing Portal-only maximized visibility boundary.
+        let work_visible = board_visible
+            || maximized_portal.is_some_and(|id| {
+                self.doc()
+                    .scene
+                    .node(id)
+                    .is_some_and(|node| matches!(&node.kind, slate_doc::scene::NodeKind::Portal(_)))
+            });
         for index in 0..self.presence.agents.len() {
             let mut a = self.presence.agents.remove(index);
             let mut completed_approval = None;
             let mut cancelled_approval = None;
+            if let Some(reply) = self.revalidate_native_portal_call(&mut a) {
+                let _ = self.presence.links.reply(&a.dir, reply);
+            }
             let presence_visible = board_visible || maximized_portal.is_some();
             if a.tab == active_tab && a.departure.is_none() {
                 if presence_visible && !pointer_press && !a.paused {
@@ -39,7 +52,7 @@ impl SlateApp {
                 } {
                     let _ = self.presence.links.reply(&a.dir, reply);
                 }
-                let advance_work = presence_visible
+                let advance_work = work_visible
                     && (!a.paused
                         || self.presence.approved_while_listening(&a)
                         || a.work
@@ -149,6 +162,8 @@ mod tests {
     use atlas_agent::presence::WorldPoint;
     use serde_json::json;
 
+    #[path = "maximized_model.rs"]
+    mod maximized_model_tests;
     #[path = "web_reply.rs"]
     mod web_reply_tests;
 

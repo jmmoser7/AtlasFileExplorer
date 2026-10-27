@@ -30,14 +30,8 @@ fn wait(mut condition: impl FnMut() -> bool) {
         std::thread::sleep(Duration::from_millis(10));
     }
 }
-fn call(
-    dir: &Path,
-    session: &BoardLinkSession,
-    id: &str,
-    sequence: u64,
-    request: &str,
-) -> BoardCall {
-    let call = BoardCall {
+fn read_call(session: &BoardLinkSession, id: &str, sequence: u64, request: &str) -> BoardCall {
+    BoardCall {
         id: id.into(),
         session: session.clone(),
         request_id: request.into(),
@@ -47,7 +41,16 @@ fn call(
             offset: 0,
             limit: 32,
         },
-    };
+    }
+}
+fn call(
+    dir: &Path,
+    session: &BoardLinkSession,
+    id: &str,
+    sequence: u64,
+    request: &str,
+) -> BoardCall {
+    let call = read_call(session, id, sequence, request);
     crate::agent::atomic_write_json(&dir.join("board-calls").join(format!("{id}.json")), &call)
         .unwrap();
     call
@@ -205,7 +208,10 @@ fn persistent_bad_entries_cannot_starve_a_later_valid_mailbox_call() {
         .unwrap()
         .path();
     let call_id = later.file_stem().unwrap().to_str().unwrap();
-    let expected = call(&dir, &session, call_id, 0, "r");
+    // The worker has not started: write in place so atomic replacement does not
+    // move the selected entry to an earlier directory-enumeration position.
+    let expected = read_call(&session, call_id, 0, "r");
+    std::fs::write(&later, serde_json::to_vec(&expected).unwrap()).unwrap();
     let position = std::fs::read_dir(&mailbox)
         .unwrap()
         .filter_map(Result::ok)

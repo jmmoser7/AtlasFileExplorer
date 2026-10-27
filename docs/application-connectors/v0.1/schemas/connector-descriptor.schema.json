@@ -1,0 +1,82 @@
+{
+  "$defs": {
+    "CapabilityGroup": {
+      "description": "Capability groups are independent. Unknown optional offers are ignored;\nunknown required offers cause negotiation to fail.",
+      "enum": [
+        "lifecycle",
+        "sources",
+        "surfaces",
+        "commands",
+        "views",
+        "capture",
+        "publication"
+      ],
+      "type": "string"
+    },
+    "ProtocolVersion": {
+      "properties": {
+        "major": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minor": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "major",
+        "minor"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Installation claim only: this is not launch authorization or connection health.\n`registration` names machine-local registration; never an executable command.",
+  "properties": {
+    "capabilities": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/CapabilityGroup"
+      },
+      "type": "array"
+    },
+    "extensions": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "facets": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "protocol": {
+      "type": "string"
+    },
+    "registration": {
+      "type": "string"
+    },
+    "versions": {
+      "items": {
+        "$ref": "#/$defs/ProtocolVersion"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "protocol",
+    "versions",
+    "registration"
+  ],
+  "title": "ConnectorDescriptor",
+  "type": "object"
+}

@@ -41,7 +41,7 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board.rs"
-ceiling = 2522
+ceiling = 2403
 reason = "Slate board interpreter; split on banner seams"
 
 [[entry]]
@@ -51,7 +51,7 @@ reason = "agent session UI; continue existing submodules"
 
 [[entry]]
 file = "apps/slate/src/app/board_agent/life.rs"
-ceiling = 1423
+ceiling = 1399
 reason = "agent session UI; continue existing submodules"
 
 [[entry]]
@@ -76,7 +76,7 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_flow.rs"
-ceiling = 2233
+ceiling = 2055
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -106,12 +106,12 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_portal_chrome.rs"
-ceiling = 1146
+ceiling = 1144
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_properties.rs"
-ceiling = 4013
+ceiling = 3959
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -136,7 +136,7 @@ reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/board_video.rs"
-ceiling = 665
+ceiling = 559
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -175,18 +175,13 @@ ceiling = 1482
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
-file = "apps/slate/src/app/enscape_host.rs"
-ceiling = 562
-reason = "Slate app; extract one concern per module"
-
-[[entry]]
 file = "apps/slate/src/app/mod.rs"
 ceiling = 2379
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
 file = "apps/slate/src/app/model3d.rs"
-ceiling = 3933
+ceiling = 3800
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
@@ -255,11 +250,6 @@ ceiling = 745
 reason = "core backend; atlas-core owner"
 
 [[entry]]
-file = "crates/atlas-core/src/video.rs"
-ceiling = 890
-reason = "core backend; atlas-core owner"
-
-[[entry]]
 file = "crates/atlas-core/src/workbook_assets.rs"
 ceiling = 691
 reason = "core backend; atlas-core owner"
@@ -301,7 +291,7 @@ reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/home.rs"
-ceiling = 2202
+ceiling = 2180
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
@@ -326,7 +316,7 @@ reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
 file = "crates/atlas-shell/src/tabs.rs"
-ceiling = 811
+ceiling = 733
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
 
 [[entry]]
@@ -439,11 +429,6 @@ reason = "document model; slate-doc owner"
 file = "crates/slate-doc/tests/migration.rs"
 ceiling = 623
 reason = "document model; slate-doc owner"
-
-[[entry]]
-file = "crates/slate-kit/src/recipe.rs"
-ceiling = 639
-reason = "oversized; split along module seam"
 
 [[entry]]
 file = "crates/slate-kit/src/resolve.rs"

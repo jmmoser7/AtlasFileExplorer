@@ -30,6 +30,15 @@ use constructors::{ctrl_shift, shift, spec};
 /// keep historical documentation rows first, dispatchable additions after.
 #[rustfmt::skip]
 pub static SPECS: &[CommandSpec] = &[
+    spec("board.objects.link_media", "Board objects", "Link approved local media", "Explicit CLI production session: worker-prepared linked media, journaled and agent-attributed", None, Repeat::Never, BOARD, &[]),
+    spec("board.model.connector.open_surface", "Board", "Open Grasshopper window", "Open a source-owned Grasshopper window as a retractable canvas portal", None, Repeat::Never, BOARD, &[]),
+    spec("board.model.connector.activate", "Board", "Activate Rhino.Inside", "Model blister → Rhino: explicitly launch the installed connector for this linked model", None, Repeat::Never, BOARD, &["rhino inside"]),
+    spec("board.model.connector.activate_draft", "Board", "Open isolated Rhino copy", "Right-click the model's Rhino blister to open an isolated native copy for explicitly granted edits", None, Repeat::Never, BOARD, &[]),
+    spec("board.model.connector.deactivate", "Board", "Return to Slate 3D", "Rhino blister → Rhino: preserve the native document and show Slate preview", None, Repeat::Never, BOARD, &[]),
+    spec("board.model.connector.inspect", "Board", "Inspect native Rhino binding", "Inspect an already active model's validated native binding and advertised command descriptors", None, Repeat::Never, BOARD, &[]),
+    spec("board.model.connector.capture", "Board", "Capture native Rhino view", "Rhino Capture: PNG with source and restorable native camera metadata", None, Repeat::Never, BOARD, &[]),
+    spec("board.model.connector.restore_view", "Board", "Restore native view", "Drop a native screenshot on its Rhino model or pass node/path", None, Repeat::Never, BOARD, &[]),
+    spec("board.model.connector.invoke", "Board", "Invoke application command", "Registered native command on the explicitly bound model", None, Repeat::Never, BOARD, &[]),
     agent_tools::TAG_CREATE,
     agent_tools::TAG_ASSIGN,
     agent_tools::TAG_UNASSIGN,
@@ -160,17 +169,7 @@ pub static SPECS: &[CommandSpec] = &[
         GLOBAL,
         &["map", "overview"],
     ),
-    spec(
-        "canvas.tool.zoom",
-        "Navigation",
-        "Zoom tool",
-        "Z — click = zoom in, Alt + click = out, drag = zoom window; \
-         Esc or Z disarms (Board)",
-        Some(Chord::bare(Key::Z)),
-        Repeat::Never,
-        Availability::BOARD_VIEW,
-        &["magnify", "zoom window"],
-    ),
+    navigation::ZOOM_TOOL,
     spec(
         "canvas.search",
         "Navigation",
@@ -788,7 +787,7 @@ pub static SPECS: &[CommandSpec] = &[
     spec("portal.agent.keep", "Board", "Generator: keep live frame", "Press Keep on a live generator. The shown frame stays in the album and rendering continues", None, Repeat::Never, BOARD, &["keep frame", "save live frame"]),
     spec("portal.agent.rename", "Board", "Agent: rename conversation", "Click the conversation name in the header to rename the connected branch", None, Repeat::Never, BOARD, &["rename chat"]),
     spec("portal.agent.continue", "Board", "Agent: place continuation", "Click or drag the terminal output handle to place a message", None, Repeat::Never, BOARD, &["continue chat"]),
-    spec("portal.agent.spawn", "Board", "Agent: text, image, agent or artifact from this media", "Select a picture, video, 3D model, text or generated frame, open its Agent squircle, choose Text or Image, write the prompt and Submit; or click a generator's output port. A new frame appears downstream, wired to the matching input port, and runs. The output-port menu and a wire dropped on empty board also offer Artifact, an interactive dashboard in the Web host, and Agent: a local chat train bound to the workbook's assets/agent folder, with a new chat and the source wired in as its first input", None, Repeat::Never, BOARD, &["image agent", "text agent", "describe image", "style transfer", "chatgpt image", "spawn node"]),
+    spec("portal.agent.spawn", "Board", "Agent: text, image, agent or artifact from this media", "Select a picture, video, 3D model, text or generated frame, open its Agent squircle, choose Text or Image, write the prompt and Submit; or click a generator's output port. A new frame appears downstream, wired to the matching input port, and runs. A 3D model's Robot starter also offers Agent · chat train: it creates an ordinary chat with the model wired in, without running or granting access. The output-port menu and a wire dropped on empty board also offer Artifact, an interactive dashboard in the Web host, and Agent: a local chat train bound to the workbook's assets/agent folder, with a new chat and the source wired in as its first input", None, Repeat::Never, BOARD, &["image agent", "text agent", "describe image", "style transfer", "chatgpt image", "spawn node"]),
     spec("portal.agent.approval", "Board", "Agent: answer permission request", "Allow once or deny a provider tool request", None, Repeat::Never, BOARD, &["permission"]),
     spec("portal.agent.artifacts", "Board", "Agent: show artifacts", "Click a coding-agent reference or changed-document handle", None, Repeat::Never, BOARD, &["references", "changed files"]),
     spec("portal.agent.open_artifact", "Board", "Agent: open artifact portal", "Choose an artifact from its handle list", None, Repeat::Never, BOARD, &["open reference"]),
@@ -802,6 +801,7 @@ pub static SPECS: &[CommandSpec] = &[
     spec("portal.agent.collapse", "Board", "Agent: collapse or expand card", "Click a chevron left of a chat card's ellipsis. A single chevron steps one level; a double chevron steps two. From maximized that is partial, then collapsed. From collapsed that is partial, then maximized. From partial both directions work, one single chevron each way. Hover highlights the mark and shows no tooltip. Detail is step-expand, jump-expand, step-collapse, or jump-collapse. With no detail, selected cards toggle between full and the three-line capsule. The tail keeps its composer", None, Repeat::Never, BOARD, &["collapse chat", "expand chat card"]),
     spec("portal.agent.fit", "Board", "Agent: fit card to text", "Ellipsis menu → Fit to text, on a chat card you resized", None, Repeat::Never, BOARD, &["fit to text", "auto size chat"]),
     spec("portal.agent.schedule", "Board", "Agent: repeat a message", "Ellipsis menu → Schedule… opens a dialog: message, date and time (tonight, Oct 1, 4:55 am), Once / Every hour / Every day / Every week, and a required end (until next month, until next year, or a date). Windows Task Scheduler stores that end and will not register a task without one. A schedule saved without an end stays until you set one. A pending schedule stays in this menu, not on the card's top bar", None, Repeat::Never, BOARD, &["repeat", "schedule", "cron", "heartbeat"]),
+    spec("portal.agent.board_access", "Board", "Chat: board access", "Open scoped board permissions for this Codex conversation and its explicit input wires", None, Repeat::Never, BOARD, &[]),
     spec("portal.agent.full_access", "Board", "Agent: full access", "Ellipsis menu → Full access. This conversation runs commands and edits files without asking, from its next message. Stored for this user on this machine, never in the workbook", None, Repeat::Never, BOARD, &["full access", "allow all", "stop asking permission"]),
     spec("portal.artifact.full_access", "Board", "Dashboard builders: full access", "Generator model menu → Full access. Sets the machine-local default for every dashboard builder from its next run. Explicit restrictions, read-only reviews and relay permissions still apply", None, Repeat::Never, BOARD, &["dashboard permissions", "artifact full access"]),
     spec("portal.agent.model_parameter", "Board", "Agent: model speed or thought level", "Generator model menu → choose a provider-advertised parameter. Captured with the next request", None, Repeat::Never, BOARD, &["model speed", "thought level", "reasoning effort"]),

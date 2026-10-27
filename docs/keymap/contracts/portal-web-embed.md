@@ -1,6 +1,24 @@
 # Web portal — interaction contract
 
 Status: **agreed**
+
+**26 October 2026 — declared control amendment (user request).** D15, D18,
+D27 and D32 now permit one narrow return modality: a workbook-local HTML
+dashboard may declare bounded, typed `application/slate-control+json` controls.
+The host polls a fixed injected queue of version, control ID, sequence and value;
+it does not enable web messages, host objects, page-selected scripts or sockets.
+The app resolves an explicit board wire, rechecks the current source and command
+capability, and routes through the existing registered command owner. A manifest
+is data, never authority. Remote pages, navigation away from the authored local
+source, an absent wire, stale sequence, unsupported command, and values outside
+the declared/advertised schema fail closed. Mutations require an isolated draft.
+The first client is a masterplan floor-count slider; the protocol is reusable.
+This implements the user's express request for reusable canvas controls and does
+not repeal Article VII.4 or permit arbitrary script execution. The prior
+one-way-only statements in D18 and no-return-channel statements in D27 apply to
+all pages outside this declared control modality. Human input remains human;
+agent-owned focus cannot acquire human authority through a dashboard.
+
 Family: portal
 Portal class: **host** (Art. V.3) · Type: **web** · Subtypes: **remote URL**, **local HTML file/folder**
 Command: `board.portal.web` (placement) · Key: none in v1 · Palette:

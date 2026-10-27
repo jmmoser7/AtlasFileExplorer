@@ -1173,6 +1173,8 @@ pub enum PortalClass {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PortalKind {
+    /// Authenticated native secondary surface; locator contains no process handles.
+    Application,
     Agent,
     Web,
     /// File Atlas folder map hosted on a Slate board (not a File Atlas app feature).

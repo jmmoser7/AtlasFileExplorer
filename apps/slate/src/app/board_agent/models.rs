@@ -199,7 +199,8 @@ impl SlateApp {
         true
     }
     pub(super) fn refresh_agent_connection(&mut self) {
-        if self.agents.connection_rx.is_some()
+        if self.has_queued_agent_send()
+            || self.agents.connection_rx.is_some()
             || self
                 .agents
                 .connection_tick

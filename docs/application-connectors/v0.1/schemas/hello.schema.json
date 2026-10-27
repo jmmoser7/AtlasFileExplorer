@@ -1,0 +1,197 @@
+{
+  "$defs": {
+    "CapabilityOffer": {
+      "properties": {
+        "offered": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "required": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "offered"
+      ],
+      "type": "object"
+    },
+    "CommandDescriptor": {
+      "properties": {
+        "agent_allowed": {
+          "description": "Offer only; host policy and scoped authority independently admit calls.",
+          "type": "boolean"
+        },
+        "cancellable": {
+          "type": "boolean"
+        },
+        "effect": {
+          "$ref": "#/$defs/CommandEffect"
+        },
+        "id": {
+          "description": "Application-namespaced, closed operation identifier, never script text.",
+          "type": "string"
+        },
+        "parameters": {
+          "description": "Bounded JSON Schema dialect enforced by validate_parameters."
+        },
+        "title": {
+          "type": "string"
+        },
+        "undo": {
+          "$ref": "#/$defs/UndoOwner"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "effect",
+        "undo",
+        "cancellable",
+        "agent_allowed",
+        "parameters"
+      ],
+      "type": "object"
+    },
+    "CommandEffect": {
+      "enum": [
+        "inspect",
+        "ephemeral_view",
+        "slate_proposal",
+        "draft_mutation",
+        "source_write_back"
+      ],
+      "type": "string"
+    },
+    "ConnectorIdentity": {
+      "properties": {
+        "application_id": {
+          "type": "string"
+        },
+        "application_version": {
+          "type": "string"
+        },
+        "connector_version": {
+          "type": "string"
+        },
+        "pack_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pack_id",
+        "application_id",
+        "application_version",
+        "connector_version"
+      ],
+      "type": "object"
+    },
+    "ProtocolVersion": {
+      "properties": {
+        "major": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minor": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "major",
+        "minor"
+      ],
+      "type": "object"
+    },
+    "SurfaceMode": {
+      "enum": [
+        "native_full_ui",
+        "native_viewport",
+        "companion_window",
+        "headless"
+      ],
+      "type": "string"
+    },
+    "UndoOwner": {
+      "enum": [
+        "none",
+        "native_application",
+        "slate_journal"
+      ],
+      "type": "string"
+    },
+    "ViewSchema": {
+      "properties": {
+        "namespace": {
+          "type": "string"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "namespace",
+        "version"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "capabilities": {
+      "$ref": "#/$defs/CapabilityOffer"
+    },
+    "commands": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/CommandDescriptor"
+      },
+      "type": "array"
+    },
+    "identity": {
+      "$ref": "#/$defs/ConnectorIdentity"
+    },
+    "protocol": {
+      "type": "string"
+    },
+    "surface_modes": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/SurfaceMode"
+      },
+      "type": "array"
+    },
+    "versions": {
+      "items": {
+        "$ref": "#/$defs/ProtocolVersion"
+      },
+      "type": "array"
+    },
+    "view_schemas": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ViewSchema"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "protocol",
+    "versions",
+    "identity",
+    "capabilities"
+  ],
+  "title": "Hello",
+  "type": "object"
+}
