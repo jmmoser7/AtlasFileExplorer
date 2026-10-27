@@ -36,6 +36,159 @@ impl ChildSurface {
     }
 }
 
+impl SlateApp {
+    pub(crate) fn open_application_surface(
+        &mut self,
+        parent: NodeId,
+        surface: &str,
+        command: &str,
+    ) {
+        let Some(reference) = ApplicationSurface::new(parent, surface, command) else {
+            return;
+        };
+        if self.native_binding(parent).is_err() {
+            self.toast("Activate this native model first.");
+            return;
+        }
+        let existing = self.doc().scene.nodes.iter().find(|n| matches!(&n.kind, NodeKind::Portal(p) if ApplicationSurface::from_portal(p).as_ref() == Some(&reference))).map(|n| n.id);
+        let node = if let Some(id) = existing {
+            id
+        } else {
+            let Some(host) = self.doc().scene.node(parent) else {
+                return;
+            };
+            let rect = slate_doc::WorldRect {
+                x: host.rect.x + host.rect.w + 80.0,
+                y: host.rect.y,
+                w: 960.0,
+                h: 600.0,
+            };
+            let rect = self.clear_spawn_rect(rect);
+            let portal = self
+                .doc_mut()
+                .scene
+                .build_node(rect, NodeKind::Portal(reference.portal(surface)));
+            let id = portal.id;
+            let wire = self.provenance_wire(parent, &portal, true);
+            self.add_nodes(vec![portal, wire]);
+            id
+        };
+        self.portal_enter_interactive(node);
+    }
+
+    /// Run before the shared contents-blur path. Only terminal success may hand off.
+    pub(crate) fn stage_application_surface_open(&mut self, node: NodeId) -> bool {
+        let Some(reference) = self.application_surface_ref(node) else {
+            return true;
+        };
+        let Ok(binding) = self.native_binding(reference.parent) else {
+            self.toast("Activate the source model before opening its window.");
+            return true;
+        };
+        if !binding.commands.iter().any(|c| {
+            c.id == reference.open_command
+                && c.effect == atlas_connector::CommandEffect::EphemeralView
+        }) {
+            self.toast("This model did not offer the requested window command.");
+            return true;
+        }
+        let tab = self.tab().id;
+        let key = (tab, reference.parent, reference.surface.clone());
+        if let Some(child) = self.connectors.children.get_mut(&key) {
+            if std::mem::take(&mut child.handoff_ready)
+                && child.worker.as_deref() == Some(binding.worker.as_str())
+                && child.descriptor.is_some()
+            {
+                return false;
+            }
+            if child.launch.is_pending() {
+                return true;
+            }
+        }
+        if self.contents_focused() != Some(reference.parent) {
+            self.portal_enter_interactive(reference.parent);
+        }
+        let child = self.connectors.children.entry(key).or_default();
+        child.node = Some(node);
+        child.worker = Some(binding.worker.clone());
+        child.launch_node = Some((node, reference.open_command.clone()));
+        child.last_query = Some(Instant::now());
+        child.status = "Preparing readable source window before loading editor…".into();
+        let ticket = child.launch.begin(&reference.surface, binding.worker);
+        child.waiting_launch = Some(LaunchRequest {
+            ticket,
+            command: reference.open_command,
+        });
+        true
+    }
+
+    pub(crate) fn application_surface_enter(&mut self, node: NodeId) {
+        let Some(reference) = self.application_surface_ref(node) else {
+            return;
+        };
+        let key = (self.tab().id, reference.parent, reference.surface);
+        let child = self.connectors.children.entry(key).or_default();
+        child.node = Some(node);
+        child.host.begin_intent();
+        child.status = "Native application window".into();
+    }
+
+    pub(in crate::app::application_connector) fn complete_application_surface_launch(
+        &mut self,
+        tab: u64,
+        parent: NodeId,
+        pid: u32,
+        ticket: LaunchToken,
+        result: Result<Vec<SurfaceDescriptor>, String>,
+    ) {
+        if let Ok(surfaces) = &result {
+            self.register_application_surfaces(tab, parent, pid, surfaces.clone());
+        }
+        let key = (tab, parent, ticket.surface.clone());
+        let target = self
+            .connectors
+            .children
+            .get(&key)
+            .and_then(|c| c.launch_node.clone());
+        let target_valid = target.as_ref().is_some_and(|(node, command)| {
+            self.doc().scene.node(*node).is_some_and(|n| !n.hidden)
+                && self.application_surface_ref(*node).is_some_and(|r| {
+                    r.parent == parent && r.surface == ticket.surface && r.open_command == *command
+                })
+        });
+        let session = self.connectors.sessions.get(&(tab, parent));
+        let worker = session
+            .and_then(|s| s.binding.as_ref())
+            .map(|b| b.worker.as_str())
+            .unwrap_or("");
+        let parent_focused = !self.at_home
+            && self.tab().id == tab
+            && target_valid
+            && self.contents_focused() == Some(parent)
+            && session.is_some_and(|s| s.focused && s.enabled && !s.ended);
+        let Some(child) = self.connectors.children.get_mut(&key) else {
+            return;
+        };
+        let current = child.launch.complete(&ticket, worker, parent_focused);
+        if !child.launch.is_pending() {
+            child.launch_node = None;
+        }
+        if let Err(error) = result {
+            if current {
+                child.status = format!("Application load: {error}");
+            }
+            return;
+        }
+        if !current || child.worker.as_deref() != Some(worker) || child.descriptor.is_none() {
+            return;
+        }
+        let Some((node, _)) = target else { return };
+        child.node = Some(node);
+        child.handoff_ready = true;
+        self.portal_enter_interactive(node);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,158 +381,5 @@ mod tests {
                 .descriptor
                 .is_some()
         );
-    }
-}
-
-impl SlateApp {
-    pub(crate) fn open_application_surface(
-        &mut self,
-        parent: NodeId,
-        surface: &str,
-        command: &str,
-    ) {
-        let Some(reference) = ApplicationSurface::new(parent, surface, command) else {
-            return;
-        };
-        if self.native_binding(parent).is_err() {
-            self.toast("Activate this native model first.");
-            return;
-        }
-        let existing = self.doc().scene.nodes.iter().find(|n| matches!(&n.kind, NodeKind::Portal(p) if ApplicationSurface::from_portal(p).as_ref() == Some(&reference))).map(|n| n.id);
-        let node = if let Some(id) = existing {
-            id
-        } else {
-            let Some(host) = self.doc().scene.node(parent) else {
-                return;
-            };
-            let rect = slate_doc::WorldRect {
-                x: host.rect.x + host.rect.w + 80.0,
-                y: host.rect.y,
-                w: 960.0,
-                h: 600.0,
-            };
-            let rect = self.clear_spawn_rect(rect);
-            let portal = self
-                .doc_mut()
-                .scene
-                .build_node(rect, NodeKind::Portal(reference.portal(surface)));
-            let id = portal.id;
-            let wire = self.provenance_wire(parent, &portal, true);
-            self.add_nodes(vec![portal, wire]);
-            id
-        };
-        self.portal_enter_interactive(node);
-    }
-
-    /// Run before the shared contents-blur path. Only terminal success may hand off.
-    pub(crate) fn stage_application_surface_open(&mut self, node: NodeId) -> bool {
-        let Some(reference) = self.application_surface_ref(node) else {
-            return true;
-        };
-        let Ok(binding) = self.native_binding(reference.parent) else {
-            self.toast("Activate the source model before opening its window.");
-            return true;
-        };
-        if !binding.commands.iter().any(|c| {
-            c.id == reference.open_command
-                && c.effect == atlas_connector::CommandEffect::EphemeralView
-        }) {
-            self.toast("This model did not offer the requested window command.");
-            return true;
-        }
-        let tab = self.tab().id;
-        let key = (tab, reference.parent, reference.surface.clone());
-        if let Some(child) = self.connectors.children.get_mut(&key) {
-            if std::mem::take(&mut child.handoff_ready)
-                && child.worker.as_deref() == Some(binding.worker.as_str())
-                && child.descriptor.is_some()
-            {
-                return false;
-            }
-            if child.launch.is_pending() {
-                return true;
-            }
-        }
-        if self.contents_focused() != Some(reference.parent) {
-            self.portal_enter_interactive(reference.parent);
-        }
-        let child = self.connectors.children.entry(key).or_default();
-        child.node = Some(node);
-        child.worker = Some(binding.worker.clone());
-        child.launch_node = Some((node, reference.open_command.clone()));
-        child.last_query = Some(Instant::now());
-        child.status = "Preparing readable source window before loading editor…".into();
-        let ticket = child.launch.begin(&reference.surface, binding.worker);
-        child.waiting_launch = Some(LaunchRequest {
-            ticket,
-            command: reference.open_command,
-        });
-        true
-    }
-
-    pub(crate) fn application_surface_enter(&mut self, node: NodeId) {
-        let Some(reference) = self.application_surface_ref(node) else {
-            return;
-        };
-        let key = (self.tab().id, reference.parent, reference.surface);
-        let child = self.connectors.children.entry(key).or_default();
-        child.node = Some(node);
-        child.host.begin_intent();
-        child.status = "Native application window".into();
-    }
-
-    pub(in crate::app::application_connector) fn complete_application_surface_launch(
-        &mut self,
-        tab: u64,
-        parent: NodeId,
-        pid: u32,
-        ticket: LaunchToken,
-        result: Result<Vec<SurfaceDescriptor>, String>,
-    ) {
-        if let Ok(surfaces) = &result {
-            self.register_application_surfaces(tab, parent, pid, surfaces.clone());
-        }
-        let key = (tab, parent, ticket.surface.clone());
-        let target = self
-            .connectors
-            .children
-            .get(&key)
-            .and_then(|c| c.launch_node.clone());
-        let target_valid = target.as_ref().is_some_and(|(node, command)| {
-            self.doc().scene.node(*node).is_some_and(|n| !n.hidden)
-                && self.application_surface_ref(*node).is_some_and(|r| {
-                    r.parent == parent && r.surface == ticket.surface && r.open_command == *command
-                })
-        });
-        let session = self.connectors.sessions.get(&(tab, parent));
-        let worker = session
-            .and_then(|s| s.binding.as_ref())
-            .map(|b| b.worker.as_str())
-            .unwrap_or("");
-        let parent_focused = !self.at_home
-            && self.tab().id == tab
-            && target_valid
-            && self.contents_focused() == Some(parent)
-            && session.is_some_and(|s| s.focused && s.enabled && !s.ended);
-        let Some(child) = self.connectors.children.get_mut(&key) else {
-            return;
-        };
-        let current = child.launch.complete(&ticket, worker, parent_focused);
-        if !child.launch.is_pending() {
-            child.launch_node = None;
-        }
-        if let Err(error) = result {
-            if current {
-                child.status = format!("Application load: {error}");
-            }
-            return;
-        }
-        if !current || child.worker.as_deref() != Some(worker) || child.descriptor.is_none() {
-            return;
-        }
-        let Some((node, _)) = target else { return };
-        child.node = Some(node);
-        child.handoff_ready = true;
-        self.portal_enter_interactive(node);
     }
 }

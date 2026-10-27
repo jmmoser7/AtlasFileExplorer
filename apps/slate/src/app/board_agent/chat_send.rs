@@ -154,6 +154,46 @@ impl SlateApp {
     }
 }
 
+impl SlateApp {
+    pub(super) fn pump_pending_chat_sends(&mut self, ctx: &egui::Context) {
+        let ids: Vec<_> = self.agents.chat_preparing.keys().copied().collect();
+        for id in ids {
+            let Some(mut pending) = self.agents.chat_preparing.get(&id).cloned() else {
+                continue;
+            };
+            if pending.doc != self.tab().id {
+                self.agents.chat_preparing.remove(&id);
+                self.toast(
+                    "The pending send belongs to a different open tab; send it again there.",
+                );
+                continue;
+            }
+            match self.poll_agent_input_preparation(&mut pending.inputs) {
+                Ok(true) => {
+                    self.agents.chat_preparing.remove(&id);
+                    self.send_agent_prompt_prepared(
+                        pending.portal,
+                        pending.composer,
+                        pending.prompt,
+                        pending.workspace,
+                        pending.origin,
+                        pending.inputs.inputs,
+                    );
+                }
+                Ok(false) => ctx.request_repaint_after(Duration::from_millis(30)),
+                Err(error) => {
+                    self.agents.chat_preparing.remove(&id);
+                    self.fail_agent_await(id, error);
+                }
+            }
+        }
+    }
+
+    pub(super) fn cancel_preparing_agent_send(&mut self, id: NodeId) -> bool {
+        self.agents.chat_preparing.remove(&id).is_some()
+    }
+}
+
 #[cfg(test)]
 mod native_tools_tests {
     use super::*;
@@ -211,45 +251,5 @@ mod native_tools_tests {
             .as_ref()
             .is_some_and(|binding| binding.validate().is_ok()));
         assert_eq!(request.prompt, "Inspect the wired Rhino model");
-    }
-}
-
-impl SlateApp {
-    pub(super) fn pump_pending_chat_sends(&mut self, ctx: &egui::Context) {
-        let ids: Vec<_> = self.agents.chat_preparing.keys().copied().collect();
-        for id in ids {
-            let Some(mut pending) = self.agents.chat_preparing.get(&id).cloned() else {
-                continue;
-            };
-            if pending.doc != self.tab().id {
-                self.agents.chat_preparing.remove(&id);
-                self.toast(
-                    "The pending send belongs to a different open tab; send it again there.",
-                );
-                continue;
-            }
-            match self.poll_agent_input_preparation(&mut pending.inputs) {
-                Ok(true) => {
-                    self.agents.chat_preparing.remove(&id);
-                    self.send_agent_prompt_prepared(
-                        pending.portal,
-                        pending.composer,
-                        pending.prompt,
-                        pending.workspace,
-                        pending.origin,
-                        pending.inputs.inputs,
-                    );
-                }
-                Ok(false) => ctx.request_repaint_after(Duration::from_millis(30)),
-                Err(error) => {
-                    self.agents.chat_preparing.remove(&id);
-                    self.fail_agent_await(id, error);
-                }
-            }
-        }
-    }
-
-    pub(super) fn cancel_preparing_agent_send(&mut self, id: NodeId) -> bool {
-        self.agents.chat_preparing.remove(&id).is_some()
     }
 }

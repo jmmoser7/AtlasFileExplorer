@@ -77,7 +77,7 @@ pub(crate) enum NativeCaller {
     Agent {
         identity: AgentIdentity,
         autonomy: bool,
-        permit: Option<DraftPermit>,
+        permit: Option<Box<DraftPermit>>,
     },
 }
 
@@ -197,7 +197,7 @@ pub(crate) enum NativeOutcome {
         result: NativeResult,
     },
     OutcomeUnknown {
-        receipt: Option<ReplyEnvelope>,
+        receipt: Option<Box<ReplyEnvelope>>,
         reason: String,
     },
 }

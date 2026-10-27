@@ -48,7 +48,7 @@ impl Peer {
     pub fn next(&self) -> Option<NativeRequest> {
         while let Ok(action) = self.actions.try_recv() {
             if let worker::Action::Native(request) = action {
-                return Some(request);
+                return Some(*request);
             }
         }
         None
@@ -66,18 +66,20 @@ impl Peer {
             NativeCaller::Agent { identity, .. } => Some(identity.clone()),
             NativeCaller::Human => None,
         };
-        request
-            .reply
-            .try_send(Completion {
-                ticket: request.ticket,
-                key: request.key,
-                binding_after: Some(binding),
-                observation: self.binding.observation + 1,
-                outcome,
-                actor,
-            })
-            .ok()
-            .expect("one terminal completion");
+        assert!(
+            request
+                .reply
+                .try_send(Completion {
+                    ticket: request.ticket,
+                    key: request.key,
+                    binding_after: Some(binding),
+                    observation: self.binding.observation + 1,
+                    outcome,
+                    actor,
+                })
+                .is_ok(),
+            "one terminal completion"
+        );
     }
 }
 

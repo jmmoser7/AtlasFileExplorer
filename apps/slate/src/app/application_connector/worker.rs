@@ -31,7 +31,7 @@ pub(super) struct DraftGrant {
     pub commands: Vec<String>,
 }
 pub(super) enum Action {
-    Native(super::native::NativeRequest),
+    Native(Box<super::native::NativeRequest>),
     Focus(super::hosting::FocusRequest),
     FocusChild {
         request: super::hosting::FocusRequest,
@@ -286,7 +286,7 @@ fn run(
                     launched.process_id,
                     &content,
                     &root,
-                    request,
+                    *request,
                 );
                 if refresh && !peer.unusable {
                     if let Ok((width, height, rgba)) =
