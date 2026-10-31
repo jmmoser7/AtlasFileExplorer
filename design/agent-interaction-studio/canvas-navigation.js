@@ -26,7 +26,7 @@
 
         pan={id:e.pointerId,x:e.clientX,y:e.clientY,ox:camera.x,oy:camera.y,moved:false,target:e.target,button:e.button};suppressContext=false;canvas.setPointerCapture(e.pointerId);
 
-      }else if(e.button===0&&!e.target.closest('.native-image-node,.native-input-text,.wire-hit,.element-node')){const hadMenu=!!document.querySelector('.native-menu');closeMenus();document.activeElement?.blur();if(!hadMenu)deselect?.();}
+      }else if(e.button===0&&!e.target.closest('.native-image-node,.native-input-text,.wire-hit,.element-node')){const hadMenu=!!document.querySelector('.native-menu')||!!e.studioDismissedMenu;closeMenus();document.activeElement?.blur();if(!hadMenu)deselect?.();}
 
     },true);
 

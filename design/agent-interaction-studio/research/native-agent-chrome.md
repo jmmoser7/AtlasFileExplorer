@@ -29,7 +29,7 @@ The exact native hint is **Describe the dashboard or the next change**. Settings
 
 `board_flow.rs:571–579` delegates `paint_agent_text_window` to `paint_agent_note`. `board_flow/text_note.rs:5–7` describes the note as latest reply plus a bottom prompt, not a document-editor application. The simple fallback Run at bottom −40 is suppressed when shared property controls own the editor (`text_note.rs:45–47,88–92`). Text body font is 14 (`board_flow.rs:37`). Generic text blocks can use the same rectangular blister (`property_strip.rs:102–113`).
 
-The Studio therefore shows bare editable text, its property controls, and the compact agent prompt. The prior Courtyard brief / Editable text heading is removed. Highlight-to-query and scoped replacement remain explicit owner-requested additions, not claimed native baseline. Dialogue is enabled via Preserve model history; Create chat train remains available for this requested text workflow.
+The Studio therefore shows bare editable text, its property controls, and the compact agent prompt. The prior Courtyard brief / Editable text heading is removed. Highlight-to-query and scoped replacement remain explicit owner-requested additions, not claimed native baseline. Dialogue is enabled via Preserve model history; the shared output-drag gesture creates a downstream train. There is no separate Create chat train menu command.
 
 ## Rhino / 3D
 
@@ -48,3 +48,7 @@ Native-connected Rhino has a compact lower **Slate 3D** control and, where avail
 ## Verification boundary
 
 The replacement is source-informed and uses the exact reviewed Image layout owner for frame/toolbar geometry. It is not advertised as a native screenshot pixel match. Remaining native capture, connector execution and production input protocols must be reconciled in the future Rust phase. The prior invented layout is retained only in historical screenshots and the earlier commit, never as the current contract.
+
+## Owner correction after native audit — authoritative Studio v0.3
+
+The native-source facts above are evidence, not a mandate to restore controls the owner rejected. The v0.3 review explicitly removes Fork, Fresh eyes, Inspect memory, Open source, separate Settings and the separate activity-summary row. Use one Preserve model history checkbox and only relevant pending Apply/Discard actions. Spinner and Chat Train hover chevrons occupy the same header datum; public progress/script output is inside the actual shared Images dialogue. The four generators reuse generator-ui.js, and all applicable source channels reuse ImageGraft and the input-target menu recipes. The v0.3 contracts supersede conflicting v0.2 descriptions.

@@ -1,42 +1,67 @@
 # Text Agent interaction contract
 
-Status: draft for owner review; v0.2 supersedes the rejected v0.1 interface.
-Family: native canvas element / agent.
-Scope: HTML/CSS/JS reference only. No Rust or live provider changes.
-Inherits: Studio S01–S09 where relevant; [native chrome audit](../research/native-agent-chrome.md).
+Status: v0.3 working design specification; host layout remains under review.
+Date: 30 October 2026. Family: native canvas element / agent.
+Scope: plain HTML/CSS/JS Studio only; no Rust edits, builds or live execution.
+Inherits: Studio S01–S10 where applicable and the reviewed Images rules.
+Native source evidence: [chrome audit](../research/native-agent-chrome.md).
 
-## Shared presentation
+## Preserved host baseline and scoped selection
 
-A content surface sits on the infinite canvas, with Slate property icons at its lower edge. The existing ImageStudioLayout owns attached/detached sizing, rounded corners, blister placement and notches. Attached editor overlays its top backing under the host; narrow hosts use the same 420-unit detached card as Images. There is no separate application title bar, revision footer, permanent conversation rail or Progress/Script tab bar.
+The content surface is editable text, not an application frame. Native agent-note owners are `board_flow/text_note.rs` and `board_flow.rs`; the property strip retains Fill, Stroke and Agent. Highlight-to-query is the requested addition: an excerpt captures exact text, offsets and source revision and remains visible while the composer has focus. A replacement proposal applies only to that matching range. Changed or stale ranges refuse replacement.
 
-The agent's top datum contains the compact model selector, adjacent three dots, circular revisions and right-aligned Play/Stop. Provider, model, effort and speed use the existing picker and actual declared options. Three dots open native Settings plus the reviewed Preserve model history and Full access controls. Checkbox actions stay open for visual feedback. Prompt text wraps by authored width, not camera zoom.
-
-Activity is a 24-unit summary above the prompt, with single/double-chevron folding, a 96-unit partial view and 480-unit full limit. It contains public commentary/tool output, including generated source where relevant. No private reasoning is exposed. There is no empty activity panel when no activity exists. Transient scrollbars overlay content without displacing text.
-
-Preserve model history is off in the initial native-style view. Enabling it adds the requested back-and-forth dialogue within the generator; the same snapshot can travel downstream. Existing transcripts/drafts are retained. Cut history establishes a fresh future context boundary without deleting historical content.
-
-## Preserved native baseline and requested addition
-
-The content is the note itself. `board_flow.rs:571–579` delegates to `paint_agent_note`; `board_flow/text_note.rs` owns latest reply and bottom prompt. The prototype removes the invented Courtyard brief / Editable text application header. The agent-media property strip keeps Fill, Stroke and Agent. Text uses 14-unit native note typography with a bottom reserve so the property strip does not cover words.
-
-Highlight-to-query is the explicit new capability: select text in the note, then type into the generator. A compact excerpt shows what is targeted and survives moving focus. The selection records text, offsets and source revision. A proposed replacement changes only that matching range after Apply; stale or modified ranges refuse replacement.
-
-**Create chat train** is available in the three-dot menu for the requested text workflow. In-window conversation uses Preserve model history. Neither action adds a permanent second application toolbar.
+There is no separate Create chat train command in the menu. The shared Output drag creates the requested train; Preserve model history controls its inherited context, exactly as it does for Images.
 
 ## Golden paths
 
-1. Select a passage → query below → excerpt remains tied to the exact selection.
-2. Ask for a rewrite → inspect the proposal → Replace highlighted text → only that range changes.
-3. Change the source while a proposal is pending → applying it refuses the stale range.
-4. Enable history → have successive turns in this generator; Create chat train continues from the note with inherited context.
-5. Deselect/reselect → preserve the note, draft, width and short return grace.
+1. Highlight a passage, ask about it below, and verify the excerpt persists. A rewrite proposal only changes that passage after explicit Apply; a changed source refuses a stale proposal.
+2. Enable Preserve model history and exchange messages within this window. Drag Output and continue from a closed child with inherited dialogue.
+3. Connect source text/image/style channels and graft a channel through the same input context menu used by Images. Alternatives appear as numbered revisions.
 
-## Native versus Studio refinements
+## Shared generator agreement
 
-The source audit records native measurements and the Image-session changes separately. Eighteen-unit revision circles and compact eight-unit prompt inset are inherited from reviewed Images; native history is 26 and native generator inset 12. Extra content-specific workflows are not silently promoted to native baseline. The illustrative content is not a prescribed application design.
+The Images review is the precedent. Reuse its implementation owners, not a separately styled approximation. This revision supersedes the v0.2 Settings submenu and separate activity-summary row.
+
+| ID | Requested behavior |
+|---|---|
+| G01 | One compact top datum: model, adjacent three dots, working spinner, numbered result circles, hover-dependent single/double chevrons, option count and Play/Stop. No separate Complete row. |
+| G02 | Provider, model, effort and speed are separate picker choices. Per-model capability declarations disable unsupported controls. Standard has no bolt; Fast one; Ultra fast two. Long model names truncate without hiding the chevron. API credentials have a dedicated Add/Change chevron, never a chat message. |
+| G03 | Three dots contain one Preserve model history checkbox. Checking it stays visibly checked while the menu stays open. Conditional Apply/Discard actions are allowed for actual pending proposals. No Fork, Fresh eyes, Inspect memory, Open source or redundant history submenu. |
+| G04 | Preserved conversation and composer use the same component as Images: user indent, subtle ink/weight distinction, continuous unboxed final prompt, authored-width wrapping. No permanent scrollbar or reserved scrollbar gutter. Open dialogue captures ordinary wheel input; Ctrl+wheel still zooms. |
+| G05 | Spinner and expansion controls occupy the header datum. Single-chevron changes one fold level; double-chevron reaches the endpoint. Collapsed, bounded 220-unit, and expanded 480-unit transcript views keep the composer available. Running public updates and generated script appear in this dialogue, never a separate activity tab or private reasoning trace. |
+| G06 | Outside click/Escape closes model and action menus. A menu-closing click keeps the underlying agent open. Dismissing the card and returning within 1500 ms restores its previous editor. |
+| G07 | Output drag creates a blank downstream surface with controls closed and no forced text focus. If Preserve model history is enabled, its independent context snapshot and gray wire accompany it automatically. Select its body and Agent to continue. Multiple sibling branches retain independent contexts. Each child starts its own result history and input-graft settings; the parent output becomes its primary input. |
+| G08 | Only a terminal incoming history wire may be selected and deleted. Cutting retains output and old transcript, clears active inherited context and exits preservation for that branch; re-enabling does not resurrect cut context. History handles hide outside hover/selection. Ordinary output wiring is retained. |
+| G09 | Primary-image, text and style-image channels accept connected sources. Blank-canvas right-click can add each source type. Drag its output to the target input. Right-click a receiving input, or its connected source, opens the same Right-click Menu Studio target used by Images; Try selected action exercises Graft inputs. |
+| G10 | Grafted inputs split into parallel jobs using ImageGraft.jobs. Ungrafted channels remain bundles shared across jobs. A singleton repeats against longer lists; unequal grafted lists use longest-list matching. This is not an automatic Cartesian product. Empty grafted input blocks the run. Each job receives the requested number of options in the same result history. |
+| G11 | Grafted handle uses the same capsule geometry as Images: 12-unit circle, 4-unit wire pitch, at most four visible slots / 24-unit height, further wires overlap the fourth slot. Ordinary handles retain the 65% outside / 35% inside placement and the shared notches. |
+| G12 | Result count stays visible and produces 1–8 alternatives per input job. Numbered revision circles select output without changing the surrounding controls. Images retain their circular thumbnails; text/artifact/model revisions use numbers because they are not image thumbnails. |
+
+These are explicit owner requirements applied in the prototype. The three new host layouts still await visual approval; this does not claim their full design is locked.
+
+## Behavior matrix
+
+| Dimension | Behavior / boundary |
+|---|---|
+| Initiation | Body selection exposes the native property strip; Agent opens the generator. Source output drag connects an existing input or creates a downstream node. |
+| State | Draft, selection, source connections, graft flags, option count, history and authored geometry persist per node. Model preferences persist across these three tabs and reloads. |
+| Menus | S01 compact row/submenu pattern; S02 capability picker; shared right-click recipe editor retains dividers and direct row dragging. |
+| Navigation | S08 right/middle/Space-drag pan and pointer-anchored wheel zoom. Only active text editing or explicitly open dialogue captures ordinary wheel. |
+| Interruption | Stop prevents further simulated stages and retains completed output. Reload marks an in-flight preview interrupted. No real provider/host work runs. |
+| History | G03, G07 and G08; independent snapshots, closed downstream controls, terminal-only cuts. |
+| Inputs | G09–G11. Data matching and capsule geometry are shared with Images; provider scheduling remains a later native integration. |
+| Styling | Keep native host property tools and ImageStudioLayout; do not redefine fill, stroke, crop, palette or production wire colors. |
+
+## Constants and implementation owners
+
+`generator-ui.js` / `generator-ui.css` own the actual shared dialogue, composer, count and model label for Images and these tabs. `elements/runtime.js` owns common host assembly and wire interaction. `elements/session-model.js` owns branch snapshots and alternatives. `image-generator/layout.js`, `graft.js`, `menu-studio.js`, `chat-train/agent-picker.js`, `agent-catalog.js`, `scroll-overlay.js` and `canvas-navigation.js` are reused directly.
+
+Menus: 232 units. Dialogue: 14/20 type, 28-unit user indent, 16-unit horizontal inset. Result circles: 18 units. Input circles: radius 6, outward offset 1.427, notch clearance 1.4, shoulder radius 40% of indent radius. Pan threshold: 4 screen pixels. Return grace: 1500 ms. Camera zoom does not change authored wrapping. The Studio's provider list is test data, including explicitly declared Ultra fast support; it is not a live service availability claim.
 
 ## Verification and limits
 
-Browser checks cover selection, generator opening/closing, compact model/settings, optional history, and public activity. Shared layout tests cover native strip counts and attachment/fallback. Source references were inspected directly; no native app was running, so this remains a source-informed best guess rather than a certified screenshot match. Live generation, native permission changes, file export and host operations remain outside the Studio.
+See [parity validation](../validation/generator-parity-v3.md) for observed browser results and automated checks. No private reasoning is exposed. APIs, credentials, permission grants, native file saves and real Rhino/dashboard work are simulated or outside scope. Pixel-perfect native certification still requires the later native implementation review. Existing fill/stroke/crop tools and production wire colors are unchanged.
 
-The current contract and screenshots supersede first-pass presentation claims; old screenshots are historical evidence only.
+## Revision control
+
+v0.3 applies the owner's instruction to reuse Images literally: shared conversation, compact history toggle, header controls, closed downstream creation, input wiring and grafting. It supersedes v0.2's native Settings commands and separate activity summary. Approved shared requirements are recorded in decisions.json; whole-host visual approval remains pending.

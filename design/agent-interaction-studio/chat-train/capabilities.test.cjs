@@ -17,3 +17,5 @@ const s=M.create();const card=M.project(s).at(-1);M.setAgent(s,card.id,{provider
 const request=M.send(s,card.id,'Check capability filtering');
 assert.ok(request);assert.equal(s.turns.at(-1).effort,'medium');assert.equal(s.turns.at(-1).speed,'standard');
 console.log('Capability checks passed.');
+
+assert.equal(C.labels.ultra,'Ultra fast');assert.equal(C.normalize({provider:'cursor',model:'Astra',speed:'ultra_fast'}).speed,'ultra_fast');assert.equal(C.normalize({provider:'cursor',model:'Luna',speed:'ultra_fast'}).speed,'standard');

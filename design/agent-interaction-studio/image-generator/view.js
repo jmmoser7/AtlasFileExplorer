@@ -94,32 +94,18 @@ window.createImageStudioView = function ({make, catalog, save, transient, beginD
 
         ChatAgentPicker.open({anchor,card:node.config,catalog,onChange:config=>{node.config=config;paint(node);save();},onClose:()=>pickerNode=null,onStatus:transient});
 
-      });modelButton.setAttribute('aria-label',`${node.label}: Agent settings`);modelButton.dataset.hint='Provider, model, effort and speed. OpenAI API has a separate Add or Change key chevron.';
+      });StudioGeneratorUI.modelLabel(modelButton,modelLabel,node.config,catalog);modelButton.setAttribute('aria-label',`${node.label}: Agent settings`);modelButton.dataset.hint='Provider, model, effort and speed. OpenAI API has a separate Add or Change key chevron.';
 
       const more=button(panel,node,'Image options',c.more,a=>menus.options(node,a),'image-control image-more image-menu-trigger');more.innerHTML='<i></i><i></i><i></i>';more.dataset.hint='Aspect Ratio, Mode and Settings';
 
       const play=button(panel,node,'Generate image',c.play,()=>submitPrompt(node),'image-control generate-image');play.append(make('span','image-play'));
 
-      const count=make('div','image-count');count.dataset.hint='Number of images to generate per request (1–8).';count.setAttribute('aria-label',`${node.label}: Number of images to generate`);rect(count,c.count);const value=make('span','',String(node.count));for(const delta of [-1,1]){const b=make('button','',delta<0?'‹':'›');b.setAttribute('aria-label',`${node.label}: ${delta<0?'Fewer':'More'} images`);b.dataset.hint=delta<0?'Generate one fewer image per request':'Generate one more image per request';b.onpointerdown=e=>e.stopPropagation();b.onclick=()=>{node.count=Math.max(1,Math.min(8,node.count+delta));value.textContent=node.count;save();};if(delta===1)count.append(value);count.append(b);}panel.append(count);
+      const count=StudioGeneratorUI.count(node.count,node.label,value=>{node.count=value;save();});rect(count,c.count);panel.append(count);
 
       history(panel,node,c.history);
 
-      let promptTop=c.prompt[1],dialogue=null;
-      if(node.interactive){
-        dialogue=make('div','image-dialogue');dialogue.tabIndex=0;dialogue.dataset.captureWheel='true';
-        dialogue.onpointerdown=e=>e.stopPropagation();dialogue.setAttribute('aria-label',`${node.label}: Conversation`);dialogue.style.top='36px';
-        const messages=ImageConversation.turns(node);
-        messages.forEach(turn=>dialogue.append(make('p',turn.role==='user'?'dialogue-user':'dialogue-assistant',turn.text)));
-        panel.append(dialogue);const h=messages.length?Math.min(220,dialogue.scrollHeight):0;
-        dialogue.style.height=h+'px';promptTop=36+h+(messages.length?20:0);
-        dialogue.scrollTop=node.dialogueScroll??dialogue.scrollHeight;
-        dialogue.onscroll=()=>node.dialogueScroll=dialogue.scrollTop;
-        StudioScroll.attach(dialogue,panel);
-      }
-      const prompt=make('textarea','image-prompt');rect(prompt,[node.interactive?16:c.prompt[0],promptTop,node.interactive?l.panelWidth-32:c.prompt[2],c.prompt[3]]);prompt.value=node.prompt;prompt.classList.toggle('dialogue-composer',!!node.interactive);prompt.placeholder=node.interactive?'Message…':'Describe the picture. Submit makes it again.';prompt.setAttribute('aria-label',`${node.label}: Image prompt`);prompt.spellcheck=false;prompt.onpointerdown=e=>e.stopPropagation();if(node.interactive)prompt.dataset.captureWheel='true';
-      function fit(){prompt.style.height='0px';const h=Math.max(node.interactive?20:32,Math.min(node.interactive?100:144,prompt.scrollHeight));prompt.style.height=h+'px';panel.style.height=(promptTop+h+(node.interactive?18:8))+'px';}
-      prompt.oninput=()=>{node.prompt=prompt.value;fit();save();};prompt.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();submitPrompt(node);}if(e.key==='Escape')prompt.blur();};panel.append(prompt);
-      fit();StudioScroll.attach(prompt,panel);if(focused){prompt.focus({preventScroll:true});prompt.setSelectionRange(...selection);}
+      const shared=StudioGeneratorUI.conversation(panel,{interactive:!!node.interactive,turns:node.interactive?ImageConversation.turns(node):[],prompt:node.prompt,placeholder:node.interactive?'Message…':'Describe the picture. Submit makes it again.',label:node.label,promptLabel:node.label+': Image prompt',conversationLabel:node.label+': Conversation',scrollTop:node.dialogueScroll,onScroll:value=>node.dialogueScroll=value,onInput:value=>{node.prompt=value;save();},onSubmit:()=>submitPrompt(node)});
+      if(focused){shared.composer.focus({preventScroll:true});shared.composer.setSelectionRange(...selection);}
 
     }
 

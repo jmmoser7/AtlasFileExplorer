@@ -24,7 +24,7 @@
           "decided": "2026-10-30"
         },
         "D03": {
-          "behavior": "Idle \u2192 static selection or drag; output click \u2192 unsent continuation; historical output drag or Fork \u2192 branch; send \u2192 responding; Stop \u2192 retained partial reply. S01, S05.",
+          "behavior": "Idle → static selection or drag; output click → unsent continuation; historical output drag or Fork → branch; send → responding; Stop → retained partial reply. S01, S05.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -675,7 +675,9 @@
         "S05",
         "S06",
         "S07",
-        "S08"
+        "S08",
+        "S09",
+        "S10"
       ],
       "changes": [
         {
@@ -683,8 +685,33 @@
           "behavior": "Independent browser canvas with shared agent controls and public progress; owner review pending.",
           "verdict": "requested first pass; visual review open",
           "decided": "2026-10-30"
+        },
+        {
+          "id": "PARITY01",
+          "behavior": "Use the Images dialogue, model selector, count and header datum; one Preserve model history checkbox, with conditional Apply/Discard only.",
+          "verdict": "approved requirement; host visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "PARITY02",
+          "behavior": "Reuse source connections and ImageGraft for primary image, text and style inputs, with four-slot capsule cap and shared right-click recipes.",
+          "verdict": "approved requirement; host visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "PARITY03",
+          "behavior": "Output drag produces a blank closed downstream surface; context is copied only when enabled, terminal-only cuts prevent stale history resurrection.",
+          "verdict": "approved requirement; host visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "PARITY04",
+          "behavior": "Outside click dismisses menus; dialogue scroll position, drafts and authored geometry survive control changes; Ultra fast is explicit capability data.",
+          "verdict": "approved requirement; host visual review open",
+          "decided": "2026-10-30"
         }
-      ]
+      ],
+      "version": "0.3"
     },
     "text-agent": {
       "status": "draft",
@@ -697,7 +724,9 @@
         "S05",
         "S06",
         "S07",
-        "S08"
+        "S08",
+        "S09",
+        "S10"
       ],
       "changes": [
         {
@@ -705,8 +734,33 @@
           "behavior": "Independent browser canvas with shared agent controls and public progress; owner review pending.",
           "verdict": "requested first pass; visual review open",
           "decided": "2026-10-30"
+        },
+        {
+          "id": "PARITY01",
+          "behavior": "Use the Images dialogue, model selector, count and header datum; one Preserve model history checkbox, with conditional Apply/Discard only.",
+          "verdict": "approved requirement; host visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "PARITY02",
+          "behavior": "Reuse source connections and ImageGraft for primary image, text and style inputs, with four-slot capsule cap and shared right-click recipes.",
+          "verdict": "approved requirement; host visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "PARITY03",
+          "behavior": "Output drag produces a blank closed downstream surface; context is copied only when enabled, terminal-only cuts prevent stale history resurrection.",
+          "verdict": "approved requirement; host visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "PARITY04",
+          "behavior": "Outside click dismisses menus; dialogue scroll position, drafts and authored geometry survive control changes; Ultra fast is explicit capability data.",
+          "verdict": "approved requirement; host visual review open",
+          "decided": "2026-10-30"
         }
-      ]
+      ],
+      "version": "0.3"
     },
     "rhino-agent": {
       "status": "draft",
@@ -719,7 +773,9 @@
         "S05",
         "S06",
         "S07",
-        "S08"
+        "S08",
+        "S09",
+        "S10"
       ],
       "changes": [
         {
@@ -727,8 +783,33 @@
           "behavior": "Independent browser canvas with shared agent controls and public progress; owner review pending.",
           "verdict": "requested first pass; visual review open",
           "decided": "2026-10-30"
+        },
+        {
+          "id": "PARITY01",
+          "behavior": "Use the Images dialogue, model selector, count and header datum; one Preserve model history checkbox, with conditional Apply/Discard only.",
+          "verdict": "approved requirement; host visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "PARITY02",
+          "behavior": "Reuse source connections and ImageGraft for primary image, text and style inputs, with four-slot capsule cap and shared right-click recipes.",
+          "verdict": "approved requirement; host visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "PARITY03",
+          "behavior": "Output drag produces a blank closed downstream surface; context is copied only when enabled, terminal-only cuts prevent stale history resurrection.",
+          "verdict": "approved requirement; host visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "PARITY04",
+          "behavior": "Outside click dismisses menus; dialogue scroll position, drafts and authored geometry survive control changes; Ultra fast is explicit capability data.",
+          "verdict": "approved requirement; host visual review open",
+          "decided": "2026-10-30"
         }
-      ]
+      ],
+      "version": "0.3"
     }
   }
 }

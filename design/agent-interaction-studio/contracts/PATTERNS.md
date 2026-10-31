@@ -48,3 +48,7 @@ Each contract names its S-patterns and deviations. An additional confirmed share
 ### S08 image dialogue exception — 30 October 2026
 
 An image-agent dialogue already explicitly opened by the user captures ordinary wheel input over both transcript and composer, without a second focus click. Ctrl+wheel still zooms. Ordinary unopened or unfocused image prompt fields keep the existing canvas behavior. This exception does not change Chat Train navigation.
+
+## S10 Shared generator assembly — 30 October 2026
+
+Images, Dashboard Builder, Text Agent and Rhino reuse one dialogue/composer/count/model-label implementation (`generator-ui.js`), with the existing image layout, grafting, model picker and menu editor. The owner explicitly rejected per-modality reinvention. One Preserve model history toggle governs in-place dialogue and automatic downstream context. New downstream surfaces start blank with controls closed. Grafting uses the same source channels, capped capsule and longest-list matching in every applicable host. The working indicator and hover chevrons share the header datum; public updates belong in the dialogue. Host-specific property tools and pending Apply/Discard actions remain local. See the v0.3 per-element contracts for complete behavior and limits.

@@ -17,28 +17,24 @@
 .element-revisions{position:absolute;display:flex;align-items:center;justify-content:flex-end;gap:3px;overflow:hidden}
 .element-revision{width:18px;height:18px;min-width:18px;border-radius:50%;background:color-mix(in srgb,var(--sub) 9%,transparent);color:var(--sub);font:300 9px/18px ChatTrainUbuntu,sans-serif;padding:0}
 .element-revision[aria-pressed=true]{background:color-mix(in srgb,var(--accent) 13%,transparent);color:var(--accent)}
-.element-agent-body{padding:0 8px 8px;position:relative}
-.element-node .element-composer{position:relative;inset:auto;display:block;box-sizing:border-box;width:100%;height:32px;min-height:32px;max-height:128px;margin:0;resize:none;font:300 11px/16px ChatTrainUbuntu,sans-serif;border:.7px solid var(--studio-line);border-radius:5px;padding:6px;background:var(--board);color:var(--ink);outline:0;overflow:auto;user-select:text;overscroll-behavior:contain}
-.element-composer::placeholder{color:var(--sub)}
-.element-transcript{position:relative;max-height:220px;overflow:auto;overscroll-behavior:contain;user-select:text;font:300 14px/20px ChatTrainUbuntu,sans-serif;margin:8px 8px 20px;padding:0}
-.element-turn{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 20px}.element-turn.is-user{margin-left:28px;color:var(--ink);text-shadow:.18px 0 currentColor}.element-turn.is-agent{color:color-mix(in srgb,var(--ink) 72%,var(--sub))}
 .element-selection{display:flex;align-items:center;gap:8px;margin:2px 0 8px;padding:4px 6px;border-left:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 5%,transparent);font-size:11px}
 .element-selection q{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;flex:1}.element-clear{width:15px;height:15px;flex:none}.element-clear svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1}
-.element-quoted-selection{display:block;font-size:11px;color:var(--sub);padding-left:8px;margin-bottom:5px}
-.element-summary{height:24px;display:flex;align-items:center;gap:8px;font:300 11px/16px ChatTrainUbuntu,sans-serif;margin-bottom:6px}
-.element-run-status{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;flex:1}.element-fold{width:24px;height:20px;flex:none;color:var(--sub);font-size:12px}
-.element-activity-output{position:relative;overflow:auto;overscroll-behavior:contain;margin:0 4px 6px;user-select:text;font:300 14px/20px ChatTrainUbuntu,sans-serif}
-.element-event{margin-bottom:12px}.element-event>span{display:block;font-size:10px;color:var(--sub);margin-bottom:3px}.element-event p{margin:0}.element-event pre,.element-source-dialog pre{margin:5px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/16px Consolas,monospace}
 .element-menu-check{width:15px;flex:none}.element-menu{font-size:13px}
 .element-history-in,.element-history-out{position:absolute;top:6.5px;left:2.5px;width:7px;height:7px;border-radius:50%;padding:0;background:var(--sub);opacity:0;z-index:5}.element-history-out{left:auto;right:2.5px;cursor:crosshair}.element-node:hover .element-history-in,.element-node:hover .element-history-out,.element-node.is-selected .element-history-in,.element-node.is-selected .element-history-out{opacity:.8}
 .element-resize{position:absolute;right:-3px;top:23px;width:6px;height:calc(100% - 28px);cursor:ew-resize;z-index:3}
-.element-history-dialog,.element-source-dialog{max-height:75vh;overflow:auto}.element-history-dialog p{white-space:pre-wrap;font-size:13px}.element-history-dialog p.is-user{margin-left:28px}
 .element-footer{font-size:10px}.element-footer button{font-size:10px}
 
-.element-fold svg,.element-menu-arrow svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:.7;stroke-linecap:round;stroke-linejoin:round}.element-menu-arrow{margin-left:auto;display:flex}.element-fold{width:18px}
+.element-menu-arrow svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:.7;stroke-linecap:round;stroke-linejoin:round}.element-menu-arrow{margin-left:auto;display:flex}
 
-.element-agent:has(.element-transcript) .element-composer{width:calc(100% - 16px);margin:0 8px;font:300 14px/20px ChatTrainUbuntu,sans-serif;border:0;padding:0;background:transparent;min-height:20px}
 
 .element-wires .element-data-wire{stroke-width:4}
 
 .element-menu [aria-expanded=true] .element-menu-arrow svg{transform:rotate(90deg)}
+
+.element-busy{position:absolute;top:8px;width:10px;height:10px;border:1.4px solid color-mix(in srgb,var(--ink) 18%,transparent);border-top-color:var(--ink);border-radius:50%;animation:generator-spin .8s linear infinite}
+@keyframes generator-spin{to{transform:rotate(360deg)}}
+.element-agent-header .element-header-fold{top:4.4px}
+
+.element-node:not(.is-selected):not(:hover)>.image-port{opacity:0;pointer-events:none}.element-canvas.is-output-drag .element-node>.image-port{opacity:1;pointer-events:auto}
+.element-wire-preview{stroke-dasharray:5 3;pointer-events:none}.element-input-source>img{width:100%;height:100%;object-fit:cover}.element-source-text{width:100%;height:100%;resize:none;border:0;border-radius:8px;padding:14px;background:var(--card);color:var(--ink);font:300 14px/20px ChatTrainUbuntu,sans-serif;outline:0;box-sizing:border-box}
+.element-node>.image-port.is-grafted{border-radius:999px}

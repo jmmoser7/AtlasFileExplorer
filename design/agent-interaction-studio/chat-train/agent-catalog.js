@@ -4,7 +4,7 @@
   const providers=[
     {id:'cursor',label:'Cursor',icon:'cursor',hint:'Use the Cursor subscription connection.',models:[
       {id:'Auto',label:'Auto',efforts,speeds:['standard']},
-      {id:'Astra',label:'Astra',efforts,speeds},
+      {id:'Astra',label:'Astra',efforts,speeds:['standard','fast','ultra_fast']},
       {id:'Terra',label:'Terra',efforts,speeds},
       {id:'Luna',label:'Luna',efforts:['low','medium'],speeds},
       {id:'Long-name test — Experimental reasoning model with extended context, multimodal tools, research preview, and a deliberately oversized provider-supplied version identifier 2026-10-30-build-1234567890',label:'Long-name test — Experimental reasoning model with extended context, multimodal tools, research preview, and a deliberately oversized provider-supplied version identifier 2026-10-30-build-1234567890',efforts,speeds}
@@ -25,8 +25,8 @@
   ];
   const labels={low:'Low',medium:'Medium',high:'High',xhigh:'Extra high',standard:'Standard',fast:'Fast',automatic:'Automatic'};
 
-  const speedInfo={standard:{label:'Standard',bolts:0},fast:{label:'Fast',bolts:1},ultra:{label:'Ultra',bolts:2},extra_fast:{label:'Extra fast',bolts:2}};
-  labels.ultra='Ultra';labels.extra_fast='Extra fast';
+  const speedInfo={standard:{label:'Standard',bolts:0},fast:{label:'Fast',bolts:1},ultra:{label:'Ultra fast',bolts:2},ultra_fast:{label:'Ultra fast',bolts:2},extra_fast:{label:'Extra fast',bolts:2}};
+  labels.ultra='Ultra fast';labels.ultra_fast='Ultra fast';labels.extra_fast='Extra fast';
   function register(provider){
     if(!provider.id||!Array.isArray(provider.models)||!provider.models.length)throw new Error('Provider requires an ID and model catalogue.');
     if(providers.some(p=>p.id===provider.id))throw new Error('Duplicate provider ID.');

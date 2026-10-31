@@ -1,0 +1,10 @@
+.generator-conversation-body{position:absolute;left:0;right:0;padding:0 8px 8px;box-sizing:border-box}
+.generator-conversation-body.is-dialogue{padding:0 16px 18px}
+.generator-conversation-body .generator-transcript{position:relative;inset:auto;width:100%;height:auto;margin:0 0 20px;padding:0;overflow:auto;max-height:220px;font:300 14px/20px ChatTrainUbuntu,sans-serif}
+.generator-transcript>div+div{margin-top:20px}.generator-transcript p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.generator-transcript .dialogue-user{margin-left:28px;color:var(--ink);font-weight:300;text-shadow:.18px 0 currentColor}
+.generator-transcript .dialogue-assistant{color:color-mix(in srgb,var(--ink) 72%,var(--sub));font-weight:300}
+.generator-transcript pre{white-space:pre-wrap;overflow-wrap:anywhere;font:11px/16px Consolas,monospace;margin:7px 0 0}
+.generator-quoted-selection{display:block;font-size:11px;color:var(--sub);margin-bottom:5px}
+.generator-conversation-body .generator-composer{position:relative;inset:auto;display:block;box-sizing:border-box;width:100%;height:32px;min-height:0;margin:0;padding:6px;resize:none;font:300 11px/16px ChatTrainUbuntu,sans-serif;overflow:auto}
+.generator-conversation-body .generator-composer.dialogue-composer{padding:0;border:0;background:transparent;border-radius:0;font:300 14px/20px ChatTrainUbuntu,sans-serif}
