@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slate · Element studio</title>
+<link rel="stylesheet" href="chat-train/style.css?v=refine-8">
+<link rel="stylesheet" href="studio.css?v=studio-3">
+<link rel="stylesheet" href="image-generator/menu-studio.css?v=1">
+<link rel="stylesheet" href="image-generator/style.css?v=browser-3">
+<script src="chat-train/reference.js" defer></script>
+<script src="chat-train/agent-catalog.js?v=refine-8" defer></script>
+<script src="chat-train/model.js?v=refine-8" defer></script>
+<script src="chat-train/agent-picker.js?v=image-1" defer></script>
+<script src="chat-train/conversation-fixture.js" defer></script>
+<script src="scroll-overlay.js" defer></script>
+<script src="canvas-navigation.js?v=1" defer></script>
+<script src="chat-train/app.js?v=refine-8" defer></script>
+<script src="studio.js?v=image-1" defer></script>
+<script src="image-generator/catalog.js?v=image-1" defer></script>
+<script src="image-generator/icons.js?v=browser-3" defer></script>
+<script src="image-generator/layout.js?v=browser-3" defer></script>
+<script src="image-generator/context-recipe.js?v=1" defer></script>
+<script src="image-generator/menu-studio.js?v=1" defer></script>
+<script src="image-generator/menus.js?v=1" defer></script>
+<script src="image-generator/view.js?v=browser-3" defer></script>
+<script src="image-generator/history.js?v=1" defer></script>
+<script src="image-generator/graft.js" defer></script>
+<script src="image-generator/app.js?v=browser-3" defer></script>
+<link rel="stylesheet" href="elements/runtime.css?v=1">
+<link rel="stylesheet" href="elements/dashboard-builder.css">
+<link rel="stylesheet" href="elements/text-agent.css">
+<link rel="stylesheet" href="elements/rhino-agent.css">
+<script src="elements/session-model.js" defer></script>
+<script src="elements/dashboard-builder.js" defer></script>
+<script src="elements/text-agent.js" defer></script>
+<script src="elements/rhino-agent.js" defer></script>
+<script src="elements/runtime.js" defer></script>
+</head>
+<body>
+<header class="studio-bar" aria-label="Studio controls"><span class="studio-label">Studio</span><nav id="studio-tabs" class="studio-tabs" role="tablist" aria-label="Elements under review"></nav><button id="new-element" class="studio-tab-add" aria-label="New element tab" title="Create a canvas tab for the next element">+</button><div class="studio-actions"><button id="debrief-button" title="Read the agreed behavior and design contract">Debrief</button><button id="reference-button">Native reference</button><button id="notes-button" aria-expanded="false" aria-controls="notes-panel">Notes</button><button id="theme-button" aria-label="Switch appearance">Dark</button></div></header>
+<main id="canvas" aria-label="Chat train canvas"><div id="world"><svg id="rails" aria-hidden="true"></svg><div id="cards"></div><svg id="gesture-preview" aria-hidden="true"></svg></div><div id="canvas-status" role="status" aria-live="polite"></div></main>
+<main id="studio-empty" hidden aria-label="Element canvas"></main>
+<main id="image-generator-canvas" hidden aria-label="Image Generator canvas"><div id="image-world"><svg id="image-wires" aria-label="Image connections"></svg><div id="image-scenes"></div><div id="image-nodes"></div></div><div id="image-native-status" role="status" aria-live="polite">Loading native image controls…</div></main>
+<footer id="image-studio-bottom" class="studio-bottom" hidden><nav aria-label="Image examples"><button data-image-scene="small">Small</button><button data-image-scene="medium">Medium</button><button data-image-scene="large">Large</button><button data-image-scene="inputs">Inputs</button><button data-image-scene="series">Series</button></nav><div><button id="image-zoom-out" aria-label="Zoom image canvas out">−</button><button id="image-zoom-reset">100%</button><button id="image-zoom-in" aria-label="Zoom image canvas in">+</button><button id="image-fit">All examples</button></div></footer>
+<aside id="notes-panel" hidden aria-label="Baseline review notes"><h2>Chat train notes</h2><p>Capture differences from Slate before changing the design.</p><textarea id="notes" rows="9" placeholder="What differs from the native chat train?"></textarea><span id="note-status" role="status"></span><button id="export-notes">Save notes</button></aside>
+<footer class="studio-bottom"><span>Middle drag / Space + drag: pan · Wheel: zoom · Enter: send</span><div><button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-reset" aria-label="Reset to 100 percent">100%</button><button id="zoom-in" aria-label="Zoom in">+</button><button id="fit-view">Fit</button><button id="reset-example">Reset example</button></div></footer>
+<div id="menus"></div><div id="dialogs"></div><div id="hint" role="tooltip" hidden></div>
+</body>
+</html>

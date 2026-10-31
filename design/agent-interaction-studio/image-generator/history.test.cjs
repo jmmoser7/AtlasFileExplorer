@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict');
+const H=require('./history.js');
+const parent={id:'p'},a={id:'a'},b={id:'b'};
+H.submit(parent,'First image');H.connect(parent,a);H.connect(parent,b);
+assert.equal(H.turns(a).length,2);assert.notEqual(a.inheritedHistory,b.inheritedHistory);
+H.submit(a,'Refine one branch');assert.equal(H.turns(a).length,4);assert.equal(H.turns(b).length,2);
+H.submit(parent,'Change upstream');assert.equal(H.turns(a).length,4,'branch snapshots must not mutate retroactively');
+H.disconnect(a);assert.equal(H.turns(a).length,4,'disconnect retains existing conversation');
+H.connect(parent,a);assert.equal(a.pendingHistory.length,4);assert.equal(H.turns(a).length,4);
+H.submit(a,'Continue with refreshed context');assert.equal(H.turns(a).length,8);assert.equal(a.pendingHistory,undefined);
+console.log('Conversation snapshots, independent branches and reconnect semantics passed.');

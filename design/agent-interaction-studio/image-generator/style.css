@@ -1,0 +1,204 @@
+/* Native-sized geometry in world units; Studio chrome remains outside the canvas. */
+
+#image-generator-canvas{position:fixed;inset:44px 0 33px;overflow:clip;overflow-anchor:none;touch-action:none;background:var(--board);user-select:none}
+
+#image-world{position:absolute;left:0;top:0;transform-origin:0 0;width:1px;height:1px}
+
+#image-wires{position:absolute;inset:0;width:1px;height:1px;overflow:visible}
+
+#image-wires path{fill:none;stroke:var(--sub);stroke-width:1.5;pointer-events:none}
+
+#image-wires .history-wire{stroke:#8b849d}
+
+#image-wires .wire-hit{stroke:transparent;stroke-width:14;vector-effect:non-scaling-stroke;pointer-events:stroke;cursor:pointer}
+
+.native-image-node{position:absolute;overflow:visible;touch-action:none;isolation:isolate;cursor:grab;font:300 11px/16px ChatTrainUbuntu,sans-serif;color:var(--ink)}
+
+.image-art{position:absolute;inset:0;overflow:visible;filter:drop-shadow(0 5px 14px #0000002e);pointer-events:none}
+
+.image-editor{position:absolute;background:var(--card);border-radius:0 0 8px 8px;box-shadow:0 3px 16px #0000001a;border:0;border-bottom:.8px solid var(--studio-line);cursor:default;z-index:2}
+
+.image-editor.is-detached{border-radius:8px}
+
+.image-control{position:absolute;display:flex;align-items:center;border:0;padding:0 1px;gap:6px;background:transparent;font:300 11px/16px ChatTrainUbuntu,sans-serif;white-space:nowrap;min-width:0;text-align:left;border-radius:3px}
+
+.image-control:hover{background:color-mix(in srgb,var(--ink) 4%,transparent)}
+
+.image-field-value{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+
+.image-caret{width:4px;height:4px;flex:none;transform:rotate(45deg);border-right:.7px solid var(--sub);border-bottom:.7px solid var(--sub);margin:0 2px 3px 1px}
+
+.image-tool{position:absolute;display:flex;align-items:center;justify-content:center;color:var(--ink);cursor:pointer;border:0;padding:0;z-index:3}
+
+.image-tool svg{width:100%;height:100%;display:block;overflow:visible}
+
+.image-tool.active{color:#008e96}
+
+.attached-tool{background:transparent;filter:drop-shadow(0 1px .5px white) drop-shadow(0 -1px .5px white)}
+
+.attached-tool:hover{color:#008e96}
+
+.detached-tool{background:var(--card);border:.8px solid var(--studio-line);border-radius:9px;padding:6px;box-shadow:0 1px 3px #0000000a}
+
+.detached-tool.active{background:#e9f9fa;border-color:#008e96;padding:2px}
+
+.image-play{display:block;width:0;height:0;border-top:7px solid transparent;border-bottom:7px solid transparent;border-left:14px solid #007f80}
+
+.generate-image{justify-content:center}
+
+.image-count{position:absolute;display:flex;align-items:center;justify-content:space-between;font-size:10px;opacity:1}
+
+.image-editor:hover .image-count,.image-count:focus-within{opacity:1}
+
+.image-count button{width:11px;height:24px;font-size:13px}
+
+.image-prompt{position:absolute;resize:none;overflow:auto;scrollbar-width:none;border:.7px solid var(--studio-line);border-radius:5px;background:var(--board);font:300 11px/16px ChatTrainUbuntu,sans-serif;color:var(--ink);padding:6px;outline:0;user-select:text;touch-action:auto}
+
+.image-prompt::placeholder{color:var(--sub);opacity:1}
+
+.image-prompt:focus-visible{outline:.7px solid var(--accent);outline-offset:0}
+
+.image-history{position:absolute;display:flex;align-items:center;justify-content:flex-end;gap:3px;overflow:hidden}
+
+.image-history-thumb{flex:none;width:26px;height:26px;border:0;padding:0;border-radius:50%;overflow:hidden;background:transparent}
+
+.image-history-thumb img{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block}
+
+.image-history-thumb.selected{border:0}
+
+.history-nav{width:16px;flex:none;height:26px;font-size:15px}.history-nav:disabled{opacity:.3}
+
+.image-results{position:absolute;left:0;display:block;height:auto;z-index:5;visibility:hidden;opacity:0;transition:opacity .12s;pointer-events:none}
+
+.native-image-node[data-generator-open=false].is-hovering .image-results,.native-image-node[data-generator-open=false].menu-pinned .image-results,.native-image-node[data-generator-open=false] .image-results:focus-within{visibility:visible;opacity:1;pointer-events:auto}
+
+.image-hover-bridge{position:absolute;left:-12px;width:calc(100% + 24px);z-index:0;pointer-events:none}
+
+.native-image-node[data-generator-open=false].is-hovering .image-hover-bridge,.native-image-node[data-generator-open=false].menu-pinned .image-hover-bridge{pointer-events:auto}
+
+.image-result-thumb{position:absolute;width:24px;height:24px;padding:0;background:transparent;border-radius:4px;border:0;overflow:hidden}
+
+.image-result-thumb img{width:100%;height:100%;object-fit:cover;display:block;border-radius:4px}
+
+.image-result-thumb.selected{border:0}
+
+.image-port{position:absolute;padding:0;width:12px;height:12px;border-radius:50%;z-index:2;border:.5px solid var(--ink)}
+
+.port-0{background:#1bb3bc}.port-1{background:#777a74}.port-2{background:#fff1a1}.port-3{background:#2866ff}
+
+.image-port-label{position:absolute;white-space:nowrap;font:300 11px/16px ChatTrainUbuntu,sans-serif;color:var(--ink);pointer-events:none}
+
+.image-context-port{position:absolute;width:12px;height:12px;border-radius:50%;background:#8b849d;border:2px solid var(--board);z-index:5;cursor:crosshair}
+
+.image-context-port.is-disconnected{background:var(--board);border-color:#8b849d}
+
+.native-size-grip{position:absolute;right:-5px;top:0;width:10px;height:100%;cursor:ew-resize;z-index:4}
+
+.native-size-grip:focus-visible{outline:1px solid var(--sub)}
+
+.native-input-text{position:absolute;width:290px;padding:16px;background:var(--card);border-radius:8px;font:300 14px/1.45 ChatTrainUbuntu,sans-serif;color:var(--ink);user-select:text}
+
+.image-scene-label{position:absolute;color:var(--studio-ink);font:14px/1.4 'Segoe UI',sans-serif;white-space:nowrap;pointer-events:none}
+
+.image-scene-label strong{display:block;font-weight:500;font-size:17px;color:var(--ink)}
+
+.image-scene-label span{display:block;margin-top:5px;color:var(--sub);font-size:12px}
+
+.image-choice-menu{width:167px;min-width:167px;padding:5px;border-radius:8px;font-size:11px}
+
+.image-choice-menu .menu-row{min-height:22px;padding:3px 7px;letter-spacing:0}
+
+.image-choice-menu .selected{background:var(--menu-hover)}
+
+.image-more{gap:2px;justify-content:center}
+
+.image-more i{width:2px;height:2px;border-radius:50%;background:currentColor;opacity:.65}
+
+.image-menu-value{max-width:115px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub);font-size:11px;margin-left:auto}
+
+.image-sub-caret{width:11px;flex:none}
+
+.image-sub-caret svg{width:11px;height:11px}
+
+.image-action-menu .menu-row[aria-expanded=true] .image-sub-caret{transform:rotate(90deg)}
+
+.image-action-menu .selected{background:var(--menu-hover)}
+
+.image-custom-ratio label{display:block;margin:12px 0}
+
+.image-custom-ratio input{float:right;width:110px;border:1px solid var(--studio-line);border-radius:4px;padding:4px 7px;background:var(--card)}
+
+.image-custom-ratio .dialog-actions{display:flex;justify-content:flex-end;gap:14px;margin-top:22px}
+
+#image-generator-canvas.is-panning,#image-generator-canvas.is-panning *{cursor:grabbing!important}
+
+#image-generator-canvas.space-held,#image-generator-canvas.space-held *{cursor:grab!important}
+
+#image-native-status{position:absolute;left:18px;bottom:15px;padding:7px 10px;max-width:min(620px,calc(100vw - 36px));font:11px/1.4 'Segoe UI',sans-serif;color:var(--studio-ink);background:var(--studio);border-radius:4px;pointer-events:none}
+
+#image-native-status:empty{display:none}
+
+#image-studio-bottom nav{display:flex;gap:2px}#image-studio-bottom nav button[aria-current=true]{background:var(--board);color:var(--ink)}
+
+@media(max-width:650px){#image-studio-bottom{flex-wrap:wrap}#image-studio-bottom nav button{padding-inline:4px}#image-studio-bottom>div{margin-left:0}#image-studio-bottom nav{flex:1}}
+
+
+
+.native-image-node[data-panel-open=true] .image-results{visibility:hidden!important;opacity:0!important;pointer-events:none!important}
+
+
+/* Keep the chevron hit box snug; visually group the ellipsis with the model. */
+.image-field.model-name{gap:4px}.image-field.model-name .image-caret{margin:0 1px 3px 0}
+
+/* Selected images keep their square previews until deselection; circle history
+   continues to take precedence whenever the generator is open. */
+.native-image-node[data-generator-open=false][data-selected=true] .image-results{visibility:visible;opacity:1;pointer-events:auto}
+.native-image-node[data-generator-open=false][data-selected=true] .image-hover-bridge{pointer-events:auto}
+
+.image-history-thumb[aria-pressed=true],.image-result-thumb[aria-pressed=true]{filter:brightness(.85)}
+
+/* Consistent result size and an apron tucked behind the image's lower fillet. */
+.image-history-thumb{max-width:18px;max-height:18px}
+.image-editor:not(.is-detached){isolation:isolate;box-shadow:none}
+.image-editor:not(.is-detached)::before{content:"";position:absolute;left:0;right:0;top:-8px;height:10px;background:var(--card);z-index:-1}
+.attached-tool{filter:none}
+#image-wires path{stroke-width:4}
+#image-wires .history-wire{stroke:#878e96;stroke-width:4.5}
+#image-wires .wire-hit{stroke-width:14}
+.image-context-port{background:#878e96;border:0!important;border-radius:50%}
+.image-dialogue{position:absolute;left:8px;right:8px;overflow:auto;scrollbar-width:thin;user-select:text;cursor:text;font:300 11px/16px ChatTrainUbuntu,sans-serif}
+.image-dialogue p{margin:0 0 10px;white-space:pre-wrap;overflow-wrap:anywhere}
+.image-dialogue .dialogue-user{margin-left:12px;color:var(--sub);font-weight:400}
+.image-dialogue .dialogue-assistant{color:var(--ink)}
+.image-dialogue-state{font-size:9px;color:var(--sub);margin-bottom:8px}
+.image-history-badge{position:absolute;font:9px/12px ChatTrainUbuntu,sans-serif;color:var(--sub);left:8px;top:30px;pointer-events:none}
+
+#image-wires .wire-hit{stroke:transparent!important;stroke-width:14}
+
+.native-image-node[data-attached=true][data-generator-open=true] .image-art{z-index:1;filter:none}
+.image-editor:not(.is-detached){z-index:0}
+
+.image-dialogue{left:16px;right:16px;font-size:14px;line-height:16.1px}.image-dialogue p{margin-bottom:12px}.image-prompt.dialogue-composer{border:0;background:transparent;border-radius:0;padding:0;font:300 14px/16.1px ChatTrainUbuntu,sans-serif}.image-prompt.dialogue-composer:focus-visible{outline:0}
+#image-wires .history-wire.is-selected{stroke-dasharray:5 3;filter:drop-shadow(0 0 1px var(--ink))}
+#image-output-preview{stroke-dasharray:5 3;pointer-events:none}.port-3{cursor:crosshair}
+
+.image-port{z-index:6}
+
+/* Shared transient overlay thumb; never reserves a text gutter. */
+.overlay-scroll,.image-dialogue,.image-prompt,.native-menu,.agent-picker{scrollbar-width:none!important}
+.overlay-scroll::-webkit-scrollbar,.image-dialogue::-webkit-scrollbar,.image-prompt::-webkit-scrollbar,.native-menu::-webkit-scrollbar,.agent-picker::-webkit-scrollbar{display:none!important}
+.studio-scroll-thumb{position:absolute;right:4px;width:3px;background:var(--sub);border-radius:999px;pointer-events:none;opacity:0;transition:opacity .35s;z-index:8}
+.studio-scroll-thumb.is-scrolling{opacity:.65;transition:opacity .08s}
+.image-dialogue{left:16px;right:16px;font:300 14px/20px ChatTrainUbuntu,sans-serif;overscroll-behavior:contain;padding:0;margin:0}
+.image-dialogue p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.image-dialogue p+p{margin-top:20px}
+.image-dialogue .dialogue-user{margin-left:28px;color:var(--ink);font-weight:300;text-shadow:.18px 0 currentColor}
+.image-dialogue .dialogue-assistant{color:color-mix(in srgb,var(--ink) 72%,var(--sub));font-weight:300}
+.image-prompt.dialogue-composer{font:300 14px/20px ChatTrainUbuntu,sans-serif;overscroll-behavior:contain}
+.image-context-port{opacity:0;pointer-events:none}
+.native-image-node.is-hovering .image-context-port,.native-image-node[data-selected=true] .image-context-port{opacity:1;pointer-events:auto}
+.image-port.is-grafted{border-radius:999px}
+
+.image-port,.image-port-label{opacity:0;pointer-events:none}
+.native-image-node[data-selected=true] .image-port,.native-image-node.is-hovering .image-port,#image-generator-canvas.is-output-drag .image-port{opacity:1;pointer-events:auto}
+.native-image-node[data-selected=true] .image-port-label{opacity:1}

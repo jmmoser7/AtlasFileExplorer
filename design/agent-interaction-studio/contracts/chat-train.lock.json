@@ -1,0 +1,21 @@
+{
+  "element": "chat-train",
+  "version": 1,
+  "status": "agreed",
+  "approved": "2026-10-30",
+  "scope": "Studio design baseline; native adoption is separate",
+  "change_policy": "A user-approved amendment is required before updating this locked reference.",
+  "sha256": {
+    "chat-train/model.js": "f7a91844cff59b5e60bceb9a90831d79b5cb6cf9b44b40f5ce04c6125f6b2827",
+    "chat-train/app.js": "e53bc969c7c3a8d626e01a5250d2f74558fb8c0bc7c6369b432ed96ef691c65d",
+    "chat-train/style.css": "9fdd40b08e854cd7cc4de089fd0f70e90fa7801e0c13cbcd52b36f503bcfe52c",
+    "chat-train/agent-catalog.js": "a4599736b261eec48950b5d78f16ec3a3288e9ff9e65116a706af9e861e84bda",
+    "chat-train/agent-picker.js": "da2be0df10f25ab501c80aa5bfdcc22341f7a2dae30d1572a27eba82ef1eeaed",
+    "chat-train/conversation-fixture.js": "2932dfbcfbfe416e73748034cc2326791104287cabfca779a696cad019e542d9",
+    "chat-train/reference.js": "703c4d5f67fb64f290dcb210bf621558291f5680283cb45282d8186119995313",
+    "chat-train/BASELINE.md": "4e23f2a25e5ea747074d5807a3f5a2ac6e8d55ab2b6605ee176a506f8b035b85",
+    "contracts/chat-train.md": "b93f26f435b5e3be01916011bb4bf68a7da91a084a652227c7d446d296c45e13",
+    "contracts/PATTERNS.md": "42d2417c5e3caf126e4b8595ff375e378f8e8cdee7dfe1b8f4f33729ebef0653",
+    "contracts/decisions.json": "169be2b5115e57ab0c3e669ce07fd9208709ebd86759330576c0705f5d56ae01"
+  }
+}

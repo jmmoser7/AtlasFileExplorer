@@ -1,0 +1,734 @@
+{
+  "version": 1,
+  "updated": "2026-10-30",
+  "scope": "Studio-approved design references; not production shipped status",
+  "tools": {
+    "chat-train": {
+      "status": "agreed",
+      "family": "portal",
+      "version": 1,
+      "contract": "chat-train.md",
+      "decisions": {
+        "D01": {
+          "behavior": "Open the Chat Train tab in Studio. Native placement commands remain owned by the existing agent portal contract; this review adds no production command.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D02": {
+          "behavior": "Sending leaves the composer available at the active tail. It does not create a second run while a response is active.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D03": {
+          "behavior": "Idle \u2192 static selection or drag; output click \u2192 unsent continuation; historical output drag or Fork \u2192 branch; send \u2192 responding; Stop \u2192 retained partial reply. S01, S05.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D04": {
+          "behavior": "Movement exceeding 4 screen pixels is a drag. An unselected body drag moves the card. A stationary click selects it; a subsequent text drag selects text. Controls retain their own actions.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D05": {
+          "behavior": "Enter sends; Shift+Enter inserts a newline. Middle drag, right drag, or Space+left drag pans. Wheel zooms; Shift+wheel pans horizontally. Ctrl+Z / Ctrl+Y undo/redo. Selected overflowing text consumes scrolling; the single window scrolls under its pointer.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D06": {
+          "behavior": "No new grid, ortho, or object-snap behavior is introduced by this Studio review. Keep production snapping with its existing owner.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D07": {
+          "behavior": "Horizontal resizing fixes width and derives height from that width. Explicit vertical resizing may retain an authored height. Full expansion releases the height limit but keeps width. S04.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D08": {
+          "behavior": "Typing edits the composer or an explicitly opened name/key field. No numeric geometry entry is introduced.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D09": {
+          "behavior": "Resize preview recomputes text/composer bounds from the current width on every frame. Responding and estimated count replace the model label during a run; Stop replaces the output dot. S03, S04.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D10": {
+          "behavior": "Unselected text body uses grab/move behavior; selected text uses text selection; edge cursors identify resize direction. Small interactive controls retain pointer feedback.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D11": {
+          "behavior": "Card moves, resize, layout changes, folds, agent choices, and deletion are reversible model actions. One drag commits once. Streaming bytes and per-keystroke draft edits are not individual undo steps.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D12": {
+          "behavior": "Escape closes transient menus/dialogs or cancels a live pointer gesture. Cancellation preserves the composer and returns geometry to its pre-gesture state. Apply the production cancel stack when implementing natively.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D13": {
+          "behavior": "Selection enables text highlighting after the stationary selection click. It does not add a competing toolbar or message bubble. Header and edge controls stay in place.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D14": {
+          "behavior": "Rename inline, adjust settings from the header, resize at edges, and reflow through the presentation menu. A chosen width survives fold/reopen and reload.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D15": {
+          "behavior": "This lock covers Chat Train and the reusable Studio workflow. It does not claim live provider connections, credential storage, scheduled execution, production permission grants, or native renderer pixel identity.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D16": {
+          "behavior": "Preserve the native light/dark palette, Ubuntu font, compact header, plain text and connected-card presentation. Global theme changes do not rewrite conversation content.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D17": {
+          "behavior": "Card control, edge, body, and text-selection hit regions have separate owners. Fold SVGs cannot intercept the neighboring fold hit target. History rails are derived, not removable context wires.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D18": {
+          "behavior": "The production agent is a host portal; inherit the existing portal authority boundary. The Studio is a local simulation and does not grant host authority.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D19": {
+          "behavior": "Conversation order is the canonical turn tree. Cards are views over stable turn IDs. Additional source context remains explicit; this Studio adds no hidden canvas context.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D20": {
+          "behavior": "Provider, model, effort, and speed are separate fields. Allowed choices come from one model capability catalogue and are validated again for the submitted turn. S02.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D21": {
+          "behavior": "Only an explicit send begins a reply. Changing presentation, opening menus, configuring an agent, or creating an unsent branch never begins inference.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D22": {
+          "behavior": "S01 governs compact menus; S03 governs scrollbar/text treatment; S05 governs selection and dragging. Composer remains independently editable.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D23": {
+          "behavior": "World-space card/text geometry scales with canvas zoom without rewrapping because of zoom alone. Menus remain screen-sized. Long labels truncate, not expand the card. S06.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D24": {
+          "behavior": "n/a to this local preview. The standalone Markdown contract and readable viewer are review artifacts, not exported live agent behavior.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D25": {
+          "behavior": "n/a: this session adds no bake operation.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D26": {
+          "behavior": "Local Studio conversation and notes survive reload. Provider-key status is shared across Studio instances; secret text is not stored. Production collaboration stays with its canonical journal/source owners.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D27": {
+          "behavior": "Use the existing production agent/command surface when porting. No new hidden agent permission or tool is authorized by a Studio control.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D28": {
+          "behavior": "Baseline font/tokens and renderer provenance are pinned in chat-train/BASELINE.md. The sample model catalogue and long conversation are deterministic fixtures, not availability promises.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D29": {
+          "behavior": "A live resize never accumulates prior-frame clipping offsets. Streaming cannot replace an active resize preview. The normal single window is height-bounded; Full conversation explicitly exposes all text.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D30": {
+          "behavior": "Unsupported settings stay visible but disabled and explain why on hover. Invalid settings normalize to an allowed model value before send. Stop keeps received text. An expired/missing key always has a reachable Add/Change route.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D31": {
+          "behavior": "Canonical messages/branches, model choices, authored width, fold, and drafts persist. Camera, hover, scrollbar fade, and stream animation are view state. Presentation changes retain draft identity and history.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D32": {
+          "behavior": "API-key entry is a dedicated masked field reached through its own provider-row chevron. In Studio, only sample status is retained; real integration must use the existing secure credential owner. Access and schedule controls remain simulations here.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D33": {
+          "behavior": "Header: status dot, title, selected model/effort/speed feedback, fold control, ellipsis, output/Stop. S01/S06. The action menu uses separate presentation, Full conversation, action, and sizing/deletion sections.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D34": {
+          "behavior": "Single chat window combines each linear conversation path into one scrollable card with a pinned composer. Branch topology remains explicit. Full conversation means fit all card text, not remove pair formatting or open a different transcript.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        "D35": {
+          "behavior": "Provider configuration, fold, text, and composer belong to their card. Studio tabs, Debrief, native reference and review notes remain outside the element canvas. S07.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        }
+      },
+      "changes": [
+        {
+          "id": "C01",
+          "title": "One element per Studio tab",
+          "behavior": "Chat Train is the first, persistent primary tab. Future reviews start in their own isolated canvas tab.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C02",
+          "title": "Remove invented enclosing chrome",
+          "behavior": "Cards sit directly on the canvas. No giant outer conversation frame, role bubbles, or modality dashboard surrounds them.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C03",
+          "title": "Four independent agent settings",
+          "behavior": "Provider, Model, Effort, and Speed are distinct compact rows.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C04",
+          "title": "Anchored submenus",
+          "behavior": "The clicked header keeps its icon, label and selected value on the same datum. Options replace lower rows; the same chevron closes it. No Back row.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C05",
+          "title": "Shared menu width",
+          "behavior": "Picker pages use the chat ellipsis menu width, not a wide settings panel. Explanations appear on hover.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C06",
+          "title": "Provider identities",
+          "behavior": "Use existing Cursor and Codex/OpenAI catalogue marks where available; Local may use a generic computer mark.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C07",
+          "title": "Dedicated API-key route",
+          "behavior": "The API provider has a separate key chevron and explicit Add/Change key action with a masked input. Selecting a provider does not open the key editor or send a request.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C08",
+          "title": "Model capability rubric",
+          "behavior": "Each model declares effort and speed options. Omitted capability arrays are invalid; empty arrays mean unsupported. No unavailable option is shown as selectable.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C09",
+          "title": "Header selection feedback",
+          "behavior": "Show a muted effort label beside the selected model. Standard has no lightning bolt, Fast one complete bolt, Ultra two complete bolts. Other speed metadata is explicit.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C10",
+          "title": "Long-name containment",
+          "behavior": "A deliberately oversized model name elides in header and menus, remains complete in the stored selection and hover help, and cannot push effort/chevrons off the card.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C11",
+          "title": "Readable single window",
+          "behavior": "Use a wider plain-text window, visible user/agent distinction by indent/ink, and one pinned composer. Preserve history, branches and drafts across layout changes.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C12",
+          "title": "Transient scroll thumb",
+          "behavior": "No permanent scrollbar gutter. An overlay thumb appears during scrolling and fades after scrolling stops; text column geometry does not change.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C13",
+          "title": "Width-driven height",
+          "behavior": "Horizontal resize derives height from current wrapped text and recomputes transcript/composer bounds every frame. It does not accumulate clipping offsets.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C14",
+          "title": "Remember authored width",
+          "behavior": "Collapsing and reopening retain width and appropriate height policy. Fit to text is the explicit sizing reset.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C15",
+          "title": "Full conversation semantics",
+          "behavior": "Fit every line within the card, bypassing manual/normal scroll height limits. Preserve width and the message-pair divider. It is equivalent in intent to full expansion.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C16",
+          "title": "Menu section grouping",
+          "behavior": "Presentation choices have their own section; Full conversation has its own section; Fork/Full access/Schedule form the next section; fitting/deletion follow.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C17",
+          "title": "Menu parity",
+          "behavior": "Upstream, terminal and draft cards expose the same section vocabulary. Invalid actions are disabled with a reason rather than silently absent. Delete remains leaf-only.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C18",
+          "title": "Drag-first body interaction",
+          "behavior": "An unselected card can be dragged by its text/body. A stationary click selects it; text highlighting is available on the following text gesture.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C19",
+          "title": "Reliable fold hit regions",
+          "behavior": "Single and double fold actions own separate hit regions. Painted glyphs do not intercept the neighboring target.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C20",
+          "title": "Long review fixture",
+          "behavior": "Three substantial message/reply pairs exercise full/partial/collapsed states and single-window scrolling.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C21",
+          "title": "State reliability",
+          "behavior": "Unsent text, next-turn settings and branch identity survive rechunking and reload. Historical messages retain their captured settings.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C22",
+          "title": "Live-resize/run isolation",
+          "behavior": "Streaming and camera handling cannot destroy a live geometry preview. Stop preserves partial output.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "C23",
+          "title": "Durable debrief",
+          "behavior": "Each reviewed element has a standalone contract with agreed behavior, constants, tests, preserved baseline, and dated changes. It is the parity reference for later elements.",
+          "verdict": "approved",
+          "decided": "2026-10-30"
+        }
+      ],
+      "reference": "Owner-approved Chat Train Studio session, 30 October 2026",
+      "canvas": "Chat Train Studio tab",
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P1.portal",
+        "P2.PortalHost",
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07"
+      ]
+    },
+    "images": {
+      "status": "draft; explicit requirements approved, visual review open",
+      "contract": "image-generator.md",
+      "inherits": [
+        "S01",
+        "S02",
+        "S06",
+        "S07",
+        "S08",
+        "S09"
+      ],
+      "changes": [
+        {
+          "id": "I01",
+          "behavior": "Reuse Slate canvas navigation across Studio canvases.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I02",
+          "behavior": "Only a focused prompt consumes ordinary wheel scrolling.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I03",
+          "behavior": "Outside click and Escape dismiss popups.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I04",
+          "behavior": "Aspect Ratio is a submenu in the adjacent three-dot menu; Custom is last.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I05",
+          "behavior": "Mode options: Single Image Mode and Live Mode.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I06",
+          "behavior": "Mode and Settings in a shared three-dot menu.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I07",
+          "behavior": "Detached card has four rounded corners.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I08",
+          "behavior": "Model and adjacent overflow at left, packed borderless circle history and permanent count.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I09",
+          "behavior": "Circular history and square hover results are mutually exclusive.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I10",
+          "behavior": "Hover continues across the image-to-result gap and pins for context menus.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I11",
+          "behavior": "Independently configurable image-body and thumbnail action sets.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I12",
+          "behavior": "Apply the same shared implementation to every image fixture.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I13",
+          "behavior": "Wire experiment: clearance 1.4; radius 6; outward center offset 1.427; filleted shoulders.",
+          "verdict": "experiment pending visual approval",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I14",
+          "behavior": "Borderless circle/square results; eight-column square grid; 12-result small fixture.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I15",
+          "behavior": "Aspect Ratio in adjacent overflow menu; persistent count; compact prompt padding.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I16",
+          "behavior": "Independent body/thumbnail menus edited through embedded Menu Studio.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I17",
+          "behavior": "Provisional non-agent panels removed; native menus remain unchanged and excluded.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I18",
+          "behavior": "Fit model hit box; ellipsis follows by 1 unit and history follows ellipsis by 12 units.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I19",
+          "behavior": "Reselecting an image restores its last open agent panel; explicit robot closure clears remembered-open state.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I20",
+          "behavior": "Right-click opens target-specific Menu Studio directly; prevent default host/browser menu; right-drag still pans.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I21",
+          "behavior": "Insert and remove dividers at selected row, reorder them, persist and export configuration.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I22",
+          "behavior": "Preview rows use running bond: alternate rows shift half a thumbnail; 4-unit rounded corners retained.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I23",
+          "behavior": "Selected-image square previews persist off hover; selecting another image or canvas clears them; generator circle exclusivity retained.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I24",
+          "behavior": "Select and drag menu names or dividers directly in the live preview; remove arrow buttons and retain keyboard alternative.",
+          "verdict": "approved requirement",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I25",
+          "behavior": "Uniform circle sizing; thumbnail selection does not arm the body toolbar; attached and detached preview offsets differ.",
+          "verdict": "approved requirement; visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I26",
+          "behavior": "Preserve native joined apron, seam-free rendering and wire weights.",
+          "verdict": "approved requirement; visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I27",
+          "behavior": "History menu explicitly enables a gray wire; reserve Chat Train-style history handle space by default.",
+          "verdict": "approved requirement; visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I28",
+          "behavior": "Optional single-image dialogue, inherited downstream branches and independent sibling conversations.",
+          "verdict": "approved requirement; visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I29",
+          "behavior": "Frozen branch context; disconnect preserves generated content; reconnect/refresh applies only to a future turn.",
+          "verdict": "approved requirement; visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I30",
+          "behavior": "One Preserve model history toggle controls in-place dialogue and automatic inherited history when dragging an output to create a downstream image.",
+          "verdict": "approved requirement; visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I31",
+          "behavior": "Select a history wire and Delete to detach it; preserve prior generated content and keep image connections.",
+          "verdict": "approved requirement; visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I32",
+          "behavior": "Use the Chat Train continuous single-window composer; preview wire colors must not change production wire colors.",
+          "verdict": "approved requirement; visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I33",
+          "behavior": "Transient zero-gutter scrolling in text and dropdowns; explicitly open image dialogue captures wheel input.",
+          "verdict": "approved requirement; visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I34",
+          "behavior": "Output drag creates a blank image with closed palettes; history handles hide with ordinary interaction handles.",
+          "verdict": "approved requirement; visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I35",
+          "behavior": "Preservation checkbox stays visible after toggling; only terminal incoming history may be cut, exiting history mode.",
+          "verdict": "approved requirement; visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "I36",
+          "behavior": "Primary/text/style input grafting, capped capsule stack and separate result jobs; Grasshopper research retained for native implementation.",
+          "verdict": "approved requirement; visual review open",
+          "decided": "2026-10-30"
+        }
+      ]
+    },
+    "dashboard-builder": {
+      "status": "draft",
+      "contract": "dashboard-builder.md",
+      "inherits": [
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S08"
+      ],
+      "changes": [
+        {
+          "id": "DRAFT01",
+          "behavior": "Independent browser canvas with shared agent controls and public progress; owner review pending.",
+          "verdict": "requested first pass; visual review open",
+          "decided": "2026-10-30"
+        }
+      ]
+    },
+    "text-agent": {
+      "status": "draft",
+      "contract": "text-agent.md",
+      "inherits": [
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S08"
+      ],
+      "changes": [
+        {
+          "id": "DRAFT01",
+          "behavior": "Independent browser canvas with shared agent controls and public progress; owner review pending.",
+          "verdict": "requested first pass; visual review open",
+          "decided": "2026-10-30"
+        }
+      ]
+    },
+    "rhino-agent": {
+      "status": "draft",
+      "contract": "rhino-agent.md",
+      "inherits": [
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S08"
+      ],
+      "changes": [
+        {
+          "id": "DRAFT01",
+          "behavior": "Independent browser canvas with shared agent controls and public progress; owner review pending.",
+          "verdict": "requested first pass; visual review open",
+          "decided": "2026-10-30"
+        }
+      ]
+    }
+  }
+}
