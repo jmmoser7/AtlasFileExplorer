@@ -49,3 +49,10 @@ Pure state checks cover branch isolation, selected-excerpt snapshots, duplicate-
 ## Promotion
 
 Shared principles already approved remain constraints. The three new specimen arrangements and sample outcomes need owner review before lock-in. Their contracts are available from each tab's Debrief button. This design checkpoint does not imply production deployment.
+
+
+## v0.2 — Native anatomy correction (supersedes v0.1 presentation)
+
+The first-pass header/toolbars were rejected. Current frame and generator controls now reuse ImageStudioLayout and native property-tool ordering. Permanent titles, revision footer, mode label, ready row and Progress/Script tabs were removed. A bare output surface leads into native property icons and a compact attached or detached generator. Three dots contain Settings and optional preserved history. Native Settings actions and conditional Apply/Discard are retained; public activity is a folded summary above the prompt. No native styling palette or tool implementation is changed.
+
+See [the native source audit](../research/native-agent-chrome.md) for measurements, exact owners, preserved behavior and the explicit Image Studio adaptations. Current layout remains a source-informed draft; earlier v0.1 imagery and layout descriptions are superseded. No claim of native pixel certification is made.

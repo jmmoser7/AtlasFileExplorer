@@ -44,21 +44,12 @@ print("Created {} pavilion objects".format(len(created)))`;
   function svg(tag,attrs={}){const e=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);return e;}
   function renderPreview({node,make,update}){
     node.data ||= {};const data=node.data;
-    data.camera ||= {...defaults};data.display ||= 'Shaded';data.view ||= 'Perspective';
+    data.camera ||= {...defaults};data.display ||= 'Shaded';data.view ||= 'Perspective';if(data.display==='Wireframe')data.display='Hidden line';
     const root=make('div','rhino-preview');root.setAttribute('aria-label','Rhino model preview');
-    const header=make('div','rhino-preview-header'),identity=make('span','rhino-preview-file','Courtyard pavilion.3dm');header.append(identity);
-    const controls=make('div','rhino-preview-controls');
-    function control(label,title,action){const b=make('button','',label);b.type='button';b.title=title;b.setAttribute('aria-label',title);b.onpointerdown=e=>e.stopPropagation();b.onclick=e=>{e.stopPropagation();action();};controls.append(b);return b;}
-    const view=control(data.view+' ⌄','Change model view',()=>{data.view=['Perspective','Top','Front'][(['Perspective','Top','Front'].indexOf(data.view)+1)%3];data.camera={...defaults};update();});
-    view.dataset.hint='Cycle Perspective, Top and Front views';
-    control(data.display,'Toggle Shaded or Wireframe',()=>{data.display=data.display==='Shaded'?'Wireframe':'Shaded';update();});
-    control('Fit','Fit model in viewport',()=>{data.camera={...defaults};draw();});
-    header.append(controls);root.append(header);
     const viewport=make('div','rhino-preview-viewport');viewport.tabIndex=0;viewport.setAttribute('aria-label','3D viewport. Drag to orbit; Shift-drag to pan; focus then scroll to zoom.');
     viewport.dataset.hint='Drag to orbit · Shift-drag to pan · Scroll after selection to zoom';
     const scene=svg('svg',{viewBox:'0 0 760 350',role:'img','aria-label':'Timber pavilion with slab, columns and open slatted roof'});viewport.append(scene);
     const compass=make('div','rhino-preview-compass');compass.innerHTML='<span class="axis-z">Z</span><span class="axis-y">Y</span><span class="axis-x">X</span>';viewport.append(compass);root.append(viewport);
-    const footer=make('div','rhino-preview-footer');const state=make('span','',data.selected?data.selected+' selected':'Perspective viewport');const note=make('span','','Meters · preview');footer.append(state,note);root.append(footer);
     function project(p){const c=data.camera,a=data.view==='Top'?0:data.view==='Front'?0:c.yaw,tilt=data.view==='Top'?Math.PI/2:data.view==='Front'?0:c.pitch;const x=p[0]*Math.cos(a)-p[1]*Math.sin(a),depth=p[0]*Math.sin(a)+p[1]*Math.cos(a),y=depth*Math.sin(tilt)-p[2]*Math.cos(tilt);return[380+x*23*c.zoom+c.panX,242+y*23*c.zoom+c.panY,depth*Math.cos(tilt)+p[2]*Math.sin(tilt)];}
     function points(ps){return ps.map(p=>project(p).slice(0,2).join(',')).join(' ');}
     function line(a,b,cls){scene.append(svg('line',{x1:project(a)[0],y1:project(a)[1],x2:project(b)[0],y2:project(b)[1],class:cls}));}
@@ -75,11 +66,11 @@ print("Created {} pavilion objects".format(len(created)))`;
       solids.sort((a,b)=>b.depth-a.depth);
       for(const item of solids){const group=svg('g',{'data-object-name':item.label,tabindex:'0',role:'button','aria-label':'Select '+item.label,class:'rhino-solid'+(data.selected===item.label?' selected':'')});
         for(const [idx,face] of [[0,[0,1,5,4]],[1,[1,2,6,5]],[2,[3,2,6,7]],[3,[0,3,7,4]],[4,[4,5,6,7]]]){
-          const poly=svg('polygon',{points:points(face.map(i=>item.p[i])),fill:data.display==='Wireframe'?'none':item.color,'fill-opacity':idx===4?1:.76,stroke:data.selected===item.label?'#198c92':'#657072','stroke-width':data.selected===item.label?1.7:.65});group.append(poly);
+          const poly=svg('polygon',{points:points(face.map(i=>item.p[i])),fill:data.display==='Arctic'||data.display==='Hidden line'?'#ececea':data.display==='Z-buffer'?`hsl(0 0% ${Math.max(20,Math.min(90,65-item.depth*2))}%)`:data.display==='Material mask'?(item.label==='Floor slab'?'#577898':item.label.startsWith('Roof')?'#ac8869':'#698b74'):item.color,'fill-opacity':idx===4?1:.76,stroke:data.selected===item.label?'#198c92':'#657072','stroke-width':data.selected===item.label?1.7:.65});group.append(poly);
         }
-        const select=()=>{data.selected=item.label;state.textContent=item.label+' selected';draw();};group.onclick=e=>{e.stopPropagation();if(!drag?.moved)select();};group.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();select();}};scene.append(group);
+        const select=()=>{data.selected=item.label;draw();};group.onclick=e=>{e.stopPropagation();if(!drag?.moved)select();};group.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();select();}};scene.append(group);
       }
-      state.textContent=data.selected?data.selected+' selected':data.view+' viewport';
+      viewport.setAttribute('aria-description',data.selected?data.selected+' selected':data.view+' viewport');
     }
     let drag=null;
     viewport.onpointerdown=e=>{if(e.button!==0)return;e.stopPropagation();viewport.focus({preventScroll:true});drag={x:e.clientX,y:e.clientY,moved:false,pan:e.shiftKey,object:e.target.closest('[data-object-name]')?.getAttribute('data-object-name'),camera:{...data.camera}};viewport.setPointerCapture(e.pointerId);};
@@ -102,6 +93,14 @@ print("Created {} pavilion objects".format(len(created)))`;
     ],
     renderPreview,
     applyResult(node,prompt){node.data ||= {};node.data.variant=(node.data.variant||0)+1;node.data.selected=null;node.data.lastInstruction=prompt;},
-    tools:[{id:'fit-model',label:'Fit model',hint:'Restore the model camera without changing geometry.',action(node){node.data ||= {};node.data.camera={...defaults};}},{id:'wireframe',label:'Wireframe',hint:'Toggle the preview between shaded solids and visible edges.',action(node){node.data ||= {};node.data.display=node.data.display==='Wireframe'?'Shaded':'Wireframe';}}]
+    nativeTools:[
+      {id:'model-display',label:'Viewport display',icon:'Sliders',hint:'Native model display modes.',choices:['Shaded','Arctic','Hidden line','Material mask','Z-buffer'],action(node,value){node.data ||= {};node.data.display=value||'Shaded';}},
+      {id:'model-measure',label:'Measure: pick two points on the model',icon:'Ruler',hint:'Native measurement control; measurement execution is outside this preview.',action(node){node.data ||= {};node.data.activeTool='measure';}},
+      {id:'model-capture',label:'Capture: still image or video to File or Canvas',icon:'Media',hint:'Native capture control; export is outside this preview.',action(node){node.data ||= {};node.data.activeTool='capture';}},
+      {id:'model-maximize',label:'Maximize / restore model portal',icon:'Corners',hint:'Native model portal sizing.',action(node){node.data ||= {};node.data.maximized=!node.data.maximized;}},
+      {id:'filter',label:'Photo filters',icon:'Sliders',action(node){node.data ||= {};node.data.activeTool='filter';}},
+      {id:'model-connector',label:'Rhino.Inside: switch native / Slate 3D',icon:'Rhino',hint:'The production control switches the host surface. This preview does not launch Rhino.',action(node){node.data ||= {};node.data.nativeRequested=!node.data.nativeRequested;}}
+    ],
+    tools:[{id:'fit-model',label:'Fit model',hint:'Restore the model camera without changing geometry.',action(node){node.data ||= {};node.data.camera={...defaults};}}]
   });
 })();

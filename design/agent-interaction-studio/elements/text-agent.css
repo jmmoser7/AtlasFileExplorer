@@ -1,9 +1,10 @@
 .text-preview{height:100%;min-height:0;display:flex;flex-direction:column;background:var(--card);color:var(--ink);border-radius:8px;font:300 14px/1.55 ChatTrainUbuntu,sans-serif;overflow:hidden}
-.text-preview-heading{display:flex;align-items:baseline;gap:18px;justify-content:space-between;padding:22px 28px 12px;flex:none}
-.text-preview-title{font-size:17px;font-weight:400;letter-spacing:-.015em}.text-preview-meta{color:var(--sub);font-size:10px;white-space:nowrap}
-.text-preview-sheet{min-height:0;position:relative;flex:1;padding:0 28px 22px}
+.text-preview-sheet{min-height:0;position:relative;flex:1;padding:16px}
 .text-preview-editor{height:100%;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:none;outline:0;cursor:text;user-select:text;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6;font-weight:300}
 .text-preview-editor::-webkit-scrollbar{display:none}.text-preview-editor::selection{background:color-mix(in srgb,var(--accent) 24%,transparent)}
-.text-preview-review{flex:none;padding:12px 28px 15px;border-top:1px solid color-mix(in srgb,var(--sub) 18%,transparent);background:color-mix(in srgb,var(--accent) 3%,var(--card));max-height:165px;overflow:auto;overscroll-behavior:contain;scrollbar-width:none}
+.text-preview-review{flex:none;padding:10px 16px 12px;border-top:1px solid color-mix(in srgb,var(--sub) 18%,transparent);background:color-mix(in srgb,var(--accent) 3%,var(--card));max-height:165px;overflow:auto;overscroll-behavior:contain;scrollbar-width:none}
 .text-preview-review-label{font-size:10px;color:var(--sub)}.text-preview-review-copy{font-size:12px;line-height:1.45;margin:5px 0 10px;white-space:pre-wrap;overflow-wrap:anywhere}
 .text-preview-review-actions{display:flex;gap:8px}.text-preview-review-actions button{padding:4px 9px;background:color-mix(in srgb,var(--sub) 8%,transparent);border-radius:4px;font:300 11px/1.4 ChatTrainUbuntu,sans-serif;color:var(--ink)}.text-preview-review-actions button:hover{background:color-mix(in srgb,var(--sub) 16%,transparent)}
+
+/* Reserve the lower native control band so glyphs never cover editable text. */
+.text-preview-sheet{padding-bottom:44px}

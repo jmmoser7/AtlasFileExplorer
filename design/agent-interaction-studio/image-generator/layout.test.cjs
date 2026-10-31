@@ -30,3 +30,7 @@ assert.equal(ports(220)[0][0],-portOffset);assert.equal(ports(220)[3][0],220+por
 assert.ok(notch(220,30).includes('C'));assert.ok(notch(220,30).includes('A7.4,7.4'));
 const bond=resultGrid(220,12);assert.equal(bond.columns,8);assert.equal(bond.rows,2);assert.equal(bond.width,220);assert.equal(bond.height,52);assert.deepEqual(bond.positions[0],{x:0,y:0});assert.deepEqual(bond.positions[8],{x:12,y:28});assert.deepEqual(resultGrid(220,24).positions[16],{x:0,y:56});
 assert.equal(layout(220,260,false,true,12).controls.more[0],layout(220,260,false,true,12).controls.model[0]+layout(220,260,false,true,12).controls.model[2]+1);
+
+// Different native property strips share the same image geometry owner.
+for(const count of [3,4,10]){const native=layout(680,360,false,true,2,90,count);assert.equal(native.buttons.length,count);assert.equal(native.attached,true);assert.equal(native.panelY,360);assert.ok(native.buttons.every(r=>r[0]>=0&&r[0]+r[2]<=680));}
+assert.equal(layout(280,260,false,true,1,90,10).panelWidth,420);

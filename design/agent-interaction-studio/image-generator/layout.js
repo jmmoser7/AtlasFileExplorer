@@ -6,9 +6,9 @@
 
   'use strict';
 
-  function layout(width, height, connected, expanded, historyCount = 1, modelLabelWidth = 96) {
+  function layout(width, height, connected, expanded, historyCount = 1, modelLabelWidth = 96, toolbarCount) {
 
-    const count = connected ? 8 : 7, natural = count * 48 + 168;
+    const count = toolbarCount ?? (connected ? 8 : 7), natural = count * 48 + 168;
 
     const attached = natural <= width - 16 && natural * 40 <= width * height * .2;
 

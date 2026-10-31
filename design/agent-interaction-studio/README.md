@@ -50,3 +50,6 @@ Shared navigation is defined in `canvas-navigation.js` and contract S08. The Ima
 - [Studio debrief](contracts/studio.md): shared runtime, persistence, validation and implementation boundaries.
 
 All three are review drafts. They use the same provider/model/effort/speed picker and explicit API-key entry, dialogue controls, activity panel, history wires and Slate canvas navigation. Model and access preferences persist across the three new tabs; earlier locked canvases retain their existing setting scope. Replies and tools are deterministic previews. No live provider, file-write or Rhino call occurs.
+
+
+The three new element previews were corrected against native source in the next iteration. [Native chrome audit](research/native-agent-chrome.md) supersedes the first-pass layout: all now use the reviewed Image geometry and compact generator rather than separate application headers/toolbars.

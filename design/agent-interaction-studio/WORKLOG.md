@@ -136,3 +136,8 @@ Screenshots: images-dialogue-v11.png and images-graft-v11.png. Current tab retai
 ## Dashboard Builder, Text Agent and Rhino 3D Studios
 
 Added three separately selectable canvases with one shared agent runtime and independent preview modules. Reused model/capability picker, explicit API-key entry, compact menu patterns, Slate navigation and transient scrollbars. Added public activity/script previews, Stop, in-window dialogue and inherited chat-train branches. Text adds persistent selected-passage queries and range-validated Apply. Dashboard stages Apply/Discard revisions. Rhino provides a projected 3D model and generated Python demonstration, with no live host calls. Contracts and Studio-level debrief added; layout remains draft pending review. Browser flow checks and seven focused Node suites passed. Owner requested a repository commit of the Studio checkpoint; scope is design/agent-interaction-studio only.
+
+
+## Native baseline correction for Dashboard, Text and Rhino
+
+Owner rejected the first-pass application wrappers. Audited the native shared generator and property-strip owners, plus text-note and 3D display sources. Rebuilt the three host frames from ImageStudioLayout with native tool counts/order. Removed invented topbars, revision footers, mode/readiness bars and Progress/Script tabs. Native Settings actions and circular history share the compact top datum; folded public activity precedes the prompt. Kept only explicitly requested text selection/dialogue additions and renderer-only sample content. Canonical contracts rewritten for v0.2; source audit and replacement screenshots identify native facts versus inherited Studio refinements. No Rust edits/builds.

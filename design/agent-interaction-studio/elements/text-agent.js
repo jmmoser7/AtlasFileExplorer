@@ -17,7 +17,7 @@
   }
   function renderPreview({node,make,update,setSelection}){
     initialize(node);
-    const root=make('section','text-preview'),header=make('header','text-preview-heading'),title=make('span','text-preview-title','Courtyard brief'),meta=make('span','text-preview-meta','Editable text');header.append(title,meta);root.append(header);
+    const root=make('section','text-preview');
     const sheet=make('div','text-preview-sheet'),editor=make('div','text-preview-editor');editor.contentEditable='true';editor.spellcheck=false;editor.setAttribute('role','textbox');editor.setAttribute('aria-label','Text document');editor.setAttribute('aria-multiline','true');editor.textContent=node.data.text;sheet.append(editor);root.append(sheet);
     const highlightKey='text-agent-'+String(node.id||'document').replace(/[^a-z0-9-]/gi,'');
     const highlightStyle=make('style');highlightStyle.textContent=`::highlight(${highlightKey}){background:color-mix(in srgb,var(--accent) 22%,transparent);color:inherit}`;root.append(highlightStyle);
