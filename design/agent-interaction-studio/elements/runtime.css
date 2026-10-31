@@ -14,9 +14,18 @@
 .element-agent-header{position:relative;height:28px;user-select:none}
 .element-model{position:absolute;font:300 11px/16px ChatTrainUbuntu,sans-serif;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;gap:4px}
 .element-more{position:absolute}.element-stop{display:block;width:10px;height:10px;background:var(--ink)}
-.element-revisions{position:absolute;display:flex;align-items:center;justify-content:flex-end;gap:3px;overflow:hidden}
-.element-revision{width:18px;height:18px;min-width:18px;border-radius:50%;background:color-mix(in srgb,var(--sub) 9%,transparent);color:var(--sub);font:300 9px/18px ChatTrainUbuntu,sans-serif;padding:0}
-.element-revision[aria-pressed=true]{background:color-mix(in srgb,var(--accent) 13%,transparent);color:var(--accent)}
+.element-revisions{position:absolute;display:flex;align-items:center;justify-content:flex-end;gap:2px;overflow:hidden}
+.element-revision{position:relative;width:18px;height:18px;min-width:18px;border-radius:50%;padding:0;overflow:hidden;border:0;background:var(--card)}
+.element-revision[aria-pressed=true],.element-result-thumb[aria-pressed=true]{filter:brightness(.85)}
+.element-miniature{position:absolute;left:50%;top:50%;display:block;transform-origin:center;pointer-events:none;background:var(--card);user-select:none}
+.element-revisions .history-nav{padding:0;min-width:16px}
+.element-result-thumb{position:absolute;width:24px;height:24px;border:0;border-radius:4px;overflow:hidden;padding:0;background:var(--card)}
+.element-results{position:absolute;z-index:7;visibility:hidden;opacity:0;pointer-events:none;display:block}
+.element-hover-bridge{position:absolute;left:0;right:0;z-index:0;pointer-events:none}
+.element-node:hover .element-results,.element-node.is-hovering .element-results,.element-node.is-selected .element-results{visibility:visible;opacity:1;pointer-events:auto}
+.element-node:hover .element-hover-bridge,.element-node.is-hovering .element-hover-bridge,.element-node.is-selected .element-hover-bridge{pointer-events:auto}
+.element-node[data-panel-open=true] .element-results,.element-node[data-panel-open=true] .element-hover-bridge{visibility:hidden;opacity:0;pointer-events:none}
+.answer-destination{background:color-mix(in srgb,var(--accent) 9%,transparent);border-radius:3px;outline:2px solid color-mix(in srgb,var(--accent) 14%,transparent)}
 .element-selection{display:flex;align-items:center;gap:8px;margin:2px 0 8px;padding:4px 6px;border-left:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 5%,transparent);font-size:11px}
 .element-selection q{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;flex:1}.element-clear{width:15px;height:15px;flex:none}.element-clear svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1}
 .element-menu-check{width:15px;flex:none}.element-menu{font-size:13px}

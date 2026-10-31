@@ -2,6 +2,7 @@
 (function(root){
   const copy=value=>JSON.parse(JSON.stringify(value));
   const contextTurns=node=>[...(node.inherited||[]),...(node.turns||[]).slice(node.contextStart||0)];
+  const canRebound=(at,now=Date.now())=>Number.isFinite(at)&&now>=at&&now-at<=1500;
   function create(config,id='root'){
     return {id,x:90,y:65,width:config.width,height:config.height,data:{},revision:0,
       turns:copy(config.initialTurns||[]),inherited:[],contextStart:0,prompt:config.initialPrompt||'',
@@ -26,6 +27,6 @@
     const base=copy(node.data),total=Math.max(1,Math.min(8,Number(count)||1));
     return Array.from({length:total},(_,index)=>{const candidate={...node,data:copy(base)};candidate.data.optionIndex=index;if(index)candidate.data.variant=(base.variant||0)+index;apply(candidate,index);return copy(candidate.data);});
   }
-  const api={copy,contextTurns,create,branch,begin,finish,stop,cut,options};root.StudioSession=api;
+  const api={copy,contextTurns,canRebound,create,branch,begin,finish,stop,cut,options};root.StudioSession=api;
   if(typeof module!=='undefined')module.exports=api;
 })(typeof window==='undefined'?globalThis:window);

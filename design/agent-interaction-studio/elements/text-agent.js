@@ -15,10 +15,26 @@
     if(cleaner!==text)return cleaner;
     const sentences=text.match(/[^.!?]+[.!?]?/g)||[text];return sentences.length>1?sentences.slice(0,Math.max(1,sentences.length-1)).join('').trim():text.replace(/\bvery\s+|\breally\s+|\bsimply\s+/gi,'').trim();
   }
-  function renderPreview({node,make,update,setSelection}){
+  function renderPreview({node,make,update,setSelection,openAnswer=()=>{}}){
     initialize(node);
     const root=make('section','text-preview');
-    const sheet=make('div','text-preview-sheet'),editor=make('div','text-preview-editor');editor.contentEditable='true';editor.spellcheck=false;editor.setAttribute('role','textbox');editor.setAttribute('aria-label','Text document');editor.setAttribute('aria-multiline','true');editor.textContent=node.data.text;sheet.append(editor);root.append(sheet);
+    const sheet=make('div','text-preview-sheet'),editor=make('div','text-preview-editor');editor.contentEditable='true';editor.spellcheck=false;editor.setAttribute('role','textbox');editor.setAttribute('aria-label','Text document');editor.setAttribute('aria-multiline','true');sheet.append(editor);root.append(sheet);
+    let peek=null,peekTimer;
+    const hidePeek=()=>{clearTimeout(peekTimer);peek?.remove();peek=null;};
+    const deferPeek=()=>{clearTimeout(peekTimer);peekTimer=setTimeout(hidePeek,180);};
+    function showPeek(link,answer){
+      hidePeek();peek=make('aside','text-answer-peek');peek.setAttribute('role','dialog');peek.setAttribute('aria-label','Answer preview');peek.append(make('p','peek-question',answer.question),make('p','',answer.response));
+      const jump=make('button','','Open response');jump.type='button';jump.onclick=e=>{e.stopPropagation();openAnswer(answer);};peek.append(jump);peek.onpointerenter=()=>clearTimeout(peekTimer);peek.onpointerleave=deferPeek;root.append(peek);
+      const r=root.getBoundingClientRect(),a=link.getBoundingClientRect(),scale=r.width/root.offsetWidth,left=Math.max(8,Math.min(root.offsetWidth-peek.offsetWidth-8,(a.left-r.left)/scale));let top=(a.bottom-r.top)/scale+5;if(top+peek.offsetHeight>root.offsetHeight-8)top=Math.max(8,(a.top-r.top)/scale-peek.offsetHeight-5);peek.style.left=left+'px';peek.style.top=top+'px';
+    }
+    function paintContent(){
+      editor.replaceChildren();let offset=0;
+      for(const answer of StudioTextLinks.ranges(node.data.text,node.data.answers)){
+        editor.append(document.createTextNode(node.data.text.slice(offset,answer.start)));const link=make('a','text-answer-link',answer.text);link.href='#'+answer.id;link.tabIndex=0;link.contentEditable='false';link.dataset.answerId=answer.id;link.setAttribute('aria-label','Read answer about '+answer.text);link.onclick=e=>{e.preventDefault();e.stopPropagation();openAnswer(answer);};link.onpointerenter=()=>showPeek(link,answer);link.onpointerleave=deferPeek;link.onfocus=()=>showPeek(link,answer);link.onblur=deferPeek;link.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();openAnswer(answer);}if(e.key==='Escape')hidePeek();};editor.append(link);offset=answer.end;
+      }
+      editor.append(document.createTextNode(node.data.text.slice(offset)));
+    }
+    paintContent();
     const highlightKey='text-agent-'+String(node.id||'document').replace(/[^a-z0-9-]/gi,'');
     const highlightStyle=make('style');highlightStyle.textContent=`::highlight(${highlightKey}){background:color-mix(in srgb,var(--accent) 22%,transparent);color:inherit}`;root.append(highlightStyle);
     const paintSelection=()=>{if(!CSS.highlights||typeof Highlight==='undefined')return;CSS.highlights.delete(highlightKey);if(validSelection(node)){const range=rangeAt(editor,node.selection.start,node.selection.end);if(range)CSS.highlights.set(highlightKey,new Highlight(range));}};
@@ -30,20 +46,20 @@
       setSelection({text,start,end,revision:node.data.textRevision});paintSelection();
     };
     editor.addEventListener('pointerup',capture);editor.addEventListener('keyup',e=>{if(e.key.startsWith('Arrow')||e.key==='Shift'||e.key==='Home'||e.key==='End')capture();});
-    editor.addEventListener('input',()=>{node.data.text=editor.textContent;node.data.textRevision++;node.data.review=null;setSelection(null);CSS.highlights?.delete(highlightKey);update({render:false});});
+    editor.addEventListener('input',()=>{const selection=window.getSelection(),before=selection?.rangeCount?selection.getRangeAt(0).cloneRange():null;let caret=null;if(before&&editor.contains(before.endContainer)){before.selectNodeContents(editor);before.setEnd(selection.getRangeAt(0).endContainer,selection.getRangeAt(0).endOffset);caret=before.toString().length;}const text=editor.textContent;node.data.answers=StudioTextLinks.rebase(node.data.answers||[],node.data.text,text);node.data.text=text;node.data.textRevision++;node.data.review=null;paintContent();if(caret!=null){const range=rangeAt(editor,caret,caret);if(range){selection.removeAllRanges();selection.addRange(range);}}setSelection(null);CSS.highlights?.delete(highlightKey);update({render:false});});
     editor.addEventListener('blur',()=>update({render:false}));
     editor.addEventListener('paste',e=>{e.preventDefault();document.execCommand('insertText',false,e.clipboardData.getData('text/plain'));});
     editor.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();document.execCommand('insertText',false,'\n');}});
     paintSelection();window.StudioScroll?.attach(editor,sheet);
     const review=node.data.review;
-    if(review){
+    if(review&&!(review.kind==='answer'&&review.answerId)){
       const box=make('section','text-preview-review');box.setAttribute('aria-label',review.kind==='edit'?'Proposed text revision':'Passage note');
       const label=make('span','text-preview-review-label',review.kind==='edit'?'Proposed revision':'Passage note');box.append(label,make('p','text-preview-review-copy',review.text));
       const actions=make('div','text-preview-review-actions');
       if(review.kind==='edit'){
         const apply=make('button','',review.selection?'Replace highlighted text':'Replace document');apply.type='button';apply.dataset.hint='Apply this proposed wording to the text document. Existing discussion stays in the dialogue.';
         apply.onclick=()=>{if(review.selection&&!validSelection(node,review.selection)){node.data.review={kind:'answer',text:'The selected passage changed. Highlight it again before applying a replacement.'};update();return;}
-          node.data.previousText=node.data.text;node.data.text=review.selection?node.data.text.slice(0,review.selection.start)+review.text+node.data.text.slice(review.selection.end):review.text;node.data.textRevision++;node.data.review=null;setSelection(null);update();};actions.append(apply);
+          node.data.previousText=node.data.text;node.data.text=review.selection?node.data.text.slice(0,review.selection.start)+review.text+node.data.text.slice(review.selection.end):review.text;node.data.answers=StudioTextLinks.rebase(node.data.answers||[],node.data.previousText,node.data.text);node.data.textRevision++;node.data.review=null;setSelection(null);update();};actions.append(apply);
       }
       const dismiss=make('button','','Dismiss');dismiss.type='button';dismiss.onclick=()=>{node.data.review=null;update();};actions.append(dismiss);box.append(actions);root.append(box);
     }
@@ -54,7 +70,9 @@
     const wantsEdit=/\b(rewrite|rephrase|shorten|concise|simplify|improve|edit|clarify|tighter|clearer)\b/i.test(prompt);
     if(wantsEdit)node.data.review={kind:'edit',selection,text:concise(source)};
     else node.data.review={kind:'answer',text:selection?'This passage sets a design requirement. Its key point is '+source.split(/[.!?]/)[0].trim().replace(/^The /,'the ')+'. Check that the drawing and the next revision make that requirement easy to verify.':'The brief connects circulation, planting and seating. Review the walking route first, then check that shade and furniture support each of the three daily-use scenarios.'};
+    const answer=StudioTextLinks.answer(node,prompt,node.data.review.text);if(answer)node.data.review.answerId=answer.id;
   }
+  const renderThumbnail=({node,make})=>{initialize(node);return make('div','text-thumbnail',node.data.text);};
   window.StudioElements ||= [];
-  window.StudioElements.push({id:'text-agent',title:'Text Agent',width:650,height:390,initialPrompt:'Make the highlighted passage clearer and more concise.',initialTurns:[{role:'user',text:'Help me refine this courtyard brief while preserving its design intent.'},{role:'assistant',text:'Highlight a passage in the document and ask about it below. I can discuss the wording or propose a replacement for that passage.'}],stages:[{label:'Read selected passage',detail:'Capture the exact text range and its document revision.'},{label:'Review wording',detail:'Check the requested change against the surrounding brief.'},{label:'Prepare response',detail:'Return a passage note or a proposed edit. The document changes only when you apply an edit.'}],renderPreview,applyResult,tools:[{id:'undo-text-edit',label:'Undo text edit',hint:'Restore the previous document wording; conversation history is retained.',action(node){initialize(node);if(typeof node.data.previousText==='string'){const current=node.data.text;node.data.text=node.data.previousText;node.data.previousText=current;node.data.textRevision++;node.data.review=null;node.selection=null;}}}]});
+  window.StudioElements.push({id:'text-agent',title:'Text Agent',width:650,height:390,initialPrompt:'Make the highlighted passage clearer and more concise.',initialTurns:[{role:'user',text:'Help me refine this courtyard brief while preserving its design intent.'},{role:'assistant',text:'Highlight a passage in the document and ask about it below. I can discuss the wording or propose a replacement for that passage.'}],stages:[{label:'Read selected passage',detail:'Capture the exact text range and its document revision.'},{label:'Review wording',detail:'Check the requested change against the surrounding brief.'},{label:'Prepare response',detail:'Return a passage note or a proposed edit. The document changes only when you apply an edit.'}],renderPreview,renderThumbnail,applyResult,completionText:n=>n.data.review?.text||'The response is ready.',tools:[{id:'undo-text-edit',label:'Undo text edit',hint:'Restore the previous document wording; conversation history is retained.',action(node){initialize(node);if(typeof node.data.previousText==='string'){const current=node.data.text;node.data.text=node.data.previousText;node.data.previousText=current;node.data.textRevision++;node.data.review=null;node.selection=null;}}}]});
 })();

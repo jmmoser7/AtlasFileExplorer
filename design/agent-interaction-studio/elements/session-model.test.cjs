@@ -1,5 +1,6 @@
 const assert=require('node:assert/strict');
 const M=require('./session-model.js');
+assert.equal(M.canRebound(100,1600),true);assert.equal(M.canRebound(100,1601),false);assert.equal(M.canRebound(undefined,100),false);assert.equal(M.canRebound(100,99),false);
 const config={width:700,height:400,initialPrompt:'Refine this',initialTurns:[{role:'assistant',text:'Ready'}]};
 const parent=M.create(config);parent.data={nested:{value:1}};parent.grafted={style:true};parent.versions=[{old:true}];parent.turns.push({role:'user',text:'Original'});
 const child=M.branch(parent,'child');assert.equal(child.inherited.length,2);assert.equal(child.turns.length,0);child.data.nested.value=2;assert.equal(parent.data.nested.value,1);

@@ -709,9 +709,15 @@
           "behavior": "Outside click dismisses menus; dialogue scroll position, drafts and authored geometry survive control changes; Ultra fast is explicit capability data.",
           "verdict": "approved requirement; host visual review open",
           "decided": "2026-10-30"
+        },
+        {
+          "id": "PREVIEW01",
+          "behavior": "1500 ms menu/card rebound; actual output thumbnails in circles and persistent running-bond square previews; square selection does not open controls. Dashboard menu keeps Preserve model history only.",
+          "verdict": "approved requirement; visual review open",
+          "decided": "2026-10-30"
         }
       ],
-      "version": "0.3"
+      "version": "0.4"
     },
     "text-agent": {
       "status": "draft",
@@ -726,7 +732,8 @@
         "S07",
         "S08",
         "S09",
-        "S10"
+        "S10",
+        "S11"
       ],
       "changes": [
         {
@@ -758,9 +765,21 @@
           "behavior": "Outside click dismisses menus; dialogue scroll position, drafts and authored geometry survive control changes; Ultra fast is explicit capability data.",
           "verdict": "approved requirement; host visual review open",
           "decided": "2026-10-30"
+        },
+        {
+          "id": "PREVIEW01",
+          "behavior": "1500 ms menu/card rebound; actual output thumbnails in circles and persistent running-bond square previews; square selection does not open controls. Dashboard menu keeps Preserve model history only.",
+          "verdict": "approved requirement; visual review open",
+          "decided": "2026-10-30"
+        },
+        {
+          "id": "TEXTLINK01",
+          "behavior": "Answered selections become local response links with question/answer hover preview, exact destination navigation and edit-safe anchors.",
+          "verdict": "approved requirement; visual review open",
+          "decided": "2026-10-30"
         }
       ],
-      "version": "0.3"
+      "version": "0.4"
     },
     "rhino-agent": {
       "status": "draft",
@@ -807,9 +826,15 @@
           "behavior": "Outside click dismisses menus; dialogue scroll position, drafts and authored geometry survive control changes; Ultra fast is explicit capability data.",
           "verdict": "approved requirement; host visual review open",
           "decided": "2026-10-30"
+        },
+        {
+          "id": "PREVIEW01",
+          "behavior": "1500 ms menu/card rebound; actual output thumbnails in circles and persistent running-bond square previews; square selection does not open controls. Dashboard menu keeps Preserve model history only.",
+          "verdict": "approved requirement; visual review open",
+          "decided": "2026-10-30"
         }
       ],
-      "version": "0.3"
+      "version": "0.4"
     }
   }
 }

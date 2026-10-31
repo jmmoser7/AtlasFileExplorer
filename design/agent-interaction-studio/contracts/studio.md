@@ -60,3 +60,7 @@ See [the native source audit](../research/native-agent-chrome.md) for measuremen
 ## v0.3 — Images is the shared implementation precedent
 
 This amendment supersedes earlier descriptions of Settings, Continue/Fork commands, separate Progress/Script views, native activity-summary rows and widget selection. The current owner-requested controls are documented in the v0.3 Dashboard Builder, Text Agent and Rhino contracts. The actual Images dialogue and count/model-label components now live in generator-ui.js and are called by all four generators. Input source creation, wire attachment, graft recipes and four-slot capsules are available in each new canvas. Output drag creates closed blank downstream surfaces; one Preserve model history checkbox controls context. Header spinner and hover chevrons replace the separate activity row. The three host layouts remain under visual review; these changes do not authorize Rust implementation.
+
+## v0.4 — Output previews and linked answers
+
+The new generators use actual saved output thumbnails in the header and Images-style rounded-square preview strips on hover. Selecting a preview keeps the strip visible and does not open the toolbar. The 1500 ms rebound applies to the dismissed agent and its model/options menu. Dashboard's three-dot menu now contains only Preserve model history. Answered text selections link to their response and show a question/answer mini viewer on hover/focus. See validation/preview-links-v4.md and the v0.4 element contracts. Native code remains unchanged.

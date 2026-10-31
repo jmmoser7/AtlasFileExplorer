@@ -51,4 +51,12 @@ An image-agent dialogue already explicitly opened by the user captures ordinary 
 
 ## S10 Shared generator assembly — 30 October 2026
 
-Images, Dashboard Builder, Text Agent and Rhino reuse one dialogue/composer/count/model-label implementation (`generator-ui.js`), with the existing image layout, grafting, model picker and menu editor. The owner explicitly rejected per-modality reinvention. One Preserve model history toggle governs in-place dialogue and automatic downstream context. New downstream surfaces start blank with controls closed. Grafting uses the same source channels, capped capsule and longest-list matching in every applicable host. The working indicator and hover chevrons share the header datum; public updates belong in the dialogue. Host-specific property tools and pending Apply/Discard actions remain local. See the v0.3 per-element contracts for complete behavior and limits.
+Images, Dashboard Builder, Text Agent and Rhino reuse one dialogue/composer/count/model-label implementation (`generator-ui.js`), with the existing image layout, grafting, model picker and menu editor. The owner explicitly rejected per-modality reinvention. One Preserve model history toggle governs in-place dialogue and automatic downstream context. New downstream surfaces start blank with controls closed. Grafting uses the same source channels, capped capsule and longest-list matching in every applicable host. The working indicator and hover chevrons share the header datum; public updates belong in the dialogue. Host-specific property tools remain local; the dashboard three-dot menu is Preserve model history only. See the v0.3 per-element contracts for complete behavior and limits.
+
+### S09/S10 extension — non-image previews and return grace
+
+The owner extends Images result previews to Dashboard, Text and Rhino: each circle and square is a thumbnail of its saved output. Closed-agent square previews keep the same geometry, running bond, hover bridge, persistence and separate preview/body selection behavior. Returning to a dismissed card or the last-open model/options menu within 1500 ms restores it; later selection does not. Native production styling is unchanged.
+
+### S11 Linked text answers
+
+After a query about selected text completes, that passage links to the recorded response. Hover/focus shows the question and answer without moving the reader; activation scrolls the agent dialogue to that response. Offsets rebase through unrelated edits and invalidate when the linked passage changes. Links and prior answers do not alter model-history preservation settings.

@@ -8,3 +8,9 @@
 
 /* Reserve the lower native control band so glyphs never cover editable text. */
 .text-preview-sheet{padding-bottom:44px}
+.text-preview{position:relative}
+.text-answer-link{color:var(--accent);text-decoration:underline;text-decoration-thickness:.6px;text-underline-offset:2px;cursor:pointer}
+.text-answer-link:hover,.text-answer-link:focus-visible{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+.text-answer-peek{position:absolute;z-index:12;width:320px;max-width:calc(100% - 24px);max-height:210px;overflow:auto;padding:12px;background:var(--card);border:1px solid var(--studio-line);border-radius:6px;box-shadow:0 5px 20px #0002;font:300 12px/1.5 ChatTrainUbuntu,sans-serif;user-select:text;cursor:auto}
+.text-answer-peek .peek-question{font-size:11px;color:var(--sub);margin:0 0 8px}.text-answer-peek p{margin:0 0 8px;white-space:pre-wrap}.text-answer-peek button{font:inherit;color:var(--accent);text-decoration:underline}
+.text-thumbnail{padding:16px 16px 44px;background:var(--card);color:var(--ink);height:100%;white-space:pre-wrap;overflow:hidden;font:300 14px/1.6 ChatTrainUbuntu,sans-serif}
