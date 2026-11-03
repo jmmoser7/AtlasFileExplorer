@@ -113,7 +113,8 @@ fn provider_tiles_accept_first_click_near_their_edges() {
         // Page changes reuse widget IDs. Wait for the actual Codex option's
         // paint and hit registration to agree before testing its padding.
         let provider_name = atlas_ai::agent::provider_by_id("codex").display_name;
-        let rect = (0..4)
+        let mut previous = None;
+        let rect = (0..8)
             .find_map(|_| {
                 let out = h.frame_output(|_| {});
                 let ink = super::paint_probe::painted_at(&out)
@@ -126,9 +127,12 @@ fn provider_tiles_accept_first_click_near_their_edges() {
                     .layer_transform_to_global(row.layer_id)
                     .unwrap_or_default()
                     * row.interact_rect;
-                rect.contains(ink.center()).then_some(rect)
+                let observed = (rect, ink);
+                let settled = rect.contains(ink.center()) && previous == Some(observed);
+                previous = Some(observed);
+                settled.then_some(rect)
             })
-            .expect("the actual Codex provider option is painted and clickable");
+            .expect("the complete painted Codex option and hit rectangle converge");
         let inset = (z * 1.0).max(0.25);
         let point = match corner {
             0 => rect.left_top() + egui::vec2(inset, inset),
@@ -136,11 +140,36 @@ fn provider_tiles_accept_first_click_near_their_edges() {
             2 => rect.left_bottom() + egui::vec2(inset, -inset),
             _ => rect.right_bottom() - egui::vec2(inset, inset),
         };
-        super::train_setup::press(&mut h, point);
+        // Move once onto the original corner, then verify the actual target
+        // owns it before a single press/release. Never repair a miss by retrying.
+        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(point)));
+        let target = h.ctx.read_response(menu.with(("primary", 2usize))).unwrap();
+        let current = h
+            .ctx
+            .layer_transform_to_global(target.layer_id)
+            .unwrap_or_default()
+            * target.interact_rect;
+        assert!(
+            current == rect && target.hovered() && target.contains_pointer(),
+            "Codex must own its corner before click: z={z}, corner={corner}, point={point:?}, \
+             settled={rect:?}, current={current:?}, hovered={}, contains={}, layer_at={:?}, popup={:?}",
+            target.hovered(), target.contains_pointer(), h.ctx.layer_id_at(point),
+            h.app.agents.model_menu_rect
+        );
+        for pressed in [true, false] {
+            h.frame_with(|i| {
+                i.events.push(egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                })
+            });
+        }
         assert_eq!(
             h.app.pending_generator_choice(id).unwrap().0,
             "codex",
-            "provider row edge at {z}"
+            "provider row edge at {z}, corner={corner}, point={point:?}, rect={rect:?}"
         );
         assert_eq!(
             h.app.doc().scene.node(id),
