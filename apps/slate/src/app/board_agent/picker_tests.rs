@@ -291,20 +291,38 @@ fn deleting_the_last_consuming_card_removes_its_pocket_in_the_same_step() {
     assert!(h.app.doc().scene.node(lone_wire).is_some());
 }
 
-/// The list hangs under the title's model name; it never drifts off it.
-fn menu_under_title(output: &egui::FullOutput) -> bool {
-    let texts = painted_at(output);
-    let (Some(title), Some(first)) = (
-        texts.iter().find(|(t, _)| t == "Astra").map(|(_, r)| *r),
-        texts.iter().find(|(t, _)| t == "Provider").map(|(_, r)| *r),
-    ) else {
+/// The screen-sized popup follows its actual model button, clamped only at the screen edge.
+fn menu_under_title(
+    h: &super::super::tests::Harness,
+    card: NodeId,
+    output: &egui::FullOutput,
+) -> bool {
+    let Some(response) = h.ctx.read_response(Id::new(("agent-model-menu", card.0))) else {
         return false;
     };
-    // Slack for the menu frame's and row's padding.
-    let gap = first.top() - title.bottom();
-    gap >= 0.0
-        && gap < title.height() * 3.0 + 16.0
-        && (first.left() - title.left()).abs() < title.height() + 16.0
+    let anchor = h
+        .ctx
+        .layer_transform_to_global(response.layer_id)
+        .unwrap_or_default()
+        * response.rect;
+    let Some(popup) = h.app.agents.model_menu_rect else {
+        return false;
+    };
+    let viewport = h.ctx.screen_rect().shrink(8.0);
+    let expected_left = anchor
+        .left()
+        .clamp(viewport.left(), viewport.right() - popup.width());
+    let expected_top = (anchor.bottom() + 5.0).clamp(
+        viewport.top(),
+        (viewport.bottom() - 152.0).max(viewport.top()),
+    );
+    (popup.left() - expected_left).abs() < 1.0
+        && (popup.top() - expected_top).abs() < 1.0
+        && viewport.expand(1.0).contains_rect(popup)
+        && painted_clipped(output)
+            .iter()
+            .filter(|(text, _, _)| ["Default", "Terra", "Luna"].contains(&text.as_str()))
+            .all(|(_, rect, clip)| clip.contains_rect(*rect))
 }
 
 #[test]
@@ -320,7 +338,7 @@ fn the_model_list_stays_open_while_the_wheel_zooms_the_board() {
     // title: the wheel zooms about the card and keeps it in view.
     let beside = Pos2::new(r.left() - 24.0, r.center().y);
     let mut zooms = Vec::new();
-    wheel_sweep(&mut h, beside, 24, |_, out, step, z| {
+    wheel_sweep(&mut h, beside, 24, |h, out, step, z| {
         zooms.push(z);
         assert!(
             menu_items_painted(out),
@@ -328,7 +346,7 @@ fn the_model_list_stays_open_while_the_wheel_zooms_the_board() {
             painted_at(out)
         );
         assert!(
-            menu_under_title(out),
+            menu_under_title(h, card, out),
             "the model list left its title at step {step}, zoom {z}: {:?}",
             painted_at(out)
         );
@@ -408,7 +426,7 @@ fn the_model_list_opened_zoomed_in_stays_whole_while_zooming_out_and_back() {
             let z = h.app.tab().cam.z;
             zooms.push(z);
             assert!(
-                menu_items_painted(&out) && menu_under_title(&out),
+                menu_items_painted(&out) && menu_under_title(&h, card, &out),
                 "the model list broke at step {step} ({delta}), zoom {z}: {:?}",
                 painted_at(&out)
             );

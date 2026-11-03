@@ -77,26 +77,55 @@ fn shown(h: &mut Harness) -> Vec<String> {
     painted(h, Pos2::new(2.0, 890.0))
 }
 
-fn click_picker_label(h: &mut Harness, label: &str) {
-    fn find(shape: &egui::Shape, label: &str) -> Option<Pos2> {
+fn picker_label_rect(h: &mut Harness, label: &str) -> ERect {
+    fn find(shape: &egui::Shape, label: &str, out: &mut Vec<ERect>) {
         match shape {
             egui::Shape::Text(text) if text.galley.text() == label => {
-                Some(text.visual_bounding_rect().center())
+                out.push(text.visual_bounding_rect())
             }
-            egui::Shape::Vec(shapes) => shapes.iter().find_map(|s| find(s, label)),
-            _ => None,
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| find(s, label, out)),
+            _ => {}
         }
     }
     h.frame();
     let out = h.frame_output(|_| {});
-    let point = out
-        .shapes
-        .iter()
-        .find_map(|s| find(&s.shape, label).filter(|point| s.clip_rect.contains(*point)))
-        .unwrap_or_else(|| panic!("visible current picker label {label}"));
+    let mut matches = Vec::new();
+    for shape in &out.shapes {
+        let mut rects = Vec::new();
+        find(&shape.shape, label, &mut rects);
+        matches.extend(
+            rects
+                .into_iter()
+                .filter(|r| shape.clip_rect.contains(r.center())),
+        );
+    }
+    matches
+        .into_iter()
+        .max_by(|a, b| a.center().y.total_cmp(&b.center().y))
+        .unwrap_or_else(|| panic!("visible current picker label {label}"))
+}
+fn click_picker_label(h: &mut Harness, label: &str) {
+    let point = picker_label_rect(h, label).center();
     click_board(h, point);
     h.frame();
 }
+fn open_image_key_affordance(h: &mut Harness) {
+    click_picker_label(h, "Provider");
+    let name = atlas_ai::agent::provider_by_id(OPENAI).display_name;
+    let label = picker_label_rect(h, &name);
+    let popup = h
+        .app
+        .shape_properties
+        .chrome_hits
+        .iter()
+        .filter(|r| r.contains(label.center()))
+        .min_by(|a, b| a.area().total_cmp(&b.area()))
+        .copied()
+        .expect("provider popup hit bounds");
+    click_board(h, Pos2::new(popup.right() - 18.0, label.center().y));
+    h.frame();
+}
+
 fn open_chat_providers(h: &mut Harness, id: NodeId) {
     h.frame();
     let hit = h
@@ -154,58 +183,43 @@ fn a_cursor_install_shows_in_the_chooser_without_a_restart() {
 #[test]
 fn pk2_generate_offers_add_api_key_until_a_key_is_stored() {
     let mut h = pack_board("pk2_flip", &[]);
-    let rows: Vec<_> = h
-        .app
-        .agent_models(true)
-        .into_iter()
-        .filter(|row| row.0 == OPENAI)
-        .collect();
-    assert!(
-        !rows.is_empty(),
-        "OpenAI models remain discoverable without a key"
-    );
-    assert!(
-        rows.iter().all(|row| row.2.ends_with(" · add API key")),
-        "{rows:?}"
-    );
-    let missing_labels: Vec<_> = rows.iter().map(|row| row.2.clone()).collect();
-    assert!(h.app.ai.packs.needs_key(OPENAI));
     let picture = generate_chooser_open(&mut h, |h| h.frame());
     click_picker_label(&mut h, "Provider");
     let provider_label = atlas_ai::agent::provider_by_id(OPENAI).display_name;
     click_picker_label(&mut h, &provider_label);
+    assert_eq!(h.app.pending_generator_choice(picture).unwrap().0, OPENAI);
     click_picker_label(&mut h, "Model");
-    let texts = shown(&mut h);
+    let models: Vec<_> = h
+        .app
+        .source_model_options(picture, OPENAI)
+        .into_iter()
+        .map(|(_, _, name)| name)
+        .collect();
     assert!(
-        missing_labels.iter().all(|label| texts.contains(label)),
-        "{texts:?}"
+        !models.is_empty(),
+        "available models do not require a stored key"
     );
+    let texts = shown(&mut h);
+    assert!(models.iter().all(|name| texts.contains(name)), "{texts:?}");
+    assert!(h.app.ai.packs.needs_key(OPENAI));
+    let before = h.app.doc().scene.node(picture).unwrap().clone();
+    open_image_key_affordance(&mut h);
+    assert!(shown(&mut h).iter().any(|t| t == "Add API key"));
+    assert_eq!(h.app.doc().scene.node(picture), Some(&before));
+    assert!(h.app.agents.dispatched.is_empty());
 
-    // What `save_openai_key` records once the key is in the store.
+    // Model names stay stable; the dedicated credential action changes state.
     h.app.pin_pack_for_test(OPENAI, PackHealth::Ok);
     assert!(!h.app.ai.packs.needs_key(OPENAI));
-    let rows: Vec<_> = h
+    let after_models: Vec<_> = h
         .app
-        .agent_models(true)
+        .source_model_options(picture, OPENAI)
         .into_iter()
-        .filter(|row| row.0 == OPENAI)
+        .map(|(_, _, name)| name)
         .collect();
-    assert!(!rows.is_empty());
-    assert!(
-        rows.iter().all(|r| !r.2.ends_with(" · add API key")),
-        "{rows:?}"
-    );
-    assert!(
-        rows.iter().all(|r| r.2.starts_with("GPT Image")),
-        "{rows:?}"
-    );
-    assert_eq!(h.app.pending_generator_choice(picture).unwrap().0, OPENAI);
-    let texts = shown(&mut h);
-    assert!(
-        !missing_labels.iter().any(|label| texts.contains(label)),
-        "{texts:?}"
-    );
-    assert!(rows.iter().any(|row| texts.contains(&row.2)), "{texts:?}");
+    assert_eq!(after_models, models);
+    assert_eq!(h.app.doc().scene.node(picture), Some(&before));
+    assert!(h.app.agents.dispatched.is_empty());
 }
 
 #[test]

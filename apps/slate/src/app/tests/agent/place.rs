@@ -124,8 +124,10 @@ fn a_new_agent_portal_starts_at_its_program_grid_size() {
         h.frame();
     }
     let before = h.app.doc().scene.node(id).unwrap().clone();
-    let size = crate::app::board_agent::program_card_size(atlas_agent::PortalView::Chat);
-    assert_eq!((before.rect.w, before.rect.h), (size.x, size.y));
+    assert_eq!(
+        (before.rect.w, before.rect.h),
+        crate::app::board::AGENT_PORTAL_SIZE
+    );
     assert_eq!(
         (
             before.rect.x + before.rect.w * 0.5,

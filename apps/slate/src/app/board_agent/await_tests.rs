@@ -89,15 +89,25 @@ fn provider_tiles_accept_first_click_near_their_edges() {
         crate::app::tests::frame_on(&mut h, id, z);
         let before = h.app.doc().scene.node(id).unwrap().clone();
         let depth = h.app.tab().journal.undo_depth();
+        let menu = Id::new(("agent-model-menu", id.0));
+        let button = h
+            .ctx
+            .read_response(menu)
+            .expect("actual shared model button");
         let hit = h
             .ctx
-            .data(|d| d.get_temp::<Rect>(Id::new(("agent-model-hit", id.0))))
-            .unwrap();
+            .layer_transform_to_global(button.layer_id)
+            .unwrap_or_default()
+            * button.interact_rect;
         super::train_setup::press(&mut h, hit.center());
         h.frame();
-        let menu = Id::new(("agent-model-menu", id.0));
         let provider = h.ctx.read_response(menu.with(("primary", 0usize))).unwrap();
-        super::train_setup::press(&mut h, provider.rect.center());
+        let provider_rect = h
+            .ctx
+            .layer_transform_to_global(provider.layer_id)
+            .unwrap_or_default()
+            * provider.interact_rect;
+        super::train_setup::press(&mut h, provider_rect.center());
         h.frame();
         let row = h
             .ctx
@@ -128,11 +138,12 @@ fn provider_tiles_accept_first_click_near_their_edges() {
         );
         assert_eq!(h.app.tab().journal.undo_depth(), depth);
         assert!(h.app.agents.dispatched.is_empty());
+        h.frame();
         let labels = super::paint_probe::painted_text(&mut h, None);
         for label in ["Provider", "Model", "Effort", "Speed"] {
             assert!(
                 labels.iter().any(|s| s == label),
-                "shared chooser retains {label}"
+                "shared chooser retains {label}: {labels:?}"
             );
         }
     }
