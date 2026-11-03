@@ -72,7 +72,6 @@ fn round_trip(fixture: &str) -> SlateDoc {
     let reloaded =
         SlateDoc::load_from(&saved).unwrap_or_else(|err| panic!("reload {fixture}: {err}"));
     assert_eq!(reloaded, doc, "{fixture} survives save and reload");
-
     let _ = std::fs::remove_dir_all(dir);
     doc
 }

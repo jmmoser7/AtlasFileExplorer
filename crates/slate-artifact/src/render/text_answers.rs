@@ -59,7 +59,7 @@ mod tests {
         )
         .unwrap();
         let mut html = String::new();
-        render_inline(&mut html, NodeId(7), text, &[answer.clone()]);
+        render_inline(&mut html, NodeId(7), text, std::slice::from_ref(&answer));
         render_answers(&mut html, NodeId(7), text, &[answer]);
         assert!(html.contains(">café</a> &amp; tea."));
         assert!(html.contains("Why &lt;this&gt;?"));
@@ -81,7 +81,7 @@ mod tests {
         )
         .unwrap();
         let mut html = String::new();
-        render_inline(&mut html, NodeId(1), "new", &[answer.clone()]);
+        render_inline(&mut html, NodeId(1), "new", std::slice::from_ref(&answer));
         render_answers(&mut html, NodeId(1), "new", &[answer]);
         assert_eq!(html, "new");
     }

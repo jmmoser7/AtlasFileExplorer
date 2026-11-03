@@ -9,7 +9,6 @@
 //! - a copied connector's anchored end that points *outside* the copied set
 //!   degrades to `Free` at its current world point (resolved at copy time,
 //!   when the source scene is still available).
-
 use super::SlateApp;
 
 #[path = "clipboard_render.rs"]

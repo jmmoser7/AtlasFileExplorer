@@ -1,6 +1,7 @@
 //! Agent pump and session pump.
 
 use super::*;
+mod context;
 pub(super) mod image_import;
 #[cfg(test)]
 mod text_answer_tests;
@@ -455,26 +456,6 @@ impl SlateApp {
         }
         self.agents.sources.retain(&live_dirs);
         self.pump_agent_text_outputs();
-    }
-    fn agent_context_for(
-        &self,
-        session: &str,
-        provider: &str,
-        _scope: AgentContextScope,
-    ) -> AgentContext {
-        let tab = self.tab();
-        AgentContext {
-            app: "slate",
-            session: session.to_string(),
-            provider: provider.to_string(),
-            workbook: tab.path.clone(),
-            format_version: tab.doc.format_version,
-            scope: "wired".into(),
-            selection: vec![],
-            viewport: None,
-            board_summary: String::new(),
-            generated_at: atlas_ai::context::now_secs(),
-        }
     }
     pub(super) fn consume_agent_context(&mut self, portal: NodeId) {
         // A generator or text block rereads its wires on every run; they stay rewirable.

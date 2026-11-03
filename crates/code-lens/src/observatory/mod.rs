@@ -155,14 +155,11 @@ impl Builder {
     pub fn push(
         &mut self,
         parent: NodeId,
-        kind: &'static str,
         name: String,
         path: &Path,
-        line: u32,
-        end_line: u32,
-        doc: String,
-        conditional: bool,
+        mut source: SourceInfo,
     ) -> NodeId {
+        let kind = source.kind;
         let count = self
             .duplicates
             .entry((parent, kind, name.clone()))
@@ -182,15 +179,8 @@ impl Builder {
         let id = self
             .graph
             .push_node(Some(parent), node_kind, name.clone(), path.to_path_buf(), 0);
-        self.source.push(SourceInfo {
-            kind,
-            line,
-            end_line,
-            self_loc: 0,
-            doc,
-            conditional,
-            identity,
-        });
+        source.identity = identity;
+        self.source.push(source);
         self.facts.parents.insert(id, parent);
         if let Some(file) = self.facts.file_for.get(&parent).copied() {
             self.facts.file_for.insert(id, file);

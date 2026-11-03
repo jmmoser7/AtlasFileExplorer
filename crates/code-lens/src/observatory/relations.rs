@@ -188,7 +188,7 @@ impl Resolver<'_> {
                         }
                     }
                     address.parts.extend(path.parts[index..].iter().cloned());
-                    self.canonical(scope, address, depth + 1)
+                    self.canonical(address, depth + 1)
                 })
                 .collect();
         }
@@ -270,7 +270,7 @@ impl Resolver<'_> {
                 self.graph.node(n).name.clone()
             }) {
                 address.parts.extend(path.parts.iter().cloned());
-                relative.extend(self.canonical(scope, address, depth + 1));
+                relative.extend(self.canonical(address, depth + 1));
             }
             if !relative.is_empty() {
                 return relative;
@@ -284,7 +284,6 @@ impl Resolver<'_> {
             .get(&package_name)
             .map(|root| {
                 self.canonical(
-                    scope,
                     Address {
                         root: root.clone(),
                         parts: path.parts[1..].to_vec(),
@@ -295,7 +294,7 @@ impl Resolver<'_> {
             .unwrap_or_default()
     }
 
-    fn canonical(&self, scope: NodeId, address: Address, depth: usize) -> Vec<NodeId> {
+    fn canonical(&self, address: Address, depth: usize) -> Vec<NodeId> {
         if !self.namespaces.unique_route(&address, self.facts) {
             return Vec::new();
         }
@@ -352,7 +351,7 @@ impl Resolver<'_> {
             let Some(method) = ty.parts.pop() else {
                 return out;
             };
-            let types = self.canonical(scope, ty, depth + 1);
+            let types = self.canonical(ty, depth + 1);
             out.extend(self.extend(types, &[method], depth + 1));
         }
         out
@@ -372,7 +371,7 @@ impl Resolver<'_> {
                     self.graph.node(n).name.clone()
                 }) {
                     address.parts.extend(remaining.iter().cloned());
-                    output.extend(self.canonical(node, address, depth + 1));
+                    output.extend(self.canonical(address, depth + 1));
                 }
             } else if remaining.len() == 1 {
                 output.extend(
@@ -388,12 +387,8 @@ impl Resolver<'_> {
     }
 
     fn external_package(&self, scope: NodeId, name: &str) -> Option<String> {
-        let Some(file) = self.facts.file_for.get(&scope) else {
-            return None;
-        };
-        let Some(owner) = self.owners.get(file) else {
-            return None;
-        };
+        let file = self.facts.file_for.get(&scope)?;
+        let owner = self.owners.get(file)?;
         if let Some(actual) = self
             .facts
             .extern_aliases

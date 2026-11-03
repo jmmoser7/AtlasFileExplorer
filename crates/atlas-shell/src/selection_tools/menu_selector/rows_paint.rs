@@ -413,14 +413,14 @@ pub(super) fn paint(
                 .on_hover_text("Add or change the API key without changing provider");
         }
     }
-    if choice.interactive && response.clicked() {
-        if !choice.secondary
+    if choice.interactive
+        && response.clicked()
+        && (!choice.secondary
             || response
                 .interact_pointer_pos()
-                .is_none_or(|p| p.x < row.right() - if agent_datums { 34.0 } else { 30.0 } * zoom)
-        {
-            intent = RowIntent::Primary;
-        }
+                .is_none_or(|p| p.x < row.right() - if agent_datums { 34.0 } else { 30.0 } * zoom))
+    {
+        intent = RowIntent::Primary;
     }
     if studio {
         let identity = choice

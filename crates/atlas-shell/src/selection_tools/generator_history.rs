@@ -243,36 +243,38 @@ pub(super) fn history_row(
         if response.dragged() {
             out.history_drag_position = response.interact_pointer_pos();
         }
-        if object_hover_text(response, item.label.as_ref()).hovered() {
-            if item.thumb.is_some() || history.text(index).is_some() {
-                let preview = Rect::from_center_size(
-                    circle.center() - Vec2::new(0.0, 54.0 * zoom),
-                    Vec2::splat(92.0 * zoom),
-                );
-                egui::Area::new(ui.id().with(("image-agent-preview", index)))
-                    .order(egui::Order::Tooltip)
-                    .fixed_pos(preview.min)
-                    .default_size(preview.size())
-                    .interactable(false)
-                    .show(ui.ctx(), |ui| {
-                        if let Some(texture) = item.thumb {
-                            ui.add(egui::Image::new((texture, preview.size())).corner_radius(
+        if object_hover_text(response, item.label.as_ref()).hovered()
+            && (item.thumb.is_some() || history.text(index).is_some())
+        {
+            let preview = Rect::from_center_size(
+                circle.center() - Vec2::new(0.0, 54.0 * zoom),
+                Vec2::splat(92.0 * zoom),
+            );
+            egui::Area::new(ui.id().with(("image-agent-preview", index)))
+                .order(egui::Order::Tooltip)
+                .fixed_pos(preview.min)
+                .default_size(preview.size())
+                .interactable(false)
+                .show(ui.ctx(), |ui| {
+                    if let Some(texture) = item.thumb {
+                        ui.add(
+                            egui::Image::new((texture, preview.size())).corner_radius(
                                 egui::CornerRadius::same((5.0 * zoom).round() as u8),
-                            ));
-                        } else if let Some(text) = history.text(index) {
-                            let rect = Rect::from_min_size(ui.min_rect().min, preview.size());
-                            ui.painter().rect_filled(rect, 5.0 * zoom, theme.panel);
-                            paint_history_text_preview(
-                                ui.painter(),
-                                rect.shrink(6.0 * zoom),
-                                text,
-                                6.0 * zoom,
-                                theme,
-                            );
-                            ui.allocate_space(preview.size());
-                        }
-                    });
-            }
+                            ),
+                        );
+                    } else if let Some(text) = history.text(index) {
+                        let rect = Rect::from_min_size(ui.min_rect().min, preview.size());
+                        ui.painter().rect_filled(rect, 5.0 * zoom, theme.panel);
+                        paint_history_text_preview(
+                            ui.painter(),
+                            rect.shrink(6.0 * zoom),
+                            text,
+                            6.0 * zoom,
+                            theme,
+                        );
+                        ui.allocate_space(preview.size());
+                    }
+                });
         }
     }
     out

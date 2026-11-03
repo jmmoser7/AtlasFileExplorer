@@ -33,7 +33,6 @@ pub mod tokens {
     pub const ESCAPE_DISTANCE: f32 = 40.0;
     /// Fixed release-solve step, seconds.
     pub const STEP: f32 = 1.0 / 120.0;
-    /// Release-solve step cap.
     pub const MAX_STEPS: usize = 480;
     /// Contact passes per step.
     pub const ITERATIONS: usize = 8;

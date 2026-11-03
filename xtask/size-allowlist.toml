@@ -255,11 +255,6 @@ ceiling = 691
 reason = "core backend; atlas-core owner"
 
 [[entry]]
-file = "crates/atlas-openai/src/lib.rs"
-ceiling = 594
-reason = "oversized; split along module seam"
-
-[[entry]]
 file = "crates/atlas-shell/src/covers.rs"
 ceiling = 620
 reason = "shared chrome/canvas; Art. X owner atlas-shell"

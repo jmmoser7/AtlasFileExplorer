@@ -61,7 +61,6 @@ pub fn models() -> Result<Vec<String>, String> {
 
 struct Installed {
     name: String,
-    /// The model reads pictures.
     vision: bool,
 }
 

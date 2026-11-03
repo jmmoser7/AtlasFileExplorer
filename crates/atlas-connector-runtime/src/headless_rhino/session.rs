@@ -17,113 +17,6 @@ pub struct HeadlessDraft {
     source_origin: Option<std::path::PathBuf>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn draft() -> HeadlessDraft {
-        HeadlessDraft::new(
-            HeadlessRhino {
-                executable: "missing".into(),
-                rhino_system: "missing".into(),
-                workspace: "missing".into(),
-                timeout: Duration::from_secs(180),
-            },
-            "headless-test".into(),
-            1,
-        )
-        .unwrap()
-    }
-    fn request(
-        id: &str,
-        operation: Operation,
-        source: Option<SourceScope>,
-        caller: CallerAuthority,
-    ) -> RequestEnvelope {
-        RequestEnvelope {
-            session_id: "headless-test".into(),
-            generation: 1,
-            request_id: id.into(),
-            caller,
-            source,
-            operation,
-        }
-    }
-    #[test]
-    fn descriptor_uses_existing_scalar_dialect() {
-        validate_parameter_schema(&command_descriptor().parameters).unwrap();
-        assert!(parse_parameters(&serde_json::json!({"plan":"{}","script":"x"})).is_err());
-    }
-    #[test]
-    fn agent_without_isolated_grant_never_launches_helper() {
-        let mut draft = draft();
-        let cancel = Cancellation::default();
-        let source = SourceRef {
-            source_id: "new-model".into(),
-            revision: "empty".into(),
-            locator: SourceLocator {
-                root_id: None,
-                relative: None,
-                absolute: Some("isolated.3dm".into()),
-            },
-        };
-        let human = CallerAuthority::Human {
-            action_id: "bind".into(),
-            target_source: None,
-        };
-        draft
-            .handle(
-                request(
-                    "bind",
-                    Operation::BindSource {
-                        source: source.clone(),
-                        mode: SourceMode::IsolatedDraft,
-                        selection_id: "explicit".into(),
-                    },
-                    None,
-                    human.clone(),
-                ),
-                &human,
-                &cancel,
-                |_| {},
-            )
-            .unwrap();
-        let agent = CallerAuthority::Agent {
-            agent_id: "agent".into(),
-            workspace_autonomy: true,
-        };
-        let invoke = request(
-            "generate",
-            Operation::InvokeCommand {
-                command_id: GENERATE_COMMAND.into(),
-                parameters: serde_json::json!({"plan":"{}"}),
-            },
-            Some(source.scope()),
-            agent.clone(),
-        );
-        assert!(draft
-            .handle(invoke.clone(), &agent, &cancel, |_| panic!(
-                "must not launch"
-            ))
-            .unwrap_err()
-            .contains("grant"));
-        draft
-            .session
-            .grant_draft_authority(
-                "grant",
-                "agent",
-                &source.scope(),
-                &[GENERATE_COMMAND.into()],
-            )
-            .unwrap();
-        let reply = draft
-            .handle(invoke, &agent, &cancel, |_| {
-                panic!("invalid plan must not launch")
-            })
-            .unwrap();
-        assert!(matches!(reply.outcome, ReplyBody::Failure { .. }));
-    }
-}
-
 impl HeadlessDraft {
     pub fn new(
         runtime: HeadlessRhino,
@@ -294,5 +187,112 @@ fn inspect_descriptor() -> CommandDescriptor {
         cancellable: true,
         agent_allowed: true,
         parameters: serde_json::json!({"type":"object","properties":{},"additionalProperties":false}),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn draft() -> HeadlessDraft {
+        HeadlessDraft::new(
+            HeadlessRhino {
+                executable: "missing".into(),
+                rhino_system: "missing".into(),
+                workspace: "missing".into(),
+                timeout: Duration::from_secs(180),
+            },
+            "headless-test".into(),
+            1,
+        )
+        .unwrap()
+    }
+    fn request(
+        id: &str,
+        operation: Operation,
+        source: Option<SourceScope>,
+        caller: CallerAuthority,
+    ) -> RequestEnvelope {
+        RequestEnvelope {
+            session_id: "headless-test".into(),
+            generation: 1,
+            request_id: id.into(),
+            caller,
+            source,
+            operation,
+        }
+    }
+    #[test]
+    fn descriptor_uses_existing_scalar_dialect() {
+        validate_parameter_schema(&command_descriptor().parameters).unwrap();
+        assert!(parse_parameters(&serde_json::json!({"plan":"{}","script":"x"})).is_err());
+    }
+    #[test]
+    fn agent_without_isolated_grant_never_launches_helper() {
+        let mut draft = draft();
+        let cancel = Cancellation::default();
+        let source = SourceRef {
+            source_id: "new-model".into(),
+            revision: "empty".into(),
+            locator: SourceLocator {
+                root_id: None,
+                relative: None,
+                absolute: Some("isolated.3dm".into()),
+            },
+        };
+        let human = CallerAuthority::Human {
+            action_id: "bind".into(),
+            target_source: None,
+        };
+        draft
+            .handle(
+                request(
+                    "bind",
+                    Operation::BindSource {
+                        source: source.clone(),
+                        mode: SourceMode::IsolatedDraft,
+                        selection_id: "explicit".into(),
+                    },
+                    None,
+                    human.clone(),
+                ),
+                &human,
+                &cancel,
+                |_| {},
+            )
+            .unwrap();
+        let agent = CallerAuthority::Agent {
+            agent_id: "agent".into(),
+            workspace_autonomy: true,
+        };
+        let invoke = request(
+            "generate",
+            Operation::InvokeCommand {
+                command_id: GENERATE_COMMAND.into(),
+                parameters: serde_json::json!({"plan":"{}"}),
+            },
+            Some(source.scope()),
+            agent.clone(),
+        );
+        assert!(draft
+            .handle(invoke.clone(), &agent, &cancel, |_| panic!(
+                "must not launch"
+            ))
+            .unwrap_err()
+            .contains("grant"));
+        draft
+            .session
+            .grant_draft_authority(
+                "grant",
+                "agent",
+                &source.scope(),
+                &[GENERATE_COMMAND.into()],
+            )
+            .unwrap();
+        let reply = draft
+            .handle(invoke, &agent, &cancel, |_| {
+                panic!("invalid plan must not launch")
+            })
+            .unwrap();
+        assert!(matches!(reply.outcome, ReplyBody::Failure { .. }));
     }
 }

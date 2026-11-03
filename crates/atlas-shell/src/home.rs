@@ -11,7 +11,6 @@
 //! the artwork mesh. Embeds that must not steal the host's wheel set
 //! [`HomeModel::interactive`] to false until contents-focus
 //! (`P1.portal.contents-focus`).
-
 use crate::mesh_aa::feather_boundary;
 use crate::recent::{RecentEntry, RecentList};
 use crate::theme::Palette;

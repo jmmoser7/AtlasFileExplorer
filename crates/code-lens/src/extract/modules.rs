@@ -119,6 +119,41 @@ pub fn parent_module_for_file(maps: &ModuleMaps, file_rel: &Path) -> Option<Node
     maps.module_by_path.get(parent).copied()
 }
 
+pub fn module_for_file(maps: &ModuleMaps, file_rel: &Path) -> Option<NodeId> {
+    parent_module_for_file(maps, file_rel)
+}
+
+pub fn resolve_in_container(
+    nodes: &[LensNode],
+    container_id: NodeId,
+    segments: &[String],
+) -> Option<NodeId> {
+    if segments.is_empty() {
+        return Some(container_id);
+    }
+
+    let seg = &segments[0];
+    let children = &nodes[container_id as usize].children;
+
+    for &child_id in children {
+        let child = &nodes[child_id as usize];
+        match child.kind {
+            NodeKind::Module if child.name == *seg => {
+                return resolve_in_container(nodes, child_id, &segments[1..]);
+            }
+            NodeKind::File if child.name == format!("{seg}.rs") => {
+                if segments.len() == 1 {
+                    return Some(child_id);
+                }
+                return None;
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,39 +225,4 @@ mod tests {
             .starts_with("code-lens-source-roots-"));
         fs::remove_dir_all(root).unwrap();
     }
-}
-
-pub fn module_for_file(maps: &ModuleMaps, file_rel: &Path) -> Option<NodeId> {
-    parent_module_for_file(maps, file_rel)
-}
-
-pub fn resolve_in_container(
-    nodes: &[LensNode],
-    container_id: NodeId,
-    segments: &[String],
-) -> Option<NodeId> {
-    if segments.is_empty() {
-        return Some(container_id);
-    }
-
-    let seg = &segments[0];
-    let children = &nodes[container_id as usize].children;
-
-    for &child_id in children {
-        let child = &nodes[child_id as usize];
-        match child.kind {
-            NodeKind::Module if child.name == *seg => {
-                return resolve_in_container(nodes, child_id, &segments[1..]);
-            }
-            NodeKind::File if child.name == format!("{seg}.rs") => {
-                if segments.len() == 1 {
-                    return Some(child_id);
-                }
-                return None;
-            }
-            _ => {}
-        }
-    }
-
-    None
 }

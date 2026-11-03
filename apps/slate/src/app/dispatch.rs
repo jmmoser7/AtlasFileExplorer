@@ -18,6 +18,7 @@ mod input_state;
 mod keys;
 pub use input_state::{BareLetterHold, SpaceTap};
 mod media;
+mod selection;
 use super::{board, board_align, board_path, commands, SlateApp};
 use atlas_commands::{
     cancel_target, Availability, CancelLayer, Chord, CmdAuthor, CommandId, HistoryEntry, Key,
@@ -970,27 +971,6 @@ impl SlateApp {
         ran
     }
 
-    /// Image nodes in the current board selection.
-    pub(crate) fn selected_image_nodes(&self) -> Vec<NodeId> {
-        self.board_sel
-            .iter()
-            .copied()
-            .filter(|id| {
-                matches!(
-                    self.doc().scene.node(*id).map(|n| &n.kind),
-                    Some(NodeKind::Image(_))
-                )
-            })
-            .collect()
-    }
-    /// Where Ctrl+V lands: the pointer when it hovers the canvas, else the
-    /// view center.
-    fn paste_target_world(&self, ctx: &egui::Context) -> egui::Pos2 {
-        ctx.input(|i| i.pointer.hover_pos())
-            .filter(|p| self.canvas_rect.contains(*p))
-            .map(|p| self.screen_to_world(p))
-            .unwrap_or_else(|| self.tab().cam.offset.to_pos2())
-    }
     /// Fit the active view (used by the palette's `canvas.fit`). Board uses
     fn fit_active_view(&mut self) {
         self.fit_board();

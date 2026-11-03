@@ -1,6 +1,7 @@
 //! Property palette presentation over the shared shell owners.
 use super::*;
 mod apron;
+mod dismissal;
 mod media;
 mod model_actions;
 mod state;
@@ -482,44 +483,10 @@ impl SlateApp {
             let press = self.property_dismiss_press(&ctx);
             let on_host = overlay_open
                 && press.is_some()
-                && ctx.pointer_latest_pos().is_some_and(|p| {
-                    if let [host] = self.shape_properties.nodes.as_slice() {
-                        if self.result_strip_contains(&ctx, host.id, xf.rect_w2s(host.rect), z) {
-                            return true;
-                        }
-                        if self.image_palette_eligible(host.id)
-                            || self.shape_properties.panel == Some(Panel::Capture)
-                        {
-                            let world = xf.s2w(p);
-                            return self.board_pick_node_with_locked(world.x, world.y, true)
-                                == Some(host.id);
-                        }
-                    }
-                    blister && bounds.contains(p)
-                });
-            if overlay_open && !captures && !on_host && press == Some(true) {
-                self.apply_shape_preview(&ctx, false);
-            } else if overlay_open && !captures && !on_host && press.is_some() {
-                self.dismiss_active_object_panel(std::time::Instant::now());
-                self.apply_shape_preview(&ctx, true);
-                if let Some(p) = ctx.pointer_latest_pos() {
-                    if self.canvas_rect.contains(p) {
-                        let world = xf.s2w(p);
-                        match self.board_pick_node(world.x, world.y) {
-                            Some(id) => {
-                                self.board_sel =
-                                    crate::app::board_flags::expand_selection_to_groups(
-                                        &self.doc().scene,
-                                        &[id],
-                                    )
-                                    .into_iter()
-                                    .collect();
-                            }
-                            None => self.board_sel.clear(),
-                        }
-                    }
-                }
-                captures = true;
+                && self.property_host_contains_pointer(&ctx, xf, z, blister, bounds);
+            if overlay_open && !captures && !on_host && press.is_some() {
+                self.dismiss_property_press(&ctx, xf, press == Some(true));
+                captures |= press != Some(true);
             }
         }
         if captures && ctx.input(|i| i.pointer.any_pressed()) {

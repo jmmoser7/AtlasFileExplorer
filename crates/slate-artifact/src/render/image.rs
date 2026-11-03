@@ -62,12 +62,15 @@ pub(super) fn render_image(
             file_name,
             Some(text),
             path,
-            node.id,
-            &img.answers,
-            img.text_override
-                .is_none()
-                .then(|| item.map(|item| item.cache_key.as_str()))
-                .flatten(),
+            TextCardAnswers {
+                node: node.id,
+                answers: &img.answers,
+                revision: img
+                    .text_override
+                    .is_none()
+                    .then(|| item.map(|item| item.cache_key.as_str()))
+                    .flatten(),
+            },
         );
     } else if missing {
         html.push_str("<div class=\"missing\">");
@@ -92,9 +95,11 @@ pub(super) fn render_image(
                         file_name,
                         assets.snippet(path),
                         path,
-                        node.id,
-                        &img.answers,
-                        item.map(|item| item.cache_key.as_str()),
+                        TextCardAnswers {
+                            node: node.id,
+                            answers: &img.answers,
+                            revision: item.map(|item| item.cache_key.as_str()),
+                        },
                     );
                 }
             }
@@ -160,6 +165,13 @@ pub(super) fn render_image(
     html.push_str("</div>\n");
 }
 
+/// Answer ranges and their linked source revision travel together.
+struct TextCardAnswers<'a> {
+    node: NodeId,
+    answers: &'a [slate_doc::text_answers::TextAnswer],
+    revision: Option<&'a str>,
+}
+
 /// Authored text remains visible when its linked original is unavailable.
 fn render_text_card(
     html: &mut String,
@@ -167,9 +179,7 @@ fn render_text_card(
     file_name: &str,
     snippet: Option<&str>,
     path: &std::path::Path,
-    id: NodeId,
-    answers: &[slate_doc::text_answers::TextAnswer],
-    revision: Option<&str>,
+    source: TextCardAnswers<'_>,
 ) {
     let Some(snippet) = snippet else {
         if let Some(url) = url {
@@ -177,9 +187,10 @@ fn render_text_card(
         }
         return;
     };
-    let answers = answers
+    let answers = source
+        .answers
         .iter()
-        .filter(|answer| answer.is_valid_for_revision(snippet, revision))
+        .filter(|answer| answer.is_valid_for_revision(snippet, source.revision))
         .cloned()
         .collect::<Vec<_>>();
     let outer_link = answers.is_empty() && url.is_some();
@@ -191,7 +202,7 @@ fn render_text_card(
         html.push_str("<div class=\"textcard\">");
     }
     html.push_str("<pre>");
-    text_answers::render_inline(html, id, snippet, &answers);
+    text_answers::render_inline(html, source.node, snippet, &answers);
     html.push_str("</pre><span class=\"fname\">");
     if !outer_link {
         if let Some(url) = url {
@@ -209,7 +220,7 @@ fn render_text_card(
     } else {
         "</span></div>"
     });
-    text_answers::render_answers(html, id, snippet, &answers);
+    text_answers::render_answers(html, source.node, snippet, &answers);
 }
 
 #[cfg(test)]

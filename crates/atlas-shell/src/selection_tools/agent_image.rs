@@ -54,7 +54,6 @@ pub struct ImageAgentEditResponse {
 
 /// Shared image-agent height in board units. Prompt lines are measured by the
 /// app's prompt source. Wired inputs remain on the host's input port.
-
 pub fn image_agent_layout(
     ctx: &egui::Context,
     width: f32,
