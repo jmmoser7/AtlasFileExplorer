@@ -3,6 +3,9 @@
 use super::*;
 use slate_doc::scene::{NodeId, NodeKind};
 use std::path::Path;
+mod attached;
+mod provider_channel;
+use attached::AttachedModel;
 
 const NATIVE_COMMANDS: [&str; 3] = [
     "board.model.connector.inspect",
@@ -24,10 +27,16 @@ pub(super) struct TrainBinding {
     portal: NodeId,
     tab: u64,
     wires: Vec<WiredSource>,
+    attached: Option<AttachedModel>,
     checked_generation: (u64, u64),
 }
 
 impl SlateApp {
+    /// The implemented native collaborator transport. UI and admission share
+    /// this capability query; selecting it never creates membership or a grant.
+    pub(crate) fn native_model_harness(provider: &str) -> bool {
+        provider == "codex"
+    }
     fn chat_membership_can_run(&self, session: &str) -> bool {
         self.presence.agents.iter().any(|a| {
             a.profile.id == session
@@ -39,13 +48,40 @@ impl SlateApp {
     }
 
     pub(crate) fn validate_chat_train_send(&self, portal: NodeId) -> Result<(), String> {
+        if self.model_node_info(portal).is_some() {
+            let agent = self
+                .doc()
+                .scene
+                .node(portal)
+                .and_then(slate_doc::agent_chat::agent)
+                .ok_or("Choose a native model agent first")?;
+            if !Self::native_model_harness(&agent.provider) {
+                return Err("This provider has no supported native model transport".into());
+            }
+            if !self
+                .registered_agent_programs()
+                .iter()
+                .any(|p| p.id == agent.provider)
+                || !self
+                    .agents
+                    .catalog(&agent.provider)
+                    .iter()
+                    .any(|m| agent.model.as_deref().map_or(m.is_default, |id| id == m.id))
+            {
+                return Err(
+                    "Choose an available model from the configured native agent catalog".into(),
+                );
+            }
+            if self.attached_native_model(portal).is_none() {
+                return Err("Set up this model's supported headless binding before sending".into());
+            }
+        }
         if let Some((session, provider)) = self.agent_session_for(portal) {
             if provider == "codex"
-                && self
-                    .chat_train_wires(&session)
-                    .iter()
-                    .any(|wire| wire.native)
-                && !self.chat_membership_can_run(&session)
+                && self.has_native_chat_context(portal, &session)
+                && (!self.chat_membership_can_run(&session)
+                    || (self.attached_native_model(portal).is_some()
+                        && !self.attached_membership_matches(portal, &session)))
             {
                 return Err("Open this chat's Board access and explicitly Resume its membership before using native tools".into());
             }
@@ -152,8 +188,18 @@ impl SlateApp {
         let (session, provider) = self
             .agent_session_for(portal)
             .ok_or("Choose a chat train first")?;
-        if provider != "codex" {
+        if !Self::native_model_harness(&provider) {
             return Err("Native chat-train tools require the Codex harness".into());
+        }
+        // Connector identity can change off-thread without any scene edit.
+        // Fence the old actor before consulting its runnable/grant state.
+        if !explicit_human_access {
+            self.maintain_chat_train_memberships();
+            if self.attached_native_model(portal).is_some()
+                && !self.attached_membership_matches(portal, &session)
+            {
+                return Err("This model's native binding changed; reopen Board access and explicitly Resume".into());
+            }
         }
         let existing = self
             .presence
@@ -169,9 +215,10 @@ impl SlateApp {
             self.retire_presence(&session, chrome::RANDOM_DEPARTURE)?;
         }
         let wires = self.chat_train_wires(&session);
-        if !wires.iter().any(|wire| wire.native) {
+        let attached = self.attached_native_model(portal);
+        if !wires.iter().any(|wire| wire.native) && attached.is_none() {
             return Err(
-                "Wire a Rhino model into this chat before granting native board access".into(),
+                "Bind this 3D builder to its headless model, or wire a Rhino model into this chat, before granting native board access".into(),
             );
         }
         if !self
@@ -214,23 +261,39 @@ impl SlateApp {
             .grant
             .as_mut()
             .ok_or("This chat's board grant was revoked; reopen Board access")?;
-        grant.readable_board = false;
-        grant.readable_nodes = wires
-            .iter()
-            .flat_map(|wire| [wire.source.0.to_string(), wire.target.0.to_string()])
-            .collect();
-        grant.readable_nodes.sort();
-        grant.readable_nodes.dedup();
-        if !grant.readable_nodes.contains(&portal.0.to_string()) {
-            grant.readable_nodes.push(portal.0.to_string());
+        if attached.is_some() && !explicit_human_access {
+            if !grant.allows_node(&portal.0.to_string()) {
+                return Err(
+                    "This model's native source scope was revoked; reopen Board access explicitly"
+                        .into(),
+                );
+            }
+            // Existing hosted grants are not widened/recreated on Send.
+        } else {
+            grant.readable_board = false;
+            grant.readable_nodes = wires
+                .iter()
+                .flat_map(|wire| [wire.source.0.to_string(), wire.target.0.to_string()])
+                .collect();
+            grant.readable_nodes.sort();
+            grant.readable_nodes.dedup();
+            if let Some(host) = &attached {
+                let node = host.node.0.to_string();
+                if !grant.readable_nodes.contains(&node) {
+                    grant.readable_nodes.push(node);
+                }
+            }
+            if !grant.readable_nodes.contains(&portal.0.to_string()) {
+                grant.readable_nodes.push(portal.0.to_string());
+            }
+            grant.commands = NATIVE_COMMANDS
+                .iter()
+                .chain(WIRED_INPUT_READ_COMMANDS.iter())
+                .map(|command| (*command).into())
+                .collect();
+            grant.conversation_ids.clear();
+            grant.helper_limit = 0;
         }
-        grant.commands = NATIVE_COMMANDS
-            .iter()
-            .chain(WIRED_INPUT_READ_COMMANDS.iter())
-            .map(|command| (*command).into())
-            .collect();
-        grant.conversation_ids.clear();
-        grant.helper_limit = 0;
         let checked_generation = (self.scene_gen, self.doc().scene.scene_gen());
         self.presence.chat_trains.insert(
             session.clone(),
@@ -238,6 +301,7 @@ impl SlateApp {
                 portal,
                 tab,
                 wires,
+                attached,
                 checked_generation,
             },
         );
@@ -271,16 +335,12 @@ impl SlateApp {
         let Some((session, provider)) = self.agent_session_for(portal) else {
             return Ok(None);
         };
-        if provider != "codex"
-            || !self
-                .chat_train_wires(&session)
-                .iter()
-                .any(|wire| wire.native)
-        {
+        if provider != "codex" || !self.has_native_chat_context(portal, &session) {
             return Ok(None);
         }
         let who = self.ensure_chat_train_membership(portal, workspace, false)?;
-        let readonly = self.crosstalk_policy(&session) == atlas_agent::TurnPolicy::ReadOnly;
+        let readonly = self.tab().read_only
+            || self.crosstalk_policy(&session) == atlas_agent::TurnPolicy::ReadOnly;
         let a = self
             .presence
             .agents
@@ -353,6 +413,11 @@ impl SlateApp {
             .chat_trains
             .iter()
             .filter_map(|(who, binding)| {
+                // The connector worker/source/document key is runtime state,
+                // independent of both scene generations. Always check it first.
+                if self.attached_native_model(binding.portal) != binding.attached {
+                    return Some(who.clone());
+                }
                 if binding.tab == self.tab().id && binding.checked_generation == generation {
                     return None;
                 }
@@ -360,7 +425,8 @@ impl SlateApp {
                     && self
                         .agent_session_for(binding.portal)
                         .is_some_and(|(session, provider)| session == *who && provider == "codex")
-                    && self.chat_train_wires(who) == binding.wires;
+                    && self.chat_train_wires(who) == binding.wires
+                    && self.attached_native_model(binding.portal) == binding.attached;
                 (!valid).then(|| who.clone())
             })
             .collect();
@@ -378,65 +444,6 @@ impl SlateApp {
             slate_doc::agent_chat::agent(node)
                 .is_some_and(|agent| agent.session == who && agent.provider == "codex")
         })
-    }
-
-    /// Source-state reconciliation follows only this live membership's actual
-    /// request. The provider locator may change; local identity and grants do not.
-    pub(crate) fn sync_chat_train_provider_channel(
-        &mut self,
-        portal: NodeId,
-        state: &atlas_agent::AgentSession,
-    ) {
-        let Some((who, provider)) = self.agent_session_for(portal) else {
-            return;
-        };
-        if provider != "codex"
-            || state.provider != "codex"
-            || state.conversation.is_empty()
-            || state.request.is_empty()
-        {
-            return;
-        }
-        if !self
-            .presence
-            .chat_trains
-            .get(&who)
-            .is_some_and(|binding| binding.portal == portal && binding.tab == self.tab().id)
-            || !self.presence.agents.iter().any(|actor| {
-                actor.profile.id == who
-                    && actor.tab == self.tab().id
-                    && actor.departure.is_none()
-                    && actor.grant.is_some()
-                    && actor.request == state.request
-            })
-        {
-            return;
-        }
-        let changed: Vec<_> = self
-            .doc()
-            .scene
-            .nodes
-            .iter()
-            .filter_map(|node| {
-                slate_doc::agent_chat::agent(node)
-                    .filter(|agent| {
-                        agent.session == who
-                            && agent.provider == "codex"
-                            && agent
-                                .channel
-                                .as_ref()
-                                .is_some_and(|channel| channel != &state.conversation)
-                    })
-                    .map(|_| node.id)
-            })
-            .collect();
-        if !changed.is_empty() {
-            self.patch_nodes(&changed, |node| {
-                if let Some(agent) = slate_doc::agent_chat::agent_mut(node) {
-                    agent.channel = Some(state.conversation.clone());
-                }
-            });
-        }
     }
 }
 

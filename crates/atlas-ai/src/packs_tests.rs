@@ -113,6 +113,7 @@ fn a_stored_key_turns_add_api_key_into_a_normal_openai_option() {
     session.refresh(None);
     settle(&mut session);
     assert!(session.needs_key(OPENAI));
+    assert_eq!(session.credential_present(OPENAI), Some(false));
     assert!(names(&mut session).iter().any(|n| n == ADD_KEY_LABEL));
 
     session.key_entry = true;
@@ -126,6 +127,8 @@ fn a_stored_key_turns_add_api_key_into_a_normal_openai_option() {
     session.refresh(None);
     let probes_before_save = session.probes();
     session.save_openai_key(None).unwrap();
+    assert_eq!(session.credential_present(OPENAI), Some(true));
+    assert_eq!(session.credential_present("openai-text"), Some(true));
     assert!(!session.key_entry);
     assert!(session.key_draft.is_empty(), "the draft does not linger");
     assert!(
@@ -145,4 +148,18 @@ fn a_stored_key_turns_add_api_key_into_a_normal_openai_option() {
     let _ = atlas_core::secrets::clear(crate::runtime::OPENAI_KEY_SLOT);
     std::env::remove_var("ATLAS_SECRET_DIR");
     let _ = std::fs::remove_dir_all(secrets);
+}
+
+#[test]
+fn credential_presence_lookup_is_a_cached_read_without_probing() {
+    let mut session = PackSession::new();
+    session.credentials = [true, false];
+    for _ in 0..1000 {
+        assert_eq!(session.credential_present("openai-image"), Some(true));
+        assert_eq!(session.credential_present("cursor"), Some(false));
+        assert_eq!(session.credential_present("local"), None);
+    }
+    assert_eq!(session.probes(), 0);
+    assert!(!session.in_flight());
+    assert!(session.rx.is_none());
 }

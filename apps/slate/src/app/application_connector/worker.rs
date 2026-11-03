@@ -18,7 +18,12 @@ mod surfaces;
 use exchange::Exchange;
 #[cfg(test)]
 use exchange::{request_deadline, source_lost};
+mod headless;
 mod native;
+pub(super) use headless::create_empty as create_empty_headless;
+#[cfg(test)]
+pub(super) use headless::owned_empty_for_test;
+pub(super) use headless::start as start_headless;
 mod receipt;
 use receipt::invocation_receipt;
 const DEADLINE: Duration = Duration::from_secs(20);
@@ -31,6 +36,17 @@ pub(super) struct DraftGrant {
     pub commands: Vec<String>,
 }
 pub(super) enum Action {
+    PrepareHeadless {
+        key: super::native::BindingKey,
+        path: PathBuf,
+        revision: String,
+        lease: super::native::Lease,
+    },
+    AcceptHeadless {
+        key: super::native::BindingKey,
+        path: PathBuf,
+        revision: String,
+    },
     Native(Box<super::native::NativeRequest>),
     Focus(super::hosting::FocusRequest),
     FocusChild {
@@ -61,6 +77,7 @@ pub(super) enum Action {
     },
 }
 pub(super) enum Event {
+    Progress(String),
     FocusApplied {
         request: super::hosting::FocusRequest,
         result: Result<(), String>,
@@ -253,6 +270,9 @@ fn run(
             Action::Invoke { .. } | Action::Capture { .. } | Action::Restore(_)
         );
         let result = match action {
+            Action::AcceptHeadless { .. } | Action::PrepareHeadless { .. } => {
+                Err("Headless source operation sent to interactive connector".into())
+            }
             Action::Focus(request) => {
                 let result = focus::main(
                     &mut peer,

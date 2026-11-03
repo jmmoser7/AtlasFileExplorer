@@ -47,13 +47,24 @@ fn a_resize_records_its_size_and_fit_to_text_forgets_it() {
     let rect = h.app.doc().scene.node(root).unwrap().rect;
     assert_eq!((rect.w, rect.h), (520.0, 90.0), "fit keeps the size");
 
+    let fit_depth = h.app.tab().journal.undo_depth();
     assert!(h
         .app
         .dispatch(&h.ctx, atlas_commands::CommandId("portal.agent.fit"), None));
     h.frame();
     assert!(chat(&h, root).size.is_none());
+    assert!(chat(&h, root).fit_height);
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        fit_depth + 1,
+        "Fit is one undo step"
+    );
     assert_ne!(h.app.doc().scene.node(root).unwrap().rect.w, 520.0);
     h.app.board_undo();
+    assert_eq!(chat(&h, root).size, Some([520.0, 90.0]));
+    assert!(!chat(&h, root).fit_height);
+    let restored = h.app.doc().scene.node(root).unwrap().rect;
+    assert_eq!((restored.w, restored.h), (520.0, 90.0));
     h.app.board_undo();
     assert_eq!(h.app.doc().scene.node(root).unwrap().rect.w, fitted.w);
     assert!(chat(&h, root).collapsed, "undo restores the collapsed card");
@@ -280,20 +291,41 @@ fn deleting_the_last_consuming_card_removes_its_pocket_in_the_same_step() {
     assert!(h.app.doc().scene.node(lone_wire).is_some());
 }
 
-/// The list hangs under the title's model name; it never drifts off it.
-fn menu_under_title(output: &egui::FullOutput) -> bool {
-    let texts = painted_at(output);
-    let (Some(title), Some(first)) = (
-        texts.iter().find(|(t, _)| t == "Astra").map(|(_, r)| *r),
-        texts.iter().find(|(t, _)| t == "Default").map(|(_, r)| *r),
-    ) else {
+/// The screen-sized popup follows its actual model button, clamped only at the screen edge.
+fn menu_under_title(
+    h: &super::super::tests::Harness,
+    card: NodeId,
+    output: &egui::FullOutput,
+    popup_size: egui::Vec2,
+) -> bool {
+    // read_response may fall back to the previous pass while the camera moves.
+    // This region is cleared and recorded by the header on this paint pass.
+    let Some(anchor) = h
+        .ctx
+        .data(|data| data.get_temp::<Rect>(Id::new(("agent-model-hit", card.0))))
+    else {
         return false;
     };
-    // Slack for the menu frame's and row's padding.
-    let gap = first.top() - title.bottom();
-    gap >= 0.0
-        && gap < title.height() * 3.0 + 16.0
-        && (first.left() - title.left()).abs() < title.height() + 16.0
+    let Some(popup) = h.app.agents.model_menu_rect else {
+        return false;
+    };
+    let viewport = h.ctx.screen_rect().shrink(8.0);
+    let expected_left = anchor
+        .left()
+        .clamp(viewport.left(), viewport.right() - popup.width());
+    let expected_top = (anchor.bottom() + 5.0).clamp(
+        viewport.top(),
+        (viewport.bottom() - 152.0).max(viewport.top()),
+    );
+    (popup.width() - 232.0).abs() < 1.0
+        && (popup.height() - popup_size.y).abs() < 1.0
+        && (popup.left() - expected_left).abs() < 1.0
+        && (popup.top() - expected_top).abs() < 1.0
+        && viewport.expand(1.0).contains_rect(popup)
+        && painted_clipped(output)
+            .iter()
+            .filter(|(text, _, _)| ["Default", "Terra", "Luna"].contains(&text.as_str()))
+            .all(|(_, rect, clip)| clip.contains_rect(*rect))
 }
 
 #[test]
@@ -301,6 +333,7 @@ fn the_model_list_stays_open_while_the_wheel_zooms_the_board() {
     let mut h = board("model_menu_wheel");
     let card = codex_card_with_models(&mut h);
     open_model_menu(&mut h, card, 1.0);
+    let popup_size = h.app.agents.model_menu_rect.unwrap().size();
     let r = h
         .app
         .board_xf()
@@ -309,7 +342,7 @@ fn the_model_list_stays_open_while_the_wheel_zooms_the_board() {
     // title: the wheel zooms about the card and keeps it in view.
     let beside = Pos2::new(r.left() - 24.0, r.center().y);
     let mut zooms = Vec::new();
-    wheel_sweep(&mut h, beside, 24, |_, out, step, z| {
+    wheel_sweep(&mut h, beside, 24, |h, out, step, z| {
         zooms.push(z);
         assert!(
             menu_items_painted(out),
@@ -317,7 +350,7 @@ fn the_model_list_stays_open_while_the_wheel_zooms_the_board() {
             painted_at(out)
         );
         assert!(
-            menu_under_title(out),
+            menu_under_title(h, card, out, popup_size),
             "the model list left its title at step {step}, zoom {z}: {:?}",
             painted_at(out)
         );
@@ -342,7 +375,7 @@ fn a_large_model_list_fits_the_right_edge_and_selects_its_visible_row() {
     h.app.zoom_at(title.center(), 8.0);
     let xf = h.app.board_xf();
     // Pan the visible title close to the right edge. The menu must fit its
-    // current natural size immediately, rather than last frame's 1× size.
+    // current natural size immediately, rather than last frame's 1Ã— size.
     let title_at = Pos2::new(1380.0, 180.0);
     h.app.tab_mut().cam.offset += (title.center() - title_at) / xf.z;
     let out = h.frame_output(|_| {});
@@ -359,13 +392,17 @@ fn a_large_model_list_fits_the_right_edge_and_selects_its_visible_row() {
         .expect("the visible Terra row")
         .1;
     assert!(
-        terra.height() > 40.0,
-        "model labels retain their natural zoom"
+        terra.height() < 40.0,
+        "configuration rows remain screen-sized"
     );
     press(&mut h, terra.center());
     let agent = slate_doc::agent_chat::agent(h.app.doc().scene.node(card).unwrap()).unwrap();
     assert_eq!(agent.model.as_deref(), Some("gpt-6-terra"));
-    assert_eq!(h.app.agents.model_menu, None);
+    assert_eq!(
+        h.app.agents.model_menu,
+        Some(card),
+        "choice returns to the shared root"
+    );
     assert_eq!(h.app.tab().cam.z, 8.0, "the row click does not zoom");
 }
 
@@ -374,6 +411,7 @@ fn the_model_list_opened_zoomed_in_stays_whole_while_zooming_out_and_back() {
     let mut h = board("model_menu_zoomed");
     let card = codex_card_with_models(&mut h);
     open_model_menu(&mut h, card, 2.5);
+    let popup_size = h.app.agents.model_menu_rect.unwrap().size();
     let r = h
         .app
         .board_xf()
@@ -393,7 +431,7 @@ fn the_model_list_opened_zoomed_in_stays_whole_while_zooming_out_and_back() {
             let z = h.app.tab().cam.z;
             zooms.push(z);
             assert!(
-                menu_items_painted(&out) && menu_under_title(&out),
+                menu_items_painted(&out) && menu_under_title(&h, card, &out, popup_size),
                 "the model list broke at step {step} ({delta}), zoom {z}: {:?}",
                 painted_at(&out)
             );

@@ -1,8 +1,20 @@
 //! Dimension painting and oriented inline-number interaction.
 use super::*;
 
-/// Horizontal dimension lane below the selection's property strip, in board units.
+/// Horizontal dimension lane below an external property strip, in board units.
 pub const BOTTOM_STRINGER_GAP: f32 = STRINGER_GAP + OBJECT_GAP + BUTTON_SIZE;
+
+/// Exterior dimension offset in board units, following the measured axis.
+/// Only an external squircle row needs the wider bottom lane; a media blister
+/// shares the host edge, so its bottom and side stringers use the same gap.
+pub fn stringer_offset(outward: Vec2, external_strip: bool) -> Vec2 {
+    let gap = if external_strip && outward.y.abs() >= outward.x.abs() {
+        BOTTOM_STRINGER_GAP
+    } else {
+        STRINGER_GAP
+    };
+    outward.normalized() * gap
+}
 
 fn number_hit(center: Pos2, rotation: Rot2, half: Vec2, point: Pos2) -> bool {
     let local = rotation.inverse() * (point - center);

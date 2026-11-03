@@ -3,6 +3,23 @@
 use super::*;
 
 impl SlateApp {
+    #[cfg(test)]
+    pub(crate) fn legacy_agent_key_entry_open_for_test(&self) -> bool {
+        self.agents.key_entry.is_some()
+    }
+    /// Cached discovered registrations; no probes or credential reads in paint.
+    pub(crate) fn registered_agent_programs(&self) -> &[atlas_ai::agent::AgentProvider] {
+        &self.agents.programs
+    }
+    #[cfg(test)]
+    pub(crate) fn set_agent_catalog_for_test(
+        &mut self,
+        provider: &str,
+        models: Vec<atlas_ai::agent::AgentModel>,
+    ) {
+        self.agents.hold_catalog_probes_for_test();
+        self.agents.models.insert(provider.into(), models);
+    }
     /// Pins the installed-program list, so tests never probe the machine.
     #[cfg(test)]
     pub(crate) fn set_agent_programs_for_test(&mut self, ids: &[&str]) {
@@ -19,15 +36,6 @@ impl SlateApp {
     pub(crate) fn pin_pack_for_test(&mut self, id: &str, health: atlas_ai::packs::PackHealth) {
         self.ai.packs.set_health_override(id, health);
         self.ai.packs.record(id, health);
-    }
-    /// The unbound agent portal's size (width, height) around its program
-    /// grid, once the installed programs are known.
-    pub(crate) fn agent_program_grid_size(&self) -> Option<(f32, f32)> {
-        let count = self.agents.programs.len();
-        (count > 0).then(|| {
-            let grid = atlas_ai::ui::program_grid_size(count);
-            (grid.x + 48.0, grid.y + 72.0)
-        })
     }
     pub(crate) fn ensure_agent_programs(&mut self) {
         if !self.agents.programs_started {
@@ -95,6 +103,39 @@ impl SlateApp {
             Some(Err(error)) => self.toast(error),
             None => {}
         }
+        if let Some((workbook, _)) = self.agents.flow.picker_key_entry {
+            if workbook != self.tab().id {
+                self.agents.flow.picker_key_entry = None;
+                self.agents.key_draft.clear();
+                return;
+            }
+            let action = atlas_ai::ui::credential_key_dialog(
+                ctx,
+                egui::Id::new("slate-picker-cursor-key"),
+                "Cursor API",
+                self.ai.packs.credential_present("cursor") == Some(true),
+                &mut self.agents.key_draft,
+            );
+            match action {
+                atlas_ai::ui::CredentialAction::None => {}
+                atlas_ai::ui::CredentialAction::Cancel => {
+                    self.agents.flow.picker_key_entry = None;
+                }
+                atlas_ai::ui::CredentialAction::Save => {
+                    match atlas_ai::cursor_key::save(self.agents.key_draft.trim()) {
+                        Ok(()) => {
+                            self.ai
+                                .packs
+                                .credential_saved("cursor", self.ai.config.workspace_dir.clone());
+                            self.agents.key_draft.clear();
+                            self.agents.flow.picker_key_entry = None;
+                            self.toast("Cursor API key saved on this machine.");
+                        }
+                        Err(error) => self.toast(error),
+                    }
+                }
+            }
+        }
     }
     /// The program chooser is on screen. Probe again so an install that
     /// landed while Slate was open shows up without a restart.
@@ -103,6 +144,7 @@ impl SlateApp {
             .packs
             .note_chooser_open(self.ai.config.workspace_dir.clone());
     }
+    #[cfg(test)]
     pub(crate) fn set_agent_program(&mut self, id: NodeId, provider: &str) {
         if self
             .doc()
@@ -211,6 +253,20 @@ impl SlateApp {
                 }
             }
         }
+        if let Some(agent) = self
+            .doc()
+            .scene
+            .node(id)
+            .and_then(slate_doc::agent_chat::agent)
+        {
+            images.retain(|image| {
+                image.request.is_empty()
+                    || !agent.generator.hidden_outputs.iter().any(|reference| {
+                        matches!(reference, slate_doc::scene::HiddenOutputRef::Image { request, id }
+                    if request == &image.request && id == &image.id)
+                    })
+            });
+        }
         let images = std::sync::Arc::new(images);
         self.agents
             .image_cache
@@ -219,6 +275,33 @@ impl SlateApp {
         images
     }
     pub(crate) fn agent_active_output(&self, id: NodeId) -> Option<String> {
+        // Removing an entry does not remove the displayed source. Resolve that
+        // item's immutable origin independently of the visible result list.
+        if let Some(NodeKind::Image(image)) = self.doc().scene.node(id).map(|node| &node.kind) {
+            if let Some(item) = self.doc().item(image.item) {
+                let base = self.tab().path.as_deref();
+                let path = resolve_source(base, &item.path.to_string_lossy());
+                let seed = self
+                    .doc()
+                    .scene
+                    .node(id)
+                    .and_then(slate_doc::agent_chat::agent)
+                    .and_then(|agent| agent.seed.as_ref());
+                if let Some(output) = seed
+                    .into_iter()
+                    .chain(
+                        self.agents
+                            .sessions
+                            .get(&id)
+                            .into_iter()
+                            .flat_map(|session| session.bundle.images.iter()),
+                    )
+                    .find(|output| resolve_source(base, &output.source) == path)
+                {
+                    return Some(output.id.clone());
+                }
+            }
+        }
         let images = self.agent_images(id);
         images
             .get(self.agent_shown_index(id)?)

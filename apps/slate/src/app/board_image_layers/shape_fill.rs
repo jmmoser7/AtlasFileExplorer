@@ -135,6 +135,7 @@ impl SlateApp {
                 let mut node = self.doc_mut().scene.build_node(
                     before.rect,
                     NodeKind::Text(TextNode {
+                        answers: Default::default(),
                         text: text.body.clone(),
                         style: Default::default(),
                         family: text.family,

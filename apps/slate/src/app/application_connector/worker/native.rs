@@ -297,7 +297,7 @@ fn prepare_artifact(artifact: &OwnedArtifact) -> Result<(), String> {
 
 pub(super) fn cleanup(completion: &Completion) {
     if let NativeOutcome::Completed {
-        result: NativeResult::Capture { path, .. },
+        result: NativeResult::Capture { path, .. } | NativeResult::Model { path, .. },
     } = &completion.outcome
     {
         let _ = std::fs::remove_file(path);

@@ -11,17 +11,26 @@ pub mod approval;
 mod body;
 #[path = "generator_history.rs"]
 mod history;
+#[path = "generator_history_dialog.rs"]
+mod history_dialog;
+pub use history_dialog::carried_history_dialog;
 #[path = "generator_layout.rs"]
 pub(super) mod layout;
+#[path = "generator_options.rs"]
+pub(super) mod options;
 #[path = "generator_picker.rs"]
 pub(super) mod picker;
 #[path = "generator_progress.rs"]
 pub mod progress;
+#[path = "generator_scroll.rs"]
+pub mod scroll;
 
-pub use history::{GeneratorHistory, GeneratorHistoryItem};
+pub use history::{paint_history_text_preview, GeneratorHistory, GeneratorHistoryItem};
+use layout::datum_layout;
 pub use layout::{GeneratorContent, GeneratorLayout};
 pub use picker::{
-    ModelParameter, ModelParameterHeader, ModelParameterValue, ModelParameters, PickerPage,
+    compact_model_parameters, paint as model_picker, ModelParameter, ModelParameterHeader,
+    ModelParameterValue, ModelParameters, ModelProvider, ParameterRole, PickerPage, PickerResponse,
 };
 
 pub struct GeneratorChrome<'a> {
@@ -76,7 +85,7 @@ impl GeneratorPresentation {
     }
 }
 
-pub const GENERATOR_PROMPT_MIN_HEIGHT: f32 = 40.0;
+pub const GENERATOR_PROMPT_MIN_HEIGHT: f32 = 32.0;
 
 /// Capability-owned settings; the shell owns only the menu's presentation.
 pub struct GeneratorSettings<'a> {
@@ -91,6 +100,8 @@ pub struct GeneratorOptions<'a> {
     pub prompt: &'a mut String,
     pub hint: &'a str,
     pub take_focus: bool,
+    pub count: Option<usize>,
+    pub preserve_history: Option<bool>,
     pub models: &'a [&'a str],
     pub model: usize,
     pub model_open: &'a mut bool,
@@ -106,8 +117,13 @@ pub struct GeneratorOptions<'a> {
 
 #[derive(Default)]
 pub struct GeneratorResponse {
-    pub model_parameter: Option<(String, String)>,
+    pub count: Option<usize>,
+    pub preserve_history: Option<bool>,
+    pub provider: Option<String>,
+    pub edit_key: Option<String>,
+    pub model_parameter: Option<(String, Option<String>)>,
     pub full_access: Option<bool>,
+    pub board_access: bool,
     pub activity_fold: Option<activity::CardFold>,
     pub presentation: GeneratorPresentation,
     pub approval: Option<bool>,
@@ -132,7 +148,7 @@ pub fn generator_layout(
     content: GeneratorContent<'_>,
 ) -> GeneratorLayout {
     let datum = datum_layout(ctx, layout::inner(width), 1.0, model_label, settings_label);
-    GeneratorLayout::measure(ctx, width, datum.bottom, datum.history, content)
+    GeneratorLayout::measure(ctx, width, datum, content)
 }
 
 /// The attached non-image generator. Image adapters supply their own datum
@@ -144,7 +160,11 @@ pub fn generator_editor(
     zoom: f32,
     theme: Palette,
 ) -> GeneratorResponse {
-    let model_label = options.models.get(options.model).copied().unwrap_or("Auto");
+    let caption = picker::header_caption(
+        options.chrome.parameters,
+        options.models.get(options.model).copied(),
+    );
+    let model_label = caption.as_ref();
     let settings_label = options.settings.as_ref().map(|settings| settings.label);
     let width = rect.width() / zoom;
     let content = GeneratorContent::new(
@@ -158,7 +178,10 @@ pub fn generator_editor(
         generator_layout(ui.ctx(), width, model_label, settings_label, content).at(rect, zoom);
     let datum = datum_layout(
         ui.ctx(),
-        rect.shrink(12.0 * zoom),
+        Rect::from_min_size(
+            rect.min + Vec2::new(layout::INSET * zoom, 2.0 * zoom),
+            Vec2::new(rect.width() - layout::INSET * 2.0 * zoom, 0.0),
+        ),
         zoom,
         model_label,
         settings_label,
@@ -173,6 +196,7 @@ pub fn generator_editor(
         options.chrome.picker_page,
         options.chrome.parameters,
         options.chrome.full_access,
+        false,
         zoom,
         theme,
     );
@@ -180,42 +204,58 @@ pub fn generator_editor(
         model: model.model,
         model_parameter: model.parameter,
         full_access: model.full_access,
+        board_access: model.board_access,
+        provider: model.provider,
+        edit_key: model.edit_key,
         ..Default::default()
     };
     out.presentation.picker_page = model.page;
     out.popups.extend(model.menu.popup);
-    let mut any_opened = model.menu.opened;
+    let mut local_open = ui
+        .ctx()
+        .data(|data| data.get_temp::<bool>(ui.id().with("generator-options-open")))
+        .unwrap_or(false);
     let mut settings_dismissed = false;
-    if let Some(settings) = options.settings.as_mut() {
-        if model.menu.opened {
-            *settings.open = false;
-        }
-        let menu = bare_menu(
-            ui,
-            BareMenu {
-                id: ui.id().with("generator-settings"),
-                rect: datum.settings.unwrap(),
-                label: settings.label,
-                options: settings.choices,
-                selected: settings.selected,
-                open: settings.open,
-                zoom,
-                theme,
-            },
-        );
-        out.settings = menu.picked;
+    let legacy = options.settings.as_ref().map_or(&[][..], |s| s.choices);
+    let legacy_selected = options.settings.as_ref().map_or(0, |s| s.selected);
+    let settings_open = options
+        .settings
+        .as_mut()
+        .map_or(&mut local_open, |s| &mut *s.open);
+    if model.menu.opened {
+        *settings_open = false;
+    }
+    let menu = options::paint(
+        ui,
+        datum.settings.unwrap(),
+        ui.id().with("generator-settings"),
+        settings_open,
+        options::OptionsPage::Root,
+        options::OptionsData {
+            preserve: options.preserve_history,
+            legacy,
+            legacy_selected,
+            ..Default::default()
+        },
+        zoom,
+        theme,
+    );
+    out.settings = menu.legacy;
+    out.preserve_history = menu.preserve;
+    if let Some(menu) = menu.menu {
         settings_dismissed = menu.dismissed_outside;
-        any_opened |= menu.opened;
         out.popups.extend(menu.popup);
         if menu.opened {
             *options.model_open = false;
         }
     }
+    let settings_is_open = *settings_open;
+    ui.ctx().data_mut(|data| {
+        data.insert_temp(ui.id().with("generator-options-open"), settings_is_open)
+    });
+    let any_opened = model.menu.opened;
     out.presentation.model_open = *options.model_open;
-    out.presentation.settings_open = options
-        .settings
-        .as_ref()
-        .is_some_and(|settings| *settings.open);
+    out.presentation.settings_open = settings_is_open;
     if !any_opened {
         out.presentation.dismissed_menu = if model.menu.dismissed_outside {
             Some(GeneratorMenu::Model)
@@ -225,6 +265,15 @@ pub fn generator_editor(
             None
         };
     }
+    out.activity_fold = body::header_feedback(
+        ui,
+        datum.feedback,
+        datum.fold,
+        options.chrome.activity.as_mut(),
+        options.running,
+        zoom,
+        theme,
+    );
     let body = generator_body(
         ui,
         measured,
@@ -235,7 +284,6 @@ pub fn generator_editor(
             history: options.history,
             selected_history: options.selected_history,
             status: options.status,
-            running: options.running,
             approval: options.approval,
             approval_interactive: options.approval_interactive,
             activity: options.chrome.activity.take(),
@@ -246,13 +294,23 @@ pub fn generator_editor(
     );
     out.prompt = body.prompt;
     out.approval = body.approval;
-    out.activity_fold = body.activity_fold;
+    out.activity_fold = out.activity_fold.or(body.activity_fold);
     out.presentation.activity = body.presentation.activity;
     out.hovered_history = body.hovered_history;
     out.clicked_history = body.clicked_history;
     out.result_interaction = body.result_interaction;
     out.drag_started_history = body.drag_started_history;
     out.history_drag_position = body.history_drag_position;
+    if let Some(count) = options.count {
+        out.count = super::agent_generate::image_count_control(
+            ui,
+            datum.count,
+            count.clamp(1, 8) as u8,
+            zoom,
+            theme,
+        )
+        .map(usize::from);
+    }
     out.submit = generator_play_control(
         ui,
         datum.play,
@@ -265,33 +323,7 @@ pub fn generator_editor(
     out
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn model_menu(
-    ui: &mut egui::Ui,
-    rect: Rect,
-    models: &[&str],
-    selected: usize,
-    open: &mut bool,
-    id: Id,
-    zoom: f32,
-    theme: Palette,
-) -> menu_selector::CapsuleMenu {
-    bare_menu(
-        ui,
-        BareMenu {
-            id,
-            rect,
-            label: models.get(selected).copied().unwrap_or("Auto"),
-            options: models,
-            selected,
-            open,
-            zoom,
-            theme,
-        },
-    )
-}
-
-pub(super) use body::{generator_body, GeneratorBody};
+pub(super) use body::{generator_body, header_feedback, GeneratorBody};
 
 /// The one bare Play/Stop/Keep control, also used by the collapsed image tab.
 #[allow(clippy::too_many_arguments)]
@@ -331,85 +363,6 @@ pub(super) fn generator_play_control(
             "Generate"
         })
         .clicked()
-}
-
-struct DatumLayout {
-    model: Rect,
-    settings: Option<Rect>,
-    play: Rect,
-    history: Rect,
-    bottom: f32,
-}
-
-fn datum_layout(
-    ctx: &egui::Context,
-    inner: Rect,
-    zoom: f32,
-    model_label: &str,
-    settings_label: Option<&str>,
-) -> DatumLayout {
-    let gap = 6.0 * zoom;
-    let row_h = 24.0 * zoom;
-    let label_width = |label: &str| {
-        let text = canvas_text::world_layout(
-            ctx,
-            label,
-            canvas_scale::font(11.0, 1.0),
-            f32::INFINITY,
-            egui::Align::LEFT,
-        );
-        (text.width + 18.0) * zoom
-    };
-    let natural_model = label_width(model_label).min(180.0 * zoom);
-    let natural_settings = settings_label.map_or(0.0, label_width);
-    let narrow = settings_label.is_some()
-        && natural_model + natural_settings + 20.0 * zoom + gap * 2.0 > inner.width();
-    let top = inner.top() + if narrow { row_h + gap } else { 0.0 };
-    let play = Rect::from_min_size(
-        Pos2::new(inner.right() - 20.0 * zoom, top),
-        Vec2::splat(20.0 * zoom),
-    );
-    let model_width = natural_model.min(if narrow {
-        inner.width()
-    } else {
-        (play.left()
-            - gap
-            - inner.left()
-            - natural_settings
-            - if settings_label.is_some() { gap } else { 0.0 })
-        .max(0.0)
-    });
-    let model = Rect::from_min_size(inner.min, Vec2::new(model_width, row_h));
-    let settings_width = natural_settings.min((play.left() - gap - inner.left()).max(0.0));
-    let settings = settings_label.map(|_| {
-        Rect::from_min_size(
-            Pos2::new(
-                if narrow {
-                    inner.left()
-                } else {
-                    model.right() + gap
-                },
-                top,
-            ),
-            Vec2::new(settings_width, row_h),
-        )
-    });
-    let history_left = if narrow {
-        settings.map_or(inner.left(), |r| r.right() + gap)
-    } else {
-        settings.map_or(model.right() + gap, |r| r.right() + gap)
-    };
-    let history = Rect::from_min_max(
-        Pos2::new(history_left.min(play.left() - gap), top - zoom),
-        Pos2::new(play.left() - gap, top + 25.0 * zoom),
-    );
-    DatumLayout {
-        model,
-        settings,
-        play,
-        history,
-        bottom: top + row_h,
-    }
 }
 
 #[cfg(test)]

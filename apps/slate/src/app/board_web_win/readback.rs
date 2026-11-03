@@ -143,7 +143,11 @@ impl Webview2Host {
     }
 }
 
-fn create_staging(device: &ID3D11Device, w: u32, h: u32) -> windows::core::Result<ID3D11Texture2D> {
+pub(super) fn create_staging(
+    device: &ID3D11Device,
+    w: u32,
+    h: u32,
+) -> windows::core::Result<ID3D11Texture2D> {
     let desc = D3D11_TEXTURE2D_DESC {
         Width: w,
         Height: h,

@@ -119,6 +119,8 @@ impl SlateApp {
     }
 
     pub(super) fn undo_scene_journal(&mut self) -> Option<usize> {
+        let creation_step = self.tab().journal.top_token();
+        let doc = self.tab().id;
         let depth_before = self.tab().journal.undo_depth();
         let image_focus = self.capture_image_paint_focus();
         let undone = {
@@ -131,6 +133,9 @@ impl SlateApp {
             }
         };
         if undone {
+            if let Some(step) = creation_step {
+                self.discard_undone_generator_creation(doc, step);
+            }
             self.restore_image_paint_focus(image_focus);
             Some(depth_before)
         } else {

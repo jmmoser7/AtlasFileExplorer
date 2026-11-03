@@ -16,9 +16,9 @@ pub use super::image_presentation::{
 };
 pub use super::image_surface::{
     clip_media_host_shapes, image_frame_geometry, media_host_geometry, media_host_shape_start,
-    paint_blister_corner_backing, paint_blister_surface, paint_image_blister,
-    paint_image_interaction_shadow, paint_outline_interaction_shadow, ImageFrameGeometry,
-    MediaHostGeometry, MediaPortNotch,
+    paint_blister_corner_backing, paint_blister_surface, paint_detached_agent_surface,
+    paint_image_blister, paint_image_interaction_shadow, paint_outline_interaction_shadow,
+    ImageFrameGeometry, MediaHostGeometry, MediaPortNotch,
 };
 pub use super::layer_palette::{image_layer_palette, layer_palette};
 pub use super::prompt_fields::{image_prompt_field, image_prompt_line_count, prompt_field};

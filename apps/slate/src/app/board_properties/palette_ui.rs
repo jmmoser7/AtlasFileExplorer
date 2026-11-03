@@ -1,6 +1,7 @@
 //! Property palette presentation over the shared shell owners.
 use super::*;
 mod apron;
+mod dismissal;
 mod media;
 mod model_actions;
 mod state;
@@ -155,7 +156,10 @@ impl SlateApp {
             return false;
         }
         let theme = self.palette();
-        let bounds = xf.rect_w2s(chrome_state.bounds);
+        let authored_bounds = xf.rect_w2s(chrome_state.bounds);
+        let bounds = chrome_state.host.map_or(authored_bounds, |(_, id)| {
+            self.text_review_visual_body(&ctx, id, authored_bounds, z)
+        });
         let enabled =
             live && !self.tab().read_only && self.shape_properties.nodes.iter().all(|n| !n.locked);
         if live && !enabled {
@@ -183,7 +187,13 @@ impl SlateApp {
                 Vec2::ZERO,
             )
         } else {
-            chrome::strip_rect_below(xf.w2s(chrome_state.bottom), items.len(), z, fade)
+            let original_bottom = xf.w2s(chrome_state.bottom);
+            let visual_bottom = if bounds != authored_bounds {
+                Pos2::new(bounds.center().x, bounds.bottom())
+            } else {
+                original_bottom
+            };
+            chrome::strip_rect_below(visual_bottom, items.len(), z, fade)
         };
         self.occupy_result_chrome(chrome_state.host, strip);
         let mut requested_panel = None;
@@ -193,8 +203,11 @@ impl SlateApp {
         let mut requested_screenshot = false;
         let mut requested_connector = false;
         let mut requested_connector_draft = None;
+        let mut requested_headless = None;
+        let mut requested_board_access = None;
         let mut requested_maximize = false;
         let mut captures = false;
+        let mut popup_dismissal_captures = false;
         let strip_ui_id = ui.id().with("selection-strip-input");
         let mut strip_ui = chrome::object_ui(ui, strip_ui_id, strip);
         // P1.curve.grips: a painted grip under a button takes the press. The
@@ -248,20 +261,27 @@ impl SlateApp {
                     button_live,
                 )
             };
+            #[cfg(test)]
+            if matches!(item, StripItem::Panel(Panel::Agent)) {
+                if let Some((_, host)) = chrome_state.host {
+                    let transform = ctx
+                        .layer_transform_to_global(strip_ui.layer_id())
+                        .unwrap_or_default();
+                    ctx.data_mut(|data| {
+                        data.insert_temp(
+                            Id::new(("painted-agent-tool-hit", host.0)),
+                            transform * response.rect,
+                        )
+                    });
+                }
+            }
             if button_live && matches!(item, StripItem::ApplicationConnector) {
                 let model = self.shape_properties.ids.first().copied();
-                response.context_menu(|ui| {
-                    if ui
-                        .add_enabled(
-                            enabled && model.is_some(),
-                            egui::Button::new("Open isolated Rhino copy"),
-                        )
-                        .clicked()
-                    {
-                        requested_connector_draft = model;
-                        ui.close_menu();
-                    }
-                });
+                (
+                    requested_headless,
+                    requested_board_access,
+                    requested_connector_draft,
+                ) = self.model_connector_context(&response, model, enabled);
             }
             #[cfg(test)]
             if matches!(
@@ -345,6 +365,17 @@ impl SlateApp {
             requested_maximize,
             requested_screenshot,
         );
+        if let Some(id) = requested_headless {
+            self.dispatch(
+                &ctx,
+                CommandId("board.model.headless.activate"),
+                Some(id.0.to_string()),
+            );
+        }
+        if let Some(id) = requested_board_access {
+            self.board_sel = [id].into_iter().collect();
+            self.dispatch(&ctx, CommandId("portal.agent.board_access"), None);
+        }
         captures |= self.paint_property_dimensions(ui, xf, live, enabled);
         if self.shape_properties.panel != Some(Panel::Filter) {
             self.shape_properties.filter_aim = None;
@@ -409,11 +440,18 @@ impl SlateApp {
                     }
                     .show(
                         &ctx,
-                        Id::new("shape_property_editor"),
-                        ui.layer_id(),
+                        (Id::new("shape_property_editor"), ui.layer_id()),
                         (kind, height),
                         enabled || panel == Panel::Capture,
-                        |ui, rect, layout| self.shape_property_body(ui, rect, panel, z, layout),
+                        panel == Panel::Agent,
+                        |ui, rect, layout| {
+                            let sample = self.shape_property_body(ui, rect, panel, z, layout);
+                            let ids = self.shape_properties.ids.as_slice();
+                            popup_dismissal_captures = panel == Panel::Agent
+                                && ids.len() == 1
+                                && self.generator_menu_dismissal_owns_press(&ctx, ids[0]);
+                            sample
+                        },
                     );
                     if let Some(editor) = editor {
                         self.occupy_result_chrome(chrome_state.host, editor.area);
@@ -438,47 +476,16 @@ impl SlateApp {
             captures |= self.paint_model_screenshot_popup(&ctx);
             let overlay_open =
                 self.shape_properties.panel.is_some() || self.shape_properties.number.is_some();
+            // Keep the shared popup's dismissal press out of parent selection
+            // and quick-return memory; this flag comes only from this paint.
+            captures |= popup_dismissal_captures;
             let press = self.property_dismiss_press(&ctx);
             let on_host = overlay_open
                 && press.is_some()
-                && ctx.pointer_latest_pos().is_some_and(|p| {
-                    if let [host] = self.shape_properties.nodes.as_slice() {
-                        if self.result_strip_contains(&ctx, host.id, xf.rect_w2s(host.rect), z) {
-                            return true;
-                        }
-                        if self.image_palette_eligible(host.id)
-                            || self.shape_properties.panel == Some(Panel::Capture)
-                        {
-                            let world = xf.s2w(p);
-                            return self.board_pick_node_with_locked(world.x, world.y, true)
-                                == Some(host.id);
-                        }
-                    }
-                    blister && bounds.contains(p)
-                });
-            if overlay_open && !captures && !on_host && press == Some(true) {
-                self.apply_shape_preview(&ctx, false);
-            } else if overlay_open && !captures && !on_host && press.is_some() {
-                self.dismiss_active_object_panel(std::time::Instant::now());
-                self.apply_shape_preview(&ctx, true);
-                if let Some(p) = ctx.pointer_latest_pos() {
-                    if self.canvas_rect.contains(p) {
-                        let world = xf.s2w(p);
-                        match self.board_pick_node(world.x, world.y) {
-                            Some(id) => {
-                                self.board_sel =
-                                    crate::app::board_flags::expand_selection_to_groups(
-                                        &self.doc().scene,
-                                        &[id],
-                                    )
-                                    .into_iter()
-                                    .collect();
-                            }
-                            None => self.board_sel.clear(),
-                        }
-                    }
-                }
-                captures = true;
+                && self.property_host_contains_pointer(&ctx, xf, z, blister, bounds);
+            if overlay_open && !captures && !on_host && press.is_some() {
+                self.dismiss_property_press(&ctx, xf, press == Some(true));
+                captures |= press != Some(true);
             }
         }
         if captures && ctx.input(|i| i.pointer.any_pressed()) {

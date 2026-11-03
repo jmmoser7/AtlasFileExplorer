@@ -22,12 +22,13 @@ impl EditorHost<'_> {
     pub(crate) fn show<T>(
         &self,
         ctx: &egui::Context,
-        id: Id,
-        layer: egui::LayerId,
+        owner: (Id, egui::LayerId),
         panel: (chrome::ImagePanelKind, f32),
         enabled: bool,
+        agent_panel: bool,
         paint: impl FnOnce(&mut egui::Ui, Rect, Option<&chrome::ImagePresentationLayout>) -> T,
     ) -> Option<EditorResponse<T>> {
+        let (id, layer) = owner;
         let (kind, height) = panel;
         if canvas_scale::too_small(12.0 * self.zoom) {
             return None;
@@ -61,6 +62,13 @@ impl EditorHost<'_> {
                         self.theme,
                     );
                 }
+            } else if agent_panel {
+                chrome::paint_detached_agent_surface(
+                    content.painter(),
+                    rect,
+                    self.zoom,
+                    self.theme,
+                );
             }
             content
                 .add_enabled_ui(enabled, |ui| paint(ui, rect, layout.as_ref()))
@@ -71,21 +79,31 @@ impl EditorHost<'_> {
     pub(crate) fn show_image<T>(
         &self,
         ctx: &egui::Context,
-        id: Id,
-        layer: egui::LayerId,
+        owner: (Id, egui::LayerId),
         layout: &chrome::ImagePresentationLayout,
         enabled: bool,
+        detached_agent: bool,
         paint: impl FnOnce(&mut egui::Ui) -> T,
     ) -> Option<EditorResponse<T>> {
+        let (id, layer) = owner;
         self.show_area(ctx, id, layer, layout.overall, |ui| {
-            chrome::paint_blister_surface(
-                ui.painter(),
-                layout.overall,
-                self.strip,
-                self.zoom,
-                self.theme,
-                0.0,
-            );
+            if detached_agent {
+                chrome::paint_detached_agent_surface(
+                    ui.painter(),
+                    layout.overall,
+                    self.zoom,
+                    self.theme,
+                );
+            } else {
+                chrome::paint_blister_surface(
+                    ui.painter(),
+                    layout.overall,
+                    self.strip,
+                    self.zoom,
+                    self.theme,
+                    0.0,
+                );
+            }
             ui.add_enabled_ui(enabled, paint).inner
         })
     }
@@ -200,13 +218,21 @@ impl SlateApp {
                 })
                 .map_or_else(
                     || {
-                        chrome::AGENT_HEIGHT
-                            + self
-                                .shape_properties
-                                .ids
-                                .first()
-                                .copied()
-                                .map_or(0.0, |id| self.model_chat_starter_extra_height(id))
+                        let id = self.shape_properties.ids.first().copied();
+                        let height = id
+                            .filter(|id| {
+                                self.doc()
+                                    .scene
+                                    .node(*id)
+                                    .and_then(slate_doc::agent_chat::agent)
+                                    .is_some()
+                                    || self.model_node_info(*id).is_some()
+                                    || self.pending_generator_host(*id).is_some()
+                            })
+                            .map_or(chrome::AGENT_HEIGHT, |id| {
+                                self.bound_generator_height(painter, id, width_units)
+                            });
+                        height
                     },
                     |id| self.artifact_editor_height(painter, id, width_units),
                 ),

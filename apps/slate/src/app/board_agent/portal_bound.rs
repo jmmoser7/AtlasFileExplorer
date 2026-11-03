@@ -219,6 +219,21 @@ impl SlateApp {
         let band_floor = xf.rect_w2s(node.rect).bottom() - super::chat_edge::chat_bottom_band(z);
         let transcript = cap_bottom(transcript, band_floor);
         let input = cap_bottom(input, band_floor);
+        // Fitted text can use the fractional raster pixel in its existing
+        // bottom padding/gap, while layout and pointer ownership stay logical.
+        let paint_limit = if composer {
+            cap_bottom(body, key_strip.map_or(input.top(), |strip| strip.top()))
+        } else {
+            body
+        }
+        .intersect(ui.clip_rect());
+        let paint_clip = transcript_paint_clip(
+            transcript,
+            paint_limit,
+            ui.ctx().pixels_per_point(),
+            &agent.chat,
+            fold_now,
+        );
         if transcript.height() > 16.0 * z {
             let mut chat_ui = egui::Ui::new(
                 ui.ctx().clone(),
@@ -227,7 +242,7 @@ impl SlateApp {
                     .layer_id(ui.layer_id())
                     .max_rect(transcript),
             );
-            chat_ui.set_clip_rect(transcript.intersect(ui.clip_rect()));
+            chat_ui.set_clip_rect(paint_clip);
             chat_ui.style_mut().visuals = palette.visuals();
             chat_ui.style_mut().override_font_id = Some(font.clone());
             chat_ui.spacing_mut().item_spacing = egui::vec2(8.0 * z, 12.0 * z);
@@ -266,8 +281,13 @@ impl SlateApp {
                 .max_height(transcript.height())
                 .auto_shrink([false, false])
                 .show(&mut chat_ui, |ui| {
-                    // The viewport clip, not the card, so a glyph cannot sit in the composer gap.
-                    ui.set_clip_rect(transcript.intersect(ui.clip_rect()));
+                    // Use the fitted paint clip after ScrollArea's logical clip;
+                    // its height/offset/content measurement remain unchanged.
+                    ui.set_clip_rect(if paint_clip.bottom() > transcript.bottom() {
+                        paint_clip
+                    } else {
+                        transcript.intersect(ui.clip_rect())
+                    });
                     // A picture lying on the card is the press. Transcript
                     // widgets only take the pointer when this card is topmost.
                     let owns = self.portal_owns_pointer(ui.ctx(), node.id);
@@ -308,6 +328,8 @@ impl SlateApp {
                             palette.sub
                         } else if from_agent.is_some() {
                             palette.danger
+                        } else if !agent.chat.train && matches!(turn.role.as_str(), "user" | "assistant") {
+                            atlas_shell::selection_tools::generator::activity::transcript_role_ink(user, palette.ink)
                         } else {
                             palette.ink
                         };
@@ -318,16 +340,21 @@ impl SlateApp {
                             );
                             self.paint_received_label(ui.painter(), row.right_bottom(), label, z);
                         }
-                        let row = atlas_shell::selection_tools::generator::activity::transcript_row(
-                            ui,
-                            Id::new(("agent-turn-selection", node.id.0, index)),
-                            &text,
-                            TRANSCRIPT_TEXT_PX,
-                            z,
-                            ink,
-                            owns,
-                            false,
-                        );
+                        let row_id = Id::new(("agent-turn-selection", node.id.0, index));
+                        let row = if !agent.chat.train {
+                            let indent = atlas_shell::selection_tools::generator::activity::transcript_user_indent(user) * z;
+                            let mut row_ui = ui.new_child(egui::UiBuilder::new()
+                                .id_salt(("window-turn", index))
+                                .max_rect(Rect::from_min_size(ui.cursor().min + egui::vec2(indent, 0.0),
+                                    egui::vec2((width - indent).max(1.0), 0.0))));
+                            let row = atlas_shell::selection_tools::generator::activity::transcript_row(
+                                &mut row_ui, row_id, &text, TRANSCRIPT_TEXT_PX, z, ink, owns, false);
+                            ui.allocate_space(egui::vec2(width, row.height()));
+                            row
+                        } else {
+                            atlas_shell::selection_tools::generator::activity::transcript_row(
+                                ui, row_id, &text, TRANSCRIPT_TEXT_PX, z, ink, owns, false)
+                        };
                         if from_agent.is_some() {
                             self.paint_received_mark(ui.painter(), row, z);
                         }
@@ -395,8 +422,10 @@ impl SlateApp {
             let content = scroll.content_size.y / z;
             let signature = self.transcript_signature(node.id, &turns);
             let width = node.rect.w;
+            // A raster rung can add less than one world unit of real ink.
+            // Retain any growth; row layout itself never depends on this cache.
             let remeasure = match self.agents.content_heights.get(&node.id) {
-                Some(&(w, h, s)) if (w - width).abs() <= 0.5 && s == signature => content > h + 1.0,
+                Some(&(w, h, s)) if (w - width).abs() <= 0.5 && s == signature => content > h,
                 _ => true,
             };
             if remeasure {
@@ -432,3 +461,25 @@ fn cap_bottom(rect: Rect, floor: f32) -> Rect {
         Pos2::new(rect.right(), rect.bottom().min(floor).max(rect.top())),
     )
 }
+
+/// Raster-complete paint bounds for an automatically fitted, open transcript.
+/// Manual viewports retain their exact clipping; no authored geometry changes.
+fn transcript_paint_clip(
+    view: Rect,
+    limit: Rect,
+    ppp: f32,
+    chat: &slate_doc::agent_chat::ChatView,
+    fold: train_ux::CardFold,
+) -> Rect {
+    let mut clip = view;
+    let fitted = fold == train_ux::CardFold::Open
+        && (chat.fit_height || (chat.train && chat.size.is_none()));
+    if fitted {
+        clip.max.y = (clip.bottom() * ppp).ceil() / ppp;
+    }
+    clip.intersect(limit)
+}
+
+#[cfg(test)]
+#[path = "portal_bound/clip_tests.rs"]
+mod clip_tests;

@@ -1,9 +1,22 @@
 use super::*;
 use atlas_shell::selection_tools::generator as chrome;
 
-struct ArtifactHistory<'a, T>(&'a [T]);
+struct ArtifactHistory<'a>(
+    &'a [String],
+    usize,
+    &'a [Option<egui::TextureId>],
+    &'a atlas_shell::result_actions::ResultSelection,
+);
 
-impl<T> chrome::GeneratorHistory for ArtifactHistory<'_, T> {
+impl chrome::GeneratorHistory for ArtifactHistory<'_> {
+    fn image_actions(&self) -> bool {
+        true
+    }
+    fn is_selected(&self, index: usize) -> bool {
+        self.0
+            .get(index)
+            .is_some_and(|revision| self.3.contains(revision))
+    }
     fn len(&self) -> usize {
         self.0.len()
     }
@@ -11,7 +24,11 @@ impl<T> chrome::GeneratorHistory for ArtifactHistory<'_, T> {
         self.0.get(index)?;
         Some(chrome::GeneratorHistoryItem {
             label: format!("Revision {}", index + 1).into(),
-            thumb: None,
+            thumb: index
+                .checked_sub(self.1)
+                .and_then(|index| self.2.get(index))
+                .copied()
+                .flatten(),
         })
     }
 }
@@ -40,12 +57,12 @@ fn current_model_label(
 }
 
 impl SlateApp {
-    pub(crate) fn artifact_editor_height(
+    fn artifact_editor_layout(
         &self,
         painter: &egui::Painter,
         id: NodeId,
         width: f32,
-    ) -> f32 {
+    ) -> chrome::GeneratorLayout {
         let prompt = self
             .agents
             .prompt(id)
@@ -63,7 +80,7 @@ impl SlateApp {
             .scene
             .node(id)
             .and_then(artifact)
-            .map_or(0, |binding| binding.revisions.len());
+            .map_or(0, |_| self.result_outputs(id).len());
         let agent = self
             .doc()
             .scene
@@ -96,7 +113,14 @@ impl SlateApp {
                 &view,
             ),
         )
-        .height
+    }
+    pub(crate) fn artifact_editor_height(
+        &self,
+        painter: &egui::Painter,
+        id: NodeId,
+        width: f32,
+    ) -> f32 {
+        self.artifact_editor_layout(painter, id, width).height
     }
     fn artifact_generator_status(&self, id: NodeId) -> Option<&str> {
         if let Some(error) = self.agent_failure_reason(id) {
@@ -128,7 +152,7 @@ impl SlateApp {
                 "Starting artifact harness…"
             })
         } else if self.agents.artifact.pending.contains_key(&id) {
-            Some("Preview ready · Settings: Apply or Discard")
+            Some("Preview ready")
         } else if self.agents.artifact.inspect.contains(&id) {
             Some("Memory checkpoint is open in its source file. Fresh eyes disconnects inherited history.")
         } else {
@@ -158,6 +182,35 @@ impl SlateApp {
         self.agents.want_catalog("cursor");
         self.remember_object_panel_open(id, super::super::super::board_properties::Panel::Agent);
         let take_focus = self.take_flow_prompt_focus(id);
+        let revisions = self
+            .result_outputs(id)
+            .into_iter()
+            .map(|output| output.id)
+            .collect::<Vec<_>>();
+        let binding = self.doc().scene.node(id).and_then(artifact).unwrap();
+        let selected = binding
+            .revision
+            .as_ref()
+            .and_then(|revision| revisions.iter().position(|r| r == revision));
+        let visible = self
+            .artifact_editor_layout(ui.painter(), id, rect.width() / z)
+            .visible_history_range(revisions.len(), selected);
+        let locators = visible
+            .clone()
+            .filter_map(|index| revisions.get(index))
+            .map(|revision| {
+                self.artifact_reference(id, revision).ok().map(|reference| {
+                    super::super::super::board_portal::source_locator(
+                        self.tab().path.as_deref(),
+                        &reference.materialized_entry,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        let thumbnails = locators
+            .into_iter()
+            .map(|locator| locator.and_then(|locator| self.web_history_thumbnail(id, &locator)))
+            .collect::<Vec<_>>();
         let node = self.doc().scene.node(id).unwrap();
         let agent = slate_doc::agent_chat::agent(node).unwrap();
         let binding = artifact(node).unwrap();
@@ -205,20 +258,8 @@ impl SlateApp {
         let mut settings_open = presentation.settings_open;
         let mut activity_state = presentation.activity.unwrap_or_default();
         let data = self.generator_chrome_data(id);
-        let pending = self.agents.artifact.pending.contains_key(&id);
-        let actions: &[&str] = if pending {
-            &[
-                "Apply preview",
-                "Discard preview",
-                "Fork",
-                "Fresh eyes",
-                "Inspect memory",
-                "Open source",
-            ]
-        } else {
-            &["Fork", "Fresh eyes", "Inspect memory", "Open source"]
-        };
-        let history = ArtifactHistory(&binding.revisions);
+        let selection = self.result_selection(id);
+        let history = ArtifactHistory(&revisions, visible.start, &thumbnails, &selection);
         let status = self.artifact_generator_status(id);
         let approval = self.agent_approval_description(id);
         let mut chrome_view = data.view(&mut activity_state, self.artifact_is_busy(id));
@@ -230,12 +271,14 @@ impl SlateApp {
                 prompt: &mut prompt,
                 hint: "Describe the dashboard or the next change",
                 take_focus,
+                count: Some(agent.generator.count.unwrap_or(agent.image.count).max(1) as usize),
+                preserve_history: Some(agent.generator.preserve_history.unwrap_or(true)),
                 models: &labels,
                 model: current,
                 model_open: &mut model_open,
                 settings: Some(chrome::GeneratorSettings {
                     label: "Settings",
-                    choices: actions,
+                    choices: &[],
                     selected: 0,
                     open: &mut settings_open,
                 }),
@@ -243,7 +286,7 @@ impl SlateApp {
                 selected_history: binding
                     .revision
                     .as_ref()
-                    .and_then(|r| binding.revisions.iter().position(|v| v == r)),
+                    .and_then(|r| revisions.iter().position(|v| v == r)),
                 running: self.artifact_is_busy(id),
                 status,
                 approval: approval.as_deref(),
@@ -261,7 +304,8 @@ impl SlateApp {
         let busy_model_choice = out.model.is_some() && self.artifact_is_busy(id);
         let chosen_revision = out
             .clicked_history
-            .and_then(|index| binding.revisions.get(index))
+            .filter(|_| out.result_interaction.clicked.is_none())
+            .and_then(|index| revisions.get(index))
             .cloned();
         if let Some(allow) = out.approval {
             self.dispatch(
@@ -273,6 +317,16 @@ impl SlateApp {
         self.track_flow_prompt_focus(id, out.prompt.focused);
         self.restore_generator_presentation(id, out.presentation);
         self.dispatch_generator_chrome(ui.ctx(), id, out.model_parameter, out.full_access);
+        self.dispatch_generator_provider(id, out.provider, out.edit_key);
+        if self.agents.key_entry == Some(id) {
+            let key_rect = Rect::from_min_size(
+                rect.left_bottom() + egui::vec2(0.0, 4.0 * z),
+                egui::vec2(rect.width(), 32.0 * z),
+            );
+            self.paint_agent_key_entry(ui, id, key_rect, z);
+        }
+        self.dispatch_generator_settings(ui.ctx(), id, out.count, out.preserve_history);
+        self.handle_result_interaction(ui, id, out.result_interaction, rect, false);
         if busy_model_choice {
             self.toast("Stop this run before changing the harness or model. The running request keeps its settings.");
         }
@@ -309,21 +363,6 @@ impl SlateApp {
                 } else {
                     "portal.agent.run"
                 }),
-                Some(serde_json::json!({"node":id}).to_string()),
-            );
-        }
-        if let Some(action) = out.settings.and_then(|i| actions.get(i)) {
-            let command = match *action {
-                "Apply preview" => "portal.artifact.accept",
-                "Discard preview" => "portal.artifact.reject",
-                "Fork" => "portal.artifact.fork",
-                "Fresh eyes" => "portal.artifact.memory_disconnect",
-                "Inspect memory" => "portal.artifact.memory_inspect",
-                _ => "portal.artifact.source_open",
-            };
-            self.dispatch(
-                ui.ctx(),
-                atlas_commands::CommandId(command),
                 Some(serde_json::json!({"node":id}).to_string()),
             );
         }

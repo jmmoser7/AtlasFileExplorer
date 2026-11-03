@@ -125,6 +125,17 @@ impl SlateApp {
                 "view":program.view,"instruction":excerpt(&program.instruction,512),
                 "image_settings":program.image,
             });
+            value["program"]["generator"] = json!({
+                "count": program.generator.count.unwrap_or(program.image.count),
+                "preserve_history": program.generator.preserve_history,
+                "history_cut": program.generator.history_cut,
+                "grafted_slots": self.wire_input_ports(node).iter().filter(|port| port.slot != atlas_agent::InputSlot::View && program.generator.grafted_slots.contains(port.slot.id())).map(|port| port.slot.id()).collect::<Vec<_>>(),
+                "model_outputs": program.generator.model_outputs.iter().filter(|output| Self::valid_model_output_identity(&output.id)).take(128).map(|output| json!({"id":output.id})).collect::<Vec<_>>(),
+                "model_outputs_total": program.generator.model_outputs.len(),
+                "model_outputs_truncated": program.generator.model_outputs.len() > 128,
+                "model_outputs_unavailable": program.generator.model_outputs.iter().filter(|output| !Self::valid_model_output_identity(&output.id)).count(),
+                "shown_model": program.generator.shown_model.as_deref().filter(|identity| Self::valid_model_output_identity(identity) && program.generator.model_outputs.iter().any(|output| output.id == *identity)),
+            });
             if slate_doc::agent_inputs::is_image_generator(&self.doc().scene, node.id) {
                 let session = self.agents.session(node.id);
                 let request = self
@@ -223,6 +234,26 @@ impl SlateApp {
             }
             // A visible program does not implicitly disclose its conversation.
             if grant.conversation_ids.contains(&program.session) {
+                if let Some(snapshot) = self.agents.session(node.id) {
+                    let total = snapshot
+                        .turns
+                        .iter()
+                        .filter(|turn| turn.role == "assistant")
+                        .count();
+                    let mut checkpoints: Vec<_> = snapshot
+                        .turns
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .filter(|(_, turn)| turn.role == "assistant")
+                        .take(128)
+                        .map(|(index, _)| json!({"through":index + 1}))
+                        .collect();
+                    checkpoints.reverse();
+                    value["program"]["generator"]["text_outputs"] = json!(checkpoints);
+                    value["program"]["generator"]["text_outputs_total"] = json!(total);
+                    value["program"]["generator"]["text_outputs_truncated"] = json!(total > 128);
+                }
                 value["program"]["conversation"] = json!(program.session);
                 value["program"]["channel"] = json!(program
                     .channel

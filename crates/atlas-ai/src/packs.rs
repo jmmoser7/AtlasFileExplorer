@@ -17,6 +17,7 @@ pub const OPENAI: &str = "openai-image";
 struct Probed {
     catalog: Catalog,
     programs: Vec<AgentProvider>,
+    credentials: [bool; 2],
 }
 
 pub struct PackSession {
@@ -37,6 +38,7 @@ pub struct PackSession {
     pub key_entry: bool,
     pub key_draft: String,
     pending_programs: Option<Vec<AgentProvider>>,
+    credentials: [bool; 2],
 }
 
 impl PackSession {
@@ -55,6 +57,7 @@ impl PackSession {
             key_entry: false,
             key_draft: String::new(),
             pending_programs: None,
+            credentials: [false; 2],
         }
     }
 
@@ -136,6 +139,38 @@ impl PackSession {
         self.health("cursor") == PackHealth::Ok
     }
 
+    /// Presence snapshot supplied by the existing background pack probe. Never probes in paint.
+    pub fn credential_present(&self, provider: &str) -> Option<bool> {
+        let pack = match provider {
+            "openai-image" | "openai-text" => Some(OPENAI),
+            "cursor" => Some("cursor"),
+            _ => None,
+        };
+        if let Some(health) = pack.and_then(|pack| {
+            self.overrides
+                .iter()
+                .find(|(id, _)| id == pack)
+                .map(|(_, health)| health)
+        }) {
+            return Some(*health == PackHealth::Ok);
+        }
+        match provider {
+            "openai-image" | "openai-text" => Some(self.credentials[0]),
+            "cursor" => Some(self.credentials[1]),
+            _ => None,
+        }
+    }
+
+    /// Explicit key-save event updates rows immediately and invalidates old probe results.
+    pub fn credential_saved(&mut self, provider: &str, workspace: Option<PathBuf>) {
+        match provider {
+            "openai-image" | "openai-text" => self.credentials[0] = true,
+            "cursor" => self.credentials[1] = true,
+            _ => return,
+        }
+        self.refresh(workspace);
+    }
+
     pub fn health(&self, id: &str) -> PackHealth {
         self.catalog.health(&PackId::new(id))
     }
@@ -182,7 +217,7 @@ impl PackSession {
         atlas_core::secrets::store(crate::runtime::OPENAI_KEY_SLOT, key)?;
         self.record(OPENAI, PackHealth::Ok);
         self.key_entry = false;
-        self.refresh(workspace);
+        self.credential_saved(OPENAI, workspace);
         Ok(())
     }
 
@@ -193,6 +228,7 @@ impl PackSession {
         match rx.try_recv() {
             Ok(probed) => {
                 if self.again.is_none() {
+                    self.credentials = probed.credentials;
                     self.catalog = probed.catalog;
                     self.pending_programs = Some(probed.programs);
                 }
@@ -221,7 +257,16 @@ impl PackSession {
         std::thread::spawn(move || {
             let catalog = probe_catalog(workspace.as_deref(), &overrides);
             let programs = programs_of(&catalog, workspace.as_deref());
-            let _ = tx.send(Probed { catalog, programs });
+            let credentials = [
+                atlas_core::secrets::health(crate::runtime::OPENAI_KEY_SLOT)
+                    == atlas_core::secrets::SecretHealth::Ok,
+                crate::cursor_key::is_configured(),
+            ];
+            let _ = tx.send(Probed {
+                catalog,
+                programs,
+                credentials,
+            });
         });
     }
 }

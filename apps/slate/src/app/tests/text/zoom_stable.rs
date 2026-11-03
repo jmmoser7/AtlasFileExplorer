@@ -83,6 +83,7 @@ impl Fixture {
                 &mut h,
                 WorldRect::new(0.0, 0.0, 220.0, 120.0),
                 NodeKind::Text(TextNode {
+                    answers: Default::default(),
                     text: NOTE.into(),
                     style: Default::default(),
                     family: Typeface::Sans,

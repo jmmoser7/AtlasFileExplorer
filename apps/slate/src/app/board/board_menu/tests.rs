@@ -43,6 +43,29 @@ fn shipped_menus_preserve_studio_revision_and_the_canvas_wire_refinement() {
             .unwrap();
         entries.insert(position + 1, "board.image.save_as".into());
     }
+    // Declared web controls add explicit origin access to the existing portal menu.
+    let web = agreed["menus"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|menu| menu["id"] == "web")
+        .unwrap();
+    let entries = web["entries"].as_array_mut().unwrap();
+    let after_reload = entries
+        .iter()
+        .position(|entry| entry == "portal.web.reload")
+        .unwrap()
+        + 1;
+    for (offset, command) in [
+        "portal.web.allow_origin",
+        "portal.web.revoke_origin",
+        "portal.web.access_settings",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        entries.insert(after_reload + offset, command.into());
+    }
     assert_eq!(native["menus"], agreed["menus"]);
     assert_eq!(native["metrics"], agreed["metrics"]);
     assert_eq!(native["menus"].as_array().unwrap().len(), 28);
@@ -83,6 +106,47 @@ fn text_center(out: &egui::FullOutput, label: &str) -> Option<Pos2> {
         }
     }
     out.shapes.iter().find_map(|s| find(&s.shape, label))
+}
+
+#[test]
+fn ordinary_image_menu_escape_and_outside_press_leave_source_unchanged() {
+    use slate_doc::scene::ImageNode;
+    let mut h = Harness::new("ordinary_image_menu_dismiss");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    let node = h.app.doc_mut().scene.build_node(
+        WorldRect::new(25.0, 40.0, 220.0, 160.0),
+        NodeKind::Image(ImageNode::new(ItemId::NONE)),
+    );
+    let id = h.app.add_nodes(vec![node])[0];
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let count = h.app.doc().scene.nodes.len();
+    for escape in [true, false] {
+        h.app.board_menu = Some((id, Pos2::new(400.0, 100.0)));
+        menu_frame(&mut h, vec![]);
+        let painted = menu_frame(&mut h, vec![]);
+        assert!(text_center(&painted, "Duplicate").is_some());
+        let event = if escape {
+            egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            }
+        } else {
+            egui::Event::PointerButton {
+                pos: Pos2::new(100.0, 800.0),
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            }
+        };
+        menu_frame(&mut h, vec![event]);
+        assert!(h.app.board_menu.is_none());
+        assert_eq!(h.app.doc().scene.node(id), Some(&before));
+        assert_eq!(h.app.doc().scene.nodes.len(), count);
+    }
 }
 
 fn save_capture(h: &Harness, out: &egui::FullOutput, name: &str, area: Rect) {

@@ -23,6 +23,12 @@ available to explicitly configured sidecars today.
 The user approved this refinement with “ok go for it!” after reviewing the
 [design report](../../agent/portal-evolution-plan.md) and concept images.
 
+## Native media correction — owner, 1 November 2026
+
+Individual Image, Text, Web/Dashboard and Model sources start in their native simple configuration. Only that source's robot expands the approved Agent dialogue and its supported inputs; selection, a sibling's Agent panel, or ordinary authored text does not activate it. Only actually connected input slots remain inspectable when Agent closes, at their canonical positions, preserving bindings while unused roles remain hidden. Text's native white sheet has no duplicate overlaid Prompt/Run field; Send belongs to the opened Agent dialogue.
+
+An output dropped on empty canvas opens the existing Text/Image/Dashboard/3D chooser before creation. Cancel creates nothing. Only the chosen modality creates a blank closed unselected child, with no automatic provider request and with the applicable immutable preserved history. 3D uses the existing headless model creation job and native agent catalog, independently of an upstream image provider. Allowed Web sources keep Revoke site and Website access in their existing context menu; blocked Allow stays inline. These latest owner corrections supersede historical body-dock/reveal descriptions below.
+
 ## Behavior matrix
 
 | ID | Dimension | Agreed behavior | Source | Conf |

@@ -13,7 +13,7 @@ use crate::scene::{CmdAuthor, NodeId, Scene, SceneCmd, SceneJournal};
 const READ_INTERVAL: Duration = Duration::from_secs(1);
 
 mod prepare;
-use prepare::prepared_cmds;
+pub use prepare::preflight_record;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProposalTarget {
@@ -98,7 +98,7 @@ pub fn accept(
     scene: &mut Scene,
     journal: &mut SceneJournal,
 ) -> Result<(), StaleReason> {
-    let cmds = prepared_cmds(proposal, workbook, scene)?;
+    let cmds = prepare::prepared_cmds(proposal, workbook, scene)?;
     if journal.commit_as(scene, cmds, CmdAuthor::Agent(proposal.author.clone())) {
         Ok(())
     } else {
@@ -178,7 +178,7 @@ fn accept_and_record_with_writer(
             "a decision already exists; review the workbook before dismissing this proposal",
         )));
     }
-    let cmds = match prepared_cmds(proposal, workbook, scene) {
+    let cmds = match prepare::prepared_cmds(proposal, workbook, scene) {
         Ok(cmds) => cmds,
         Err(reason @ (StaleReason::WorkbookMismatch | StaleReason::UnsavedWorkbook)) => {
             // Changing tabs or saving is a recoverable UI action. Do not

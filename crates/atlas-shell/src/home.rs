@@ -11,7 +11,6 @@
 //! the artwork mesh. Embeds that must not steal the host's wheel set
 //! [`HomeModel::interactive`] to false until contents-focus
 //! (`P1.portal.contents-focus`).
-
 use crate::mesh_aa::feather_boundary;
 use crate::recent::{RecentEntry, RecentList};
 use crate::theme::Palette;
@@ -321,7 +320,8 @@ pub fn album_browsing(ctx: &egui::Context, id: Id) -> f32 {
 
 mod album_strip;
 pub use album_strip::{
-    album_index_rects, album_index_strip, album_result_layout, album_result_strip, album_strip_rect,
+    album_index_rects, album_index_strip, album_result_layout, album_result_strip,
+    album_result_strip_content, album_strip_rect, generator_result_rects,
 };
 
 fn album_uv(source: Vec2, host: Vec2) -> Rect {

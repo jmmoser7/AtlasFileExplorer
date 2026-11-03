@@ -265,6 +265,12 @@ impl SlateApp {
         if chrome::presence_preferences_ui(ui, &mut self.settings.presence_reduced_motion) {
             self.settings.save();
         }
+        let mut full_access = self.dashboard_full_access();
+        if ui.checkbox(&mut full_access, "Full access · all agents")
+            .on_hover_text("Remember the provider-access preference for this user across agents and restarts. Explicit restrictions and native Board grants remain independent.")
+            .changed() {
+            self.dispatch(ui.ctx(), atlas_commands::CommandId("portal.artifact.full_access"), Some(full_access.to_string()));
+        }
         let mut allow_all = self.web.allows_all_websites();
         if chrome::website_access_preferences_ui(ui, &mut allow_all) {
             let command = if allow_all {

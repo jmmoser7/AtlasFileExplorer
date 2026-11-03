@@ -185,7 +185,7 @@ fn terminal(entry: &mut TicketEntry) -> Option<Completion> {
 
 fn cleanup_owned(completion: Completion) {
     if let NativeOutcome::Completed {
-        result: NativeResult::Capture { path, .. },
+        result: NativeResult::Capture { path, .. } | NativeResult::Model { path, .. },
     } = completion.outcome
     {
         std::thread::spawn(move || {

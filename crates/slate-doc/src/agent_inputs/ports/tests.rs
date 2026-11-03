@@ -17,6 +17,7 @@ fn ordinary_image_inputs_bind_words_from_text_stickies_and_imported_documents() 
             NodeKind::Image(ImageNode::new(words))
         } else {
             NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: "warm afternoon".into(),
                 style: Default::default(),
                 family: Default::default(),
@@ -72,13 +73,26 @@ fn ordinary_image_inputs_bind_words_from_text_stickies_and_imported_documents() 
 #[test]
 fn candidate_image_ports_do_not_turn_other_media_into_generators() {
     let mut scene = Scene::default();
-    for path in ["report.pdf", "clip.mp4", "brief.txt", "data.xlsx"] {
+    for path in [
+        "report.pdf",
+        "clip.mp4",
+        "brief.txt",
+        "data.xlsx",
+        "model.3dm",
+    ] {
         let node = scene.build_node(
             WorldRect::new(0.0, 0.0, 100.0, 100.0),
             NodeKind::Image(ImageNode::new(crate::ItemId(1))),
         );
         assert!(!image_generation_target(&node, &|_| Some(Path::new(path))));
         scene.nodes.push(node.clone());
-        assert!(input_ports_with(&scene, node.id, &|_| Some(Path::new(path))).is_empty());
+        let ports = input_ports_with(&scene, node.id, &|_| Some(Path::new(path)));
+        let expected: &[InputPort] = match path {
+            "brief.txt" | "data.xlsx" => &TEXT_PORTS,
+            "model.3dm" => &MODEL_VIEW_PORTS,
+            _ => &[],
+        };
+        assert_eq!(ports, expected, "native input semantics for {path}");
+        assert!(crate::agent_chat::agent(scene.node(node.id).unwrap()).is_none());
     }
 }

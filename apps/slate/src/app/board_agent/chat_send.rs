@@ -64,6 +64,9 @@ impl SlateApp {
                 }
             };
         let req = AgentRequest {
+            text_source: None,
+            image_history: None,
+            image_history_prefix: None,
             collaborator,
             model: self
                 .doc()

@@ -37,7 +37,9 @@ fn generator_inputs_and_controls_live_in_the_selected_agent_blister() {
         );
     }
     assert!(
-        !hover.iter().any(|t| t == "ComfyUI · Auto" || t == "Live"),
+        !hover
+            .iter()
+            .any(|t| t == "ComfyUI · Automatic" || t == "Live"),
         "passive hover keeps model controls hidden: {hover:?}"
     );
 
@@ -49,12 +51,25 @@ fn generator_inputs_and_controls_live_in_the_selected_agent_blister() {
         h.frame();
     }
     let selected = painted_text(&mut h, None);
-    for expected in ["ComfyUI · Auto", "Source", "Single", "Settings"] {
+    for expected in ["ComfyUI · Automatic", "Message…"] {
         assert!(
             selected.iter().any(|t| t == expected),
             "missing {expected:?} in selected Agent blister: {selected:?}"
         );
     }
+    let options = h
+        .ctx
+        .data(|data| data.get_temp::<Rect>(Id::new("painted-generator-options-hit")))
+        .expect("actual Settings control");
+    press(&mut h, options.center());
+    let settings = painted_text(&mut h, None);
+    for expected in ["Aspect Ratio", "Mode", "Single Image Mode", "Settings"] {
+        assert!(
+            settings.iter().any(|t| t == expected),
+            "missing current setting {expected:?}: {settings:?}"
+        );
+    }
+    press(&mut h, body.center());
     let inputs = h.app.generator_view(id).inputs.clone();
     assert!(inputs
         .iter()
@@ -92,20 +107,24 @@ fn generator_inputs_and_controls_live_in_the_selected_agent_blister() {
         h.frame();
     }
     let live = painted_text(&mut h, Some(body.center()));
-    assert!(live.iter().any(|t| t == "Live"), "{live:?}");
+    let options = h
+        .ctx
+        .data(|data| data.get_temp::<Rect>(Id::new("painted-generator-options-hit")))
+        .unwrap();
+    press(&mut h, options.center());
+    let modes = painted_text(&mut h, None);
+    assert!(modes.iter().any(|t| t == "Live Mode"), "{modes:?}");
+    press(&mut h, body.center());
     assert!(
         !live.iter().any(|t| t == "Keep"),
         "bare Play action: {live:?}"
     );
-    let editor = *h
-        .app
-        .shape_properties
-        .chrome_hits
-        .iter()
-        .max_by(|a, b| (a.width() * a.height()).total_cmp(&(b.width() * b.height())))
-        .expect("selected live Agent blister is open");
-    let datum = editor.shrink(12.0);
-    let play = Pos2::new(datum.right() - 10.0, datum.top() + 12.0);
+    h.frame();
+    let play = h
+        .ctx
+        .data(|data| data.get_temp::<Rect>(Id::new(("painted-generator-play-hit", id.0))))
+        .expect("actual shared Play control")
+        .center();
     let live_run = h.app.agents.live_run.get(&id).cloned().unwrap();
     press(&mut h, play);
     assert!(

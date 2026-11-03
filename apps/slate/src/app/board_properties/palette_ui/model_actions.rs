@@ -2,6 +2,33 @@
 use super::*;
 
 impl SlateApp {
+    pub(super) fn model_connector_context(
+        &self,
+        response: &egui::Response,
+        model: Option<NodeId>,
+        enabled: bool,
+    ) -> (Option<NodeId>, Option<NodeId>, Option<NodeId>) {
+        let mut actions = (None, None, None);
+        response.context_menu(|ui| {
+            if ui.add_enabled(enabled && model.is_some(), egui::Button::new("Set up headless model")).clicked() {
+                actions.0 = model;
+                ui.close_menu();
+            }
+            let available = model.is_some_and(|id| self.attached_model_native_access(id).is_some());
+            if ui.add_enabled(enabled && available, egui::Button::new("Board access…"))
+                .on_hover_text("Explicit native source scope and Resume. Provider Full access does not grant model access.")
+                .clicked() {
+                actions.1 = model;
+                ui.close_menu();
+            }
+            ui.separator();
+            if ui.add_enabled(enabled && model.is_some(), egui::Button::new("Open isolated Rhino copy")).clicked() {
+                actions.2 = model;
+                ui.close_menu();
+            }
+        });
+        actions
+    }
     pub(super) fn run_model_strip_actions(
         &mut self,
         ctx: &egui::Context,

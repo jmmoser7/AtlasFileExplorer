@@ -20,16 +20,41 @@ pub fn snapshot_with_source_check(
     scope: AgentContextScope,
     selection: &[NodeId],
     outputs: &BTreeMap<NodeId, ContextItem>,
+    check_source: impl FnMut(NodeId) -> Result<(), String>,
+) -> Result<InputSnapshot, String> {
+    snapshot_with_value_source(
+        doc,
+        portal,
+        scope,
+        selection,
+        |id| outputs.get(&id).cloned(),
+        check_source,
+    )
+}
+
+/// Resolve projected values only for authored inputs actually read by this snapshot.
+/// The host retains readiness checks; this interpreter still owns wire semantics.
+pub fn snapshot_with_value_source(
+    doc: &SlateDoc,
+    portal: NodeId,
+    scope: AgentContextScope,
+    selection: &[NodeId],
+    mut output: impl FnMut(NodeId) -> Option<ContextItem>,
     mut check_source: impl FnMut(NodeId) -> Result<(), String>,
 ) -> Result<InputSnapshot, String> {
     // A flow node's prompt is a shape's words; chat agents also read its geometry.
     let generator = is_flow_node(&doc.scene, portal);
-    let item = |id| -> Option<ContextItem> {
+    let mut item = |id| -> Option<ContextItem> {
         let node = doc.scene.node(id)?;
+        let projected = output(id);
         Some(match &node.kind {
             // An agent's reply the person has not made their own yet.
-            NodeKind::Text(t) if t.agent.is_some() && t.text.trim().is_empty() => {
-                outputs.get(&id)?.clone()
+            NodeKind::Text(t)
+                if t.agent.as_ref().is_some_and(|agent| {
+                    t.text.trim().is_empty() || agent.generator.shown_text.is_some()
+                }) =>
+            {
+                projected?
             }
             NodeKind::Text(t) => ContextItem {
                 node: id.0,
@@ -63,18 +88,18 @@ pub fn snapshot_with_source_check(
                     node: id.0,
                     text: String::new(),
                     images: vec![doc.item(i.item)?.path.to_string_lossy().into_owned()],
-                    outputs: outputs
-                        .get(&id)
+                    outputs: projected
+                        .as_ref()
                         .map(|value| value.outputs.clone())
                         .unwrap_or_default(),
-                    active: outputs.get(&id).and_then(|value| value.active.clone()),
+                    active: projected.as_ref().and_then(|value| value.active.clone()),
                     depth: None,
                     slot: None,
                 }
             }
             // A placed text document's words, or an agent picture's newest
             // result, read by the caller.
-            NodeKind::Image(_) if outputs.contains_key(&id) => outputs.get(&id)?.clone(),
+            NodeKind::Image(_) if projected.is_some() => projected?,
             NodeKind::Image(i) => ContextItem {
                 node: id.0,
                 text: String::new(),
@@ -93,12 +118,12 @@ pub fn snapshot_with_source_check(
                 depth: None,
                 slot: None,
             },
-            _ => outputs.get(&id)?.clone(),
+            _ => projected?,
         })
     };
     let mut context: Vec<ContextItem> = context_nodes(&doc.scene, portal, scope, selection)
         .into_iter()
-        .filter_map(item)
+        .filter_map(&mut item)
         .collect();
     let mut wired = Vec::new();
     let mut seen = BTreeSet::new();

@@ -20,6 +20,14 @@ fn ports_show_near_a_generator_and_the_text_block_paints_its_controls() {
     );
     let xf = h.app.board_xf();
     let near = xf.rect_w2s(r).center();
+    let simple = painted(&mut h, near);
+    assert!(!simple
+        .iter()
+        .any(|text| text == "Primary image" || text == "Style image"));
+    h.app.board_sel = [generator].into_iter().collect();
+    assert!(h
+        .app
+        .open_object_panel(crate::app::board_properties::Panel::Agent));
     let hover = painted(&mut h, near);
     for label in ["Primary image", "Text", "Style image"] {
         assert!(
@@ -36,21 +44,20 @@ fn ports_show_near_a_generator_and_the_text_block_paints_its_controls() {
         .board_xf()
         .rect_w2s(h.app.doc().scene.node(block).unwrap().rect);
     let unselected = painted(&mut h, block_rect.center());
-    for label in ["Run", "Describe the visual style"] {
+    for label in ["Run", "Wire a note to Prompt, or type here"] {
         assert!(
-            unselected.iter().any(|text| text.starts_with(label)),
-            "unselected body keeps {label}: {unselected:?}"
+            !unselected.iter().any(|text| text.starts_with(label)),
+            "unselected body has no legacy {label}: {unselected:?}"
         );
     }
     h.app.board_sel = std::iter::once(block).collect();
     let selected = painted(&mut h, Pos2::new(2.0, 890.0));
-    for label in ["Image", "Prompt"] {
-        assert!(
-            selected.iter().any(|t| t.starts_with(label)),
-            "missing {label}: {selected:?}"
-        );
-    }
-    for label in ["Run", "Describe the visual style"] {
+    let label = "Image";
+    assert!(
+        selected.iter().any(|t| t.starts_with(label)),
+        "missing {label}: {selected:?}"
+    );
+    for label in ["Run", "Wire a note to Prompt, or type here"] {
         assert!(
             !selected.iter().any(|text| text.starts_with(label)),
             "selected text uses shared Agent controls: {selected:?}"
@@ -65,6 +72,8 @@ fn ports_show_near_a_generator_and_the_text_block_paints_its_controls() {
         h.app.shape_properties.panel,
         Some(crate::app::board_properties::Panel::Agent)
     );
+    let expanded = painted(&mut h, Pos2::new(2.0, 890.0));
+    assert!(expanded.iter().any(|text| text == "Prompt"));
     assert!(
         !selected.iter().any(|t| t.starts_with("Local ·")),
         "no model chip: {selected:?}"

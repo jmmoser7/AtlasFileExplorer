@@ -69,8 +69,8 @@ impl Prominence {
     }
 }
 
-/// Transient port markers share the hit domain instead of scaling with an
-/// authored node's world units. The host still supplies its actual port site.
+/// Port paint uses board units (P0.9); projected relevance only controls reveal.
+/// The host still supplies its actual port site.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PortPresentation {
     pub radius: f32,
@@ -78,28 +78,34 @@ pub struct PortPresentation {
 }
 
 impl PortPresentation {
-    pub fn typed(shortest: f32) -> Option<Self> {
-        Self::new(shortest, TYPED_PORT_RADIUS)
+    pub fn typed(shortest: f32, zoom: f32) -> Option<Self> {
+        Self::new(shortest, TYPED_PORT_RADIUS, zoom)
     }
 
-    pub fn ordinary(shortest: f32) -> Option<Self> {
-        Self::new(shortest, ORDINARY_PORT_RADIUS)
+    pub fn ordinary(shortest: f32, zoom: f32) -> Option<Self> {
+        Self::new(shortest, ORDINARY_PORT_RADIUS, zoom)
     }
 
-    fn new(shortest: f32, radius: f32) -> Option<Self> {
+    fn new(shortest: f32, radius: f32, zoom: f32) -> Option<Self> {
         Domain::Wire.reach(shortest, WIRE_REACH)?;
         let prominence = Domain::Wire.prominence(shortest);
         Some(Self {
-            radius: radius * prominence,
+            radius: crate::canvas_scale::px(radius, zoom),
             prominence,
         })
     }
 }
 
 /// Dot, radial clearance and shoulder scale as one ephemeral port control.
-/// A fully relevant typed 6px disc has a 2px gap and a 4px shoulder.
+/// A typed 6-unit disc has 1.4 units of radial clearance; shoulders are 40% of the indent radius.
 pub fn wire_notch_geometry(dot_radius: f32) -> (f32, f32) {
-    (dot_radius * (4.0 / 3.0), dot_radius * (2.0 / 3.0))
+    let indent = dot_radius * (7.4 / 6.0);
+    (indent, indent * 0.4)
+}
+
+/// Display-only 65/35 disc placement; authored wire anchors remain on the edge.
+pub fn wire_port_center(edge: Pos2, outward: Vec2, radius: f32) -> Pos2 {
+    edge + outward.normalized() * (1.427 / 6.0 * radius)
 }
 
 pub fn shortest_side(corners: &[Pos2; 4]) -> f32 {
@@ -210,11 +216,16 @@ pub fn cursor_reach(resting_reach: f32, distance: f32) -> f32 {
     resting_reach * (1.0 + CURSOR_GAIN * (1.0 - smoothstep(0.0, CURSOR_RANGE, distance)))
 }
 
-/// Conservative exterior bound for layout avoiding a cursor-expanded wire field.
-pub fn wire_outer_reach(shortest: f32) -> Option<f32> {
+/// One radius-aware resting reach for semantic picking and exterior avoidance.
+pub fn wire_reach(shortest: f32, port_radius: f32) -> Option<f32> {
     Domain::Wire
         .reach(shortest, WIRE_REACH)
-        .map(|resting| resting * WIRE_EXTENSION + cursor_reach(resting, 0.0))
+        .map(|reach| reach.max(port_radius * (1.0 + 1.427 / 6.0)))
+}
+
+/// Conservative exterior bound of that same cursor-expanded wire field.
+pub fn wire_outer_reach(resting: f32) -> f32 {
+    resting * WIRE_EXTENSION + cursor_reach(resting, 0.0)
 }
 
 /// Signed distance to the true rectangular host, useful for adjacent-corner
@@ -405,19 +416,25 @@ mod tests {
     }
 
     #[test]
-    fn port_markers_follow_projected_size_and_remain_bounded_at_extreme_zoom() {
-        for (world_shortest, zoom) in [(1.0_f32, 128.0_f32), (640.0, 0.2), (128.0, 1.0)] {
-            let typed = PortPresentation::typed(world_shortest * zoom).unwrap();
-            let ordinary = PortPresentation::ordinary(world_shortest * zoom).unwrap();
-            assert_eq!(typed.radius, 6.0);
-            assert_eq!(ordinary.radius, 3.0);
-            assert_eq!(wire_notch_geometry(typed.radius), (8.0, 4.0));
+    fn port_markers_and_notches_follow_canvas_zoom_without_a_screen_ceiling() {
+        for zoom in [0.2_f32, 0.75, 1.0, 3.0, 128.0] {
+            let typed = PortPresentation::typed(128.0, zoom).unwrap();
+            let ordinary = PortPresentation::ordinary(128.0, zoom).unwrap();
+            assert!((typed.radius - 6.0 * zoom).abs() < 0.0001);
+            assert!((ordinary.radius - 3.0 * zoom).abs() < 0.0001);
+            let reach = wire_reach(128.0, typed.radius).unwrap();
+            assert!(reach >= typed.radius * (1.0 + 1.427 / 6.0));
+            assert!(wire_outer_reach(reach) >= reach * WIRE_EXTENSION + cursor_reach(reach, 0.0));
+            let (indent, shoulder) = wire_notch_geometry(typed.radius);
+            assert!((indent / zoom - 7.4).abs() < 0.0001);
+            assert!((shoulder - indent * 0.4).abs() < 0.0001);
         }
-        assert!(PortPresentation::typed(18.0).is_none());
-        let partial = PortPresentation::typed(60.0).unwrap();
-        assert!(partial.radius > 0.0 && partial.radius < 6.0);
+        assert!(PortPresentation::typed(18.0, 1.0).is_none());
+        let partial = PortPresentation::typed(60.0, 2.0).unwrap();
         assert!(partial.prominence > 0.0 && partial.prominence < 1.0);
-        assert_eq!(partial.radius, 6.0 * partial.prominence);
-        assert_eq!(PortPresentation::typed(1_000_000.0).unwrap().radius, 6.0);
+        assert_eq!(
+            partial.radius, 12.0,
+            "reveal cannot resize a board-unit disc"
+        );
     }
 }

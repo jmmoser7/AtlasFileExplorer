@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::ids::ItemId;
-use crate::scene::{self, NodeKind};
+use crate::scene;
 use crate::SlateDoc;
 
 mod linked;
@@ -100,25 +100,17 @@ pub fn persist_asset_locators(doc: &mut SlateDoc, workbook: &Path) {
 
 fn rewrite_output_sources(scene: &mut scene::Scene, before: &Path, after: &Path) {
     for node in &mut scene.nodes {
-        let agent = match &mut node.kind {
-            NodeKind::Image(image) => image.agent.as_mut(),
-            NodeKind::Portal(portal) => portal.agent.as_mut(),
-            NodeKind::Text(text) => text.agent.as_mut(),
-            NodeKind::Frame(_)
-            | NodeKind::Shape(_)
-            | NodeKind::Connector(_)
-            | NodeKind::DockStrip(_) => None,
-        };
-        if let Some(agent) = agent {
-            if let Some(seed) = agent.seed.as_mut() {
-                if same_locator(Path::new(&seed.source), before) {
-                    seed.source = after.to_string_lossy().replace('\\', "/");
-                }
-            }
-        }
+        rewrite_node_output_sources(node, before, after);
     }
 }
 
+fn rewrite_node_output_sources(node: &mut scene::Node, before: &Path, after: &Path) {
+    linked::visit_linked_sources(node, &mut |locator| {
+        if same_locator(Path::new(locator), before) {
+            *locator = after.to_string_lossy().replace('\\', "/");
+        }
+    });
+}
 fn under_assets(workbook: &Path, path: &Path) -> bool {
     let Some(dir) = workbook.parent() else {
         return false;

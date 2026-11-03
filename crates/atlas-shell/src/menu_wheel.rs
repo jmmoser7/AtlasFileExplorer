@@ -6,7 +6,7 @@
 //! zoom, Shift+wheel pan, or pinch. egui's own popups (combo boxes) count
 //! without a claim.
 
-use eframe::egui::{Context, Id, Pos2, Rect};
+use eframe::egui::{Context, Id, LayerId, Pos2, Rect};
 
 const CLAIMS_ID: &str = "atlas.menu_wheel";
 
@@ -15,12 +15,66 @@ const CLAIMS_ID: &str = "atlas.menu_wheel";
 #[derive(Clone, Default)]
 struct Claims {
     pass: u64,
-    current: Vec<Rect>,
-    previous: Vec<Rect>,
+    current: Vec<Claim>,
+    previous: Vec<Claim>,
+}
+
+#[derive(Clone, Copy)]
+struct Claim {
+    rect: Rect,
+    focus: Option<Id>,
+    layer: Option<LayerId>,
+}
+
+/// A focused field owns its visible screen rect, rechecking actual focus at wheel time.
+pub fn claim_focused(ctx: &Context, rect: Rect, field: Id, layer: LayerId) {
+    register(
+        ctx,
+        Claim {
+            rect,
+            focus: Some(field),
+            layer: Some(layer),
+        },
+    );
+}
+
+/// A field rendered hidden, disabled, or as nonediting text releases previous-pass claims.
+pub fn release_focused(ctx: &Context, field: Id) {
+    ctx.data_mut(|data| {
+        let claims = data.get_temp_mut_or_default::<Claims>(Id::new(CLAIMS_ID));
+        claims.current.retain(|claim| claim.focus != Some(field));
+        claims.previous.retain(|claim| claim.focus != Some(field));
+    });
+}
+
+/// A visible dialogue owns wheel even when its composer is disabled or unfocused.
+pub fn claim_on_layer(ctx: &Context, rect: Rect, layer: LayerId) {
+    register(
+        ctx,
+        Claim {
+            rect,
+            focus: None,
+            layer: Some(layer),
+        },
+    );
 }
 
 /// A navigable menu is open at `rect` (screen) this pass.
 pub fn claim(ctx: &Context, rect: Rect) {
+    register(
+        ctx,
+        Claim {
+            rect,
+            focus: None,
+            layer: None,
+        },
+    );
+}
+
+fn register(ctx: &Context, claim: Claim) {
+    if !claim.rect.is_positive() {
+        return;
+    }
     let pass = ctx.cumulative_pass_nr();
     ctx.data_mut(|d| {
         let claims = d.get_temp_mut_or_default::<Claims>(Id::new(CLAIMS_ID));
@@ -32,7 +86,7 @@ pub fn claim(ctx: &Context, rect: Rect) {
             claims.current.clear();
             claims.pass = pass;
         }
-        claims.current.push(rect);
+        claims.current.push(claim);
     });
 }
 
@@ -47,9 +101,20 @@ pub fn wheel_owned(ctx: &Context) -> bool {
 
 fn over_claim(ctx: &Context, p: Pos2) -> bool {
     let pass = ctx.cumulative_pass_nr();
+    let focused = ctx.memory(|memory| memory.focused()).filter(|id| {
+        ctx.read_response(*id)
+            .is_some_and(|response| response.enabled())
+    });
+    let layer = ctx.layer_id_at(p);
     ctx.data_mut(|d| {
         let claims = d.get_temp_mut_or_default::<Claims>(Id::new(CLAIMS_ID));
-        let hit = |rects: &[Rect]| rects.iter().any(|r| r.contains(p));
+        let hit = |rects: &[Claim]| {
+            rects.iter().any(|claim| {
+                claim.rect.contains(p)
+                    && claim.focus.is_none_or(|id| focused == Some(id))
+                    && claim.layer.is_none_or(|owner| layer == Some(owner))
+            })
+        };
         if claims.pass == pass {
             hit(&claims.current) || hit(&claims.previous)
         } else {

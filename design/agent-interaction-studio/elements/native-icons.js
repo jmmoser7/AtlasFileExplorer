@@ -1,0 +1,2 @@
+/* Read-only export from atlas-shell/assets/tool-icons.json. */
+window.ElementNativeIcons={"Rhino": {"path": "M3 16 5 10 10 8 15 9 18 7 19 3 21 9 22 12 19 14 18 18 15 18 14 15 9 15 8 19 5 19 5 15ZM10 8 10 5 13 8M19 11H19.1", "filled": false}, "Ruler": {"path": "M4 15 15 4 21 10 10 21ZM11 8 14 11M7 12 10 15M15 6 18 9", "filled": false}, "Camera": {"path": "M3 7H8L10 4H14L16 7H21V20H3ZM16 13a4 4 0 1 1-8 0 4 4 0 1 1 8 0", "filled": false}};

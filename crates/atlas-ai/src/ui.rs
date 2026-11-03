@@ -146,7 +146,9 @@ impl AiPanel {
 }
 
 mod pack_ui;
-pub use pack_ui::{connections_section, openai_key_window};
+pub use pack_ui::{
+    connections_section, credential_key_dialog, openai_key_window, CredentialAction,
+};
 
 /// Panel body, rendered inside each app's `sidebar_section`. Identical in
 /// Atlas and Slate by construction. Launch Cursor shows only while the Cursor

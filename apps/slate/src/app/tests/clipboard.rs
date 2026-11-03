@@ -221,6 +221,7 @@ fn a_mixed_copy_offers_plain_text_and_still_pastes_nodes() {
     let words = h.app.doc_mut().scene.build_node(
         WorldRect::new(300.0, 0.0, 200.0, 50.0),
         slate_doc::NodeKind::Text(slate_doc::scene::TextNode {
+            answers: Default::default(),
             text: "Hello board".into(),
             style: Default::default(),
             family: Default::default(),

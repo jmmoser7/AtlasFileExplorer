@@ -41,8 +41,18 @@ const EPS: f32 = 1e-6;
 
 /// Fixed board-space rhythm for typed media inputs. `InputPort::t` remains the
 /// durable slot identity; resizing the host never stretches this rail.
-pub const FLOW_PORT_TOP: f32 = 30.0;
+pub const FLOW_PORT_TOP: f32 = 48.0;
 pub const FLOW_PORT_PITCH: f32 = 42.0;
+
+/// Graft capsules retain the original port datum and cap at four terminals.
+pub fn graft_capsule_height(incoming: usize) -> f32 {
+    12.0 + 4.0 * incoming.clamp(1, 4).saturating_sub(1) as f32
+}
+
+pub fn graft_terminal_offset(index: usize, incoming: usize) -> f32 {
+    4.0 * index.min(3).min(incoming.saturating_sub(1)) as f32
+        - (graft_capsule_height(incoming) - 12.0) * 0.5
+}
 
 /// One discrete spawn handle on a host.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -70,7 +80,9 @@ pub struct WireHost {
     flow: &'static [crate::agent_inputs::InputPort],
     ports_enabled: bool,
     image: bool,
-    ordinary_image: bool,
+    input_source: bool,
+    /// Unconfigured linked sources keep their authored native output edge.
+    native_image_output: bool,
     /// Chat-card side ports resolve on the header dot, not the edge midpoint.
     chat: bool,
 }
@@ -113,7 +125,8 @@ impl WireHost {
             flow: &[],
             ports_enabled: true,
             image: false,
-            ordinary_image: false,
+            input_source: false,
+            native_image_output: false,
             chat: false,
         }
     }
@@ -126,9 +139,18 @@ impl WireHost {
             flow: &[],
             ports_enabled: false,
             image: false,
-            ordinary_image: false,
+            input_source: false,
+            native_image_output: false,
             chat: false,
         }
+    }
+
+    /// Current document paths classify typed roles without filesystem work.
+    pub fn from_node_with_paths<'a>(
+        node: &Node,
+        item_path: &dyn Fn(crate::ItemId) -> Option<&'a std::path::Path>,
+    ) -> Self {
+        Self::from_node_flow(node, crate::agent_inputs::input_ports_for(node, item_path))
     }
 
     pub fn from_node(node: &Node) -> Self {
@@ -144,7 +166,8 @@ impl WireHost {
                 flow: &[],
                 ports_enabled: false,
                 image: false,
-                ordinary_image: false,
+                input_source: false,
+                native_image_output: false,
                 chat: false,
             };
         }
@@ -152,7 +175,8 @@ impl WireHost {
             &node.kind,
             NodeKind::Shape(s) if s.shape == ShapeKind::Ellipse
         );
-        let chat = crate::agent_chat::is_chat_host(node);
+        let chat = matches!(&node.kind, NodeKind::Portal(p) if p.kind == crate::scene::PortalKind::Agent)
+            && crate::agent_chat::is_chat_host(node);
         Self {
             rect: node.rect,
             rotation_deg: node.rotation_deg,
@@ -164,7 +188,12 @@ impl WireHost {
                 _ => true,
             },
             image: matches!(node.kind, NodeKind::Image(_)),
-            ordinary_image: matches!(&node.kind, NodeKind::Image(image) if image.agent.is_none()),
+            native_image_output: (matches!(&node.kind, NodeKind::Text(_) | NodeKind::Image(_))
+                || matches!(&node.kind, NodeKind::Portal(p) if p.kind == crate::scene::PortalKind::Web))
+                && crate::agent_chat::agent(node).is_none_or(|a| a.provider.is_empty())
+                && crate::scene::artifact(node).is_none(),
+            input_source: crate::agent_chat::agent(node)
+                .is_some_and(|a| a.generator.input_source_kind.is_some()),
             chat,
         }
     }
@@ -203,10 +232,26 @@ impl WireHost {
         if !self.offers_ports() {
             return Vec::new();
         }
+        if self.input_source {
+            return vec![WirePort {
+                side: Side::Right,
+                t: crate::agent_inputs::OUTPUT_T,
+                point: self.anchor(Side::Right, crate::agent_inputs::OUTPUT_T),
+            }];
+        }
         if self.is_flow() {
             let mut ports: Vec<WirePort> = self
                 .flow
                 .iter()
+                // Mixed Model roles retain View identity for geometry without
+                // exposing a resting legacy View dot. View-only callers stay.
+                .filter(|p| {
+                    p.slot != atlas_agent::InputSlot::View
+                        || !self
+                            .flow
+                            .iter()
+                            .any(|p| p.slot != atlas_agent::InputSlot::View)
+                })
                 .map(|p| WirePort {
                     side: Side::Left,
                     t: p.t,
@@ -276,32 +321,50 @@ impl WireHost {
     /// their existing normalized geometry. Compact rails fit continuously;
     /// normal train cards retain their fixed top datum and pitch.
     fn flow_anchor_t(&self, side: Side, t: f32) -> Option<f32> {
-        // Ordinary images keep their midpoint output when inputs are revealed.
-        // Generated images retain their top-aligned input/output rail.
-        if self.flow.is_empty()
-            || (self.ordinary_image
-                && side == Side::Right
-                && (t - crate::agent_inputs::OUTPUT_T).abs() < EPS)
+        if self.input_source
+            && side == Side::Right
+            && (t - crate::agent_inputs::OUTPUT_T).abs() < EPS
+        {
+            return Some((FLOW_PORT_TOP / self.rect.h.max(1.0)).clamp(0.0, 1.0));
+        }
+        if self.native_image_output
+            && side == Side::Right
+            && (t - crate::agent_inputs::OUTPUT_T).abs() < EPS
         {
             return None;
         }
-        let rows = self.flow.len().max(if self.image {
+        // Hosts advertising graph ports use the fixed Studio datum. Hosts
+        // without graph settings retain their ordinary native edge geometry.
+        if self.flow.is_empty() {
+            return None;
+        }
+        let graph_rows = self
+            .flow
+            .iter()
+            .filter(|p| p.slot != atlas_agent::InputSlot::View)
+            .count();
+        if graph_rows == 0 {
+            return None;
+        }
+        let rows = graph_rows.max(if self.image {
             crate::agent_inputs::GENERATOR_PORTS.len()
         } else {
             1
         });
         let needed = FLOW_PORT_TOP + (rows - 1) as f32 * FLOW_PORT_PITCH + 14.0;
         let scale = (self.rect.h / needed).clamp(0.0, 1.0);
-        if self
-            .flow
-            .iter()
-            .any(|p| p.slot == atlas_agent::InputSlot::View)
-        {
+        if self.flow.iter().any(|p| {
+            p.slot == atlas_agent::InputSlot::View && side == Side::Left && (p.t - t).abs() < EPS
+        }) {
             return None;
         }
         let row = match side {
             Side::Right if (t - crate::agent_inputs::OUTPUT_T).abs() < EPS => Some(0),
-            Side::Left => self.flow.iter().position(|p| (p.t - t).abs() < EPS),
+            Side::Left => self
+                .flow
+                .iter()
+                .filter(|p| p.slot != atlas_agent::InputSlot::View)
+                .position(|p| (p.t - t).abs() < EPS),
             _ => None,
         };
         row.map(|row| {
@@ -395,3 +458,5 @@ mod tests;
 #[cfg(test)]
 #[path = "wire_host/eligibility_tests.rs"]
 mod eligibility_tests;
+#[cfg(test)]
+mod model_ports_tests;

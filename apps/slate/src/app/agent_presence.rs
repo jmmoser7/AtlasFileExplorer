@@ -38,6 +38,7 @@ mod lifecycle_tests;
 mod messaging;
 mod surface;
 pub(crate) use messaging::message_text_changed;
+mod artifact_actions;
 mod chat_train;
 mod creation_conflicts;
 #[cfg(test)]
@@ -46,6 +47,7 @@ mod own_chats;
 mod portal_ops;
 mod preview;
 mod production;
+pub(crate) use artifact_actions::ArtifactResultLease;
 mod proposals;
 mod read_descriptors;
 mod reads;
@@ -84,6 +86,14 @@ pub(crate) const BOARD_COMMANDS: &[&str] = &[
     "board.shape.edit",
     "board.wire.edit",
     "portal.agent.run",
+    "portal.agent.generator_settings",
+    "board.input.graft",
+    "board.input.add",
+    "board.image.history",
+    "portal.agent.text_output",
+    "portal.agent.model_output",
+    "portal.agent.result.use",
+    "portal.agent.result.remove",
     "app.save",
     "app.feedback.report",
     "board.paths.draw",

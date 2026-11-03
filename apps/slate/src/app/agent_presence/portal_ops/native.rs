@@ -254,7 +254,9 @@ pub(super) fn advance(
     let success = matches!(
         &completion.outcome,
         NativeOutcome::Completed {
-            result: NativeResult::Value(_) | NativeResult::Capture { .. }
+            result: NativeResult::Value(_)
+                | NativeResult::Capture { .. }
+                | NativeResult::Model { .. }
         }
     );
     if success && app.native_binding(op.portal).is_err() {
@@ -264,6 +266,12 @@ pub(super) fn advance(
     if success && !state.lease.publish() {
         app.native_abandon(completion);
         return Err("Native authority was revoked before its result could be published; no rollback is claimed".into());
+    }
+    if success {
+        if let Err(error) = app.native_publish_headless_model(op.portal, &completion) {
+            app.native_abandon(completion);
+            return Err(error);
+        }
     }
     let mut value = outcome_value(&completion.outcome, completion.binding_after.as_ref());
     value["native_ticket"] = json!(completion.ticket);
@@ -320,6 +328,9 @@ fn outcome_value(
         NativeOutcome::OutcomeUnknown { receipt, reason } => {
             json!({"status":"outcome_unknown","error":reason,"receipt":receipt.as_ref().map(|r| json!({"session_id":r.session_id,"generation":r.generation,"request_id":r.request_id,"source":r.source})),"automatic_replay":false})
         }
+        NativeOutcome::Completed {
+            result: NativeResult::Model { path, report, .. },
+        } => json!({"status":"completed","model_source":path,"native_result":report}),
         NativeOutcome::Completed {
             result: NativeResult::Value(result),
         } => json!({"status":"completed","native_result":result}),

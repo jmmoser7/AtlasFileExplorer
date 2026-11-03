@@ -19,7 +19,11 @@ fn request_for_thread(
     request: &AgentRequest,
     session: &AgentSession,
 ) -> Option<AgentRequest> {
-    if replay {
+    // Text response and image requests start a fresh thread below. Their
+    // explicitly admitted history must survive regardless of rebind replay.
+    if (request.oneshot || request.image.is_some()) && !request.history.is_empty() {
+        None
+    } else if replay {
         if request.history.is_empty() {
             recover_request_history(request, session)
         } else {
@@ -63,6 +67,12 @@ impl Client {
         steering: Option<&std::sync::mpsc::Receiver<SteerCommand>>,
         mut changed: impl FnMut(&AgentSession),
     ) -> Result<(), String> {
+        if let Some(image) = &request.image {
+            image.aspect.validate()?;
+            if image.aspect.custom().is_some() {
+                return Err("The Codex image adapter has no declared custom aspect capability; choose a supported preset".into());
+            }
+        }
         if cancel.load(Ordering::Relaxed) {
             return Err("Codex request cancelled before submission.".into());
         }
@@ -76,8 +86,8 @@ impl Client {
         }
         session.request = request.id.clone();
         session.activity.clear();
-        // A text block or picture run is one-shot: a fresh thread, so earlier
-        // runs never ride along as context.
+        // Text and picture runs use a fresh thread. Only explicitly admitted
+        // request history is quoted by their payload builder.
         if request.oneshot || request.image.is_some() {
             let response = self.rpc("thread/start", thread_params(&self.cwd.clone(), None))?;
             self.thread = response
@@ -346,6 +356,56 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn actual_oneshot_leaf_keeps_explicit_source_and_history_for_both_thread_paths() {
+        for image in [false, true] {
+            for replay in [false, true] {
+                let mut request = AgentRequest {
+                    prompt: "  Exact visible question  ".into(),
+                    oneshot: !image,
+                    text_source: (!image).then(|| "SOURCE_é".into()),
+                    history: vec![AgentTurn {
+                        role: "user".into(),
+                        text: "ADMITTED_CONTEXT".into(),
+                        at: 0,
+                    }],
+                    image: image.then(Default::default),
+                    ..Default::default()
+                };
+                let session = AgentSession {
+                    turns: vec![AgentTurn {
+                        role: "user".into(),
+                        text: "EXCLUDED_OLD_TURN".into(),
+                        at: 0,
+                    }],
+                    ..Default::default()
+                };
+                let prepared = request_for_thread(replay, &request, &session);
+                let actual = prepared.as_ref().unwrap_or(&request);
+                let payload = if image {
+                    images::image_turn(actual)
+                } else {
+                    oneshot_turn(actual)
+                };
+                assert_eq!(payload.matches("ADMITTED_CONTEXT").count(), 1);
+                assert!(!payload.contains("EXCLUDED_OLD_TURN"));
+                if !image {
+                    assert_eq!(payload.matches("SOURCE_é").count(), 1);
+                }
+                assert_eq!(request.prompt, "  Exact visible question  ");
+                request.history.clear();
+                let prepared = request_for_thread(replay, &request, &session);
+                let actual = prepared.as_ref().unwrap_or(&request);
+                let payload = if image {
+                    images::image_turn(actual)
+                } else {
+                    oneshot_turn(actual)
+                };
+                assert!(!payload.contains("ADMITTED_CONTEXT"));
+                assert!(!payload.contains("EXCLUDED_OLD_TURN"));
+            }
+        }
+    }
     #[test]
     fn only_a_completed_turn_resolves_the_known_inactive_interrupt_race() {
         let inactive = r#"{"code":-32600,"message":"no active turn to interrupt"}"#;

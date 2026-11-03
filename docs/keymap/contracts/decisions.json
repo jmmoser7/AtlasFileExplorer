@@ -358,7 +358,7 @@
           "decided": "2026-10-16"
         },
         "D08": {
-          "behavior": "One artifact per explicit Play, prompt text, installed harness/model dropdown and Settings. Speed and thought level appear only with provider-advertised choices (P1.generator.model-controls); each request captures and validates them. Default is Single. Image count/seed controls remain capability-specific.",
+          "behavior": "Explicit Play snapshots prompt text, installed harness/model choices, advertised settings and Count (1–8) per graft branch through portal.agent.generator_settings. board.input.graft selects supported typed input slots: ungrafted inputs are shared bundles; grafted lists use longest-list matching, repeating the shorter list's last item, without a Cartesian product. Empty grafted input refuses submission. Count multiplies each branch; artifact submissions are capped at eight jobs with two active workers. Stop cancels pending work and preserves completed accepted revisions. Speed and thought level appear only with provider-advertised choices (P1.generator.model-controls); each request captures and validates them. Default is Single. Image seed controls remain capability-specific.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",

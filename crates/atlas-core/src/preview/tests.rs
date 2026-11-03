@@ -112,9 +112,16 @@ fn unstarted_pool() -> PreviewPool {
     let shared = Arc::new(Shared {
         queue: Mutex::new(Vec::new()),
         cv: Condvar::new(),
+        closing: AtomicBool::new(false),
     });
     let (tx, rx) = inbox::channel();
-    PreviewPool { shared, tx, rx }
+    let (lifetime, _) = lifetime::PoolLifetime::new(shared.clone());
+    PreviewPool {
+        _lifetime: lifetime,
+        shared,
+        tx,
+        rx,
+    }
 }
 
 fn request(id: u32, key: &str, target_px: u32) -> PreviewRequest {

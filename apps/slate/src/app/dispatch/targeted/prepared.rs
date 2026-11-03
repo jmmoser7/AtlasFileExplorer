@@ -1,6 +1,78 @@
 use super::*;
 
 impl PreparedBoardCommand {
+    pub(crate) fn image_history_endpoints(&self) -> &[String] {
+        &self.history_endpoints
+    }
+    pub(crate) fn image_history_cut_target(&self) -> Option<NodeId> {
+        self.history_cut
+    }
+    pub(crate) fn image_history_action(&self) -> Option<&(NodeId, String)> {
+        self.history_action.as_ref()
+    }
+    pub(crate) fn artifact_pick_waiting(&self) -> bool {
+        matches!(
+            self.invocation,
+            Some(invocation::DeferredInvocation::Artifact { waiting: true, .. })
+        )
+    }
+    pub(crate) fn wait_for_artifact_pick(&mut self) {
+        if let Some(invocation::DeferredInvocation::Artifact { waiting, .. }) =
+            self.invocation.as_mut()
+        {
+            *waiting = true;
+        }
+    }
+    pub(crate) fn pending_artifact_pick(
+        &self,
+    ) -> Option<(NodeId, String, Option<slate_doc::scene::HiddenOutputRef>)> {
+        match self.invocation.as_ref()? {
+            invocation::DeferredInvocation::Artifact {
+                target,
+                revision,
+                remove,
+                materialized: false,
+                ..
+            } => Some((*target, revision.clone(), remove.clone())),
+            _ => None,
+        }
+    }
+    pub(crate) fn resolve_artifact_pick(&mut self, command: SceneCmd) -> Result<(), String> {
+        let Some(invocation::DeferredInvocation::Artifact { materialized, .. }) =
+            self.invocation.as_mut()
+        else {
+            return Err("Missing saved artifact action".into());
+        };
+        *materialized = true;
+        self.cmds = vec![command];
+        Ok(())
+    }
+    pub(super) fn model_output_target(&self, app: &SlateApp) -> Option<NodeId> {
+        let target = *self.targets.first()?;
+        if self.command == "portal.agent.model_output" {
+            return Some(target);
+        }
+        if !matches!(
+            self.command.as_str(),
+            "portal.agent.result.use" | "portal.agent.result.remove"
+        ) || app.model_node_info(target).is_none()
+        {
+            return None;
+        }
+        self.cmds
+            .iter()
+            .any(|command| match command {
+                SceneCmd::Patch { before, after } => match (&before.kind, &after.kind) {
+                    (
+                        slate_doc::scene::NodeKind::Image(old),
+                        slate_doc::scene::NodeKind::Image(new),
+                    ) => old.item != new.item,
+                    _ => false,
+                },
+                _ => false,
+            })
+            .then_some(target)
+    }
     pub(crate) fn smooth_gesture(&self) -> Option<&crate::app::board_smooth::SmoothGesture> {
         self.smooth.as_ref()
     }

@@ -74,8 +74,8 @@ is searchable.
   convention; user decision 25 September 2026). The path they edit still
   scales. **Selection-control exception** (user approved 20 October 2026,
   `selection-hit-regions.md`): ephemeral compact selection frames and pointer
-  hit regions, including transient wire-port dots, matching host cutouts and
-  port-role labels, follow **P1.node.hit-regions** in screen space. They do not
+  hit regions follow **P1.node.hit-regions** in screen space. Wire-port dots,
+  matching host cutouts and port-role labels retain P0.9 canvas scaling. They do not
   change authored content paint, content labels, property strips, dimension
   stringers, or portal tabs. A tab on a portal frame is a canvas object, not
   window chrome — maximized, that same tab may stay screen-sized because
@@ -239,10 +239,11 @@ is searchable.
   slop, guide reach, and lane distances retain screen-pixel meaning throughout
   this range. Compatibility canvas profiles keep their own limits.
 
-  Transient wire-port dots and their host cutouts use the shared domain's
-  bounded screen presentation, rather than multiplying a marker radius by
-  camera zoom. Port-role labels share that prominence and remain bounded;
-  authored text and labels still follow P0.9. Dot and cutout radius come from
+  Wire-port dots, their host cutouts and port-role labels use board units
+  multiplied by camera zoom, without screen-size floors or ceilings (user
+  correction, 1 November 2026). Projected relevance may hide or fade them;
+  it never changes their world size. Illegible labels drop under P0.9.
+  Dot and cutout radius come from
   the same shared owner, while `WireHost` remains authoritative for each
   actual port site and identity. Tool blisters retain their existing scaling.
 

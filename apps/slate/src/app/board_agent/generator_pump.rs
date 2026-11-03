@@ -1,16 +1,90 @@
 //! Comfy queue, live pump, and model steer.
+mod live;
+#[cfg(test)]
+mod undo_tests;
 
 use super::*;
 
 impl SlateApp {
+    /// A committed history cut retires only this target's pending snapshots.
+    /// Undo restores the document, never restarts canceled inference.
+    pub(crate) fn invalidate_queued_generator_history(&mut self, id: NodeId) {
+        let queued: Vec<_> = self
+            .agents
+            .comfy_queue
+            .get(&id)
+            .into_iter()
+            .flatten()
+            .map(|entry| entry.request.id.clone())
+            .collect();
+        for request in queued {
+            self.discard_generation_request(id, &request);
+        }
+        self.cancel_artifact_generation(id);
+        self.cancel_preparing_agent_send(id);
+        if let Some(request) = self.agents.requests.remove(&id) {
+            self.agents.cancelled_generations.insert(id, request);
+        }
+        self.agents.awaiting.remove(&id);
+        self.agents.capture_wait.remove(&id);
+        self.agents
+            .flow
+            .text_answer_requests
+            .retain(|(_, node, _), _| *node != id);
+    }
+    /// Undo cancels only the automatic work tagged by that exact creation.
+    pub(crate) fn discard_undone_generator_creation(
+        &mut self,
+        doc: u64,
+        step: slate_doc::scene::GroupToken,
+    ) {
+        let removed: Vec<_> = self
+            .agents
+            .comfy_queue
+            .iter()
+            .flat_map(|(id, queue)| {
+                queue
+                    .iter()
+                    .filter(move |entry| entry.doc == doc && entry.creation_step == Some(step))
+                    .map(move |entry| (*id, entry.request.id.clone()))
+            })
+            .collect();
+        for (id, request) in removed {
+            self.discard_generation_matching(id, &request, Some((doc, step)));
+        }
+    }
     pub(super) fn discard_generation_request(&mut self, id: NodeId, request_id: &str) {
+        self.discard_generation_matching(id, request_id, None);
+    }
+    fn discard_generation_matching(
+        &mut self,
+        id: NodeId,
+        request_id: &str,
+        creation: Option<(u64, slate_doc::scene::GroupToken)>,
+    ) {
+        let matches = |entry: &super::runtime::QueuedGeneration| {
+            entry.request.id == request_id
+                && creation
+                    .is_none_or(|(doc, step)| entry.doc == doc && entry.creation_step == Some(step))
+        };
+        let removed_front = self
+            .agents
+            .comfy_queue
+            .get(&id)
+            .is_none_or(|queue| queue.front().is_none_or(matches));
         if let Some(queue) = self.agents.comfy_queue.get_mut(&id) {
-            queue.retain(|entry| entry.request.id != request_id);
+            queue.retain(|entry| !matches(entry));
             if queue.is_empty() {
                 self.agents.comfy_queue.remove(&id);
             }
         }
-        self.agents.capture_wait.remove(&id);
+        if removed_front {
+            self.agents.capture_wait.remove(&id);
+        }
+        self.agents
+            .flow
+            .text_answer_requests
+            .remove(&(self.tab().id, id, request_id.to_owned()));
     }
 
     pub(crate) fn pump_comfy_queue(&mut self) {
@@ -53,7 +127,12 @@ impl SlateApp {
                 .copied()
                 .unwrap_or_else(Instant::now);
             let allow_stale = since.elapsed() > CAPTURE_TIMEOUT;
-            match self.capture_generator_inputs(id, &mut request.request, allow_stale) {
+            match self.capture_prepared_generator_inputs(
+                id,
+                &mut request.inputs,
+                &mut request.request,
+                allow_stale,
+            ) {
                 Ok(true) => {}
                 Ok(false) => {
                     let since = *self
@@ -86,22 +165,112 @@ impl SlateApp {
             if queue_empty {
                 self.agents.comfy_queue.remove(&id);
             }
-            if request.request.oneshot
+            let query = self.agents.flow.text_answer_requests.contains_key(&(
+                self.tab().id,
+                id,
+                request.request.id.clone(),
+            ));
+            if query {
+                self.agents
+                    .flow
+                    .text_query_runs
+                    .insert((self.tab().id, id), request.request.id.clone());
+            } else {
+                self.agents
+                    .flow
+                    .text_query_runs
+                    .remove(&(self.tab().id, id));
+            }
+            if !query
+                && !self.text_response_only(id)
                 && self.is_text_block(id)
                 && self.agent_text_window_owned(id)
                 && !self.tab().read_only
             {
                 self.clear_agent_text_output_file(id);
             }
-            self.dispatch_generation(id, request.request, request.author);
+            let image_prefix = request.request.image_history_prefix;
+            self.dispatch_generation(
+                id,
+                request.request,
+                request.author,
+                image_prefix,
+                request.creation_step,
+            );
         }
     }
-    /// A wired 3D model is captured when its run starts, from its current camera.
+    /// All branches share one frozen set of dynamic source values. Successful
+    /// captures remain frozen while another source is still loading.
+    pub(super) fn capture_prepared_generator_inputs(
+        &mut self,
+        id: NodeId,
+        prep: &mut super::input_prep::InputPreparation,
+        request: &mut AgentRequest,
+        allow_stale: bool,
+    ) -> Result<bool, String> {
+        if prep.capture.is_none() {
+            prep.freeze_capture(request);
+        }
+        let shared = prep.capture.as_ref().unwrap().clone();
+        let mut capture = shared.borrow().clone();
+        if !capture.ready {
+            let ready = self.capture_generator_inputs(
+                id,
+                &mut capture.request,
+                allow_stale,
+                &mut capture.completed,
+            )?;
+            capture.ready = ready;
+            *shared.borrow_mut() = capture.clone();
+            if !ready {
+                return Ok(false);
+            }
+        }
+        let old_prompt = request
+            .inputs
+            .on(atlas_agent::InputSlot::Prompt)
+            .map(|value| value.text.trim())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        for item in &mut request.inputs.wired {
+            if capture.completed.contains(&(item.node, item.port())) {
+                if let Some(frozen) = capture
+                    .request
+                    .inputs
+                    .wired
+                    .iter()
+                    .find(|value| value.node == item.node && value.port() == item.port())
+                {
+                    item.text.clone_from(&frozen.text);
+                    item.images.clone_from(&frozen.images);
+                    item.depth.clone_from(&frozen.depth);
+                }
+            }
+        }
+        if self.is_text_block(id)
+            && !old_prompt.is_empty()
+            && request.prompt.starts_with(&old_prompt)
+        {
+            let new_prompt = request
+                .inputs
+                .on(atlas_agent::InputSlot::Prompt)
+                .map(|value| value.text.trim())
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            request.prompt = format!("{new_prompt}{}", &request.prompt[old_prompt.len()..]);
+        }
+        // This pass skips frozen sources and retains per-request passage checks.
+        self.capture_generator_inputs(id, request, allow_stale, &mut capture.completed)
+    }
+
     fn capture_generator_inputs(
         &mut self,
         id: NodeId,
         request: &mut AgentRequest,
         allow_stale: bool,
+        completed: &mut HashSet<(u64, atlas_agent::InputSlot)>,
     ) -> Result<bool, String> {
         let session = self
             .agent_session_for(id)
@@ -117,6 +286,10 @@ impl SlateApp {
         );
         for item in &mut request.inputs.wired {
             let node = NodeId(item.node);
+            let key = (item.node, item.port());
+            if completed.contains(&key) {
+                continue;
+            }
             // A web page on Prompt feeds its visible text, read once as the
             // run starts (D15 / D27 amendment).
             if item.port().takes_text()
@@ -133,6 +306,7 @@ impl SlateApp {
                     }
                     None => return Ok(false),
                 }
+                completed.insert(key);
                 continue;
             }
             // A web page on a picture port feeds what it shows, as pixels.
@@ -151,6 +325,7 @@ impl SlateApp {
                     }
                     None => return Ok(false),
                 }
+                completed.insert(key);
                 continue;
             }
             // A video feeds the frame it shows, the way a model feeds its view.
@@ -159,6 +334,7 @@ impl SlateApp {
                     Some(frame) => item.images = vec![frame.to_string_lossy().into_owned()],
                     None => return Ok(false),
                 }
+                completed.insert(key);
                 continue;
             }
             if self.model_node_info(node).is_none() {
@@ -173,11 +349,43 @@ impl SlateApp {
                 }
                 None => return Ok(false),
             }
+            completed.insert(key);
         }
         // A text block reads what was captured (a page's text), not what its
         // wires held when it was queued.
-        if request.oneshot {
-            request.prompt = self.text_block_prompt(id, &request.inputs);
+        if self.is_text_block(id) {
+            if let Some(snapshot) =
+                self.agents
+                    .flow
+                    .text_answer_requests
+                    .get(&(self.tab().id, id, request.id.clone()))
+            {
+                if !self.text_answer_source(id).is_some_and(|(text, revision)| {
+                    text == snapshot.source && revision == snapshot.source_revision
+                }) {
+                    return Err(
+                        "The selected passage changed. Select it again and resend your question."
+                            .into(),
+                    );
+                }
+                if self
+                    .agent_session_for(id)
+                    .is_none_or(|(name, _)| name != snapshot.session)
+                {
+                    return Err("The selected passage belongs to another conversation. Send the question again.".into());
+                }
+                // Keep the question and passage submitted together, even if the composer changes while queued.
+                if snapshot.review {
+                    request.prompt.clone_from(&snapshot.question);
+                    request.text_source = Some(snapshot.source[snapshot.range.clone()].to_owned());
+                } else {
+                    request.prompt = format!(
+                        "{}\n\nSelected passage:\n{}",
+                        snapshot.question,
+                        &snapshot.source[snapshot.range.clone()]
+                    );
+                }
+            }
         }
         Ok(true)
     }
@@ -186,6 +394,8 @@ impl SlateApp {
         id: NodeId,
         request: AgentRequest,
         author: slate_doc::scene::CmdAuthor,
+        image_prefix: Option<u32>,
+        creation_step: Option<slate_doc::scene::GroupToken>,
     ) {
         let Some((session, provider)) = self.agent_session_for(id) else {
             return;
@@ -202,21 +412,29 @@ impl SlateApp {
                 &dir.join("session.json"),
             ),
         };
-        if self
+        if let Some(mut after) = self
             .doc()
             .scene
             .node(id)
-            .and_then(slate_doc::agent_chat::agent)
-            .is_some_and(|a| a.bundle.is_none())
+            .filter(|node| {
+                slate_doc::agent_chat::agent(node).is_some_and(|agent| agent.bundle.is_none())
+            })
+            .cloned()
         {
-            self.patch_nodes_as(&[id], author.clone(), |node| {
-                if let Some(a) = slate_doc::agent_chat::agent_mut(node) {
-                    a.bundle.get_or_insert_with(|| manifest.clone());
-                }
+            slate_doc::agent_chat::agent_mut(&mut after).unwrap().bundle = Some(manifest);
+            // Only an auto-run carrying this creation's token completes its
+            // original gesture. A later manual Send is always a separate step.
+            let folded = creation_step.is_some_and(|step| {
+                self.tab().journal.top_token() == Some(step)
+                    && self.tab().journal.top_creates_node(id, &author)
+                    && self.fold_into_last_step(&after)
             });
+            if !folded {
+                self.patch_nodes_as(&[id], author.clone(), |node| *node = after.clone());
+            }
         }
         self.agents.cancelled_generations.remove(&id);
-        self.agents.generation_authors.insert(id, author);
+        self.agents.generation_authors.insert(id, author.clone());
         self.agents.requests.insert(id, request.id.clone());
         self.agents.bindings.insert(id, session.clone());
         self.agents.awaiting.insert(
@@ -227,10 +445,13 @@ impl SlateApp {
             },
         );
         self.agents.sources.expect(&dir, &request.id);
+        let image_dialogue = request.image.is_some() && request.image_history == Some(true);
+        let admitted;
         #[cfg(test)]
         {
             let _ = (provider, ws);
             self.agents.dispatched.push((id, request));
+            admitted = true;
         }
         #[cfg(not(test))]
         {
@@ -245,227 +466,29 @@ impl SlateApp {
                     Some(ws.clone()),
                 )
             });
-            if let Err(error) = runtime.send(request) {
-                self.fail_agent_await(id, error);
-            }
-        }
-    }
-    fn live_generators(&self) -> Vec<NodeId> {
-        self.doc()
-            .scene
-            .nodes
-            .iter()
-            .filter(|n| {
-                slate_doc::agent_chat::agent(n)
-                    .is_some_and(|a| atlas_ai::agent::local_image_engine(&a.provider) && a.live)
-            })
-            .map(|n| n.id)
-            .collect()
-    }
-    /// Live re-renders whenever a wired input changes: the camera of a wired
-    /// model, a prompt, a source image, or the checkpoint. Latest wins.
-    pub(super) fn pump_live_generators(&mut self) {
-        use std::hash::{Hash, Hasher};
-        self.release_steering();
-        for id in self.live_generators() {
-            if self.agent_is_running(id) || self.generations_waiting(id) > 0 {
-                continue;
-            }
-            let view = self.generator_view(id);
-            if view.inputs.is_empty() {
-                continue;
-            }
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            view.signature.hash(&mut hasher);
-            self.agents.prompt_mut(id).trim().hash(&mut hasher);
-            self.doc()
-                .scene
-                .node(id)
-                .and_then(slate_doc::agent_chat::agent)
-                .map(|a| a.model.clone())
-                .hash(&mut hasher);
-            if let Some(model) = view.geometry() {
-                let Some(pose) = self.model_pose_hash(model) else {
-                    continue;
-                };
-                pose.hash(&mut hasher);
-            }
-            let signature = hasher.finish();
-            if self.agents.live_sent.get(&id) == Some(&signature) {
-                self.agents.live_settle.remove(&id);
-                continue;
-            }
-            let typing = self.text_edit.as_ref().is_some_and(|(node, _)| {
-                view.inputs
-                    .iter()
-                    .any(|i| i.node == *node && i.role == InputRole::Prompt)
-            });
-            if typing {
-                let since = match self.agents.live_settle.get(&id) {
-                    Some((pending, at)) if *pending == signature => *at,
-                    _ => {
-                        self.agents
-                            .live_settle
-                            .insert(id, (signature, Instant::now()));
-                        continue;
-                    }
-                };
-                if since.elapsed() < LIVE_TYPING_SETTLE {
-                    continue;
+            admitted = match runtime.send(request) {
+                Ok(()) => true,
+                Err(error) => {
+                    self.fail_agent_await(id, error);
+                    false
                 }
-            }
-            self.agents.live_settle.remove(&id);
-            self.agents.live_sent.insert(id, signature);
-            match self.generation_request(id, true) {
-                Ok(request) => self.enqueue_generation(id, request),
-                Err(error) => self.fail_agent_await(id, error),
-            }
-        }
-    }
-    pub(super) fn model_pose_hash(&self, id: NodeId) -> Option<u64> {
-        let info = self.model_node_info(id)?;
-        if self.model3d.external.contains(&info.cache_key) {
-            let stamp = self
-                .model3d
-                .enscape_stamps
-                .get(&info.cache_key)
-                .copied()
-                .unwrap_or(0);
-            return Some(
-                stamp
-                    ^ (info.rect.w.to_bits() as u64).rotate_left(17)
-                    ^ (info.rect.h.to_bits() as u64).rotate_left(41),
-            );
-        }
-        let cam = self
-            .model3d
-            .live
-            .get(&id)
-            .map(|vp| vp.cam)
-            .unwrap_or(info.cam);
-        Some(
-            cam.cache_hash()
-                ^ (info.rect.w.to_bits() as u64).rotate_left(17)
-                ^ (info.rect.h.to_bits() as u64).rotate_left(41),
-        )
-    }
-    /// A focused live generator flies its wired model. Leaving focus locks the
-    /// model at that pose, one journaled camera change.
-    fn release_steering(&mut self) {
-        let done: Vec<(NodeId, NodeId)> = self
-            .agents
-            .steering
-            .iter()
-            .filter(|(generator, _)| self.contents_focused() != Some(**generator))
-            .map(|(g, m)| (*g, *m))
-            .collect();
-        for (generator, model) in done {
-            self.agents.steering.remove(&generator);
-            if self.model3d.live.contains_key(&model) {
-                self.lock_model(model);
-            }
-        }
-    }
-    pub(super) fn steer_generator_model(&mut self, ui: &egui::Ui, generator: NodeId, body: Rect) {
-        let Some(model) = self.generator_view(generator).geometry() else {
-            return;
-        };
-        let response = ui.interact(
-            body,
-            Id::new(("generator-steer", generator.0)),
-            Sense::drag(),
-        );
-        let scroll = if response.hovered() {
-            ui.input(|i| i.smooth_scroll_delta.y)
-        } else {
-            0.0
-        };
-        if !(response.dragged() || scroll != 0.0) {
-            return;
-        }
-        if self
-            .model_node_info(model)
-            .is_some_and(|info| self.model3d.external.contains(&info.cache_key))
-        {
-            if self.enscape_shown_node() != Some(model) {
-                self.open_enscape_node(model);
-            }
-            return;
-        }
-        if !self.model3d.live.contains_key(&model) {
-            self.unlock_model(model);
-            self.agents.steering.insert(generator, model);
-        }
-        if response.dragged() {
-            let delta = response.drag_delta();
-            let pan = ui.input(|i| i.modifiers.shift);
-            self.model_drag(model, delta.x, delta.y, pan, body.height());
-        }
-        if scroll != 0.0 {
-            self.model_scroll(model, scroll);
-        }
-        ui.ctx().request_repaint();
-    }
-    /// Fit the card to the newest image once, so browsing never resizes it.
-    pub(super) fn fit_generator_frame(
-        &mut self,
-        id: NodeId,
-        image: &str,
-        image_request: &str,
-        size: egui::Vec2,
-    ) {
-        // Old output A may arrive after replacement B. Only B can automatically
-        // resize this frame, and its recorded caller must own that journal edit.
-        if self
-            .agents
-            .requests
-            .get(&id)
-            .is_some_and(|current| current != image_request)
-        {
-            return;
-        }
-        if self
-            .agents
-            .cancelled_generations
-            .get(&id)
-            .is_some_and(|cancelled| cancelled == image_request)
-        {
-            return;
-        }
-        if self.agents.fitted_image.get(&id).map(String::as_str) == Some(image)
-            || size.x < 2.0
-            || size.y < 2.0
-            || self.tab().read_only
-            || self.board_drag.is_some()
-        {
-            return;
-        }
-        self.agents.fitted_image.insert(id, image.to_string());
-        let Some(width) = self.doc().scene.node(id).map(|n| n.rect.w) else {
-            return;
-        };
-        let height = fit_frame_height(width, size.x as u32, size.y as u32);
-        if self
-            .doc()
-            .scene
-            .node(id)
-            .is_some_and(|n| (n.rect.h - height).abs() > 2.0)
-        {
-            let author = if self
-                .agents
-                .requests
-                .get(&id)
-                .is_some_and(|request| request == image_request)
-            {
-                self.agents
-                    .generation_authors
-                    .get(&id)
-                    .cloned()
-                    .unwrap_or(slate_doc::scene::CmdAuthor::Human)
-            } else {
-                slate_doc::scene::CmdAuthor::Human
             };
-            self.patch_nodes_as(&[id], author, |node| node.rect.h = height);
+        }
+        if admitted {
+            if image_dialogue {
+                self.agents.prompt_mut(id).clear();
+                self.clear_pending_generator_prompt(id);
+            }
+            if let Some(prefix) = image_prefix {
+                self.patch_nodes_as(&[id], author, |node| {
+                    if let Some(agent) = slate_doc::agent_chat::agent_mut(node) {
+                        agent.generator.inherited_turn_count = Some(prefix);
+                        if image_dialogue {
+                            agent.instruction.clear();
+                        }
+                    }
+                });
+            }
         }
     }
 }

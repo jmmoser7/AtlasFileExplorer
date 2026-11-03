@@ -252,6 +252,9 @@ fn public_command_schema_and_argument_validation_share_one_catalogue() {
     let entries = schema.as_object().unwrap();
     let approved = std::collections::BTreeSet::from([
         "board.eraser.stroke",
+        "board.image.history",
+        "board.input.add",
+        "board.input.graft",
         "board.model.connector.capture",
         "board.model.connector.inspect",
         "board.model.connector.invoke",
@@ -277,7 +280,12 @@ fn public_command_schema_and_argument_validation_share_one_catalogue() {
         "board.tags.create",
         "board.tags.unassign",
         "board.wire.edit",
+        "portal.agent.generator_settings",
+        "portal.agent.model_output",
+        "portal.agent.result.remove",
+        "portal.agent.result.use",
         "portal.agent.run",
+        "portal.agent.text_output",
         "portal.atlas.highlight",
         "portal.atlas.list",
         "portal.atlas.read_file",

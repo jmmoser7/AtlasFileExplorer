@@ -110,6 +110,8 @@ thread_local! {
 #[derive(Clone)]
 pub(super) struct QueuedGeneration {
     pub(super) doc: u64,
+    /// Only an automatic first run belongs to the interaction that created it.
+    pub(super) creation_step: Option<slate_doc::scene::GroupToken>,
     pub(super) author: slate_doc::scene::CmdAuthor,
     pub(super) request: atlas_agent::AgentRequest,
     pub(super) inputs: super::input_prep::InputPreparation,
@@ -182,7 +184,6 @@ pub struct AgentRuntime {
     /// The open model list remains anchored under its title while zooming.
     pub(super) model_menu: Option<NodeId>,
     /// False until the press that opened the model list is released.
-    pub(super) model_menu_armed: bool,
     pub(super) model_menu_rect: Option<Rect>,
     /// Streaming card whose Stop took the press; it stops on release there.
     pub(super) stop_press: Option<NodeId>,

@@ -21,11 +21,15 @@ pub struct Snapshot {
     /// Sessions whose full access also applies to messages another agent wrote.
     #[serde(default)]
     relay: BTreeSet<String>,
-    /// Explicit denials survive a later Artifact default change.
+    /// Explicit denials survive later default changes.
     #[serde(default)]
     overrides: BTreeMap<String, bool>,
     #[serde(default)]
     artifact_default_full: bool,
+    /// None preserves the legacy dashboard-only default. An explicit user choice
+    /// applies to every host; false also supersedes a legacy dashboard default.
+    #[serde(default)]
+    global_default_full: Option<bool>,
 }
 
 /// Per-user store beside the other Atlas app data.
@@ -60,16 +64,32 @@ impl Snapshot {
         self.overrides
             .get(session)
             .copied()
-            .unwrap_or_else(|| self.full.contains(session))
+            .unwrap_or_else(|| self.full.contains(session) || self.global_default_full_access())
     }
     pub fn artifact_granted(&self, session: &str) -> bool {
-        self.overrides
-            .get(session)
-            .copied()
-            .unwrap_or_else(|| self.full.contains(session) || self.artifact_default_full)
+        self.overrides.get(session).copied().unwrap_or_else(|| {
+            self.full.contains(session)
+                || self
+                    .global_default_full
+                    .unwrap_or(self.artifact_default_full)
+        })
+    }
+    pub fn relay_sessions(&self) -> BTreeSet<String> {
+        self.relay.clone()
     }
     pub fn relay_granted(&self, session: &str) -> bool {
         self.relay.contains(session)
+    }
+    pub fn global_default_full_access(&self) -> bool {
+        self.global_default_full.unwrap_or(false)
+    }
+    /// Resolve host compatibility here; providers still enforce turn policy.
+    pub fn granted_for_request(&self, session: &str, request: &atlas_agent::AgentRequest) -> bool {
+        if request.artifact.is_some() {
+            self.artifact_granted(session)
+        } else {
+            self.granted(session)
+        }
     }
     pub fn artifact_default_full_access(&self) -> bool {
         self.artifact_default_full
@@ -92,7 +112,8 @@ pub fn artifact_default_full_access_in(path: &Path) -> bool {
     grants_in(path).artifact_default_full
 }
 
-/// Applies to subsequent Artifact turns only; relay and read-only rules remain separate.
+/// Effective Artifact grant, including the legacy dashboard default.
+/// Relay and read-only rules remain separate.
 pub fn artifact_granted(session: &str) -> bool {
     artifact_granted_in(&store_path(), session)
 }
@@ -103,11 +124,15 @@ pub fn artifact_granted_in(path: &Path, session: &str) -> bool {
 
 /// Select the grant's scope; turn policy and relay authority are enforced by runtime.
 pub fn granted_for_request(session: &str, request: &atlas_agent::AgentRequest) -> bool {
-    if request.artifact.is_some() {
-        artifact_granted(session)
-    } else {
-        granted(session)
-    }
+    grants_in(&store_path()).granted_for_request(session, request)
+}
+
+/// An explicit all-agent preference, never a source or connector permit.
+/// Existing dashboard-only settings remain scoped until the person chooses this.
+pub fn set_global_default_full_access_in(path: &Path, on: bool) -> Result<(), String> {
+    let mut grants = grants_in(path);
+    grants.global_default_full = Some(on);
+    save(path, &mut grants)
 }
 
 pub fn set_artifact_default_full_access(on: bool) -> Result<(), String> {
@@ -120,7 +145,7 @@ pub fn set_artifact_default_full_access_in(path: &Path, on: bool) -> Result<(), 
     save(path, &mut grants)
 }
 
-/// None follows the Artifact default. Some(false) explicitly keeps this session restricted.
+/// None follows the applicable default. Some(false) keeps this session restricted.
 pub fn set_artifact_override(session: &str, value: Option<bool>) -> Result<(), String> {
     set_artifact_override_in(&store_path(), session, value)
 }
@@ -197,7 +222,7 @@ fn save(path: &Path, grants: &mut Snapshot) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("Could not save the grant: {e}"))?;
     }
-    grants.version = 2;
+    grants.version = 3;
     crate::agent::atomic_write_json(path, grants)
         .map_err(|e| format!("Could not save the grant: {e}"))
 }
@@ -214,7 +239,7 @@ pub fn session_of(link_dir: &Path) -> Option<String> {
 mod tests {
     use super::*;
 
-    fn temp_store(tag: &str) -> PathBuf {
+    pub(super) fn temp_store(tag: &str) -> PathBuf {
         std::env::temp_dir()
             .join(format!(
                 "atlas_access_{tag}_{}_{}",
@@ -314,6 +339,85 @@ mod tests {
         assert!(!load_snapshot_in(&path).artifact_default_full_access());
         assert!(artifact_granted_in(&path, "allowed"));
         assert!(!artifact_granted_in(&path, "new"));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+}
+
+#[cfg(test)]
+mod global_preference_tests {
+    use super::*;
+
+    #[test]
+    fn global_access_roundtrip_covers_new_hosts_repeated_requests_and_keeps_turn_boundaries() {
+        let path = super::tests::temp_store("global");
+        set_in(&path, "denied", false).unwrap();
+        set_global_default_full_access_in(&path, true).unwrap();
+        // Reload independently, as another app instance or a subsequent launch.
+        let first = load_snapshot_in(&path);
+        let restarted = load_snapshot_in(&path);
+        assert!(restarted.global_default_full_access());
+        let dashboard = atlas_agent::AgentRequest {
+            artifact: Some(atlas_agent::ArtifactRun {
+                family_id: "family".into(),
+                run_id: "run".into(),
+                source_root: "source".into(),
+                parent: None,
+                staging_output: "output".into(),
+            }),
+            ..Default::default()
+        };
+        let image = atlas_agent::AgentRequest {
+            image: Some(Default::default()),
+            ..Default::default()
+        };
+        let text = atlas_agent::AgentRequest {
+            oneshot: true,
+            ..Default::default()
+        };
+        for (host, request) in [
+            ("new-chat", atlas_agent::AgentRequest::default()),
+            ("new-image", image),
+            ("new-dashboard", dashboard),
+            ("new-text", text),
+            ("new-headless3d", atlas_agent::AgentRequest::default()),
+        ] {
+            for _ in 0..8 {
+                assert!(first.granted_for_request(host, &request));
+                let grant = restarted.granted_for_request(host, &request);
+                assert!(crate::runtime::turn_full_access(grant, false, &request));
+                assert!(!restarted.granted_for_request("denied", &request));
+                let mut restricted = request.clone();
+                restricted.policy = atlas_agent::TurnPolicy::ReadOnly;
+                assert!(!crate::runtime::turn_full_access(grant, true, &restricted));
+                restricted.policy = atlas_agent::TurnPolicy::default();
+                restricted.relayed_from = Some("another-agent".into());
+                assert!(!crate::runtime::turn_full_access(grant, false, &restricted));
+                assert!(!restarted.relay_granted(host));
+            }
+        }
+        set_global_default_full_access_in(&path, false).unwrap();
+        assert!(!load_snapshot_in(&path).granted("another-new-chat"));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn legacy_dashboard_default_does_not_expand_until_an_explicit_global_choice() {
+        let path = super::tests::temp_store("global_migration");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"version":2,"artifact_default_full":true,"full":["allowed"],"overrides":{"denied":false}}"#).unwrap();
+        let legacy = load_snapshot_in(&path);
+        assert!(legacy.artifact_granted("new"));
+        assert!(!legacy.granted("new"));
+        assert!(!legacy.global_default_full_access());
+        set_global_default_full_access_in(&path, true).unwrap();
+        assert!(load_snapshot_in(&path).granted("new"));
+        assert!(!load_snapshot_in(&path).artifact_granted("denied"));
+        set_global_default_full_access_in(&path, false).unwrap();
+        let disabled = load_snapshot_in(&path);
+        assert!(!disabled.granted("new"));
+        assert!(!disabled.artifact_granted("new"));
+        assert!(disabled.granted("allowed"));
+        assert!(disabled.artifact_granted("allowed"));
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }

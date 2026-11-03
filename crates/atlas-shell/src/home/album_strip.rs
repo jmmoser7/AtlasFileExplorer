@@ -83,7 +83,8 @@ pub fn album_index_strip(
     min_images: usize,
     disabled_hover: Option<&str>,
 ) -> Option<usize> {
-    album_result_strip(
+    paint_result_strip(
+        StripPolicy::Album,
         ui,
         id,
         album,
@@ -96,13 +97,76 @@ pub fn album_index_strip(
         min_images,
         disabled_hover,
         &[],
+        |_, _, _| {},
     )
     .clicked
+}
+
+#[derive(Clone, Copy)]
+enum StripPolicy {
+    Album,
+    Generator,
+}
+
+/// Generator-only eight-column running bond; ordinary album navigation is unchanged.
+pub fn generator_result_rects(
+    album: Rect,
+    count: usize,
+    focus: usize,
+    zoom: f32,
+) -> Vec<(usize, Rect)> {
+    let start = focus.saturating_sub(12).min(count.saturating_sub(24));
+    let end = (start + 24).min(count);
+    let columns = (end - start).min(8);
+    let width = columns as f32 * 24.0 + columns.saturating_sub(1) as f32 * 4.0;
+    (start..end)
+        .enumerate()
+        .map(|(offset, index)| {
+            let row = offset / 8;
+            let column = offset % 8;
+            let stagger = if row % 2 == 1 { 14.0 } else { 0.0 };
+            let position = Pos2::new(
+                album.center().x + (column as f32 * 28.0 + stagger - width * 0.5) * zoom,
+                album.bottom() + (10.0 + row as f32 * 28.0) * zoom,
+            );
+            (
+                index,
+                Rect::from_min_size(position, Vec2::splat(24.0 * zoom)),
+            )
+        })
+        .collect()
 }
 
 /// Current visible result squares and opacity, shared by paint and early input.
 #[allow(clippy::too_many_arguments)]
 pub fn album_result_layout(
+    ctx: &egui::Context,
+    id: Id,
+    album: Rect,
+    _runs: &[&str],
+    count: usize,
+    focus: usize,
+    shown: bool,
+    zoom: f32,
+    min_images: usize,
+) -> Option<(f32, Vec<(usize, Rect)>)> {
+    strip_layout(
+        StripPolicy::Generator,
+        ctx,
+        id,
+        album,
+        _runs,
+        count,
+        focus,
+        shown,
+        zoom,
+        min_images,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn strip_layout(
+    policy: StripPolicy,
     ctx: &egui::Context,
     id: Id,
     album: Rect,
@@ -124,11 +188,20 @@ pub fn album_result_layout(
     if fade <= 0.01 {
         return None;
     }
-    let side = STRIP_SQUARE * zoom;
+    let side = match policy {
+        StripPolicy::Album => STRIP_SQUARE,
+        StripPolicy::Generator => 24.0,
+    } * zoom;
     if side < 2.0 {
         return None;
     }
-    Some((fade, album_index_rects(album, runs, count, focus, zoom)))
+    Some((
+        fade,
+        match policy {
+            StripPolicy::Album => album_index_rects(album, runs, count, focus, zoom),
+            StripPolicy::Generator => generator_result_rects(album, count, focus, zoom),
+        },
+    ))
 }
 
 /// Interactive generated-result variant; one response feeds the same controller
@@ -148,8 +221,77 @@ pub fn album_result_strip(
     disabled_hover: Option<&str>,
     selected: &[usize],
 ) -> crate::result_actions::ResultInteraction {
+    album_result_strip_content(
+        ui,
+        id,
+        album,
+        images,
+        runs,
+        focus,
+        shown,
+        zoom,
+        theme,
+        min_images,
+        disabled_hover,
+        selected,
+        |_, _, _| {},
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn album_result_strip_content(
+    ui: &egui::Ui,
+    id: Id,
+    album: Rect,
+    images: &[AlbumImage],
+    runs: &[&str],
+    focus: usize,
+    shown: bool,
+    zoom: f32,
+    theme: crate::theme::Palette,
+    min_images: usize,
+    disabled_hover: Option<&str>,
+    selected: &[usize],
+    paint_content: impl FnMut(usize, &egui::Painter, Rect),
+) -> crate::result_actions::ResultInteraction {
+    paint_result_strip(
+        StripPolicy::Generator,
+        ui,
+        id,
+        album,
+        images,
+        runs,
+        focus,
+        shown,
+        zoom,
+        theme,
+        min_images,
+        disabled_hover,
+        selected,
+        paint_content,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_result_strip(
+    policy: StripPolicy,
+    ui: &egui::Ui,
+    id: Id,
+    album: Rect,
+    images: &[AlbumImage],
+    runs: &[&str],
+    focus: usize,
+    shown: bool,
+    zoom: f32,
+    theme: crate::theme::Palette,
+    min_images: usize,
+    disabled_hover: Option<&str>,
+    selected: &[usize],
+    mut paint_content: impl FnMut(usize, &egui::Painter, Rect),
+) -> crate::result_actions::ResultInteraction {
     let mut out = crate::result_actions::ResultInteraction::default();
-    let Some((fade, squares)) = album_result_layout(
+    let Some((fade, squares)) = strip_layout(
+        policy,
         ui.ctx(),
         id,
         album,
@@ -192,7 +334,10 @@ pub fn album_result_strip(
                 out = interaction;
             }
         }
-        let radius = 3.0 * zoom;
+        let radius = match policy {
+            StripPolicy::Album => 3.0,
+            StripPolicy::Generator => 4.0,
+        } * zoom;
         let image = images[i];
         match image.texture {
             Some(texture) => painter.add(
@@ -201,23 +346,130 @@ pub fn album_result_strip(
             ),
             None => painter.add(egui::epaint::RectShape::filled(square, radius, theme.card)),
         };
-        let active = i == focus || selected.contains(&i);
-        painter.rect_stroke(
-            square,
-            radius,
-            egui::Stroke::new(
-                (if active { 1.6 } else { 0.8 }) * zoom,
-                if active {
-                    theme.select
-                } else if response.hovered() {
-                    theme.ink
-                } else {
-                    theme.border_strong
-                },
-            ),
-            egui::StrokeKind::Outside,
-        );
+        paint_content(i, &painter, square);
+        if matches!(policy, StripPolicy::Album) {
+            let active = i == focus || selected.contains(&i);
+            painter.rect_stroke(
+                square,
+                radius,
+                egui::Stroke::new(
+                    (if active { 1.6 } else { 0.8 }) * zoom,
+                    if active {
+                        theme.select
+                    } else if response.hovered() {
+                        theme.ink
+                    } else {
+                        theme.border_strong
+                    },
+                ),
+                egui::StrokeKind::Outside,
+            );
+        }
     }
     out.painted_bounds = painted_bounds.is_positive().then_some(painted_bounds);
     out
+}
+
+#[cfg(test)]
+mod generator_geometry_tests {
+    use super::*;
+    #[test]
+    fn generator_running_bond_uses_reviewed_geometry_without_changing_albums() {
+        let host = Rect::from_min_size(Pos2::ZERO, Vec2::new(360.0, 300.0));
+        let squares = generator_result_rects(host, 17, 0, 1.0);
+        assert_eq!(squares.len(), 17);
+        assert_eq!(squares[0].1.size(), Vec2::splat(24.0));
+        assert_eq!(squares[1].1.left() - squares[0].1.right(), 4.0);
+        assert_eq!(squares[8].1.left() - squares[0].1.left(), 14.0);
+        assert_eq!(squares[8].1.top() - squares[0].1.top(), 28.0);
+        assert_eq!(squares[16].1.left(), squares[0].1.left());
+        assert_eq!(squares[0].1.top(), 310.0);
+        assert_eq!(
+            album_index_rects(host, &[], 1, 0, 1.0)[0].1.size(),
+            Vec2::splat(22.0)
+        );
+    }
+    #[test]
+    fn public_saved_view_and_generator_entry_points_keep_distinct_geometry_and_selection_style() {
+        fn paint(generated: bool) -> Vec<(Vec2, f32)> {
+            let ctx = egui::Context::default();
+            let host = Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(360.0, 100.0));
+            let images = vec![
+                AlbumImage {
+                    texture: None,
+                    size: Vec2::splat(32.0),
+                    enabled: true
+                };
+                10
+            ];
+            let mut shapes = Vec::new();
+            for time in [0.0, 1.0] {
+                let output = ctx.run(
+                    egui::RawInput {
+                        time: Some(time),
+                        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(640.0, 480.0))),
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            if generated {
+                                album_result_strip(
+                                    ui,
+                                    Id::new("public-strip"),
+                                    host,
+                                    &images,
+                                    &[],
+                                    0,
+                                    true,
+                                    1.0,
+                                    Palette::dark(),
+                                    1,
+                                    None,
+                                    &[],
+                                );
+                            } else {
+                                album_index_strip(
+                                    ui,
+                                    Id::new("public-strip"),
+                                    host,
+                                    &images,
+                                    &[],
+                                    0,
+                                    true,
+                                    1.0,
+                                    Palette::dark(),
+                                    1,
+                                    None,
+                                );
+                            }
+                        });
+                    },
+                );
+                shapes = output
+                    .shapes
+                    .into_iter()
+                    .filter_map(|shape| match shape.shape {
+                        egui::Shape::Rect(rect)
+                            if (rect.rect.width() - 22.0).abs() < 0.01
+                                || (rect.rect.width() - 24.0).abs() < 0.01 =>
+                        {
+                            Some((rect.rect.size(), rect.stroke.width))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+            }
+            shapes
+        }
+        let ordinary = paint(false);
+        assert!(ordinary
+            .iter()
+            .any(|(size, stroke)| *size == Vec2::splat(22.0) && *stroke > 1.0));
+        assert!(ordinary.iter().all(|(size, _)| *size == Vec2::splat(22.0)));
+        let generated = paint(true);
+        assert!(!generated.is_empty());
+        assert!(generated
+            .iter()
+            .all(|(size, stroke)| *size == Vec2::splat(24.0) && *stroke == 0.0));
+    }
 }

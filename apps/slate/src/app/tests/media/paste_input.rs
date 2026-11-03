@@ -55,12 +55,17 @@ fn a_pasted_image_resolves_as_a_generator_input() {
         }
     });
     let anchored = |node, side, t| slate_doc::scene::ConnectorEnd::Anchored { node, side, t };
-    h.app
+    let wire = h
+        .app
         .add_connector(
             anchored(picture, slate_doc::scene::Side::Right, 0.5),
             anchored(generator, slate_doc::scene::Side::Left, 0.25),
         )
         .unwrap();
+
+    let source = h.app.doc().scene.node(picture).unwrap();
+    assert!(slate_doc::agent_chat::agent(source).is_some_and(|agent| agent.provider.is_empty()));
+    assert!(matches!(&source.kind, NodeKind::Image(image) if image.item == item));
 
     let request = h.app.generation_request(generator, false).unwrap();
     let image = request
@@ -87,10 +92,25 @@ fn a_pasted_image_resolves_as_a_generator_input() {
         }
     });
     let request = h.app.generation_request(generator, false).unwrap();
+    let mut missing_output = request.inputs.clone();
+    missing_output
+        .wired
+        .iter_mut()
+        .find(|input| input.node == picture.0)
+        .unwrap()
+        .active = Some("missing-output".into());
+    assert!(
+        h.app.begin_agent_input_preparation(missing_output).is_err(),
+        "an explicit unavailable output cannot fall back to the linked file"
+    );
     // Request construction captures references without doing image work on
     // the frame thread. Assert the pixels the real queue dispatches after its
     // bounded preparation worker has completed.
-    h.app.enqueue_generation(generator, request);
+    assert!(
+        h.app
+            .enqueue_generation_as(generator, request, slate_doc::scene::CmdAuthor::Human),
+        "a linked pasted picture with graph settings must enter preparation"
+    );
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while h.app.agents.dispatched.is_empty() {
         assert!(
@@ -118,4 +138,17 @@ fn a_pasted_image_resolves_as_a_generator_input() {
         (20, 20),
         "a cropped pasted picture feeds its visible window"
     );
+
+    // A linked file is not a fallback for an explicitly missing generated result.
+    h.app.patch_nodes(&[wire], |node| {
+        let NodeKind::Connector(connector) = &mut node.kind else {
+            unreachable!()
+        };
+        connector.binding.as_mut().unwrap().output = Some("missing-output".into());
+    });
+    assert!(h
+        .app
+        .generation_request(generator, false)
+        .unwrap_err()
+        .contains("pinned image output is unavailable"));
 }

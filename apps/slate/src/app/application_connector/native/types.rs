@@ -179,9 +179,20 @@ pub(crate) struct NativeRequest {
 }
 #[derive(Clone)]
 pub(crate) enum NativeResult {
+    Model {
+        path: PathBuf,
+        size: u64,
+        mtime: i64,
+        report: Value,
+    },
     Value(Value),
-    Capture { path: PathBuf, size: [u32; 2] },
-    CaptureUnavailable { reason: String },
+    Capture {
+        path: PathBuf,
+        size: [u32; 2],
+    },
+    CaptureUnavailable {
+        reason: String,
+    },
 }
 #[derive(Clone)]
 pub(crate) enum NativeOutcome {
@@ -245,7 +256,7 @@ impl TicketEntry {
 pub(crate) struct NativeTicket {
     pub(super) id: String,
     pub(super) key: BindingKey,
-    pub(super) lease: Lease,
+    pub(in crate::app::application_connector) lease: Lease,
 }
 
 #[cfg(test)]

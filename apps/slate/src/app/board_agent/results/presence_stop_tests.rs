@@ -15,6 +15,7 @@ fn queued(
         .begin_agent_input_preparation(request.inputs.clone())
         .unwrap();
     super::super::runtime::QueuedGeneration {
+        creation_step: None,
         doc: h.app.tab().id,
         author: if request_id.starts_with("human") {
             slate_doc::scene::CmdAuthor::Human

@@ -875,7 +875,7 @@ squircle edits the attached agent: model (`set_flow_model`), count, aspect,
 seed and Live apply at once, and Submit runs it again. A click on a square
 under a picture picks that result as its file.
 
-Agent coding sidecars: `portal.agent.artifacts` opens the output capsule stack (requested files first, then "Also changed"); `portal.agent.open_artifact` explicitly creates the linked portal for a reference; `portal.agent.approval` answers a pending provider request once. Coding conversations are linear; `portal.agent.continue` remains a local-agent gesture. Generator model menus route advertised speed/thought choices through `portal.agent.model_parameter`; `portal.artifact.full_access` sets the machine-local default for all dashboard builders. Public Activity expands through the shared chat fold/follow owner and is separate from Memory.
+Agent coding sidecars: `portal.agent.artifacts` opens the output capsule stack (requested files first, then "Also changed"); `portal.agent.open_artifact` explicitly creates the linked portal for a reference; `portal.agent.approval` answers a pending provider request once. Coding conversations are linear; `portal.agent.continue` remains a local-agent gesture. Generator model menus route advertised speed/thought choices through `portal.agent.model_parameter`; `portal.artifact.full_access` sets the machine-local full-access preference for all agents for this user, from their next run; explicit session restrictions and separate Board access still apply. Public Activity expands through the shared chat fold/follow owner and is separate from Memory.
 
 Agent cards: `portal.agent.model` chooses the next Codex or Ollama response model from the
 installed provider catalog. The title menu also exposes conversation rename.

@@ -115,7 +115,7 @@ fn labels(shape: &egui::Shape, out: &mut Vec<String>) {
 }
 
 #[test]
-fn an_ordinary_images_three_inputs_reveal_only_near_an_incoming_wire() {
+fn ordinary_image_inputs_require_its_explicit_agent_panel() {
     let (mut h, generator) = generator_with_output("plain-image-port-reveal");
     h.app.delete_board_nodes(&[generator]);
     let source = place(&mut h, "brief.txt", 0.0);
@@ -127,11 +127,18 @@ fn an_ordinary_images_three_inputs_reveal_only_near_an_incoming_wire() {
     h.frame();
     let xf = h.app.board_xf();
     let near = xf.rect_w2s(rect).left_center() - egui::vec2(8.0, 0.0);
-    for (wiring, pointer, reveal) in [
-        (false, near, false),
-        (true, near, true),
-        (true, Pos2::new(10.0, 10.0), false),
+    for (active, wiring, pointer, reveal) in [
+        (false, false, near, false),
+        (false, true, near, false),
+        (true, false, near, true),
+        (true, true, near, true),
     ] {
+        if active {
+            h.app.board_sel = [target].into_iter().collect();
+            assert!(h
+                .app
+                .open_object_panel(crate::app::board_properties::Panel::Agent));
+        }
         h.app.board_drag = wiring.then(|| {
             BoardDrag::Wire(super::super::super::board_wire::WireDrag {
                 mode: super::super::super::board_wire::WireMode::Add {
@@ -171,7 +178,7 @@ fn an_ordinary_images_three_inputs_reveal_only_near_an_incoming_wire() {
 }
 
 #[test]
-fn typed_port_dots_and_labels_use_projected_relevance_at_both_zoom_extremes() {
+fn typed_port_dots_and_labels_follow_canvas_zoom_and_drop_illegible_labels() {
     fn collect(shape: &egui::Shape, radii: &mut Vec<f32>, font_sizes: &mut Vec<f32>) {
         match shape {
             egui::Shape::Circle(circle) => radii.push(circle.radius),
@@ -198,7 +205,16 @@ fn typed_port_dots_and_labels_use_projected_relevance_at_both_zoom_extremes() {
     }
     let (mut h, generator) = generator_with_output("projected-port-paint");
     h.app.board_sel = std::iter::once(generator).collect();
-    for (width, height, zoom) in [(1.0, 1.0, 128.0), (1000.0, 640.0, 0.2)] {
+    assert!(!h.app.source_agent_dialogue_open(generator));
+    assert!(h
+        .app
+        .open_object_panel(crate::app::board_properties::Panel::Agent));
+    assert!(h.app.source_agent_dialogue_open(generator));
+    for (width, height, zoom) in [
+        (640.0, 640.0, 0.2),
+        (640.0, 640.0, 0.75),
+        (640.0, 640.0, 3.0),
+    ] {
         h.app.patch_nodes(&[generator], |node| {
             node.rect = slate_doc::WorldRect::new(0.0, 0.0, width, height)
         });
@@ -226,15 +242,22 @@ fn typed_port_dots_and_labels_use_projected_relevance_at_both_zoom_extremes() {
         }
         assert!(!radii.is_empty(), "typed ports disappeared at zoom {zoom}");
         assert!(
-            radii.iter().all(|r| (*r - 6.0).abs() < 0.001),
-            "unbounded port markers: {radii:?}"
+            radii.iter().all(|r| (*r - 6.0 * zoom).abs() < 0.001),
+            "port markers must be 6 board units at zoom {zoom}: {radii:?}"
         );
+        if !canvas_text::legible(PORT_LABEL_PX * zoom) {
+            assert!(
+                font_sizes.is_empty(),
+                "tiny labels drop rather than hold screen size"
+            );
+            continue;
+        }
         assert!(!font_sizes.is_empty());
         assert!(
             font_sizes
                 .iter()
-                .all(|size| (*size - PORT_LABEL_PX).abs() < 0.001),
-            "painted port labels must stay 11px at zoom {zoom}: {font_sizes:?}"
+                .all(|size| (*size - PORT_LABEL_PX * zoom).abs() < 0.001),
+            "painted port labels must be 11 board units at zoom {zoom}: {font_sizes:?}"
         );
     }
 }

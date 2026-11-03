@@ -8,6 +8,7 @@ use slate_doc::scene::{artifact, artifact_mut, SceneCmd, SourceUri};
 mod editor;
 mod export;
 mod generation;
+mod pick;
 mod pump;
 mod spawn;
 pub(crate) use export::{materialize_artifact_source, prepare_artifact_export_sources};
@@ -16,6 +17,8 @@ mod tests;
 
 #[derive(Default)]
 pub(super) struct ArtifactUi {
+    queued:
+        HashMap<NodeId, std::collections::VecDeque<(Plan, super::input_prep::InputPreparation)>>,
     preparing: HashMap<NodeId, Preparing>,
     running: HashMap<NodeId, Running>,
     pending: HashMap<NodeId, Pending>,
@@ -31,6 +34,8 @@ struct Preparing {
 }
 #[derive(Clone)]
 struct Plan {
+    guard: String,
+    authored_prompt: String,
     tab: u64,
     node: NodeId,
     request: AgentRequest,
@@ -69,7 +74,9 @@ enum WorkDone {
         u64,
         NodeId,
         String,
-        Option<String>,
+        Box<Node>,
+        Option<slate_doc::scene::HiddenOutputRef>,
+        Option<Box<crate::app::agent_presence::ArtifactResultLease>>,
         Result<(ArtifactRevisionRef, ArtifactRevision), String>,
     ),
 }
@@ -89,7 +96,7 @@ impl SlateApp {
     pub(crate) fn artifact_request_submitted(&self, id: NodeId) -> bool {
         self.agents.artifact.running.contains_key(&id)
     }
-    fn artifact_reference(
+    pub(crate) fn artifact_reference(
         &self,
         id: NodeId,
         revision: &str,
@@ -131,5 +138,33 @@ impl SlateApp {
                 &pending.reference.materialized_entry,
             ),
         })
+    }
+}
+
+#[cfg(test)]
+impl SlateApp {
+    pub(crate) fn saved_result_test_board(
+        tag: &str,
+    ) -> (
+        crate::app::tests::Harness,
+        NodeId,
+        ArtifactRevisionRef,
+        ArtifactRevisionRef,
+    ) {
+        let (mut h, source) = tests::board(tag);
+        let host = tests::spawn(&mut h, source);
+        let first = tests::fixture_revision(
+            &mut h,
+            host,
+            "first",
+            b"<html><style>body{color:red}</style>first</html>",
+        );
+        let last = tests::fixture_revision(
+            &mut h,
+            host,
+            "last",
+            b"<html><script>console.log('embedded')</script>last</html>",
+        );
+        (h, host, first, last)
     }
 }

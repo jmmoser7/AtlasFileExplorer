@@ -1,11 +1,18 @@
 //! Full-access presentation only. The app owns grants and provider policy.
 use super::*;
 
+/// Existing scoped native membership, never a provider-wide default or grant.
+#[derive(Clone, Copy)]
+pub struct BoardAccessView {
+    pub active: bool,
+    pub interactive: bool,
+}
+
 pub const FULL_ACCESS_HINT: &str = "Full access: run commands and edit files without asking";
 
 #[derive(Clone, Copy)]
 pub struct AccessView {
-    /// Machine-wide default for subsequent dashboard requests.
+    /// Per-user default for subsequent requests across all agent hosts.
     pub enabled: bool,
     /// Actual authority of the displayed request/builder, including restrictions.
     pub effective: bool,

@@ -74,46 +74,118 @@ fn focused_agent_keeps_canvas_zoom_and_title_rename() {
 
 #[test]
 fn provider_tiles_accept_first_click_near_their_edges() {
-    for (z, offset) in [0.5, 1.0, 2.0].into_iter().flat_map(|z| {
-        [(-47.0, -39.0), (47.0, -39.0), (-47.0, 39.0), (47.0, 39.0)]
-            .into_iter()
-            .map(move |offset| (z, offset))
-    }) {
+    // The retired tile grid is now the shared Provider/Model/Effort/Speed popup.
+    // Its full row, including the padding at all four corners, must take one click.
+    for (z, corner) in [0.5, 1.0, 2.0]
+        .into_iter()
+        .flat_map(|z| (0..4).map(move |corner| (z, corner)))
+    {
         let mut h = super::super::tests::Harness::new("picker_edge");
         h.app.leave_home();
         h.app.ensure_work_tab();
-        h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+        h.app.set_agent_programs_for_test(&["local", "codex"]);
+        h.app.set_agent_catalog_for_test("codex", Vec::new());
         h.app.place_agent_portal_at(Pos2::ZERO);
         let id = h.app.doc().scene.nodes[0].id;
-        h.app.set_agent_programs_for_test(&["local"]);
-        h.app.agents.focused = None;
-        h.app.portals.contents = None;
-        let r = h.app.doc().scene.node(id).unwrap().rect;
-        h.app.tab_mut().cam.offset = egui::vec2(r.x + r.w * 0.5, r.y + r.h * 0.5);
-        h.app.tab_mut().cam.z = z;
+        crate::app::tests::frame_on(&mut h, id, z);
+        assert_eq!(h.app.pending_generator_choice(id).unwrap().0, "local");
+        let before = h.app.doc().scene.node(id).unwrap().clone();
+        let depth = h.app.tab().journal.undo_depth();
+        let menu = Id::new(("agent-model-menu", id.0));
+        let button = h
+            .ctx
+            .read_response(menu)
+            .expect("actual shared model button");
+        let hit = h
+            .ctx
+            .layer_transform_to_global(button.layer_id)
+            .unwrap_or_default()
+            * button.interact_rect;
+        super::train_setup::press(&mut h, hit.center());
         h.frame();
-        h.frame();
-        let rect = h
-            .app
-            .board_xf()
-            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
-        let point = rect.center() + egui::vec2(offset.0, offset.1) * z;
-        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(point)));
+        let provider = h.ctx.read_response(menu.with(("primary", 0usize))).unwrap();
+        let provider_rect = h
+            .ctx
+            .layer_transform_to_global(provider.layer_id)
+            .unwrap_or_default()
+            * provider.interact_rect;
+        super::train_setup::press(&mut h, provider_rect.center());
+        // Page changes reuse widget IDs. Wait for the actual Codex option's
+        // paint and hit registration to agree before testing its padding.
+        let provider_name = atlas_ai::agent::provider_by_id("codex").display_name;
+        let mut previous = None;
+        let rect = (0..8)
+            .find_map(|_| {
+                let out = h.frame_output(|_| {});
+                let ink = super::paint_probe::painted_at(&out)
+                    .into_iter()
+                    .find(|(text, _)| text == &provider_name)?
+                    .1;
+                let row = h.ctx.read_response(menu.with(("primary", 2usize)))?;
+                let rect = h
+                    .ctx
+                    .layer_transform_to_global(row.layer_id)
+                    .unwrap_or_default()
+                    * row.interact_rect;
+                let observed = (rect, ink);
+                let settled = rect.contains(ink.center()) && previous == Some(observed);
+                previous = Some(observed);
+                settled.then_some(rect)
+            })
+            .expect("the complete painted Codex option and hit rectangle converge");
+        let inset = (z * 1.0).max(0.25);
+        let point = match corner {
+            0 => rect.left_top() + egui::vec2(inset, inset),
+            1 => rect.right_top() + egui::vec2(-inset, inset),
+            2 => rect.left_bottom() + egui::vec2(inset, -inset),
+            _ => rect.right_bottom() - egui::vec2(inset, inset),
+        };
+        // Move once onto the original corner, then verify the actual target
+        // owns it before a single press/release. Never repair a miss by retrying.
+        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(point)));
+        let target = h.ctx.read_response(menu.with(("primary", 2usize))).unwrap();
+        let current = h
+            .ctx
+            .layer_transform_to_global(target.layer_id)
+            .unwrap_or_default()
+            * target.interact_rect;
+        assert!(
+            current == rect && target.hovered() && target.contains_pointer(),
+            "Codex must own its corner before click: z={z}, corner={corner}, point={point:?}, \
+             settled={rect:?}, current={current:?}, hovered={}, contains={}, layer_at={:?}, popup={:?}",
+            target.hovered(), target.contains_pointer(), h.ctx.layer_id_at(point),
+            h.app.agents.model_menu_rect
+        );
         for pressed in [true, false] {
-            h.frame_with(|input| {
-                input.events.push(egui::Event::PointerButton {
+            h.frame_with(|i| {
+                i.events.push(egui::Event::PointerButton {
                     pos: point,
                     button: egui::PointerButton::Primary,
                     pressed,
-                    modifiers: Default::default(),
+                    modifiers: egui::Modifiers::NONE,
                 })
             });
         }
         assert_eq!(
-            h.app.agent_session_for(id).unwrap().1,
-            "local",
-            "tile edge at {z}"
+            h.app.pending_generator_choice(id).unwrap().0,
+            "codex",
+            "provider row edge at {z}, corner={corner}, point={point:?}, rect={rect:?}"
         );
+        assert_eq!(
+            h.app.doc().scene.node(id),
+            Some(&before),
+            "choosing is not Send"
+        );
+        assert_eq!(h.app.tab().journal.undo_depth(), depth);
+        assert!(h.app.agents.dispatched.is_empty());
+        h.frame();
+        let labels = super::paint_probe::painted_text(&mut h, None);
+        for label in ["Provider", "Model", "Effort", "Speed"] {
+            assert!(
+                labels.iter().any(|s| s == label),
+                "shared chooser retains {label}: {labels:?}"
+            );
+        }
     }
 }
 

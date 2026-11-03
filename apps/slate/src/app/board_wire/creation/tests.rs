@@ -1,3 +1,4 @@
+mod model_source;
 use super::*;
 use crate::app::board_flow::tests::{generator_with_output, place};
 use slate_doc::scene::TextNode;
@@ -12,6 +13,7 @@ fn words_wired_to_an_ordinary_image_enable_generation_in_one_undo() {
         });
         let image = place(&mut h, "target.png", 800.0);
         let mut text = TextNode {
+            answers: Default::default(),
             text: "a warm sunset".into(),
             style: Default::default(),
             family: Default::default(),
@@ -33,6 +35,23 @@ fn words_wired_to_an_ordinary_image_enable_generation_in_one_undo() {
         let source = node.id;
         h.app.add_nodes(vec![node]);
         let before = h.app.doc().scene.node(image).unwrap().clone();
+        assert!(h
+            .app
+            .presented_wire_ports(&before)
+            .iter()
+            .all(|p| p.side != Side::Left));
+        h.app.board_sel = [image].into_iter().collect();
+        h.frame();
+        assert!(h
+            .app
+            .open_object_panel(crate::app::board_properties::Panel::Agent));
+        let prompt_t = h
+            .app
+            .wire_input_ports(&before)
+            .iter()
+            .find(|p| p.slot == atlas_agent::InputSlot::Prompt)
+            .unwrap()
+            .t;
         let depth = h.app.tab().journal.undo_depth();
         let wire = h
             .app
@@ -45,7 +64,7 @@ fn words_wired_to_an_ordinary_image_enable_generation_in_one_undo() {
                 ConnectorEnd::Anchored {
                     node: image,
                     side: Side::Left,
-                    t: 0.5,
+                    t: prompt_t,
                 },
             )
             .unwrap();
@@ -59,7 +78,9 @@ fn words_wired_to_an_ordinary_image_enable_generation_in_one_undo() {
         assert_eq!(after.rect, before.rect);
         let agent = slate_doc::agent_chat::agent(after).unwrap();
         assert_eq!(agent.view, atlas_agent::PortalView::Images);
-        assert!(agent.seed.as_ref().unwrap().source.ends_with("target.png"));
+        assert!(agent.provider.is_empty() && agent.session.is_empty());
+        assert!(agent.seed.is_none() && agent.bundle.is_none());
+        assert!(h.app.pending_generator_host(image).is_some());
         assert!(
             h.app.agents.dispatched.is_empty(),
             "connecting alone never runs a model"
@@ -71,10 +92,13 @@ fn words_wired_to_an_ordinary_image_enable_generation_in_one_undo() {
         assert_eq!(h.app.doc().scene.node(image), Some(&before));
         let tab = h.app.tab_mut();
         assert!(tab.journal.redo(&mut tab.doc.scene));
-        assert!(slate_doc::agent_inputs::is_image_generator(
-            &h.app.doc().scene,
-            image
-        ));
+        assert!(h.app.pending_generator_host(image).is_some());
+        assert!(
+            slate_doc::agent_chat::agent(h.app.doc().scene.node(image).unwrap())
+                .unwrap()
+                .provider
+                .is_empty()
+        );
     }
 }
 
@@ -84,11 +108,30 @@ fn imported_words_snap_to_the_ordinary_images_text_input() {
     let source = place(&mut h, "brief.txt", 0.0);
     let target = place(&mut h, "target.png", 800.0);
     let rect = h.app.doc().scene.node(target).unwrap().rect;
+    let at = Pos2::new(rect.x + 60.0, rect.y + 60.0);
+    assert!(
+        h.app
+            .wire_snap_target(at, Some((source, Side::Right, 0.5)))
+            .is_none(),
+        "closed source has no implicit input"
+    );
+    h.app.board_sel = [target].into_iter().collect();
+    h.frame();
+    assert!(h
+        .app
+        .open_object_panel(crate::app::board_properties::Panel::Agent));
+    let prompt_t = h
+        .app
+        .wire_input_ports(h.app.doc().scene.node(target).unwrap())
+        .iter()
+        .find(|p| p.slot == atlas_agent::InputSlot::Prompt)
+        .unwrap()
+        .t;
     let snap = h.app.wire_snap_target(
         Pos2::new(rect.x + 60.0, rect.y + 60.0),
         Some((source, Side::Right, 0.5)),
     );
-    assert_eq!(snap, Some((target, Side::Left, 0.5)));
+    assert_eq!(snap, Some((target, Side::Left, prompt_t)));
     let id = h
         .app
         .add_connector(
@@ -100,7 +143,7 @@ fn imported_words_snap_to_the_ordinary_images_text_input() {
             ConnectorEnd::Anchored {
                 node: target,
                 side: Side::Left,
-                t: 0.5,
+                t: prompt_t,
             },
         )
         .unwrap();

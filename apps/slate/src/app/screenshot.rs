@@ -95,7 +95,13 @@ impl Capture {
     }
 
     /// `SLATE_SHOT=<path>[;delay_frames]`: capture the real viewport and exit.
-    pub(super) fn frame(&mut self, ctx: &egui::Context, frame: u64, storage: Result<bool, &str>) {
+    pub(super) fn frame(
+        &mut self,
+        ctx: &egui::Context,
+        frame: u64,
+        storage: Result<bool, &str>,
+        canvas_zoom: Option<f32>,
+    ) {
         let ready = storage.unwrap_or_else(|error| fatal(&format!("isolated recovery: {error}")));
         if self
             .request_due(frame, ready)
@@ -124,42 +130,55 @@ impl Capture {
             image
                 .save(&self.path)
                 .unwrap_or_else(|error| fatal(&error.to_string()));
-            if self.presence_workspace.is_some() {
-                let screen = ctx.screen_rect();
-                let (inner, outer, native_ppp, time) = ctx.input(|input| {
-                    let viewport = input.viewport();
-                    (
-                        viewport.inner_rect,
-                        viewport.outer_rect,
-                        viewport.native_pixels_per_point,
-                        input.time,
-                    )
-                });
-                let receipt = serde_json::json!({
-                    "kind": "slate-presence-render-capture",
-                    "requestedState": std::env::var("SLATE_PRESENCE_REVIEW_STATE").unwrap_or_default(),
-                    "metadataObservedOnScreenshotEvent": true,
-                    "eventFrame": frame,
-                    "eguiTimeSeconds": time,
-                    "pixelsPerPoint": ctx.pixels_per_point(),
-                    "screenRectPoints": [screen.min.x, screen.min.y, screen.max.x, screen.max.y],
-                    "viewportInnerRectPoints": inner.map(|r| [r.min.x, r.min.y, r.max.x, r.max.y]),
-                    "viewportOuterRectPoints": outer.map(|r| [r.min.x, r.min.y, r.max.x, r.max.y]),
-                    "nativePixelsPerPoint": native_ppp,
-                    "imagePixels": [width, height],
-                    "msaaSamplesRequested": atlas_shell::NATIVE_MSAA_SAMPLES
-                });
-                let file = std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(self.path.with_extension("capture.json"))
-                    .unwrap_or_else(|error| fatal(&error.to_string()));
-                serde_json::to_writer_pretty(file, &receipt)
-                    .unwrap_or_else(|error| fatal(&error.to_string()));
-            }
+            self.write_receipt(ctx, frame, [width, height], canvas_zoom)
+                .unwrap_or_else(|error| fatal(&error.to_string()));
             std::process::exit(0);
         }
         ctx.request_repaint();
+    }
+
+    /// Called only when the requested screenshot event has supplied its image.
+    /// Ordinary captures never opt into the presence fixture to obtain metadata.
+    fn write_receipt(
+        &self,
+        ctx: &egui::Context,
+        frame: u64,
+        image_pixels: [usize; 2],
+        canvas_zoom: Option<f32>,
+    ) -> io::Result<()> {
+        let screen = ctx.screen_rect();
+        let (inner, outer, native_ppp, time) = ctx.input(|input| {
+            let viewport = input.viewport();
+            (
+                viewport.inner_rect,
+                viewport.outer_rect,
+                viewport.native_pixels_per_point,
+                input.time,
+            )
+        });
+        let presence_fixture = self.presence_workspace.is_some();
+        let receipt = serde_json::json!({
+            "kind": if presence_fixture { "slate-presence-render-capture" } else { "slate-render-capture" },
+            "presenceFixtureEnabled": presence_fixture,
+            "requestedState": presence_fixture.then(|| std::env::var("SLATE_PRESENCE_REVIEW_STATE").unwrap_or_default()),
+            "metadataObservedOnScreenshotEvent": true,
+            "eventFrame": frame,
+            "eguiTimeSeconds": time,
+            "pixelsPerPoint": ctx.pixels_per_point(),
+            "screenRectPoints": [screen.min.x, screen.min.y, screen.max.x, screen.max.y],
+            "viewportInnerRectPoints": inner.map(|r| [r.min.x, r.min.y, r.max.x, r.max.y]),
+            "viewportOuterRectPoints": outer.map(|r| [r.min.x, r.min.y, r.max.x, r.max.y]),
+            "nativePixelsPerPoint": native_ppp,
+            "imagePixels": image_pixels,
+            "theme": if ctx.style().visuals.dark_mode { "dark" } else { "light" },
+            "canvasZoom": canvas_zoom,
+            "msaaSamplesRequested": atlas_shell::NATIVE_MSAA_SAMPLES
+        });
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(self.path.with_extension("capture.json"))?;
+        serde_json::to_writer_pretty(file, &receipt).map_err(io::Error::other)
     }
 }
 

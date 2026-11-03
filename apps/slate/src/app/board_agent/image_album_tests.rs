@@ -251,13 +251,37 @@ fn a_closed_image_blister_keeps_all_result_thumbnail_squares_visible() {
         .expect("the open generator editor publishes its current occupied bottom");
     for texture in &textures {
         assert!(
-            output.shapes.iter().any(|shape| under(
+            !output.shapes.iter().any(|shape| under(
                 &shape.shape,
                 shape.clip_rect,
                 *texture,
                 editor_bottom
             )),
-            "the result thumbnails remain painted below the open generator editor"
+            "open generator circles own history; no duplicate canvas squares paint below the editor"
+        );
+    }
+    assert!(h.app.generator_history_open(id));
+    h.app.shape_properties.panel = None;
+    for _ in 0..20 {
+        frame(&mut h, id, false);
+    }
+    let output = h.frame_output(|_| {});
+    let closed_bottom = h
+        .app
+        .shape_properties
+        .result_chrome_bottom
+        .filter(|(tab, host, _)| *tab == h.app.tab().id && *host == id)
+        .unwrap()
+        .2;
+    for texture in &textures {
+        assert!(
+            output.shapes.iter().any(|shape| under(
+                &shape.shape,
+                shape.clip_rect,
+                *texture,
+                closed_bottom
+            )),
+            "closing generator restores squares below occupied chrome"
         );
     }
 }

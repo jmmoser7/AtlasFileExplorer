@@ -38,11 +38,14 @@ impl PreviewSender {
         let _ = self.terminal.send(PreviewResult { id, outcome });
     }
 
-    pub(super) fn send(&self, result: PreviewResult) -> Result<(), ()> {
+    pub(super) fn send(&self, result: PreviewResult, shutdown: &Receiver<()>) -> Result<(), ()> {
         // Only worker threads call this path. A slow UI leaves at most two
         // ready images in the inbox and one held by each of the two workers.
         if matches!(result.outcome, PreviewOutcome::Ready(..)) {
-            self.ready.send(result).map_err(|_| ())
+            crossbeam_channel::select! {
+                recv(shutdown) -> _ => Err(()),
+                send(self.ready, result) -> sent => sent.map_err(|_| ()),
+            }
         } else {
             self.terminal.send(result).map_err(|_| ())
         }

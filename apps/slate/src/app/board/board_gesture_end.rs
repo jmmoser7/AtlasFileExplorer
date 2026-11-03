@@ -72,7 +72,11 @@ impl SlateApp {
                 }
             }
             Some(BoardDrag::Resize {
-                id, before, dup, ..
+                id,
+                before,
+                dup,
+                handle,
+                ..
             }) => {
                 if dup {
                     self.journal_alt_copies(&[id], "1 node(s), Alt-scale".into());
@@ -80,7 +84,15 @@ impl SlateApp {
                     if after.rect != before.rect || after.rotation_deg != before.rotation_deg {
                         // The size lands in the same undo step as the rect.
                         if after.rect != before.rect
-                            && super::super::board_agent::record_agent_resize(&mut after)
+                            && super::super::board_agent::record_agent_resize(
+                                &mut after,
+                                mods.shift
+                                    || !matches!(
+                                        board_handles::ResizeHandle::from_u8(handle),
+                                        board_handles::ResizeHandle::E
+                                            | board_handles::ResizeHandle::W
+                                    ),
+                            )
                         {
                             if let Some(live) = self.doc_mut().scene.node_mut(id) {
                                 *live = after.clone();

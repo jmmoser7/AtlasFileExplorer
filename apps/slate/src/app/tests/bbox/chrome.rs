@@ -419,7 +419,7 @@ fn selected_portal_outline_follows_its_authored_corner() {
         });
         h.app.board_sel = std::iter::once(id).collect();
         h.frame();
-        let out = h.frame_output(|_| {});
+        let out = frame_with_interaction_shadow(&mut h, id);
         let xf = h.app.board_xf();
         let node = h.app.doc().scene.node(id).unwrap();
         let expected = board::corner_outline(xf.rect_w2s(node.rect), corner, xf.z);
@@ -434,7 +434,11 @@ fn selected_portal_outline_follows_its_authored_corner() {
             same(&h.app.node_screen_outline(&h.ctx, &xf, node)),
             "{corner:?}: the selection outline is the corner outline"
         );
-        assert!(painted_shadow_encloses(&out, xf.rect_w2s(node.rect)));
+        assert!(painted_shadow_encloses(
+            &h.ctx,
+            &out,
+            xf.rect_w2s(node.rect)
+        ));
         assert!(
             !painted_closed_paths(&out).iter().any(|pts| same(pts)),
             "{corner:?}: single selection uses its shadow without a ring"

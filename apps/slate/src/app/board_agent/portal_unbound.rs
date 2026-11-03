@@ -48,6 +48,11 @@ impl SlateApp {
         }
 
         if portal.agent.as_ref().is_none_or(|a| a.provider.is_empty()) {
+            self.note_program_chooser();
+            self.ensure_agent_programs();
+            self.prepare_pending_chat_choice(node.id);
+        }
+        if portal.agent.is_none() {
             self.paint_agent_unbound(ui, layout.body, node.id, maximized, xf.z);
         } else if portal
             .agent
@@ -85,11 +90,25 @@ impl SlateApp {
         }
 
         self.paint_pack_caption(painter, node, layout.body, xf.z);
+        if self.pending_generator_host(node.id).is_some()
+            && self
+                .pending_generator_choice(node.id)
+                .is_none_or(|(_, model, _)| model.is_empty())
+        {
+            canvas_text::text(
+                painter,
+                layout.body.left_bottom() + egui::vec2(16.0 * xf.z, -16.0 * xf.z),
+                Align2::LEFT_BOTTOM,
+                "Set up an available chat program and model in Settings.",
+                canvas_scale::font(12.0, xf.z),
+                self.palette().sub,
+            );
+        }
 
         if portal
             .agent
             .as_ref()
-            .is_some_and(|a| !a.provider.is_empty() && a.view == atlas_ai::agent::PortalView::Chat)
+            .is_none_or(|a| a.provider.is_empty() || a.view == atlas_ai::agent::PortalView::Chat)
         {
             self.paint_agent_chat_header(ui, painter, xf, node, portal);
         }
@@ -118,52 +137,41 @@ impl SlateApp {
         _maximized: bool,
         zoom: f32,
     ) {
-        self.note_program_chooser();
-        self.ensure_agent_programs();
-        let interactive = !self.tab().read_only;
-        // A fit while redo waits would clear it, and Undo could never get
-        // past a fit that landed as its own step.
-        if let Some((width, height)) = self.agent_program_grid_size().filter(|_| {
-            interactive
-                && !_maximized
-                && self.board_drag.is_none()
-                && !self.tab().journal.can_redo()
-        }) {
-            let resized = self
-                .doc()
-                .scene
-                .node(id)
-                .filter(|n| (n.rect.w - width).abs() > 1.0 || (n.rect.h - height).abs() > 1.0)
-                .map(|n| {
-                    let mut n = n.clone();
-                    n.rect.w = width;
-                    n.rect.h = height;
-                    n
-                });
-            if let Some(after) = resized {
-                // Fitting the grid settles the step that placed the portal,
-                // so one Undo still removes it (and a wire placed with it).
-                if !self.fold_into_last_step(&after) {
-                    self.patch_nodes(&[id], |n| {
-                        n.rect.w = width;
-                        n.rect.h = height;
-                    });
+        self.prepare_pending_chat_choice(id);
+        let prompt = self.agents.prompt(id).unwrap_or("");
+        let (left, right, wrap) =
+            text_column(self.doc().scene.node(id).map_or(320.0, |n| n.rect.w));
+        let height = composer_text_height(ui.ctx(), prompt, wrap * zoom, 14.0 * zoom);
+        let top = body.top() + COMPOSER_TOP * zoom;
+        let field = Rect::from_min_max(
+            Pos2::new(body.left() + left * zoom, top),
+            Pos2::new(
+                body.right() - right * zoom,
+                (top + height + 2.0 * zoom).min(body.bottom() - 8.0 * zoom),
+            ),
+        );
+        self.paint_agent_composer(ui, id, field, zoom, true);
+    }
+
+    /// An explicit presentation action may author unbound Chat view state;
+    /// merely opening/painting the portal never materializes an agent reference.
+    pub(super) fn prepare_unbound_chat_presentation(&mut self, id: NodeId) {
+        if self.tab().read_only {
+            return;
+        }
+        self.patch_nodes(&[id], |node| {
+            if let NodeKind::Portal(portal) = &mut node.kind {
+                if portal.kind == PortalKind::Agent && portal.agent.is_none() {
+                    let mut agent = PortalNode::unbound_agent("", "").agent.unwrap();
+                    agent.chat.train = true;
+                    agent.chat.detail = slate_doc::agent_chat::Detail::Pair;
+                    portal.agent = Some(agent);
                 }
             }
-        }
-        if let Some(provider) = atlas_ai::ui::program_grid(
-            ui,
-            body,
-            Id::new(("agent-programs", id.0)),
-            &self.agents.programs,
-            interactive,
-            zoom,
-        ) {
-            if self.ai.packs.needs_key(&provider) {
-                self.ai.packs.key_entry = true;
-            } else {
-                self.set_agent_program(id, &provider);
-            }
-        }
+        });
     }
 }
+
+#[cfg(test)]
+#[path = "unbound_chat_tests.rs"]
+mod tests;

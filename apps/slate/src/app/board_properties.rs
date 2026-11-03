@@ -18,6 +18,7 @@ use vector_ink::kurbo::Shape;
 
 mod commands;
 mod image_palette;
+mod modal_input;
 mod model_display;
 mod palette_ui;
 pub(crate) use palette_ui::EditorHost;
@@ -682,31 +683,6 @@ impl SlateApp {
             self.board_align_eat_press = true;
         }
         captures
-    }
-
-    /// This frame's press that commits an open panel's preview (D11), if
-    /// any: `Some(true)` for a primary press on a crop handle, a cropping
-    /// image, or a painted curve grip, which is that gesture rather than a
-    /// click-away. Crop keeps the Corners panel up (D09) and the selection
-    /// whole; a grip press is the grip's drag (P1.curve.grips). Neither is
-    /// eaten. Right-drag and middle-drag are the
-    /// canvas pan, so only a secondary or middle click without a drag counts.
-    fn property_dismiss_press(&self, ctx: &egui::Context) -> Option<bool> {
-        let (primary, click) = ctx.input(|i| {
-            (
-                i.pointer
-                    .button_pressed(egui::PointerButton::Primary)
-                    .then(|| i.pointer.press_origin()),
-                i.pointer.button_clicked(egui::PointerButton::Secondary)
-                    || i.pointer.button_clicked(egui::PointerButton::Middle),
-            )
-        });
-        match primary {
-            Some(origin) => Some(
-                origin.is_some_and(|p| self.crop_owns_pointer(p) || self.property_grip_under(p)),
-            ),
-            None => click.then_some(false),
-        }
     }
 
     fn run_frame_strip_action(&mut self, ctx: &egui::Context, action: FrameAction) {
@@ -2161,6 +2137,7 @@ mod tests {
         let node = h.app.doc_mut().scene.build_node(
             rect,
             NodeKind::Text(scene::TextNode {
+                answers: Default::default(),
                 text: "Note".into(),
                 style: Default::default(),
                 family: Default::default(),

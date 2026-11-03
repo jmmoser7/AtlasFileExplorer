@@ -38,7 +38,7 @@ impl SlateApp {
                         matches!(w.purpose, witness::WitnessPurpose::ApprovedProposal(_))
                     }))
                 || (a.paused
-                    && matches!(&call.operation, BoardOperation::Invoke { command, .. } if !matches!(command.as_str(), "presence.read_image" | "presence.read_text" | "presence.preview")))
+                    && matches!(&call.operation, BoardOperation::Invoke { command, .. } if !matches!(command.as_str(), "presence.read_image" | "presence.read_text" | "presence.preview") && !reads::image_history_view(call)))
             {
                 return Err("Board is inactive or collaborator paused".into());
             }
@@ -71,7 +71,8 @@ impl SlateApp {
                     if matches!(
                         command.as_str(),
                         "presence.read_image" | "presence.read_text" | "presence.preview"
-                    ) {
+                    ) || reads::image_history_view(call)
+                    {
                         self.begin_presence_read(a, call)?;
                         return Ok(None);
                     }
@@ -203,6 +204,10 @@ impl SlateApp {
                         atlas_ai::feedback::record_local(&a.dir, note)
                             .map_err(|error| format!("Could not record local feedback: {error}"))?;
                         return Ok(Some(json!({"status":"recorded_locally"})));
+                    }
+                    self.validate_text_output_scope(grant, command, targets)?;
+                    if command == "board.image.history" {
+                        self.validate_image_history_scope(grant, targets, arguments)?;
                     }
                     let prepared = match ctx {
                         Some(ctx) => self.prepare_targeted_command_with_context(

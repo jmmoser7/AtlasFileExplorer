@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict'),G=require('./graft.js'),H=require('./history.js');
+const inputs={image:['primary'],text:['prompt'],style:['warm','cool']};
+assert.deepEqual(G.jobs(inputs,{style:true}).map(j=>j.style),[['warm'],['cool']]);
+assert.equal(G.jobs(inputs,{}).length,1);assert.equal(G.jobs(inputs,{style:true})[1].image[0],'primary');
+assert.deepEqual(G.jobs({...inputs,text:['a','b','c']},{style:true,text:true}).map(j=>[j.text[0],j.style[0]]),[['a','warm'],['b','cool'],['c','cool']]);
+assert.equal(G.jobs({...inputs,style:[]},{style:true}).length,0);
+assert.equal(G.port(2,true).height,16);assert.equal(G.port(4,true).height,24);assert.equal(G.port(20,true).height,24);assert.equal(G.port(20,true).offset(19),6);
+const nodes=[{id:'a',historyEnabled:true},{id:'b',historyEnabled:true},{id:'c',historyEnabled:true,interactive:true,inheritedHistory:[{role:'user',text:'past'}]}],wires=[{kind:'history',from:'a',to:'b'},{kind:'history',from:'b',to:'c'}];
+assert.equal(H.cut(wires[0],nodes,wires),false);assert.equal(H.cut(wires[1],nodes,wires),true);assert.equal(nodes[2].historyEnabled,false);assert.equal(nodes[2].interactive,false);assert.equal(nodes[2].inheritedHistory.length,0);assert.equal(nodes[2].historyArchive.length,1);assert.equal(nodes[1].historyEnabled,true);
+console.log('Graft matching, capped capsules and terminal-only history cuts passed.');

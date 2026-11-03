@@ -112,6 +112,15 @@ impl SlateApp {
         command: &str,
         detail: Option<&str>,
     ) -> bool {
+        if command == "board.model.headless.new" {
+            if let Err(error) = self.connector_new_headless() {
+                self.toast(error);
+            }
+            return true;
+        }
+        if command == "board.model.headless.stop" {
+            self.connector_stop_empty_headless();
+        }
         let args = detail
             .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
             .unwrap_or_default();
@@ -121,9 +130,22 @@ impl SlateApp {
             .map(NodeId)
             .or_else(|| self.board_sel.iter().next().copied());
         let Some(id) = id else {
-            return false;
+            // Stop also handles an empty-model job, which has no placed node yet.
+            return command == "board.model.headless.stop";
         };
         match command {
+            "board.model.headless.activate" => {
+                if let Err(error) = self.connector_activate_headless(id) {
+                    self.toast(error);
+                }
+            }
+            "board.model.headless.generate" => {
+                if let Err(error) = self.connector_generate_headless(id, args["parameters"].clone())
+                {
+                    self.toast(error);
+                }
+            }
+            "board.model.headless.stop" => self.connector_stop_headless(id),
             "board.model.connector.open_surface" => {
                 self.open_application_surface(id, "grasshopper", "org.slate.rhino.grasshopper_show")
             }

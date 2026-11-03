@@ -11,6 +11,89 @@ pub enum ResultAction {
     CopyToCanvas,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProductResultAction {
+    Use,
+    SaveAs,
+    DuplicateActive,
+    Remove,
+}
+
+pub struct ProductResultResponse {
+    pub action: Option<ProductResultAction>,
+    pub popup: Option<Rect>,
+    pub dismissed_outside: bool,
+}
+
+/// The exported product recipe; legacy clipboard/canvas commands remain registered.
+/// Apps provide availability and dispatch to the existing output owners.
+pub fn product_menu(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    at: Pos2,
+    open: &mut bool,
+    remove_reason: Option<&str>,
+    theme: crate::theme::Palette,
+) -> ProductResultResponse {
+    use crate::menu::MenuIcon;
+    use crate::selection_tools::menu_selector::{
+        studio_action_popup, StudioActionRow, StudioActionStyle,
+    };
+    let rows = [
+        StudioActionRow {
+            label: "Use this result",
+            icon: Some(MenuIcon::Image),
+            hint: None,
+            checked: None,
+            interactive: true,
+            danger: false,
+            divider_before: false,
+        },
+        StudioActionRow {
+            label: "Save image as…",
+            icon: Some(MenuIcon::Image),
+            hint: None,
+            checked: None,
+            interactive: true,
+            danger: false,
+            divider_before: false,
+        },
+        StudioActionRow {
+            label: "Duplicate",
+            icon: Some(MenuIcon::Duplicate),
+            hint: Some("Duplicate only the active output as a plain canvas object."),
+            checked: None,
+            interactive: true,
+            danger: false,
+            divider_before: true,
+        },
+        StudioActionRow {
+            label: "Remove result",
+            icon: Some(MenuIcon::Trash),
+            hint: Some(
+                remove_reason.unwrap_or("Remove from results. Keep the saved source and history."),
+            ),
+            checked: None,
+            interactive: remove_reason.is_none(),
+            danger: true,
+            divider_before: false,
+        },
+    ];
+    let out = studio_action_popup(ui, id, at, &rows, open, StudioActionStyle::Image, theme);
+    ProductResultResponse {
+        action: out.picked.map(|index| {
+            [
+                ProductResultAction::Use,
+                ProductResultAction::SaveAs,
+                ProductResultAction::DuplicateActive,
+                ProductResultAction::Remove,
+            ][index]
+        }),
+        popup: out.popup,
+        dismissed_outside: out.dismissed_outside,
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ResultInteraction {
     /// Bounds of thumbnails actually painted by a grouped result surface.
@@ -30,6 +113,9 @@ pub struct ResultSelection {
 }
 
 impl ResultSelection {
+    pub fn is_empty(&self) -> bool {
+        self.selected.is_empty()
+    }
     pub fn contains(&self, identity: &str) -> bool {
         self.selected.contains(identity)
     }
@@ -67,7 +153,8 @@ impl ResultSelection {
 
 pub fn thumbnail_interaction(response: &Response, index: usize) -> ResultInteraction {
     let clicked = response.clicked().then_some(index);
-    let menu = (response.clicked() || response.secondary_clicked())
+    let menu = response
+        .secondary_clicked()
         .then(|| (index, response.rect.left_bottom() + egui::vec2(0.0, 6.0)));
     ResultInteraction {
         painted_bounds: None,

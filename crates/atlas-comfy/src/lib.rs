@@ -4,9 +4,11 @@
 //!
 //! TWIN: crates/atlas-ollama/src/lib.rs server lifecycle 2026-09-22 (DV-22)
 mod events;
+mod image_io;
 #[cfg(test)]
 use events::read_frame;
 use events::{preview_image, Events};
+use image_io::{download_image, finished_images, upload_image};
 
 use atlas_agent::{AgentRequest, AgentSession, AgentStatus, ImageBundle, ImageOutput};
 use serde_json::{json, Value};
@@ -42,7 +44,7 @@ const CATALOG_TTL: Duration = Duration::from_secs(10);
 
 static SERVER: Mutex<Option<Child>> = Mutex::new(None);
 
-use atlas_curl::{encode_component, hidden, Failure, Field, Request};
+use atlas_curl::{encode_component, hidden, Failure, Request};
 
 pub fn executable() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("COMFY_BIN")
@@ -717,6 +719,7 @@ fn round8(v: u32) -> u32 {
 /// A graph of core ComfyUI nodes only. The result is a preview, so ComfyUI's
 /// output folder never fills with copies of what Slate already stores.
 pub fn workflow(plan: &Plan, prompt: &str, seed: u64, up: &Uploaded) -> Result<Value, String> {
+    up.aspect.validate_comfy(plan.task != Task::Generate)?;
     let preset = preset(&plan.checkpoint, plan.family);
     let mut g = Graph {
         nodes: serde_json::Map::new(),
@@ -855,6 +858,81 @@ pub fn workflow(plan: &Plan, prompt: &str, seed: u64, up: &Uploaded) -> Result<V
     Ok(Value::Object(g.nodes))
 }
 
+fn image_prompt(request: &AgentRequest) -> String {
+    request.prompt_with_history().trim().to_owned()
+}
+
+#[cfg(test)]
+#[test]
+fn actual_image_prompt_builder_quotes_explicit_history_once_in_graph_payload() {
+    let plan = Plan {
+        task: Task::Generate,
+        checkpoint: "test.safetensors".into(),
+        family: None,
+        depth_control: None,
+        edge_control: None,
+        style: None,
+    };
+    let mut request = AgentRequest {
+        prompt: "Current image question".into(),
+        history: vec![atlas_agent::AgentTurn {
+            role: "user".into(),
+            text: "ADMITTED_IMAGE_HISTORY".into(),
+            at: 0,
+        }],
+        ..Default::default()
+    };
+    let graph = workflow(&plan, &image_prompt(&request), 42, &Uploaded::default()).unwrap();
+    assert_eq!(
+        serde_json::to_string(&graph)
+            .unwrap()
+            .matches("ADMITTED_IMAGE_HISTORY")
+            .count(),
+        1
+    );
+    request.history.clear();
+    let graph = workflow(&plan, &image_prompt(&request), 42, &Uploaded::default()).unwrap();
+    assert!(!serde_json::to_string(&graph)
+        .unwrap()
+        .contains("ADMITTED_IMAGE_HISTORY"));
+    assert_eq!(request.prompt, "Current image question");
+}
+
+#[cfg(test)]
+#[test]
+fn custom_generation_payload_uses_ratio_and_rejects_source_coercion() {
+    let mut plan = Plan {
+        task: Task::Generate,
+        checkpoint: "test.safetensors".into(),
+        family: None,
+        depth_control: None,
+        edge_control: None,
+        style: None,
+    };
+    let up = Uploaded {
+        aspect: atlas_agent::Aspect::Custom {
+            width: 4,
+            height: 3,
+        },
+        ..Default::default()
+    };
+    let graph = workflow(&plan, "test", 42, &up).unwrap();
+    let latent = graph
+        .as_object()
+        .unwrap()
+        .values()
+        .find(|value| value["class_type"] == "EmptyLatentImage")
+        .unwrap();
+    let width = latent["inputs"]["width"].as_u64().unwrap();
+    let height = latent["inputs"]["height"].as_u64().unwrap();
+    assert_eq!((width % 8, height % 8), (0, 0));
+    assert!((width as f64 / height as f64 - 4.0 / 3.0).abs() < 0.03);
+    plan.task = Task::Vary;
+    assert!(workflow(&plan, "test", 42, &up)
+        .unwrap_err()
+        .contains("source transformations"));
+}
+
 fn seed_from(id: &str) -> u64 {
     let mut hash = 0xcbf29ce484222325u64;
     for byte in id.bytes() {
@@ -884,120 +962,6 @@ pub fn settle_live(bundle: &mut ImageBundle, run: Option<&str>) -> Option<String
         return None;
     }
     bundle.images.pop().map(|old| old.source)
-}
-
-fn upload_image(path: &Path, name: &str) -> Result<String, String> {
-    if !path.is_file() {
-        return Err(format!(
-            "Connected image is unavailable: {}",
-            path.display()
-        ));
-    }
-    let shown = path.to_string_lossy();
-    if shown.contains(';') || shown.contains(',') || shown.contains('"') {
-        return Err(format!(
-            "Rename the connected image so its path has no ; , or \" characters: {}",
-            path.display()
-        ));
-    }
-    let out = Request::post_form(
-        local("/upload/image"),
-        vec![
-            (
-                "image".into(),
-                Field::File {
-                    path: path.to_path_buf(),
-                    filename: Some(name.to_string()),
-                },
-            ),
-            ("overwrite".into(), Field::Text("true".into())),
-        ],
-    )
-    .loopback()
-    .timeout(Duration::from_secs(120))
-    .send()
-    .map_err(|failure| match failure {
-        Failure::Transport(e) => format!("Could not send the source image to ComfyUI: {e}"),
-        Failure::Status(_) => "ComfyUI did not accept the source image.".into(),
-    })?;
-    let value: Value = serde_json::from_slice(&out).map_err(|e| e.to_string())?;
-    let uploaded = value["name"]
-        .as_str()
-        .filter(|n| !n.is_empty())
-        .ok_or("ComfyUI did not name the uploaded image.")?;
-    Ok(
-        match value["subfolder"].as_str().filter(|s| !s.is_empty()) {
-            Some(sub) => format!("{sub}/{uploaded}"),
-            None => uploaded.to_string(),
-        },
-    )
-}
-
-fn download_image(filename: &str, subfolder: &str, kind: &str, dest: &Path) -> Result<(), String> {
-    let endpoint = format!(
-        "/view?filename={}&subfolder={}&type={}",
-        encode_component(filename),
-        encode_component(subfolder),
-        encode_component(kind)
-    );
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let sent = Request::get(local(&endpoint))
-        .loopback()
-        .timeout(Duration::from_secs(60))
-        .output(dest)
-        .send();
-    if sent.is_err() || !dest.is_file() {
-        return Err("ComfyUI finished without a readable image.".into());
-    }
-    Ok(())
-}
-
-struct FinishedImage {
-    filename: String,
-    subfolder: String,
-    kind: String,
-}
-
-fn finished_images(history: &Value, prompt_id: &str) -> Result<Option<Vec<FinishedImage>>, String> {
-    let entry = match history.get(prompt_id) {
-        Some(entry) if !entry.is_null() => entry,
-        _ => return Ok(None),
-    };
-    let status = entry["status"]["status_str"].as_str().unwrap_or("");
-    if status == "error" {
-        let message = entry["status"]["messages"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|m| m.get(1))
-            .find_map(|d| d["exception_message"].as_str())
-            .unwrap_or("ComfyUI reported an execution error.");
-        return Err(message.trim().to_string());
-    }
-    if !entry["status"]["completed"].as_bool().unwrap_or(false) && status != "success" {
-        return Ok(None);
-    }
-    let mut images = Vec::new();
-    if let Some(outputs) = entry["outputs"].as_object() {
-        for node in outputs.values() {
-            for image in node["images"].as_array().into_iter().flatten() {
-                let Some(filename) = image["filename"].as_str() else {
-                    continue;
-                };
-                images.push(FinishedImage {
-                    filename: filename.to_string(),
-                    subfolder: image["subfolder"].as_str().unwrap_or("").to_string(),
-                    kind: image["type"].as_str().unwrap_or("output").to_string(),
-                });
-            }
-        }
-    }
-    if images.is_empty() {
-        return Err("ComfyUI finished without an image.".into());
-    }
-    Ok(Some(images))
 }
 
 fn cancel_prompt(prompt_id: &str) {
@@ -1154,11 +1118,18 @@ impl Client {
         if self.output_dir.as_os_str().is_empty() {
             return Err("This image portal has no output folder.".into());
         }
-        let prompt = request.prompt.trim();
+        let prompt = image_prompt(request);
+        let prompt = prompt.as_str();
         if prompt.is_empty() {
             return Err("Connect a note with a prompt, or type one.".into());
         }
         let sources = sources(request)?;
+        request
+            .image
+            .as_ref()
+            .map(|params| params.aspect)
+            .unwrap_or_default()
+            .validate_comfy(sources.image.is_some() || sources.depth.is_some())?;
         let catalog = self.catalog()?;
         let plan = plan(&catalog, request.model.as_deref(), &sources)?;
         let mut up = Uploaded::default();

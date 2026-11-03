@@ -228,6 +228,7 @@ impl SlateApp {
         let note = self.doc_mut().scene.build_node(
             WorldRect::new(rect.x, rect.y + rect.h + 8.0, rect.w.max(120.0), 20.0),
             NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: provenance,
                 style: Default::default(),
                 family: Typeface::Sans,

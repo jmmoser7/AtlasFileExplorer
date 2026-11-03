@@ -332,6 +332,7 @@ impl Recipe {
                 })
             }
             NodeTarget::Text => NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: s.text.text.clone(),
                 style: Default::default(),
                 family: s.text.family.into(),

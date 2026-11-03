@@ -145,6 +145,7 @@ fn join_skips_text() {
         let node = h.app.doc_mut().scene.build_node(
             rect,
             slate_doc::scene::NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: "keep".into(),
                 style: Default::default(),
                 family: Typeface::Sans,

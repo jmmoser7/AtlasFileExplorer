@@ -204,21 +204,12 @@ impl SlateApp {
         self.add_agent_portal(rect, "placed");
     }
 
-    /// The size an unarmed click or a wire-drop spawn gives a new agent
-    /// portal: its program grid once the installed programs are known, so
-    /// the grid fit never moves it off its click or drop point. Before
-    /// discovery the Agent tool's recipe (`core.slatekit`) owns it, and the
-    /// fit that follows grows the portal from its top-left corner; the
-    /// constant stands in only when no kit supplies one. An armed kit places
-    /// at its own recipe's size, and then the grid fit applies as it does to
-    /// any unbound agent portal.
+    /// The recipe owns ordinary Chat placement; discovery never changes geometry.
     pub(crate) fn agent_portal_size(&self) -> (f32, f32) {
-        self.agent_program_grid_size().unwrap_or_else(|| {
-            self.kits
-                .recipe_for(BoardTool::AgentPortal)
-                .and_then(|r| r.default_size())
-                .map_or(AGENT_PORTAL_SIZE, |[w, h]| (w, h))
-        })
+        self.kits
+            .recipe_for(BoardTool::AgentPortal)
+            .and_then(|r| r.default_size())
+            .map_or(AGENT_PORTAL_SIZE, |[w, h]| (w, h))
     }
 
     /// Click-to-place default File Atlas lens (960×540, unbound).

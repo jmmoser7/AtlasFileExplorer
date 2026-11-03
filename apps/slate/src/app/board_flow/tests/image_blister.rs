@@ -19,6 +19,19 @@ fn clearing_a_focused_image_prompt_compacts_its_field_before_committing() {
     let compact = h.app.image_agent_body_height(&painter, id);
     let has_status =
         h.app.agent_failure_reason(id).is_some() || h.app.generator_view(id).error.is_some();
+    // This legacy fixture preserves dialogue (None); ordinary new OFF sources
+    // use the separate no-dialogue layout. Measure the actual legacy policy.
+    let data = h.app.generator_chrome_data(id);
+    let mut activity = h
+        .app
+        .generator_presentation(id)
+        .activity
+        .unwrap_or_default();
+    let chrome = data.view_with_dialogue_policy(
+        &mut activity,
+        h.app.agent_is_running(id),
+        Some(h.app.image_dialogue_enabled(id)),
+    );
     assert_eq!(
         compact,
         atlas_shell::selection_tools::image_agent_layout(
@@ -29,7 +42,7 @@ fn clearing_a_focused_image_prompt_compacts_its_field_before_committing() {
                 1,
                 has_status.then_some("Failure"),
                 None,
-                &atlas_shell::selection_tools::generator::GeneratorChrome::default()
+                &chrome
             )
         )
         .height
@@ -78,7 +91,9 @@ fn narrow_image_history_reaches_the_full_album_without_queueing_hidden_previews(
         assert!(h.app.image_palette_eligible(id));
         let frame = |h: &mut crate::app::tests::Harness, events: Vec<egui::Event>| {
             h.app.preview_reqs_this_frame = 0;
-            h.ctx.clone().run(
+            let mut navigation = [None, None];
+            let mut visible = Vec::new();
+            let output = h.ctx.clone().run(
                 egui::RawInput {
                     screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1400.0, 1100.0))),
                     events,
@@ -86,65 +101,140 @@ fn narrow_image_history_reaches_the_full_album_without_queueing_hidden_previews(
                 },
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        let height = h.app.image_agent_body_height(ui.painter(), id);
-                        let rect = Rect::from_min_size(
+                        let node = h.app.doc().scene.node(id).unwrap().clone();
+                        let bounds = Rect::from_min_size(
                             Pos2::new(100.0, 100.0),
-                            egui::vec2(160.0, height) * zoom,
+                            egui::vec2(node.rect.w, node.rect.h) * zoom,
                         );
-                        let mut prompt = "A picture".to_owned();
-                        h.app.paint_image_agent_editor(
-                            ui,
-                            rect,
+                        let height = h.app.image_agent_body_height_for_width(
+                            ui.painter(),
                             id,
-                            chrome::AgentEdit {
-                                modes: &["Image"],
-                                mode: 0,
-                                image: true,
-                                prompt: &mut prompt,
-                                hint: "Describe the image",
-                                models: &["Auto"],
-                                model: 0,
-                                model_open: &mut false,
-                                count: 1,
-                                aspects: &["Source"],
-                                aspect: 0,
-                                aspect_open: &mut false,
-                                seed_locked: false,
-                                live: false,
-                                take_focus: false,
-                            },
-                            zoom,
-                            atlas_shell::theme::Palette::dark(),
+                            chrome::EDITOR_WIDTH,
                         );
+                        let strip = chrome::strip_rect_below(bounds.center_bottom(), 7, zoom, 1.0);
+                        // Match the production external editor owner. Final JS layout.js
+                        // gives a detached editor420u even when its image host is160u.
+                        let host = crate::app::board_properties::EditorHost {
+                            node: Some(&node),
+                            bounds,
+                            strip,
+                            zoom,
+                            blister: false,
+                            canvas: ctx.screen_rect(),
+                            theme: atlas_shell::theme::Palette::dark(),
+                        };
+                        host.show(
+                            ctx,
+                            (Id::new("narrow-image-history-editor"), ui.layer_id()),
+                            (
+                                chrome::ImagePanelKind::Custom {
+                                    main_height: height,
+                                },
+                                height,
+                            ),
+                            true,
+                            true,
+                            |ui, rect, _| {
+                                assert_eq!(node.rect.w, 160.0, "the source box is never widened");
+                                let mut prompt = "A picture".to_owned();
+                                h.app.paint_image_agent_editor(
+                                    ui,
+                                    rect,
+                                    id,
+                                    chrome::AgentEdit {
+                                        modes: &["Image"],
+                                        mode: 0,
+                                        image: true,
+                                        prompt: &mut prompt,
+                                        hint: "Describe the image",
+                                        models: &["Auto"],
+                                        model: 0,
+                                        model_open: &mut false,
+                                        count: 1,
+                                        aspects: &["Source"],
+                                        aspect: 0,
+                                        aspect_open: &mut false,
+                                        custom_aspect: None,
+                                        custom_aspect_supported: false,
+                                        seed_locked: false,
+                                        seed_supported: false,
+                                        live: false,
+                                        take_focus: false,
+                                    },
+                                    zoom,
+                                    atlas_shell::theme::Palette::dark(),
+                                );
+                                for index in 0..h.app.agent_images(id).len() {
+                                    if let Some(response) = ctx
+                                        .read_response(ui.id().with(("image-agent-history", index)))
+                                    {
+                                        if response.rect.intersects(ui.clip_rect()) {
+                                            visible.push((index, response.rect));
+                                        }
+                                    }
+                                }
+                                for (index, earlier) in [true, false].into_iter().enumerate() {
+                                    navigation[index] = ctx
+                                        .read_response(
+                                            ui.id().with(("generator-history-page", earlier)),
+                                        )
+                                        .map(|response| response.rect);
+                                }
+                            },
+                        )
+                        .expect("actual narrow source fallback editor intersects the viewport");
                     });
                 },
-            )
+            );
+            (output, navigation, visible)
         };
+        // The real popup Area sizes first, then publishes its usable row.
+        for _ in 0..3 {
+            frame(&mut h, vec![]);
+        }
         for destination in [19, 0] {
             for _ in 0..20 {
                 let selected = h.app.agent_shown_index(id).unwrap();
                 if selected == destination {
                     break;
                 }
-                let output = frame(&mut h, vec![]);
+                let (_output, navigation, visible) = frame(&mut h, vec![]);
                 assert!(
-                    h.app.preview_reqs_this_frame <= 1,
-                    "the shared narrow row requests only its visible chip"
+                    !visible.is_empty(),
+                    "actual detached history publishes visible circle responses"
                 );
-                let label = (selected + 1).to_string();
-                let chip = output
-                    .shapes
-                    .iter()
-                    .find_map(|shape| match &shape.shape {
-                        egui::Shape::Text(text) if text.galley.text() == label => {
-                            Some(text.visual_bounding_rect().center())
-                        }
-                        _ => None,
-                    })
-                    .expect("the global output number is visible");
-                // The shared row has a 26u chip, 3u gap and 16u arrow hit target.
-                let point = chip
-                    + egui::vec2(if destination > selected { 24.0 } else { -24.0 }, 0.0) * zoom;
+                assert!(
+                    visible.len() < h.app.agent_images(id).len(),
+                    "pagination keeps hidden outputs off the frame loop"
+                );
+                assert!(
+                    u64::from(h.app.preview_reqs_this_frame) <= visible.len() as u64,
+                    "only actually visible history previews are requested"
+                );
+                let forward = destination > selected;
+                let (expected, point) = if let Some((index, rect)) =
+                    visible.iter().find(|(index, _)| *index == destination)
+                {
+                    (*index, rect.center())
+                } else {
+                    let expected = if forward {
+                        visible.last().unwrap().0 + 1
+                    } else {
+                        visible.first().unwrap().0 - 1
+                    };
+                    let rect = navigation[usize::from(forward)]
+                        .expect("visible shared history navigation target");
+                    (expected, rect.center())
+                };
+                assert!(
+                    if forward {
+                        expected > selected
+                    } else {
+                        expected < selected
+                    },
+                    "the actual page or endpoint target makes global-index progress"
+                );
+                assert!(expected < h.app.agent_images(id).len());
                 frame(&mut h, vec![egui::Event::PointerMoved(point)]);
                 for pressed in [true, false] {
                     frame(
@@ -159,11 +249,7 @@ fn narrow_image_history_reaches_the_full_album_without_queueing_hidden_previews(
                 }
                 assert_eq!(
                     h.app.agent_shown_index(id),
-                    Some(if destination > selected {
-                        selected + 1
-                    } else {
-                        selected - 1
-                    }),
+                    Some(expected),
                     "the shared response uses the global album index"
                 );
                 frame(&mut h, vec![]);

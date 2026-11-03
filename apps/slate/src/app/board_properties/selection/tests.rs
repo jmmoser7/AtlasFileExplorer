@@ -156,6 +156,7 @@ fn open_generator_menu(
                 offset: 42.0,
             },
             content_height: 300.0,
+            focus_index: None,
         }),
         ..Default::default()
     };
@@ -212,6 +213,26 @@ fn explicit_close_and_escape_forget_artifact_generator_memory() {
         });
         open_generator_menu(&mut h, id);
         if escape {
+            h.frame_with(|input| {
+                input.events.push(egui::Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                })
+            });
+            assert_eq!(h.app.shape_properties.panel, Some(Panel::Agent));
+            assert!(!h.app.generator_presentation(id).model_open);
+            h.frame_with(|input| {
+                input.events.push(egui::Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    pressed: false,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                })
+            });
             h.frame_with(|input| {
                 input.events.push(egui::Event::Key {
                     key: egui::Key::Escape,

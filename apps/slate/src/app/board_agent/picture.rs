@@ -22,6 +22,12 @@ impl SlateApp {
         node: &Node,
         body: Rect,
     ) {
+        // Model preview/result chrome owns this host; its Chat binding is not
+        // an image generator and must not paint the legacy picture prompt.
+        if self.model_node_info(node.id).is_some() {
+            self.paint_pack_caption(painter, node, body, xf.z);
+            return;
+        }
         if slate_doc::agent_chat::agent(node)
             .is_some_and(|a| a.view == atlas_ai::agent::PortalView::Text)
         {
@@ -185,28 +191,6 @@ impl SlateApp {
                 self.palette().accent,
             );
         }
-        // Before its first result the picture is a prompt: type, or wire a note.
-        if images.is_empty() && legible && !(running || waiting > 0) {
-            let wired = view.inputs.iter().any(|i| i.role == InputRole::Prompt);
-            let hint = if wired {
-                "Add to the wired prompt, or press Generate"
-            } else {
-                "Wire a note to Prompt, or type here"
-            };
-            let width = (body.width() - canvas_scale::px(48.0, z)).min(canvas_scale::px(520.0, z));
-            let field =
-                Rect::from_center_size(body.center(), egui::vec2(width, canvas_scale::px(64.0, z)));
-            let ink = self.palette().overlay();
-            paint_overlay_pill(
-                painter,
-                field.expand(canvas_scale::px(10.0, z)),
-                canvas_scale::px(10.0, z),
-                ink.scrim,
-                &ink,
-                z,
-            );
-            self.paint_generator_prompt(ui, id, field, z, hint);
-        }
         let previews = agent.provider == "comfy";
         if hud {
             self.paint_run_progress(ui, painter, id, body, z, view.task().working(), previews);
@@ -244,46 +228,6 @@ impl SlateApp {
             paint_overlay_pill(painter, back, canvas_scale::px(6.0, z), ink.fill, &ink, z);
             text.paint(painter, at, ink.warn);
         }
-        // The dock: run, then the prompt that made the picture across the rest.
-        let action = if agent.live {
-            "Keep"
-        } else if running {
-            "Stop"
-        } else {
-            view.task().action()
-        };
-        let at =
-            body.left_bottom() + egui::vec2(canvas_scale::px(12.0, z), canvas_scale::px(-40.0, z));
-        let (primary, rect) = Self::generator_button(
-            ui,
-            painter,
-            at,
-            action,
-            Id::new(("agent-generate", id.0)),
-            &ink,
-            z,
-        );
-        let primary = match action {
-            "Keep" => primary.on_hover_text("Keep this frame. Live continues."),
-            "Stop" => primary.on_hover_text("Stop this run and clear the waiting ones."),
-            _ => primary.on_hover_text(view.task().explain()),
-        };
-        if primary.clicked() {
-            self.board_sel = std::iter::once(id).collect();
-            let command = match action {
-                "Stop" => "portal.agent.stop",
-                "Keep" => "portal.agent.keep",
-                _ => "portal.agent.send",
-            };
-            self.dispatch(ui.ctx(), atlas_commands::CommandId(command), None);
-        }
-        if !images.is_empty() {
-            let capsule = Rect::from_min_max(
-                Pos2::new(rect.right() + canvas_scale::px(6.0, z), rect.top()),
-                Pos2::new(body.right() - canvas_scale::px(12.0, z), rect.bottom()),
-            );
-            self.paint_prompt_capsule(ui, painter, id, capsule, body, z);
-        }
     }
     /// Picking a result makes it the picture's file (journaled, undoable).
     pub(crate) fn pick_agent_result(&mut self, id: NodeId, index: usize) {
@@ -293,17 +237,62 @@ impl SlateApp {
         if self.tab().read_only {
             return;
         }
+        if self.doc().scene.node(id).is_some_and(|node| {
+            matches!(&node.kind, NodeKind::Portal(portal)
+            if portal.kind == slate_doc::scene::PortalKind::Agent)
+        }) {
+            self.agents.cover_focus.insert(id, index);
+            return;
+        }
         let path = resolve_source(self.tab().path.as_deref(), &image.source);
-        let Some(item) = self.item_for_path(&path) else {
+        let Some(_) = self.item_for_path(&path) else {
             self.toast("That result is no longer on disk.");
             return;
         };
-        let Some(before) = self.doc().scene.node(id).cloned() else {
-            return;
-        };
+        if let Ok(command) = self.prepare_image_output_choice(id, &image.id) {
+            self.commit_scene(vec![command]);
+        }
+    }
+
+    /// Selection metadata changes through one prepared patch. No provider context
+    /// or input wire changes; targeted callers require the existing registered link.
+    pub(crate) fn prepare_image_output_choice(
+        &self,
+        id: NodeId,
+        output: &str,
+    ) -> Result<slate_doc::scene::SceneCmd, String> {
+        let image = self
+            .agent_images(id)
+            .iter()
+            .find(|image| image.id == output)
+            .cloned()
+            .ok_or("Image result is unavailable")?;
+        let before = self
+            .doc()
+            .scene
+            .node(id)
+            .cloned()
+            .ok_or("Image is missing")?;
+        if self.tab().read_only || before.locked {
+            return Err("Image is read-only or locked".into());
+        }
+        let path = resolve_source(self.tab().path.as_deref(), &image.source);
+        let item = self
+            .doc()
+            .items
+            .iter()
+            .find(|item| {
+                item.pdf_page == 0
+                    && resolve_source(self.tab().path.as_deref(), &item.path.to_string_lossy())
+                        == path
+            })
+            .map(|item| item.id)
+            .ok_or(
+                "Select this saved image with its preview control to restore its link, then retry",
+            )?;
         let mut after = before.clone();
         let NodeKind::Image(image_node) = &mut after.kind else {
-            return;
+            return Err("Select an existing image host".into());
         };
         if self.agent_active_output(id).as_deref() != Some(image.id.as_str()) {
             if let Some(current) = self.image_result_id(id) {
@@ -315,13 +304,21 @@ impl SlateApp {
             }
         }
         image_node.item = item;
-        self.commit_scene(vec![slate_doc::scene::SceneCmd::Patch {
+        Ok(slate_doc::scene::SceneCmd::Patch {
             before: Box::new(before),
             after: Box::new(after),
-        }]);
+        })
     }
     /// The file an agent picture shows: the picked result, else the newest.
     pub(crate) fn agent_shown_path(&self, id: NodeId) -> Option<PathBuf> {
+        if let Some(NodeKind::Image(image)) = self.doc().scene.node(id).map(|node| &node.kind) {
+            if let Some(item) = self.doc().item(image.item) {
+                return Some(resolve_source(
+                    self.tab().path.as_deref(),
+                    &item.path.to_string_lossy(),
+                ));
+            }
+        }
         self.doc()
             .scene
             .node(id)

@@ -12,4 +12,5 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+& (Join-Path $root 'tools/headless-rhino/build.ps1') -OutputDirectory (Join-Path $root 'target/release') -SkipIfUnavailable
 & (Join-Path $PSScriptRoot "install-shortcuts.ps1") -Configuration Release

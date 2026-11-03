@@ -1,10 +1,8 @@
 //! Interactive 3D viewports for placed models (`MediaKind::Model`).
 //!
-//! Any recognized 3D file placed on the board is a **viewport node**: its saved
-//! [`ModelCamera`] pose (journaled document state on the `ImageNode`) decides
-//! which view of the model the node shows. Format readers live in
-//! `model-preview` and all return one [`model_preview::PreviewScene`]. The
-//! lifecycle keeps big models cheap by default:
+//! Placed 3D files are viewport nodes: their journaled [`ModelCamera`] pose
+//! on the `ImageNode` chooses the view. Readers in `model-preview` return
+//! one [`model_preview::PreviewScene`]. The lifecycle keeps big models cheap:
 //!
 //! - **Locked (default).** The node paints a *poster* — a PNG rendered from
 //!   the saved camera pose, cached on disk next to the thumbnail cache. No
@@ -3475,12 +3473,14 @@ mod tests {
 
         h.app.lock_model(id);
         h.app.board_sel = std::iter::once(id).collect();
-        let out = h.frame_output(|_| {});
+        let out = super::super::tests::frame_with_interaction_shadow(&mut h, id);
         let host = h
             .app
             .board_xf()
             .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
-        assert!(super::super::tests::painted_shadow_encloses(&out, host));
+        assert!(super::super::tests::painted_shadow_encloses(
+            &h.ctx, &out, host
+        ));
         let rings = painted_rings(&mut h);
         let (expected, _) = corner_outline(&h);
         assert!(

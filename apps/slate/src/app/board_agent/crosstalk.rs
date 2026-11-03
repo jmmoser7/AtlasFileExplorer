@@ -622,6 +622,7 @@ impl SlateApp {
     /// `portal.agent.crosstalk.start`: the person's grant (X10). Journals each
     /// side's transcript length as the baseline.
     pub(crate) fn crosstalk_start(&mut self, detail: Option<&str>) -> bool {
+        self.refresh_agent_access();
         let Some(chain) = self.crosstalk_chain(detail) else {
             self.toast("Select a crosstalk wire first.");
             return false;
@@ -1892,6 +1893,7 @@ impl SlateApp {
 
 #[cfg(test)]
 mod tests {
+    include!("crosstalk/tests/bundled_midpoints.rs");
     use super::*;
     use atlas_ai::agent::{AgentSession, AgentTurn};
     use std::path::{Path, PathBuf};
@@ -2664,6 +2666,33 @@ mod tests {
         assert!(status(&p.h).starts_with("Turn 2 of 10"), "{}", status(&p.h));
     }
     #[test]
+    fn restart_retains_independent_relay_grant_for_a_globally_allowed_cursor() {
+        for (relay, denied) in [(true, false), (false, false), (true, true)] {
+            let mut p = linked(&format!("xt-global-relay-{relay}-{denied}"));
+            let cursor = session(&p.h, p.cursor);
+            let codex = session(&p.h, p.codex);
+            let path = p.h.base.join("agent-access.json");
+            atlas_ai::access::set_global_default_full_access_in(&path, true).unwrap();
+            atlas_ai::access::set_in(&path, &codex, false).unwrap();
+            if denied {
+                atlas_ai::access::set_in(&path, &cursor, false).unwrap();
+            }
+            atlas_ai::access::set_relay_in(&path, &cursor, true).unwrap();
+            if !relay {
+                atlas_ai::access::set_relay_in(&path, &cursor, false).unwrap();
+            }
+            // Same bootstrap owner as process startup; no explicit Cursor full grant.
+            p.h.app.set_agent_access_store_for_tests(path);
+            assert_eq!(p.h.app.agent_full_access(&cursor), !denied);
+            assert_eq!(p.h.app.agents.crosstalk.trust.contains(&cursor), relay);
+            let chain = chain(&p.h);
+            assert_eq!(
+                command(&mut p.h, "portal.agent.crosstalk.start", Some(chain)),
+                relay || denied
+            );
+        }
+    }
+    #[test]
     fn start_refuses_a_reviewer_with_full_access() {
         let mut p = pair("xt_full_access");
         let (from, to) = (
@@ -3327,72 +3356,6 @@ mod tests {
                         assert!(!meet, "wires {i} and {j} meet: {p:?} and {q:?}");
                     }
                 }
-            }
-        }
-        export_matches_board(&h);
-    }
-
-    /// Bundled square crosswires keep their blisters on their own routed
-    /// mid-spans (user, 28 September 2026).
-    #[test]
-    fn bundled_square_crosswires_keep_blisters_on_their_routed_midpoints() {
-        let mut h = Harness::new("xt_bundle_blisters");
-        h.app.leave_home();
-        h.app.ensure_work_tab();
-        h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
-        h.app.board_wire_routing = slate_doc::WireRouting::Orthogonal;
-        h.frame();
-        let expert = chat(&mut h, Pos2::new(160.0, 1500.0), "codex", "blister-expert");
-        let sources: Vec<NodeId> = [(-700.0, 420.0), (160.0, 270.0), (900.0, 340.0)]
-            .into_iter()
-            .enumerate()
-            .map(|(i, (x, y))| chat(&mut h, Pos2::new(x, y), "cursor", &format!("blister-s{i}")))
-            .collect();
-        settle(&mut h);
-        let partner = session(&h, expert);
-        let mut wires = Vec::new();
-        for (i, from) in sources.iter().enumerate() {
-            let binding = Crosstalk::owner(
-                format!("blister-chain-{i}"),
-                &session(&h, *from),
-                &partner,
-                Role::Builds,
-            );
-            let node = h.app.crosswire_node(*from, expert, binding).unwrap();
-            wires.push(node.id);
-            h.app.add_nodes(vec![node]);
-        }
-        h.app.fit_board();
-        h.frame();
-        h.frame();
-        let xf = h.app.board_xf();
-        let mids: Vec<Pos2> = wires.iter().map(|w| mid_span(&h, *w)).collect();
-        for (w, mid) in wires.iter().zip(&mids) {
-            assert_eq!(routing(&h, *w), slate_doc::WireRouting::Orthogonal);
-            let NodeKind::Connector(c) = &h.app.doc().scene.node(*w).unwrap().kind else {
-                unreachable!()
-            };
-            let Some(slate_doc::ConnectorPath::Orthogonal(world)) =
-                h.app.connector_path_visible(*w, c)
-            else {
-                panic!("square")
-            };
-            let screen: Vec<Pos2> = world
-                .iter()
-                .map(|q| xf.w2s(Pos2::new(q[0], q[1])))
-                .collect();
-            assert!(off_path(&screen, *mid) < 0.5, "on its own square wire");
-            assert!(
-                has_rect_at(&h, tools::blister_rect(*mid, xf.z)),
-                "a blister at {mid:?}"
-            );
-        }
-        for i in 0..mids.len() {
-            for j in i + 1..mids.len() {
-                assert!(
-                    (mids[i] - mids[j]).length() > 1.0,
-                    "each bundled wire has its own blister"
-                );
             }
         }
         export_matches_board(&h);

@@ -393,6 +393,9 @@
         "portal.web.paste_url",
         "portal.web.copy_url",
         "portal.web.reload",
+        "portal.web.allow_origin",
+        "portal.web.revoke_origin",
+        "portal.web.access_settings",
         "portal.chrome.toggle",
         "sep:stack",
         "board.lock",
@@ -690,6 +693,21 @@
     "portal.chrome.toggle": {
       "label": "Hide tab",
       "icon": "panel-top",
+      "shortcut": ""
+    },
+    "portal.web.allow_origin": {
+      "label": "Allow site",
+      "icon": "check",
+      "shortcut": ""
+    },
+    "portal.web.revoke_origin": {
+      "label": "Revoke site",
+      "icon": "lock",
+      "shortcut": ""
+    },
+    "portal.web.access_settings": {
+      "label": "Website access",
+      "icon": "settings",
       "shortcut": ""
     },
     "portal.web.copy_url": {

@@ -17,10 +17,33 @@ pub fn image_generate_control(
     zoom: f32,
     theme: Palette,
 ) -> ImageGenerateResponse {
-    let mut out = ImageGenerateResponse::default();
+    let mut out = ImageGenerateResponse {
+        count: image_count_control(ui, count_rect, count, zoom, theme),
+        ..Default::default()
+    };
+    out.submit = generator::generator_play_control(
+        ui,
+        play_rect,
+        running,
+        live_active,
+        ui.id().with("image-agent-play"),
+        zoom,
+        theme,
+    );
+    out
+}
+/// The shared always-visible count control; the caller owns its 1–8 value.
+pub fn image_count_control(
+    ui: &mut egui::Ui,
+    count_rect: Rect,
+    count: u8,
+    zoom: f32,
+    theme: Palette,
+) -> Option<u8> {
+    let mut changed = None;
     // Register both targets every frame. Conditional registration based on a
     // parent hover response loses hover as soon as a child owns the pointer.
-    let show_count = ui.rect_contains_pointer(count_rect.union(play_rect));
+    let show_count = true;
     {
         let minus =
             Rect::from_min_size(count_rect.min, Vec2::new(13.0 * zoom, count_rect.height()));
@@ -49,7 +72,7 @@ pub fn image_generate_control(
                 );
             }
             if response.clicked() {
-                out.count = Some((i16::from(count.max(1)) + delta).clamp(1, 8) as u8);
+                changed = Some((i16::from(count.max(1)) + delta).clamp(1, 8) as u8);
             }
         }
     }
@@ -63,14 +86,5 @@ pub fn image_generate_control(
             theme.sub,
         );
     }
-    out.submit = generator::generator_play_control(
-        ui,
-        play_rect,
-        running,
-        live_active,
-        ui.id().with("image-agent-play"),
-        zoom,
-        theme,
-    );
-    out
+    changed
 }

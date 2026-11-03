@@ -101,6 +101,7 @@ fn entered_media_suppresses_the_selection_cast() {
     let text = h.app.doc_mut().scene.build_node(
         slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 80.0),
         NodeKind::Text(TextNode {
+            answers: Default::default(),
             text: "Note".into(),
             style: Default::default(),
             family: Typeface::Sans,

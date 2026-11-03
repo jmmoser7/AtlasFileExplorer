@@ -231,20 +231,18 @@ impl SlateApp {
     /// A user-sized card with more content than room scrolls instead of zooming.
     pub(crate) fn pointer_over_scrolling_agent_card(
         &self,
+        ctx: &egui::Context,
         xf: &BoardXf,
         pointer: Option<Pos2>,
     ) -> bool {
         let Some(p) = pointer else {
             return false;
         };
-        let world = xf.s2w(p);
-        self.doc()
-            .scene
-            .nodes
-            .iter()
-            .rev()
-            .find(|n| !n.hidden && !n.is_frame() && n.rect.contains(world.x, world.y))
-            .is_some_and(|n| self.card_owns_transcript_wheel(n))
+        (!ctx.input(|i| i.modifiers.ctrl) && self.text_review_wheel_owner(ctx, p).is_some())
+            || self
+                .topmost_node_at(p, xf)
+                .and_then(|id| self.doc().scene.node(id))
+                .is_some_and(|n| self.card_owns_transcript_wheel(n))
     }
     pub(crate) fn agent_focus(&mut self, id: NodeId) {
         self.portal_enter_interactive(id);

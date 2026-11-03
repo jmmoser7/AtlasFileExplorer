@@ -255,11 +255,6 @@ ceiling = 691
 reason = "core backend; atlas-core owner"
 
 [[entry]]
-file = "crates/atlas-openai/src/lib.rs"
-ceiling = 594
-reason = "oversized; split along module seam"
-
-[[entry]]
 file = "crates/atlas-shell/src/covers.rs"
 ceiling = 620
 reason = "shared chrome/canvas; Art. X owner atlas-shell"
@@ -388,11 +383,6 @@ reason = "document model; slate-doc owner"
 [[entry]]
 file = "crates/slate-doc/src/crosstalk.rs"
 ceiling = 884
-reason = "document model; slate-doc owner"
-
-[[entry]]
-file = "crates/slate-doc/src/doc.rs"
-ceiling = 769
 reason = "document model; slate-doc owner"
 
 [[entry]]

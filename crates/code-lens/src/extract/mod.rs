@@ -11,20 +11,37 @@ pub mod rust_src;
 
 use cargo::{
     discover_packages, normalize_crate_name, package_name_index, workspace_dependency_names,
+    PackageMeta,
 };
-use modules::walk_package_src;
+use modules::walk_package_sources;
 use rust_src::{
     extract_impl_trait_edges, extract_items, extract_use_edges, parse_file, rollup_loc,
     ImplTraitEdgeCtx, TraitIndex, UseEdgeCtx,
 };
 
-pub fn analyze_workspace(root: &Path) -> Result<CodeGraph, LensError> {
+/// Shared physical workspace discovery, before callers attach syntax-level nodes.
+pub(crate) struct WorkspaceBase {
+    pub(crate) builder: GraphBuilder,
+    pub(crate) root: NodeId,
+    pub(crate) packages: Vec<PackageMeta>,
+    pub(crate) package_ids: Vec<NodeId>,
+    pub(crate) maps: HashMap<NodeId, modules::ModuleMaps>,
+}
+
+pub(crate) fn prepare_workspace(
+    root: &Path,
+    selection: Option<&HashSet<String>>,
+    include_tests: bool,
+) -> Result<WorkspaceBase, LensError> {
     let manifest = root.join("Cargo.toml");
     if !manifest.is_file() {
         return Err(LensError::NotACodeRoot(root.to_path_buf()));
     }
 
-    let packages = discover_packages(root)?;
+    let mut packages = discover_packages(root)?;
+    if let Some(selection) = selection {
+        packages.retain(|package| selection.contains(&package.name));
+    }
     let member_names: HashSet<String> = packages
         .iter()
         .map(|p| normalize_crate_name(&p.name))
@@ -70,9 +87,33 @@ pub fn analyze_workspace(root: &Path) -> Result<CodeGraph, LensError> {
     let mut all_maps: HashMap<NodeId, modules::ModuleMaps> = HashMap::new();
     for (pkg, &pkg_id) in packages.iter().zip(package_ids.iter()) {
         let pkg_root = package_root(root, &pkg.rel_path);
-        let maps = walk_package_src(&mut builder, pkg_id, &pkg.rel_path, &pkg_root.join("src"))?;
+        let maps = walk_package_sources(
+            &mut builder,
+            pkg_id,
+            &pkg.rel_path,
+            &pkg_root,
+            include_tests,
+        )?;
         all_maps.insert(pkg_id, maps);
     }
+
+    Ok(WorkspaceBase {
+        builder,
+        root: workspace_id,
+        packages,
+        package_ids,
+        maps: all_maps,
+    })
+}
+
+pub fn analyze_workspace(root: &Path) -> Result<CodeGraph, LensError> {
+    let WorkspaceBase {
+        mut builder,
+        root: workspace_id,
+        packages,
+        package_ids,
+        maps: all_maps,
+    } = prepare_workspace(root, None, false)?;
 
     let mut package_for_item: HashMap<NodeId, NodeId> = HashMap::new();
     let mut parsed_files: Vec<(NodeId, NodeId, PathBuf, syn::File)> = Vec::new();
@@ -113,8 +154,9 @@ pub fn analyze_workspace(root: &Path) -> Result<CodeGraph, LensError> {
 
     parsed_files.sort_by(|a, b| a.2.cmp(&b.2));
 
+    // Edge extraction never adds nodes. One immutable snapshot serves all files.
+    let nodes = builder.nodes().to_vec();
     for (file_id, pkg_id, file_rel, ast) in parsed_files {
-        let nodes = builder.nodes().to_vec();
         let maps = all_maps.get(&pkg_id).expect("maps for package");
         let use_ctx = UseEdgeCtx {
             file_package_id: pkg_id,
@@ -123,7 +165,6 @@ pub fn analyze_workspace(root: &Path) -> Result<CodeGraph, LensError> {
             nodes: &nodes,
         };
         let imports = extract_use_edges(&mut builder, file_id, &file_rel, &ast, &use_ctx);
-        let nodes = builder.nodes().to_vec();
         let impl_ctx = ImplTraitEdgeCtx {
             file_package_id: pkg_id,
             file_imports: &imports,
@@ -157,7 +198,7 @@ pub(crate) struct GraphBuilder {
 }
 
 impl GraphBuilder {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             nodes: Vec::new(),
             edge_weights: HashMap::new(),
@@ -203,7 +244,15 @@ impl GraphBuilder {
 
     fn finish(mut self, root: NodeId, generated_at: u64) -> Result<CodeGraph, LensError> {
         rollup_loc(&mut self.nodes);
+        self.finish_without_rollup(root, generated_at)
+    }
 
+    /// Retains caller-assigned sizes, sharing deterministic node/edge ordering.
+    pub(crate) fn finish_without_rollup(
+        mut self,
+        root: NodeId,
+        generated_at: u64,
+    ) -> Result<CodeGraph, LensError> {
         for id in 0..self.nodes.len() {
             let mut children = self.nodes[id].children.clone();
             children.sort_by(|&a, &b| {
@@ -255,5 +304,52 @@ fn edge_kind_key(kind: EdgeKind) -> u8 {
         EdgeKind::PackageDep => 0,
         EdgeKind::Use => 1,
         EdgeKind::ImplTrait => 2,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selected_workspace_preserves_physical_source_roots() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mini-ws");
+        let selected = HashSet::from(["core-lib".to_string()]);
+        let base = prepare_workspace(&root, Some(&selected), true).unwrap();
+        assert_eq!(base.packages.len(), 1);
+        assert_eq!(base.packages[0].name, "core-lib");
+        let package = base.package_ids[0];
+        let maps = &base.maps[&package];
+        let source = maps.module_by_path[Path::new("core-lib/src")];
+        assert_eq!(base.builder.nodes()[source as usize].parent, Some(package));
+        let file = maps.file_by_path[Path::new("core-lib/src/lib.rs")];
+        assert_eq!(base.builder.nodes()[file as usize].parent, Some(source));
+    }
+
+    #[test]
+    fn caller_assigned_sizes_survive_finish_without_rollup() {
+        let mut builder = GraphBuilder::new();
+        let root = builder.push_node(None, NodeKind::Workspace, "root".into(), ".".into(), 99);
+        builder.push_node(
+            Some(root),
+            NodeKind::File,
+            "file.rs".into(),
+            "file.rs".into(),
+            7,
+        );
+        let graph = builder.finish_without_rollup(root, 0).unwrap();
+        assert_eq!(graph.node(root).loc, 99);
+
+        let mut builder = GraphBuilder::new();
+        let root = builder.push_node(None, NodeKind::Workspace, "root".into(), ".".into(), 99);
+        builder.push_node(
+            Some(root),
+            NodeKind::File,
+            "file.rs".into(),
+            "file.rs".into(),
+            7,
+        );
+        let graph = builder.finish(root, 0).unwrap();
+        assert_eq!(graph.node(root).loc, 7);
     }
 }

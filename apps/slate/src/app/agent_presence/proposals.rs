@@ -1,4 +1,5 @@
 //! Ephemeral execution context; the immutable stage proposal is the authority.
+mod text_scope;
 use super::witness::{WitnessPurpose, WitnessedCommand};
 use super::*;
 use crate::app::dispatch::PreparedBoardCommand;
@@ -64,6 +65,9 @@ impl SlateApp {
             self.finish_contacted_presence_relay(a, &work, now);
             return;
         }
+        let Some(work) = self.defer_presence_artifact_pick(a, work) else {
+            return;
+        };
         let prepared = work.board_prepared().expect("board action variant").clone();
         let created = prepared.created_ids();
         let generator_target = (prepared.command == "portal.agent.run")
@@ -285,6 +289,7 @@ impl SlateApp {
             return Err("The collaborator, request, or active board changed".into());
         }
         let grant = a.grant.as_ref().ok_or("Board grant revoked")?;
+        self.validate_prepared_image_history_scope(grant, call, prepared)?;
         grant
             .authorize(call, &a.binding, &a.request)
             .map_err(str::to_owned)?;
@@ -296,6 +301,15 @@ impl SlateApp {
         {
             return Err("The linked-file input grant was revoked".into());
         }
+        self.validate_text_output_scope(
+            grant,
+            &prepared.command,
+            &prepared
+                .targets
+                .iter()
+                .map(|id| id.0.to_string())
+                .collect::<Vec<_>>(),
+        )?;
         if prepared
             .targets
             .iter()

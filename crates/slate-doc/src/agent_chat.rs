@@ -65,6 +65,10 @@ pub struct ChatView {
     /// World size a person gave the card by resizing it. Text rewraps and scrolls inside.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<[f32; 2]>,
+    /// Fit content vertically while retaining the authored width in `size`.
+    /// Explicit vertical/diagonal resize restores manual height; old docs keep it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fit_height: bool,
 }
 
 impl ChatView {
@@ -737,5 +741,30 @@ mod tests {
         let rewire = vec![reparent(&s, tail, Some(c), 3)];
         assert!(!journal.commit(&mut s, rewire));
         assert_eq!(s.nodes.len(), before.nodes.len() + 1);
+    }
+}
+
+#[cfg(test)]
+mod fit_height_serialization_tests {
+    use super::*;
+    #[test]
+    fn legacy_manual_size_and_explicit_fitted_height_roundtrip_without_sentinels() {
+        let legacy: ChatView =
+            serde_json::from_value(serde_json::json!({"size":[680.0,500.0],"detail":"full"}))
+                .unwrap();
+        assert!(!legacy.fit_height);
+        assert!(serde_json::to_value(&legacy)
+            .unwrap()
+            .get("fit_height")
+            .is_none());
+        let fitted = ChatView {
+            fit_height: true,
+            ..legacy
+        };
+        let roundtrip: ChatView =
+            serde_json::from_value(serde_json::to_value(&fitted).unwrap()).unwrap();
+        assert!(roundtrip.fit_height);
+        assert_eq!(roundtrip.size, Some([680.0, 500.0]));
+        assert_eq!(roundtrip.detail, Detail::Full);
     }
 }

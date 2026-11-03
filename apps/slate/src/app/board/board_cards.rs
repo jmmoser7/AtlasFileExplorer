@@ -30,6 +30,7 @@ impl SlateApp {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn paint_text_snippet_card(
         &mut self,
+        ui: &egui::Ui,
         painter: &egui::Painter,
         outline: &[Pos2],
         srect: Rect,
@@ -47,6 +48,7 @@ impl SlateApp {
             palette.card,
             EStroke::NONE,
         ));
+        let source = self.paint_text_review(ui, painter, node, srect, z, true);
         if self.text_doc_edit.as_ref().is_some_and(|e| e.node == node) {
             // The inline editor paints the words and the caret.
             return;
@@ -58,12 +60,21 @@ impl SlateApp {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        match text_override
-            .map(std::borrow::Cow::Borrowed)
+        let selected = match self.resolved_selected_text_output(node) {
+            Ok(text) => text,
+            Err(_) => Some("Selected text output unavailable — waiting for its source.".into()),
+        };
+        match selected
+            .map(std::borrow::Cow::Owned)
+            .or_else(|| text_override.map(std::borrow::Cow::Borrowed))
             .or_else(|| self.snippet_for(item, path).map(std::borrow::Cow::Owned))
         {
             Some(snippet) => {
-                let inner = text_card_inner(srect, corner, z);
+                let inner = if source != srect {
+                    source
+                } else {
+                    text_card_inner(source, corner, z)
+                };
                 let clip = painter.with_clip_rect(inner);
                 let body = canvas_scale::px(TEXT_CARD_BODY_PX, z);
                 if canvas_text::legible(body) {
@@ -78,7 +89,26 @@ impl SlateApp {
                         palette.ink,
                         z,
                     );
-                    clip.galley(inner.min, galley, palette.ink);
+                    let offset = if self.text_review_visible(node) {
+                        self.text_sheet_scroll(ui, node, (inner, galley.size().y), z, false, true)
+                    } else {
+                        0.0
+                    };
+                    let origin = inner.min - egui::vec2(0.0, offset);
+                    clip.galley(origin, galley.clone(), palette.ink);
+                    if let Some(node) = self.doc().scene.node(node).cloned() {
+                        self.paint_text_answer_links(
+                            ui,
+                            &clip,
+                            &node,
+                            origin,
+                            srect.center(),
+                            &galley,
+                            &snippet,
+                            z,
+                            true,
+                        );
+                    }
                 }
                 let caption = canvas_scale::px(8.5, z);
                 if pointer.is_some_and(|p| srect.contains(p)) && canvas_text::legible(caption) {

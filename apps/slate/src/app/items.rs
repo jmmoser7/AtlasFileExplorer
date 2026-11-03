@@ -43,13 +43,17 @@ impl SlateApp {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default();
         let key = cache_key(&path.to_string_lossy(), size, mtime);
+        let stored = self.ready_link_path(path);
+        self.doc_mut().add_item(stored, name, size, mtime, key)
+    }
+
+    fn ready_link_path(&self, path: &Path) -> PathBuf {
         let locator = slate_doc::scene::source_locator(self.tab().path.as_deref(), path);
-        let stored = if locator.starts_with("assets/") {
+        if locator.starts_with("assets/") {
             PathBuf::from(locator)
         } else {
             path.to_path_buf()
-        };
-        self.doc_mut().add_item(stored, name, size, mtime, key)
+        }
     }
 }
 
@@ -57,6 +61,32 @@ impl SlateApp {
 mod tests {
     use super::*;
     use crate::app::tests::Harness;
+
+    #[test]
+    fn refused_prepared_media_commit_registers_no_item_or_scene_identity() {
+        let mut h = Harness::new("ready-link-refused-before-item-registration");
+        h.app.ensure_work_tab();
+        h.app.leave_home();
+        let file = ReadyFile {
+            path: h.base.join("not-opened.3dm"),
+            size: 10,
+            mtime: 1,
+        };
+        let node = h.app.prepare_ready_media_node(
+            &mut h.app.doc().scene.node_preparation(),
+            slate_doc::WorldRect::new(0., 0., 640., 480.),
+            &file,
+        );
+        let document = serde_json::to_vec(h.app.doc()).unwrap();
+        let depth = h.app.tab().journal.undo_depth();
+        h.app.tab_mut().read_only = true;
+        assert!(h
+            .app
+            .link_prepared_ready_media(file, vec![node], slate_doc::scene::CmdAuthor::Human)
+            .is_err());
+        assert_eq!(serde_json::to_vec(h.app.doc()).unwrap(), document);
+        assert_eq!(h.app.tab().journal.undo_depth(), depth);
+    }
 
     #[test]
     fn ready_links_need_no_filesystem_probe_and_share_dedupe_and_relative_assets() {
@@ -205,21 +235,66 @@ impl SlateApp {
         file: ReadyFile,
         author: slate_doc::scene::CmdAuthor,
     ) -> Result<slate_doc::NodeId, String> {
-        use slate_doc::scene::{ImageNode, NodeKind, SceneCmd};
-        if self.tab().read_only {
-            return Err("Workbook is read-only".into());
-        }
-        let item = self.item_for_ready_path(&file.path, file.size, file.mtime);
-        let node = self
+        let node =
+            self.prepare_ready_media_node(&mut self.doc().scene.node_preparation(), rect, &file);
+        self.link_prepared_ready_media(file, vec![node], author)
+    }
+
+    /// Prepare through the linked-item identity owner without registering an
+    /// item, reserving a scene ID or changing the document.
+    pub(crate) fn prepare_ready_media_node(
+        &self,
+        scene: &mut slate_doc::Scene,
+        rect: slate_doc::scene::WorldRect,
+        file: &ReadyFile,
+    ) -> slate_doc::Node {
+        let item = self
             .doc()
-            .scene
-            .node_preparation()
-            .build_node(rect, NodeKind::Image(ImageNode::new(item)));
-        let id = node.id;
+            .planned_item_id(&self.ready_link_path(&file.path), 0);
+        scene.build_node(
+            rect,
+            slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+        )
+    }
+
+    /// The model and its prepared wires enter one existing scene commit.
+    /// Registration uses the same synchronous planned identity only after that
+    /// commit succeeds, so admission/refusal leaves no orphan linked item.
+    pub(crate) fn link_prepared_ready_media(
+        &mut self,
+        file: ReadyFile,
+        nodes: Vec<slate_doc::Node>,
+        author: slate_doc::scene::CmdAuthor,
+    ) -> Result<slate_doc::NodeId, String> {
+        use slate_doc::scene::{NodeKind, SceneCmd};
+        let first = nodes.first().ok_or("No media was prepared")?;
+        let NodeKind::Image(image) = &first.kind else {
+            return Err("Prepared media must start with its linked image".into());
+        };
+        let planned = self
+            .doc()
+            .planned_item_id(&self.ready_link_path(&file.path), 0);
+        if image.item != planned {
+            return Err("Prepared linked item changed before admission".into());
+        }
+        let id = first.id;
         let index = self.doc().scene.nodes.len();
-        if !self.commit_scene_as(vec![SceneCmd::Add { index, node }], author.clone()) {
+        let commands = nodes
+            .into_iter()
+            .enumerate()
+            .map(|(offset, node)| SceneCmd::Add {
+                index: index + offset,
+                node,
+            })
+            .collect();
+        if !self.commit_scene_as(commands, author.clone()) {
             return Err("Media journal refused the link".into());
         }
+        let registered = self.item_for_ready_path(&file.path, file.size, file.mtime);
+        debug_assert_eq!(
+            registered, planned,
+            "synchronous media admission keeps its planned item identity"
+        );
         let history_author = match author {
             slate_doc::scene::CmdAuthor::Human => atlas_commands::CmdAuthor::Human,
             slate_doc::scene::CmdAuthor::Agent(name) => atlas_commands::CmdAuthor::Agent(name),

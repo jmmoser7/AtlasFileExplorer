@@ -1,4 +1,5 @@
 //! Generator view and generation request.
+mod request;
 
 use super::runtime::QueuedGeneration;
 use super::*;
@@ -180,72 +181,27 @@ impl SlateApp {
         self.generation_request_with_prompt(id, live, None)
     }
 
-    pub(crate) fn generation_request_with_prompt(
-        &mut self,
-        id: NodeId,
-        live: bool,
-        prompt: Option<&str>,
-    ) -> Result<AgentRequest, String> {
-        if let Some(error) = self.generator_view(id).error.clone() {
-            return Err(error);
-        }
-        let prompt = prompt
-            .map(str::to_owned)
-            .unwrap_or_else(|| self.generator_prompt(id));
-        if prompt.is_empty() {
-            return Err("Connect a note with a prompt to this generator.".into());
-        }
-        let inputs = self.generator_input_refs(id, !live)?;
-        let (model, model_parameters, session, settings) = self
-            .doc()
-            .scene
-            .node(id)
-            .and_then(slate_doc::agent_chat::agent)
-            .map(|a| {
-                (
-                    a.model.clone(),
-                    a.model_parameters.clone(),
-                    a.session.clone(),
-                    a.image,
-                )
-            })
-            .unwrap_or_default();
-        let live_run = live.then(|| {
-            self.agents
-                .live_run
-                .entry(id)
-                .or_insert_with(atlas_ai::agent::request_id)
-                .clone()
-        });
-        // Live repeats one seed per generator; otherwise a locked seed repeats.
-        let image = Some(atlas_ai::agent::ImageParams {
-            seed: if live {
-                Some(settings.seed.unwrap_or_else(|| stable_seed(&session)))
-            } else {
-                settings.seed
-            },
-            live: live_run,
-            aspect: settings.aspect,
-            count: settings.count,
-        });
-        Ok(AgentRequest {
-            id: atlas_ai::agent::request_id(),
-            prompt,
-            model,
-            model_parameters,
-            at: atlas_ai::context::now_secs(),
-            inputs,
-            history: vec![],
-            image,
-            output_dir: None,
-            oneshot: false,
-            ..Default::default()
-        })
-    }
     /// Every press is accepted. One generation runs per note at a time.
     pub(crate) fn queue_generation(&mut self, id: NodeId) {
+        self.queue_generation_in_step(id, None);
+    }
+    pub(crate) fn queue_spawned_generation(
+        &mut self,
+        id: NodeId,
+        step: slate_doc::scene::GroupToken,
+    ) {
+        self.queue_generation_in_step(id, Some(step));
+    }
+    fn queue_generation_in_step(&mut self, id: NodeId, step: Option<slate_doc::scene::GroupToken>) {
         match self.generation_request(id, false) {
-            Ok(request) => self.enqueue_generation(id, request),
+            Ok(request) => {
+                self.enqueue_generation_in_step(
+                    id,
+                    request,
+                    slate_doc::scene::CmdAuthor::Human,
+                    step,
+                );
+            }
             Err(error) => {
                 self.toast(error.clone());
                 self.fail_agent_await(id, error);
@@ -262,6 +218,15 @@ impl SlateApp {
         request: AgentRequest,
         author: slate_doc::scene::CmdAuthor,
     ) -> bool {
+        self.enqueue_generation_in_step(id, request, author, None)
+    }
+    fn enqueue_generation_in_step(
+        &mut self,
+        id: NodeId,
+        request: AgentRequest,
+        author: slate_doc::scene::CmdAuthor,
+        step: Option<slate_doc::scene::GroupToken>,
+    ) -> bool {
         let inputs = match self.begin_agent_input_preparation(request.inputs.clone()) {
             Ok(inputs) => inputs,
             Err(error) => {
@@ -270,7 +235,7 @@ impl SlateApp {
                 return false;
             }
         };
-        self.enqueue_prepared_generation_as(id, request, inputs, author)
+        self.enqueue_prepared_generation_in_step(id, request, inputs, author, step)
     }
     pub(crate) fn enqueue_prepared_generation(
         &mut self,
@@ -309,6 +274,16 @@ impl SlateApp {
         inputs: super::input_prep::InputPreparation,
         author: slate_doc::scene::CmdAuthor,
     ) -> bool {
+        self.enqueue_prepared_generation_in_step(id, request, inputs, author, None)
+    }
+    fn enqueue_prepared_generation_in_step(
+        &mut self,
+        id: NodeId,
+        mut request: AgentRequest,
+        mut inputs: super::input_prep::InputPreparation,
+        author: slate_doc::scene::CmdAuthor,
+        step: Option<slate_doc::scene::GroupToken>,
+    ) -> bool {
         if let Err(error) = self.check_generation_queue(id) {
             self.fail_agent_await(id, error.clone());
             self.toast(error);
@@ -318,7 +293,111 @@ impl SlateApp {
             }
             return false;
         }
-        if request.oneshot && self.is_text_block(id) {
+        let agent = self
+            .doc()
+            .scene
+            .node(id)
+            .and_then(slate_doc::agent_chat::agent)
+            .cloned();
+        let settings = agent
+            .as_ref()
+            .map(|a| a.generator.clone())
+            .unwrap_or_default();
+        let count = settings
+            .count
+            .unwrap_or_else(|| request.image.as_ref().map_or(1, |image| image.count))
+            .max(1);
+        let shared = slate_doc::agent_inputs::shared_generator_sources(&self.doc().scene, id);
+        let jobs = match slate_doc::agent_inputs::plan_grafted_inputs_with_shared(
+            &inputs.inputs,
+            &settings.grafted_slots,
+            count,
+            &shared,
+        ) {
+            Ok(jobs) => jobs,
+            Err(error) => {
+                self.fail_agent_await(id, error.clone());
+                self.toast(error);
+                return false;
+            }
+        };
+        let waiting = self
+            .agents
+            .comfy_queue
+            .get(&id)
+            .map_or(0, |queue| queue.len());
+        let total: usize = jobs
+            .iter()
+            .map(|job| {
+                if request.image.is_none() {
+                    usize::from(job.count)
+                } else {
+                    1
+                }
+            })
+            .sum();
+        if waiting + total > GENERATION_QUEUE {
+            let error = format!("{} graft branches exceed the generator's eight-job queue; reduce the inputs or wait.", jobs.len());
+            self.fail_agent_await(id, error.clone());
+            self.toast(error);
+            return false;
+        }
+        // Explicit new settings opt into immutable replay. None preserves the
+        // legacy adapter's oneshot/session behavior on existing documents.
+        if request.image.is_some() {
+            if request.image_history.is_none() {
+                if let Err(error) =
+                    self.capture_image_history_request(id, &mut request, settings.preserve_history)
+                {
+                    self.fail_agent_await(id, error.clone());
+                    self.toast(error);
+                    return false;
+                }
+            }
+            if request.image_history == Some(false) {
+                request.history.clear();
+                request.image_history_prefix = None;
+            }
+            if request.image_history == Some(true)
+                && request
+                    .image_history_prefix
+                    .is_none_or(|prefix| prefix as usize > request.history.len())
+            {
+                self.fail_agent_await(
+                    id,
+                    "Capture a valid inherited Image history boundary before sending".into(),
+                );
+                return false;
+            }
+        } else if let Some(preserve) = settings.preserve_history {
+            request.oneshot = !preserve || settings.text_response_only;
+            request.history = if settings.text_response_only {
+                if preserve {
+                    settings.text_context.clone()
+                } else {
+                    Vec::new()
+                }
+            } else if preserve {
+                self.agents
+                    .sessions
+                    .get(&id)
+                    .map(|s| s.turns.clone())
+                    .filter(|turns| !turns.is_empty())
+                    .or_else(|| {
+                        slate_doc::agent_inputs::generator_memory_snapshot(&self.doc().scene, id)
+                            .map(|pin| pin.turns)
+                    })
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+        }
+        let query = self.agents.flow.text_answer_requests.contains_key(&(
+            self.tab().id,
+            id,
+            request.id.clone(),
+        ));
+        if self.is_text_block(id) && !query {
             self.patch_nodes_as(&[id], author.clone(), |node| {
                 if let NodeKind::Image(image) = &mut node.kind {
                     image.text_override = None;
@@ -326,13 +405,69 @@ impl SlateApp {
             });
         }
         let doc = self.tab().id;
+        inputs.freeze_capture(&request);
         let queue = self.agents.comfy_queue.entry(id).or_default();
-        queue.push_back(QueuedGeneration {
-            doc,
-            author,
-            request,
-            inputs,
-        });
+        let original_id = request.id.clone();
+        let answer = self
+            .agents
+            .flow
+            .text_answer_requests
+            .get(&(doc, id, original_id.clone()))
+            .cloned();
+        let branching = total > 1;
+        for job in jobs {
+            let copies = if request.image.is_none() {
+                job.count
+            } else {
+                1
+            };
+            for result in 0..copies {
+                let mut branch_request = request.clone();
+                if branching {
+                    branch_request.id = format!("{}-branch-{}-{result}", original_id, job.branch);
+                    branch_request.oneshot = true;
+                    if branch_request.text_source.is_none()
+                        && branch_request.image_history.is_none()
+                    {
+                        branch_request.prompt = slate_doc::agent_inputs::grafted_prompt(
+                            &branch_request.prompt,
+                            &inputs.inputs,
+                            &job.inputs,
+                            if request.image.is_none() {
+                                "\n\n"
+                            } else {
+                                ", "
+                            },
+                        );
+                    }
+                }
+                if let Some(image) = &mut branch_request.image {
+                    image.count = job.count;
+                }
+                branch_request.inputs = job.inputs.clone();
+                let mut branch_inputs = inputs.clone();
+                branch_inputs.inputs = job.inputs.clone();
+                if let Some(answer) = &answer {
+                    self.agents
+                        .flow
+                        .text_answer_requests
+                        .insert((doc, id, branch_request.id.clone()), answer.clone());
+                }
+                queue.push_back(QueuedGeneration {
+                    doc,
+                    creation_step: step,
+                    author: author.clone(),
+                    request: branch_request,
+                    inputs: branch_inputs,
+                });
+            }
+        }
+        if branching {
+            self.agents
+                .flow
+                .text_answer_requests
+                .remove(&(doc, id, original_id));
+        }
         if matches!(
             self.agents.awaiting.get(&id),
             Some(AgentAwait::Failed { .. })

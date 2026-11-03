@@ -9,10 +9,19 @@ use slate_doc::scene::{ConnectorEnd, Side};
 mod approval;
 #[path = "tests/feedback.rs"]
 mod feedback;
+#[path = "tests/graft_review.rs"]
+mod graft_review;
+#[path = "tests/grafts.rs"]
+mod grafts;
 #[path = "tests/lineage.rs"]
 mod lineage;
+#[path = "tests/result_removal.rs"]
+mod result_removal;
+#[path = "tests/revision_fixture.rs"]
+mod revision_fixture;
+pub(super) use revision_fixture::fixture_revision;
 
-fn board(tag: &str) -> (Harness, NodeId) {
+pub(super) fn board(tag: &str) -> (Harness, NodeId) {
     let mut h = Harness::new(tag);
     h.app.leave_home();
     h.app.ensure_work_tab();
@@ -49,7 +58,24 @@ fn board(tag: &str) -> (Harness, NodeId) {
     (h, image)
 }
 
-fn spawn(h: &mut Harness, source: NodeId) -> NodeId {
+pub(super) fn spawn(h: &mut Harness, source: NodeId) -> NodeId {
+    // Existing lineage fixtures exercise legacy workbook history behavior.
+    h.app.patch_nodes(&[source], |node| {
+        if let Some(agent) = slate_doc::agent_chat::agent_mut(node) {
+            agent.generator.preserve_history = None;
+        }
+    });
+    let id = spawn_current(h, source);
+    h.app.patch_nodes(&[id], |node| {
+        if let Some(agent) = slate_doc::agent_chat::agent_mut(node) {
+            agent.generator.preserve_history = None;
+        }
+    });
+    id
+}
+
+/// Exercise the production creation command without legacy fixture mutations.
+fn spawn_current(h: &mut Harness, source: NodeId) -> NodeId {
     h.app.board_sel = [source].into_iter().collect();
     assert!(h.app.dispatch(
         &h.ctx,
@@ -58,77 +84,8 @@ fn spawn(h: &mut Harness, source: NodeId) -> NodeId {
             serde_json::json!({"source":source.0,"kind":"artifact","provider":"codex"}).to_string()
         )
     ));
-    *h.app.board_sel.iter().next().unwrap()
-}
-
-fn fixture_revision(
-    h: &mut Harness,
-    node: NodeId,
-    run_id: &str,
-    html: &[u8],
-) -> ArtifactRevisionRef {
-    let family = h
-        .app
-        .doc()
-        .scene
-        .node(node)
-        .and_then(artifact)
-        .unwrap()
-        .family
-        .clone();
-    let link = h.app.agent_link_dir(node, &h.base).unwrap();
-    let run = atlas_ai::versions::prepare_artifact_run(&link, &family, run_id, None).unwrap();
-    std::fs::write(run.staging_output.join("index.html"), html).unwrap();
-    let source = h
-        .app
-        .image_item_path(h.app.doc().scene.nodes[0].id)
-        .unwrap();
-    let provenance = ArtifactProvenance {
-        prompt: "Make the supplied pie interactive.".into(),
-        provider: "codex".into(),
-        model: "fixture-model".into(),
-        checkpoint: ArtifactCheckpoint {
-            conversation: "fixture-conversation".into(),
-            through: 2,
-            turns: vec![
-                AgentTurn {
-                    role: "user".into(),
-                    text: "Make the supplied pie interactive.".into(),
-                    at: 1,
-                },
-                AgentTurn {
-                    role: "assistant".into(),
-                    text: "Created interactive pie.".into(),
-                    at: 2,
-                },
-            ],
-        },
-        inputs: vec![atlas_agent::ArtifactInputProvenance {
-            source: source.to_string_lossy().into_owned(),
-            source_hash: atlas_ai::versions::hash_artifact_input(&std::fs::read(source).unwrap()),
-        }],
-    };
-    let (reference, revision) =
-        atlas_ai::versions::publish_artifact_revision(&run, provenance).unwrap();
-    let linked = |path: &std::path::Path| SourceUri {
-        locator: crate::app::board_portal::source_locator(h.app.tab().path.as_deref(), path),
-    };
-    let entry = linked(&reference.materialized_entry);
-    let root = linked(&reference.source_root);
-    let session = h.app.agent_session_for(node).unwrap().0;
-    let work = linked(&reference.source_root.join("work").join(session));
-    h.app.patch_nodes(&[node], |node| {
-        if let NodeKind::Portal(portal) = &mut node.kind {
-            portal.source = Some(entry.clone());
-        }
-        let binding = artifact_mut(node).unwrap();
-        binding.history_root = Some(root.clone());
-        binding.workspace = Some(work.clone());
-        binding.revision = Some(reference.revision_id.clone());
-        binding.revisions.push(reference.revision_id.clone());
-        binding.checkpoint = revision.provenance.checkpoint.through;
-    });
-    reference
+    let id = *h.app.board_sel.iter().next().unwrap();
+    id
 }
 
 fn content_wires(h: &Harness, target: NodeId) -> Vec<NodeId> {
@@ -174,11 +131,14 @@ fn fourth_spawn_choice_creates_one_web_host_and_content_wire_without_running() {
             .iter()
             .map(|c| c.id)
             .collect::<Vec<_>>(),
-        ["text", "image", "agent", "artifact"]
+        ["text", "image", "artifact", "model", "agent"]
     );
+    let source_before = h.app.doc().scene.node(image).unwrap().clone();
+    let source_path = h.app.image_item_path(image).unwrap();
+    let source_bytes = std::fs::read(&source_path).unwrap();
     let depth = h.app.tab().journal.undo_depth();
     let count = h.app.doc().scene.nodes.len();
-    let node = spawn(&mut h, image);
+    let node = spawn_current(&mut h, image);
     let NodeKind::Portal(portal) = &h.app.doc().scene.node(node).unwrap().kind else {
         panic!("Web host expected")
     };
@@ -191,12 +151,17 @@ fn fourth_spawn_choice_creates_one_web_host_and_content_wire_without_running() {
     assert!(agent_inputs::artifact_memory_parent(&h.app.doc().scene, node).is_none());
     assert!(!h.app.artifact_is_busy(node));
     assert!(h.app.agents.dispatched.is_empty());
-    assert_eq!(
-        h.app.shape_properties.panel,
-        Some(crate::app::board_properties::Panel::Agent)
+    assert_eq!(h.app.shape_properties.panel, None);
+    assert!(
+        !h.app.take_flow_prompt_focus(node),
+        "new child does not steal prompt focus"
     );
-    assert!(h.app.take_flow_prompt_focus(node));
-    assert!(!h.app.take_flow_prompt_focus(node));
+    let child = slate_doc::agent_chat::agent(h.app.doc().scene.node(node).unwrap()).unwrap();
+    assert!(child.instruction.is_empty());
+    assert!(h.app.agents.prompt(node).is_none_or(str::is_empty));
+    assert_eq!(child.generator.preserve_history, Some(false));
+    assert_eq!(h.app.doc().scene.node(image), Some(&source_before));
+    assert_eq!(std::fs::read(&source_path).unwrap(), source_bytes);
     h.app.board_undo();
     assert_eq!(h.app.doc().scene.nodes.len(), count);
     h.app.board_redo();
@@ -244,7 +209,7 @@ fn downstream_spawns_independent_pinned_content_and_memory_in_one_undo_step() {
     );
     let depth = h.app.tab().journal.undo_depth();
     let count = h.app.doc().scene.nodes.len();
-    let child = spawn(&mut h, first);
+    let child = spawn_current(&mut h, first);
     assert_eq!(h.app.doc().scene.nodes.len(), count + 3);
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
     assert_eq!(

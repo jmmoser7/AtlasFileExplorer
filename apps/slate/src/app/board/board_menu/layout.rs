@@ -129,6 +129,22 @@ impl SlateApp {
             return false;
         };
         match entry {
+            "portal.web.allow_origin" | "portal.web.revoke_origin" => {
+                let NodeKind::Portal(portal) = &node.kind else {
+                    return false;
+                };
+                let Some(origin) = portal
+                    .source
+                    .as_ref()
+                    .and_then(|source| slate_doc::scene::web_origin(&source.locator))
+                else {
+                    return false;
+                };
+                if self.web.allows_all_websites() {
+                    return false;
+                }
+                self.web.has_consent(&origin) == (entry == "portal.web.revoke_origin")
+            }
             "board.image.save_as" => self.board_image_save_available(id),
             "board.open_location" => self.board_node_local_path(id).is_some(),
             "board.shape.edit" => self.object_properties_available(targets),

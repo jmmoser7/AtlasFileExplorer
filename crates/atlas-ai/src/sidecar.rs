@@ -67,7 +67,7 @@ impl SidecarPolicy {
         )
     }
 
-    fn from_grants(request: &atlas_agent::AgentRequest, granted: bool, relay: bool) -> Self {
+    pub fn from_grants(request: &atlas_agent::AgentRequest, granted: bool, relay: bool) -> Self {
         Self {
             read_only: request.policy == atlas_agent::TurnPolicy::ReadOnly,
             artifact: request.artifact.is_some(),

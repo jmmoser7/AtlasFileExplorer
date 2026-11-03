@@ -153,6 +153,7 @@ impl SlateApp {
                         );
                     } else {
                         self.paint_text_snippet_card(
+                            ui,
                             painter,
                             &outline,
                             srect,

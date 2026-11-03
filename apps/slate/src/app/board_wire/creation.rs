@@ -6,16 +6,56 @@ use slate_doc::agent_inputs;
 mod tests;
 
 impl SlateApp {
-    /// Resting objects retain their ordinary ports until generation is enabled.
+    /// Resting native sources expose their own output. Expanded Agent inputs
+    /// and already authored input connections use the unchanged typed sites.
+    pub(crate) fn presented_wire_ports(&self, node: &Node) -> Vec<slate_doc::WirePort> {
+        self.wire_input_host(node)
+            .ports()
+            .into_iter()
+            .filter(|port| {
+                self.generator_source_kind(node.id).is_none()
+                    || port.side != Side::Left
+                    || self
+                        .wire_input_ports(node)
+                        .iter()
+                        .find(|input| (input.t - port.t).abs() < 0.001)
+                        .is_some_and(|input| self.source_agent_input_visible(node.id, input.slot))
+            })
+            .collect()
+    }
+
+    /// Rendering, dragging and picking share the path-resolved typed roles.
     pub(crate) fn wire_host(
         &self,
         node: &slate_doc::scene::Node,
     ) -> slate_doc::wire_host::WireHost {
-        slate_doc::wire_host::WireHost::from_node(node)
+        self.wire_input_host(node)
     }
 
     pub(crate) fn wire_input_host(&self, node: &Node) -> slate_doc::wire_host::WireHost {
-        slate_doc::wire_host::WireHost::from_node_flow(node, self.wire_input_ports(node))
+        slate_doc::wire_host::WireHost::from_node_with_paths(node, &|id| {
+            self.doc().item(id).map(|item| item.path.as_path())
+        })
+    }
+
+    pub(crate) fn wire_port_point(&self, node: &Node, side: Side, t: f32) -> Pos2 {
+        Pos2::from(slate_doc::link_inset::anchor_with_host(
+            node,
+            side,
+            t,
+            &self.wire_host(node),
+        ))
+    }
+
+    pub(crate) fn wire_end_point(&self, end: &ConnectorEnd) -> Option<Pos2> {
+        match end {
+            ConnectorEnd::Anchored { node, side, t } => self
+                .doc()
+                .scene
+                .node(*node)
+                .map(|node| self.wire_port_point(node, *side, *t)),
+            ConnectorEnd::Free { point } => Some(Pos2::from(*point)),
+        }
     }
 
     pub(crate) fn wire_input_ports(&self, node: &Node) -> &'static [agent_inputs::InputPort] {
@@ -27,7 +67,7 @@ impl SlateApp {
             .iter()
             .any(|port| port.slot == atlas_agent::InputSlot::View)
         {
-            &[]
+            &agent_inputs::GENERATOR_PORTS
         } else {
             ports
         }
@@ -207,9 +247,7 @@ impl SlateApp {
         let node = self.build_connector(a, b);
         let id = node.id;
         let mut commands = Vec::new();
-        if let Some(command) = self.image_wire_target_command(&node) {
-            commands.push(command);
-        }
+        commands.extend(self.graph_wire_settings_commands(&node));
         commands.push(SceneCmd::Add {
             index: self.doc().scene.nodes.len(),
             node,

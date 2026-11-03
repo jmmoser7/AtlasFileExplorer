@@ -52,7 +52,10 @@ impl SlateApp {
                 } {
                     let _ = self.presence.links.reply(&a.dir, reply);
                 }
-                let advance_work = work_visible
+                let advance_work = !a.work.as_ref().is_some_and(|work| {
+                    work.board_prepared()
+                        .is_some_and(|prepared| prepared.artifact_pick_waiting())
+                }) && work_visible
                     && (!a.paused
                         || self.presence.approved_while_listening(&a)
                         || a.work

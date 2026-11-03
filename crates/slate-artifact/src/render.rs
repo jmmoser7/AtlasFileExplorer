@@ -3,6 +3,8 @@ mod fields;
 mod image;
 mod image_filter;
 mod shape_text;
+mod text_answers;
+use arrows::render_connector;
 use image::render_image;
 use std::collections::BTreeMap;
 
@@ -14,8 +16,8 @@ use slate_doc::scene::{
     WorldRect,
 };
 use slate_doc::wire::{
-    connector_route_in_scene, filleted_polyline, retreat_off_hosts, scene_wire_hosts,
-    ConnectorPath, PathCmd, WireRouting, ORTHO_CORNER_RADIUS,
+    connector_route_in_scene_with_hosts, filleted_polyline, retreat_off_hosts, ConnectorPath,
+    PathCmd, WireRouting, ORTHO_CORNER_RADIUS,
 };
 use slate_doc::SlateDoc;
 use vector_ink::kurbo::{BezPath, PathEl, Point};
@@ -82,6 +84,9 @@ else{document.exitFullscreen();}
 }
 });
 document.addEventListener('click',function(e){
+var link=e.target.closest('[data-text-answer]');
+if(link){e.preventDefault();var answer=document.getElementById(link.getAttribute('href').slice(1));if(answer)answer.showModal();return;}
+if(e.target.closest('a,button,dialog'))return;
 var x=e.clientX/window.innerWidth;
 if(x>2/3)next();
 else if(x<1/3)prev();
@@ -140,6 +145,7 @@ pub(crate) fn render_html_routed(
     html.push_str(&escape_html(&doc.name));
     html.push_str("</title>\n<style>\n");
     html.push_str(CSS);
+    html.push_str(text_answers::CSS);
     html.push_str("</style>\n</head>\n<body>\n");
 
     if slide_count == 0 {
@@ -362,14 +368,12 @@ fn render_node(
         NodeKind::Shape(shape) => render_shape(html, node, shape, rel),
         NodeKind::Text(text) => {
             // A note an agent writes shows its reply until it is edited.
-            let reply = (text.agent.is_some() && text.text.trim().is_empty())
-                .then(|| assets.agent_reply(node.id))
-                .flatten();
+            let reply = assets.agent_reply(node.id);
             render_text(html, node, text, reply.unwrap_or(&text.text), rel)
         }
         NodeKind::Connector(conn) => render_connector(
             html,
-            &doc.scene,
+            doc,
             node,
             conn,
             origin_x,
@@ -2146,132 +2150,6 @@ const WIRE_FALLBACK: slate_doc::scene::Rgba = slate_doc::scene::Rgba([0xcc, 0xcf
 /// model yet, so both interpreters pin the same constant.
 const CONNECTOR_LABEL_SIZE: f32 = 14.0;
 
-#[allow(clippy::too_many_arguments)] // Interpreter inputs are kept explicit.
-fn render_connector(
-    html: &mut String,
-    scene: &Scene,
-    node: &Node,
-    conn: &ConnectorNode,
-    origin_x: f32,
-    origin_y: f32,
-    routing: WireRouting,
-    theme_wire: Option<slate_doc::scene::Rgba>,
-) {
-    // Geometry is derived from the *current* rects of anchored nodes.
-    // Hidden anchor nodes resolve to nothing: the wire is skipped until the
-    // node is shown again (simplest per the scene-flags spec).
-    let Some(path) = connector_route_in_scene(
-        scene,
-        Some(node.id),
-        &conn.a,
-        &conn.b,
-        conn.effective_routing(routing),
-    ) else {
-        return;
-    };
-    let color = conn.paint_color(theme_wire.unwrap_or(WIRE_FALLBACK));
-    let color_css = color.css();
-    let drawn = connector_drawn_stroke(conn.stroke);
-    let path = retreat_off_hosts(
-        path,
-        &conn.a,
-        &conn.b,
-        scene_wire_hosts(scene),
-        drawn.width * 0.5,
-    );
-
-    // Position the wrapper at the curve AABB, padded so stroke width and
-    // arrowheads survive even a degenerate (straight axis-aligned) box.
-    let pad = drawn.width.max(1.0) * 0.5 + arrow_len(&drawn) + 2.0;
-    let aabb = path.aabb();
-    let boxed = WorldRect::new(
-        aabb.x - pad,
-        aabb.y - pad,
-        aabb.w + pad * 2.0,
-        aabb.h + pad * 2.0,
-    );
-    let rel = boxed.translated(-origin_x, -origin_y);
-    let local = |p: [f32; 2]| (p[0] - boxed.x, p[1] - boxed.y);
-
-    let mut wrap = geometry_style(rel, node.rotation_deg);
-    let opacity = match conn.display {
-        WireDisplay::Faint => node.opacity * FAINT_OPACITY,
-        WireDisplay::Default => node.opacity,
-    };
-    append_opacity(&mut wrap, opacity);
-    wrap.push_str("overflow:visible;background:transparent;");
-
-    html.push_str("<div class=\"node\" style=\"");
-    html.push_str(&wrap);
-    html.push_str("\"><svg width=\"");
-    html.push_str(&fmt_px(rel.w));
-    html.push_str("\" height=\"");
-    html.push_str(&fmt_px(rel.h));
-    html.push_str("\" viewBox=\"0 0 ");
-    html.push_str(&fmt_px(rel.w));
-    html.push(' ');
-    html.push_str(&fmt_px(rel.h));
-    html.push_str("\" style=\"display:block;overflow:visible\">");
-
-    // The wire itself.
-    let d = svg_d_for_path(&path, &local);
-    push_path_open(html, &d, "none", PathFillRule::NonZero);
-    html.push_str(" stroke=\"");
-    html.push_str(&color_css);
-    html.push_str("\" stroke-width=\"");
-    html.push_str(&fmt_px(drawn.width));
-    html.push_str("\" stroke-linecap=\"");
-    html.push_str(stroke_cap_css(conn.stroke.cap));
-    html.push('"');
-    if let Some(dash) = line_dash_attrs(&conn.stroke) {
-        html.push_str(" stroke-dasharray=\"");
-        html.push_str(dash);
-        html.push('"');
-    }
-    html.push_str("></path>");
-
-    // Arrowheads: small filled triangles oriented to the end tangents,
-    // computed inline (the writer builds elements directly).
-    if conn.arrow_a {
-        push_arrow_head(
-            html,
-            conn,
-            local(path.start()),
-            path.start_dir(),
-            &color_css,
-        );
-    }
-    if conn.arrow_b {
-        push_arrow_head(html, conn, local(path.end()), path.end_dir(), &color_css);
-    }
-
-    // The board paints a crosstalk's live chip; the artifact states its count.
-    let crosstalk = slate_doc::crosstalk::export_label(scene, node);
-    if let Some(label) = conn
-        .label
-        .as_deref()
-        .filter(|l| !l.is_empty())
-        .or(crosstalk.as_deref())
-    {
-        let (mx, my) = local(path.midpoint());
-        html.push_str("<text x=\"");
-        html.push_str(&fmt_px(mx));
-        html.push_str("\" y=\"");
-        html.push_str(&fmt_px(my));
-        html.push_str("\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"");
-        html.push_str(&color_css);
-        html.push_str("\" style=\"font:");
-        html.push_str(&fmt_px(CONNECTOR_LABEL_SIZE));
-        html.push_str("px ");
-        html.push_str(slate_doc::scene::FontChoice::Sans.css_stack());
-        html.push_str("\">");
-        html.push_str(&escape_html(label));
-        html.push_str("</text>");
-    }
-
-    html.push_str("</svg></div>\n");
-}
-
 fn svg_d_for_path(path: &ConnectorPath, local: &impl Fn([f32; 2]) -> (f32, f32)) -> String {
     match path {
         ConnectorPath::Bezier(bez) => {
@@ -2422,12 +2300,13 @@ pub(crate) fn render_text(
     html.push('>');
     if text.fill.is_some() {
         html.push_str("<div style=\"width:100%;\">");
-        html.push_str(&escape_html(shown));
+        text_answers::render_inline(html, node.id, shown, &text.answers);
         html.push_str("</div>");
     } else {
-        html.push_str(&escape_html(shown));
+        text_answers::render_inline(html, node.id, shown, &text.answers);
     }
     html.push_str("</div>\n");
+    text_answers::render_answers(html, node.id, shown, &text.answers);
 }
 
 fn geometry_style(rect: WorldRect, rotation_deg: f32) -> String {
@@ -2686,6 +2565,7 @@ mod tests {
             clip: None,
             bumper: None,
             kind: NodeKind::Text(slate_doc::scene::TextNode {
+                answers: Default::default(),
                 text: "Boxed".into(),
                 style: Default::default(),
                 family: Default::default(),

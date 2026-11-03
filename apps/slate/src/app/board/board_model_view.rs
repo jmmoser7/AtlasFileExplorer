@@ -89,6 +89,7 @@ impl SlateApp {
         name: &str,
         alpha: f32,
     ) {
+        self.paint_model_result_strip(ui, node_id, srect, self.board_xf().z);
         if self.paint_application_connector(ui, painter, node_id, srect) {
             return;
         }

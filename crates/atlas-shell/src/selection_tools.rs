@@ -10,7 +10,7 @@ pub mod alignment;
 pub mod capture;
 mod dimensions;
 pub mod hit_regions;
-pub use dimensions::{inline_number, stringer, BOTTOM_STRINGER_GAP};
+pub use dimensions::{inline_number, stringer, stringer_offset, BOTTOM_STRINGER_GAP};
 mod agent_generate;
 mod image_brush;
 #[cfg(test)]
@@ -1192,8 +1192,11 @@ pub struct AgentEdit<'a> {
     pub count: u8,
     pub aspects: &'a [&'a str],
     pub aspect: usize,
+    pub custom_aspect: Option<[u16; 2]>,
+    pub custom_aspect_supported: bool,
     pub aspect_open: &'a mut bool,
     pub seed_locked: bool,
+    pub seed_supported: bool,
     pub live: bool,
     /// The prompt field should take the caret this frame.
     pub take_focus: bool,
@@ -1206,6 +1209,7 @@ pub struct AgentEditResponse {
     pub model: Option<usize>,
     pub count: Option<u8>,
     pub aspect: Option<usize>,
+    pub custom_aspect: Option<[u16; 2]>,
     pub seed_locked: Option<bool>,
     pub live: Option<bool>,
     pub prompt: PromptField,
@@ -2459,7 +2463,7 @@ pub fn text_format_editor(
     out
 }
 
-mod menu_selector;
+pub mod menu_selector;
 use menu_selector::capsule_menu;
 pub use menu_selector::needs_key_label;
 pub(crate) use menu_selector::{bare_menu, BareMenu};

@@ -87,3 +87,55 @@ fn text_card_export_uses_authored_override_while_preserving_original_link() {
         "empty override is authored, not a source fallback"
     );
 }
+
+#[test]
+fn linked_text_answers_share_native_range_model_and_never_export_private_origin() {
+    let text = "A café & tea.";
+    let mut answer = slate_doc::text_answers::TextAnswer::new(
+        text,
+        2..7,
+        slate_doc::text_answers::TextAnswerRef {
+            session: "old".into(),
+            through: 2,
+        },
+        "Explain café".into(),
+        "Coffee".into(),
+    )
+    .unwrap();
+    answer.origin = Some(slate_doc::scene::SourceUri {
+        locator: "machine-private/archive/session.json".into(),
+    });
+    answer.source_revision = Some("file-v1".into());
+    let mut html = String::new();
+    render_text_card(
+        &mut html,
+        Some("assets/original.txt"),
+        "original.txt",
+        Some(text),
+        std::path::Path::new("original.txt"),
+        TextCardAnswers {
+            node: NodeId(1),
+            answers: std::slice::from_ref(&answer),
+            revision: Some("file-v1"),
+        },
+    );
+    assert!(html.contains("data-text-answer"));
+    assert!(html.contains("Coffee"));
+    assert!(html.contains("assets/original.txt"));
+    assert!(!html.contains("machine-private"));
+    let mut refreshed = String::new();
+    render_text_card(
+        &mut refreshed,
+        None,
+        "original.txt",
+        Some(text),
+        std::path::Path::new("original.txt"),
+        TextCardAnswers {
+            node: NodeId(1),
+            answers: std::slice::from_ref(&answer),
+            revision: Some("file-v2"),
+        },
+    );
+    assert!(!refreshed.contains("data-text-answer"));
+    assert!(!refreshed.contains("Coffee"));
+}

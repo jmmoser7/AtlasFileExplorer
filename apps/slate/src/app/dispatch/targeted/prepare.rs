@@ -100,6 +100,70 @@ pub(super) fn commands(
         return super::creation::commands(app, command, ids, args);
     }
     match command {
+        "portal.agent.result.use" | "portal.agent.result.remove" => {
+            if ids.len() != 1 {
+                return Err("This result command requires one stable output host".into());
+            }
+            let output =
+                serde_json::from_value::<slate_doc::scene::HiddenOutputRef>(args["output"].clone())
+                    .map_err(|_| "An exact typed immutable output reference is required")?;
+            let command =
+                app.prepare_result_output_mutation(ids[0], &output, command.ends_with(".remove"))?;
+            Ok((vec![command], ids.to_vec()))
+        }
+        "portal.agent.generator_settings"
+        | "board.input.graft"
+        | "portal.agent.text_output"
+        | "portal.agent.model_output" => {
+            if ids.len() != 1 {
+                return Err("This generator command requires exactly one stable target ID".into());
+            }
+            let id = ids[0];
+            let command = match command {
+                "portal.agent.generator_settings" => {
+                    let count = args
+                        .get("count")
+                        .map(|value| {
+                            value
+                                .as_u64()
+                                .filter(|count| (1..=8).contains(count))
+                                .map(|count| count as u8)
+                                .ok_or("Count must be an integer from 1 to 8")
+                        })
+                        .transpose()?;
+                    let preserve = args
+                        .get("preserve_history")
+                        .map(|value| value.as_bool().ok_or("preserve_history must be a boolean"))
+                        .transpose()?;
+                    app.prepare_generator_settings(id, count, preserve)?
+                }
+                "board.input.graft" => app.prepare_input_graft(
+                    id,
+                    args["slot"]
+                        .as_str()
+                        .ok_or("A typed input slot is required")?,
+                    args["grafted"]
+                        .as_bool()
+                        .ok_or("grafted must be a boolean")?,
+                )?,
+                "portal.agent.text_output" => {
+                    let through = args["through"]
+                        .as_u64()
+                        .and_then(|value| usize::try_from(value).ok())
+                        .filter(|value| *value > 0)
+                        .ok_or("through must be a positive integer response checkpoint")?;
+                    app.prepare_text_output_review(id, through, args["review_id"].as_str())?
+                }
+                _ => {
+                    let output = args["output"]
+                        .as_str()
+                        .filter(|output| SlateApp::valid_model_output_identity(output))
+                        .ok_or("An existing bounded model output ID is required")?;
+                    app.prepare_registered_model_output(id, output)?
+                }
+            };
+            Ok((vec![command], ids.to_vec()))
+        }
         "board.objects.move" => {
             require_targets(ids)?;
             let mut all = ids.to_vec();
@@ -232,9 +296,7 @@ pub(super) fn commands(
             };
             let node = app.connector_template_bound(a, b, &[], None);
             let mut cmds = Vec::new();
-            if let Some(cmd) = app.image_wire_target_command(&node) {
-                cmds.push(cmd);
-            }
+            cmds.extend(app.graph_wire_settings_commands(&node));
             let mut targets = ids.to_vec();
             targets.push(node.id);
             cmds.push(SceneCmd::Add {

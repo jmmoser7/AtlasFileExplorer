@@ -25,7 +25,63 @@ impl SlateApp {
             return false;
         }
         match self.artifact_plan(id) {
-            Ok((plan, inputs)) => {
+            Ok((plan, mut inputs)) => {
+                inputs.freeze_capture(&plan.request);
+                let agent = self
+                    .doc()
+                    .scene
+                    .node(id)
+                    .and_then(slate_doc::agent_chat::agent)
+                    .unwrap();
+                let shared = agent_inputs::shared_generator_sources(&self.doc().scene, id);
+                let jobs = match agent_inputs::plan_grafted_inputs_with_shared(
+                    &inputs.inputs,
+                    &agent.generator.grafted_slots,
+                    agent.generator.count.unwrap_or(1),
+                    &shared,
+                ) {
+                    Ok(jobs) => jobs,
+                    Err(error) => {
+                        self.fail_agent_await(id, error.clone());
+                        self.toast(error);
+                        return false;
+                    }
+                };
+                let total: usize = jobs.iter().map(|job| usize::from(job.count)).sum();
+                if total > 8 {
+                    self.toast("Reduce Count or grafted inputs to at most eight artifact jobs.");
+                    return false;
+                }
+                let mut branches = std::collections::VecDeque::new();
+                for job in jobs {
+                    for result in 0..job.count {
+                        let mut branch = plan.clone();
+                        if total > 1 {
+                            branch.request.id =
+                                format!("{}-branch-{}-{result}", plan.request.id, job.branch);
+                        }
+                        branch.request.prompt = agent_inputs::grafted_prompt(
+                            &plan.request.prompt,
+                            &inputs.inputs,
+                            &job.inputs,
+                            "\n\n",
+                        );
+                        branch.request.inputs = job.inputs.clone();
+                        // An explicit batch always replays its immutable prefix;
+                        // sibling requests never resume one mutable provider session.
+                        if total > 1 {
+                            branch.resume = false;
+                            branch.session = slate_doc::scene::new_agent_session_id();
+                            branch.link_dir =
+                                atlas_ai::agent::agent_dir(&branch.workspace, &branch.session);
+                        }
+                        let mut captured = inputs.clone();
+                        captured.inputs = job.inputs.clone();
+                        branches.push_back((branch, captured));
+                    }
+                }
+                let (plan, inputs) = branches.pop_front().unwrap();
+                self.agents.artifact.queued.insert(id, branches);
                 self.agents.awaiting.remove(&id);
                 self.agents.requests.insert(id, plan.request.id.clone());
                 self.agents.artifact.pending.remove(&id);
@@ -83,9 +139,28 @@ impl SlateApp {
                 .count()
         };
         let content = agent_inputs::artifact_content_parent(graph, id);
-        let memory = agent_inputs::artifact_memory_source(graph, id);
+        let incoming_memory = agent_inputs::artifact_memory_source(graph, id);
+        let memory = match agent.generator.preserve_history {
+            Some(false) => None,
+            Some(true) if !agent.generator.history_cut => binding
+                .active_memory
+                .clone()
+                .or_else(|| {
+                    binding
+                        .revision
+                        .clone()
+                        .map(|revision| agent_inputs::ArtifactMemoryPin {
+                            revision,
+                            through: binding.checkpoint,
+                        })
+                })
+                .map(|pin| (id, pin))
+                .or_else(|| incoming_memory.clone()),
+            Some(true) => None,
+            _ => incoming_memory.clone(),
+        };
         if edge_count(InputKind::Artifact) > usize::from(content.is_some())
-            || edge_count(InputKind::Memory) > usize::from(memory.is_some())
+            || edge_count(InputKind::Memory) > usize::from(incoming_memory.is_some())
         {
             return Err(
                 "The artifact has an invalid or ambiguous content/memory connection.".into(),
@@ -108,44 +183,45 @@ impl SlateApp {
                 .node(*source)
                 .and_then(slate_doc::agent_chat::agent)
         });
-        let resume = memory.as_ref().is_some_and(|(source, pin)| {
-            source_agent.is_some_and(|a| a.provider == agent.provider)
-                && self.agents.sessions.get(source).is_some_and(|s| {
-                    s.status == AgentStatus::Idle && s.turns.len() == pin.through && pin.through > 0
-                })
-                && self
-                    .doc()
-                    .scene
-                    .nodes
-                    .iter()
-                    .filter(|node| {
-                        slate_doc::agent_chat::agent(node).is_some_and(|a| {
-                            source_agent.is_some_and(|source| {
-                                a.session == source.session && a.provider == source.provider
-                            })
+        let resume =
+            agent.generator.preserve_history.is_none()
+                && memory.as_ref().is_some_and(|(source, pin)| {
+                    source_agent.is_some_and(|a| a.provider == agent.provider)
+                        && self.agents.sessions.get(source).is_some_and(|s| {
+                            s.status == AgentStatus::Idle
+                                && s.turns.len() == pin.through
+                                && pin.through > 0
                         })
-                    })
-                    .filter_map(|node| {
-                        self.agents
-                            .sessions
-                            .get(&node.id)
-                            .map(|session| session.turns.len())
-                    })
-                    .max()
-                    == Some(pin.through)
-                && !self
-                    .agents
-                    .artifact
-                    .running
-                    .values()
-                    .any(|r| source_agent.is_some_and(|a| a.session == r.prepared.plan.session))
-                && !self
-                    .agents
-                    .artifact
-                    .preparing
-                    .values()
-                    .any(|p| source_agent.is_some_and(|a| a.session == p.plan.session))
-        });
+                        && self
+                            .doc()
+                            .scene
+                            .nodes
+                            .iter()
+                            .filter(|node| {
+                                slate_doc::agent_chat::agent(node).is_some_and(|a| {
+                                    source_agent.is_some_and(|source| {
+                                        a.session == source.session && a.provider == source.provider
+                                    })
+                                })
+                            })
+                            .filter_map(|node| {
+                                self.agents
+                                    .sessions
+                                    .get(&node.id)
+                                    .map(|session| session.turns.len())
+                            })
+                            .max()
+                            == Some(pin.through)
+                        && !self.agents.artifact.running.values().any(|r| {
+                            source_agent.is_some_and(|a| a.session == r.prepared.plan.session)
+                        })
+                        && !self
+                            .agents
+                            .artifact
+                            .preparing
+                            .values()
+                            .any(|p| source_agent.is_some_and(|a| a.session == p.plan.session))
+                });
         let session = if resume {
             source_agent.unwrap().session.clone()
         } else {
@@ -164,12 +240,12 @@ impl SlateApp {
             .as_ref()
             .map(|uri| resolve_source(self.tab().path.as_deref(), &uri.locator));
         let inputs = self.agent_input_snapshot(id)?;
-        let mut prompt = self
+        let authored_prompt = self
             .agents
             .prompt(id)
             .unwrap_or(&agent.instruction)
-            .trim()
             .to_owned();
+        let mut prompt = authored_prompt.trim().to_owned();
         if prompt.is_empty() {
             prompt = inputs
                 .wired
@@ -207,6 +283,8 @@ impl SlateApp {
         let inputs = self.begin_agent_input_preparation(inputs)?;
         Ok((
             Plan {
+                guard: self.artifact_batch_guard(id).unwrap_or_default(),
+                authored_prompt,
                 tab: self.tab().id,
                 node: id,
                 request,
@@ -227,10 +305,12 @@ impl SlateApp {
         ))
     }
     pub(crate) fn cancel_artifact_generation(&mut self, id: NodeId) -> bool {
+        self.agents.capture_wait.remove(&id);
+        let queued = self.agents.artifact.queued.remove(&id).is_some();
         let preparing = self.agents.artifact.preparing.remove(&id).is_some();
         let running = self.agents.artifact.running.remove(&id).is_some();
         let picking = self.agents.artifact.picks.remove(&id).is_some();
-        preparing || running || picking
+        queued || preparing || running || picking
     }
 }
 

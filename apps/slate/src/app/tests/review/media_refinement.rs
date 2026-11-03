@@ -197,6 +197,7 @@ fn media_refinement_fixture(save_workbook: bool) -> MediaRefinementFixture {
     let legacy_text = h.app.doc_mut().scene.build_node(
         WorldRect::new(850.0, 650.0, 420.0, 260.0),
         NodeKind::Text(slate_doc::scene::TextNode {
+            answers: Default::default(),
             text: "Legacy generated TextNode\n\nShared notch, shadow, and Agent controls.".into(),
             style: Default::default(),
             family: Default::default(),
@@ -252,6 +253,8 @@ fn capture_media_refinement_panels() {
         (hosts.generated_text, "generated_text", Panel::Agent, None),
         (hosts.legacy_text, "legacy_text", Panel::Agent, None),
         (hosts.artifact, "artifact", Panel::Agent, None),
+        (hosts.model, "model_agent", Panel::Agent, None),
+        (hosts.web, "web_agent", Panel::Agent, None),
         (hosts.model, "model", Panel::ModelDisplay, None),
         (hosts.web, "web", Panel::Fill, None),
         (hosts.atlas, "atlas", Panel::AtlasFormat, None),

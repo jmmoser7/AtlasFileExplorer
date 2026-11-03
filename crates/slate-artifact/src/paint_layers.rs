@@ -675,6 +675,7 @@ mod tests {
         let text = scene.build_node(
             WorldRect::new(0.1, 0.1, 0.8, 0.8),
             NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: "Ink".into(),
                 style: Default::default(),
                 family: Typeface::Sans,

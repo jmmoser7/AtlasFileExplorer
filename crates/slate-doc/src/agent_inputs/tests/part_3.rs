@@ -91,7 +91,13 @@ fn flow_ports_bind_by_slot_and_refuse_the_wrong_kind() {
         ports.iter().map(|p| p.slot).collect::<Vec<_>>(),
         [InputSlot::Media, InputSlot::Prompt, InputSlot::Style]
     );
-    assert_eq!(input_ports(&doc.scene, block).len(), 2);
+    assert_eq!(
+        input_ports(&doc.scene, block)
+            .iter()
+            .map(|p| p.slot)
+            .collect::<Vec<_>>(),
+        [InputSlot::Media, InputSlot::Prompt, InputSlot::Style]
+    );
     assert!(is_flow_node(&doc.scene, block));
     let out = |node| ConnectorEnd::Anchored {
         node,
@@ -244,7 +250,13 @@ fn agent_cards_become_the_media_they_make() {
     };
     assert!(written.item.is_none() && written.agent.is_some());
     assert_eq!(input_ports(&doc.scene, generator).len(), 3);
-    assert_eq!(input_ports(&doc.scene, block).len(), 2);
+    assert_eq!(
+        input_ports(&doc.scene, block)
+            .iter()
+            .map(|p| p.slot)
+            .collect::<Vec<_>>(),
+        [InputSlot::Media, InputSlot::Prompt, InputSlot::Style]
+    );
     let snap = snapshot(
         &doc,
         generator,

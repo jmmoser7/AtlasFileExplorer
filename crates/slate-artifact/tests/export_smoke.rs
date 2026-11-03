@@ -63,6 +63,7 @@ fn smoke_full_feature_export() {
     let text = doc.scene.build_node(
         WorldRect::new(480.0, 80.0, 400.0, 120.0),
         NodeKind::Text(TextNode {
+            answers: Default::default(),
             text: "Hello <world> & friends".into(),
             style: TextStyle {
                 bold: true,

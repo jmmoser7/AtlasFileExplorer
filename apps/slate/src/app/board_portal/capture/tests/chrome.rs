@@ -271,7 +271,21 @@ fn capture_suppresses_generator_body_default_snap_and_restores_it_afterward() {
         host.rect.y + host.rect.h * 0.5,
     );
     let from = Some((source, Side::Right, 0.5));
-    let expected = Some((node, Side::Left, 0.5));
+    assert!(
+        h.app.wire_snap_target(body, from).is_none(),
+        "closed source exposes no input to an implicit drop"
+    );
+    assert!(h
+        .app
+        .open_object_panel(crate::app::board_properties::Panel::Agent));
+    let prompt_t = h
+        .app
+        .wire_input_ports(h.app.doc().scene.node(node).unwrap())
+        .iter()
+        .find(|p| p.slot == atlas_agent::InputSlot::Prompt)
+        .unwrap()
+        .t;
+    let expected = Some((node, Side::Left, prompt_t));
     assert_eq!(h.app.wire_snap_target(body, from), expected);
     let path = h.base.join("body.png");
     begin_session(&mut h, node, path, true, false);

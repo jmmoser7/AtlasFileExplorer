@@ -29,6 +29,9 @@ struct AttachedGenerator {
     activity: Option<generator::activity::ActivityState>,
     prompt: String,
     captured: bool,
+    options_hit: Rect,
+    fold_hits: Vec<Rect>,
+    picker_rows: Vec<egui::Response>,
 }
 
 impl AttachedGenerator {
@@ -48,6 +51,9 @@ impl AttachedGenerator {
             activity: None,
             prompt: "Make a dashboard".into(),
             captured: false,
+            options_hit: Rect::NOTHING,
+            fold_hits: Vec::new(),
+            picker_rows: Vec::new(),
         }
     }
 
@@ -143,6 +149,8 @@ impl AttachedGenerator {
                                 ui,
                                 bounds,
                                 GeneratorOptions {
+                            count: None,
+                            preserve_history: None,
                                     prompt: &mut self.prompt,
                                     hint: "Describe the dashboard",
                                     take_focus: false,
@@ -183,6 +191,15 @@ impl AttachedGenerator {
                                 self.zoom,
                                 Palette::dark(),
                             );
+                            self.picker_rows = (0..4).filter_map(|index| {
+                                ui.ctx().read_response(super::super::keyboard::primary(
+                                    ui.id().with("generator-model"), index))
+                            }).collect();
+                            self.options_hit = ui.ctx().read_response(ui.id().with("generator-settings"))
+                                .expect("actual options control exists").rect;
+                            self.fold_hits = if self.activity.is_some() {
+                                (0usize..2).filter_map(|index| ui.ctx().read_response(ui.id().with(("activity-fold", index))).map(|response| response.rect)).collect()
+                            } else { Vec::new() };
                         });
                     });
                 if self.activity.is_some() { self.activity = response.presentation.activity; }
@@ -197,19 +214,27 @@ impl AttachedGenerator {
 
     fn click(&mut self, point: Pos2) -> (generator::GeneratorResponse, egui::FullOutput) {
         self.frame(vec![egui::Event::PointerMoved(point)]);
-        self.frame(vec![button(point, true)]);
-        self.frame(vec![button(point, false)])
+        let pressed = self.frame(vec![button(point, true)]);
+        let released = self.frame(vec![button(point, false)]);
+        // Studio dismissal is a pointerdown event. The app snapshots its
+        // presentation in that pass before deselection; release has no menu.
+        if pressed.0.presentation.dismissed_menu.is_some() {
+            pressed
+        } else {
+            released
+        }
     }
 
     fn open(&mut self) -> Rect {
         for _ in 0..3 {
             self.frame(vec![]);
         }
-        let settings = label_center(&self.frame(vec![]).1, "Settings");
-        self.click(settings);
+        self.frame(vec![]);
+        assert!((self.options_hit.width() / self.zoom - 14.0).abs() < 0.01);
+        self.click(self.options_hit.center());
         assert!(
             self.settings_open,
-            "the first real Settings click opens the list"
+            "the first real Options control click opens the list"
         );
         for _ in 0..3 {
             self.frame(vec![]);
@@ -246,8 +271,8 @@ fn every_generator_settings_action_selects_inside_the_attached_apron() {
         for zoom in [0.5, 1.0, 2.0] {
             for (index, action) in ACTIONS.iter().enumerate() {
                 let mut editor = AttachedGenerator::new(order, zoom);
-                // A real near-bottom anchor puts every Settings row above the
-                // apron, so its complete popup must own these outside clicks.
+                // Studio menus clamp to the viewport instead of requiring the
+                // legacy above-anchor placement. Every actual action stays live.
                 editor.origin = Some(Pos2::new(211.5, 860.0 - 12.0 * zoom));
                 let popup = editor.open();
                 let y = label_center(&editor.frame(vec![]).1, action).y;
@@ -257,8 +282,8 @@ fn every_generator_settings_action_selects_inside_the_attached_apron() {
                     "{action} is visible without scrolling"
                 );
                 assert!(
-                    !editor.bounds().contains(point),
-                    "exercise the apron extension"
+                    Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0)).contains_rect(popup),
+                    "the complete action popup fits the viewport"
                 );
                 let picked = editor.click(point).0.settings;
                 assert_eq!(

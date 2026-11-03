@@ -7,16 +7,10 @@ fn shadow_meshes(out: &egui::FullOutput, host: Rect) -> usize {
             let egui::Shape::Mesh(mesh) = shape else {
                 return false;
             };
-            mesh.texture_id == egui::TextureId::default()
-                && mesh.calc_bounds().contains_rect(host)
-                && mesh.vertices.iter().all(|vertex| {
-                    vertex.color.r() == 0 && vertex.color.g() == 0 && vertex.color.b() == 0
-                })
-                && mesh.vertices.iter().any(|vertex| vertex.color.a() == 0)
-                && mesh
-                    .vertices
-                    .iter()
-                    .any(|vertex| vertex.color.a() > 0 && vertex.color.a() < 255)
+            // The shared outline owner paints a cached black-alpha texture.
+            // Content textures stop at the host; only its cast encloses this margin.
+            mesh.texture_id != egui::TextureId::default()
+                && mesh.calc_bounds().contains_rect(host.expand(1.0))
         })
         .count()
 }
@@ -40,7 +34,18 @@ fn painting_suppresses_the_selection_cast_and_the_dimension_stringers() {
         h.frame();
     }
     let host = screen_rect(&h, id);
-    let rest = render(&mut h);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let rest = loop {
+        let output = render(&mut h);
+        if shadow_meshes(&output, host) > 0 {
+            break output;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the async selection shadow must become ready"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    };
     assert!(
         shadow_meshes(&rest, host) > 0,
         "single selection paints a softly feathered black shadow around its host"
@@ -97,4 +102,85 @@ fn painting_suppresses_the_selection_cast_and_the_dimension_stringers() {
         "no dimension stringers while painting"
     );
     assert!(h.app.board_sel.contains(&id), "the image stays selected");
+}
+
+#[test]
+fn rounded_image_shadow_keeps_world_geometry_and_texture_through_camera_navigation() {
+    use crate::app::board::BoardXf;
+    let (mut h, id) = blister_board("rounded-image-shadow-camera-cache");
+    h.app.patch_nodes(&[id], |node| {
+        let NodeKind::Image(image) = &mut node.kind else {
+            panic!("image fixture")
+        };
+        image.corner = slate_doc::scene::Corner::Rounded { radius: 42.0 };
+    });
+    for _ in 0..12 {
+        h.frame();
+    }
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    let reference_xf = h.app.board_xf();
+    let reference = h.app.media_shadow_outline(&h.ctx, &reference_xf, &node);
+    assert!(
+        reference.len() > 12,
+        "exercise the real rounded/cutout host path"
+    );
+    let frame = |xf: &BoardXf| {
+        h.ctx.clone().run(Default::default(), |ctx| {
+            h.app.paint_image_interaction_shadow(
+                &ctx.layer_painter(egui::LayerId::background()),
+                xf,
+                &node,
+                true,
+            );
+        })
+    };
+    let texture = |output: &egui::FullOutput| {
+        output.shapes.iter().find_map(|shape| match &shape.shape {
+            egui::Shape::Mesh(mesh) => Some(mesh.texture_id),
+            _ => None,
+        })
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let accepted = loop {
+        if let Some(texture) = texture(&frame(&reference_xf)) {
+            break texture;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "initial shadow worker must finish"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    };
+    let mut screen_samples = std::collections::BTreeSet::new();
+    for zoom in [0.5, 0.73, 1.0, 1.37, 2.0, 3.0, 4.0] {
+        let xf = BoardXf {
+            z: zoom,
+            center: reference_xf.center + egui::vec2(zoom * 17.25, -81.5),
+            ..reference_xf
+        };
+        screen_samples.insert(h.app.node_screen_outline(&h.ctx, &xf, &node).len());
+        assert_eq!(
+            h.app.media_shadow_outline(&h.ctx, &xf, &node),
+            reference,
+            "the production shadow outline cannot inherit camera tessellation"
+        );
+        let output = frame(&xf);
+        assert_eq!(
+            texture(&output),
+            Some(accepted),
+            "camera motion keeps the accepted texture"
+        );
+        assert!(
+            output
+                .textures_delta
+                .set
+                .iter()
+                .all(|(id, _)| *id != accepted),
+            "camera motion cannot upload a replacement shadow"
+        );
+    }
+    assert!(
+        screen_samples.len() > 1,
+        "fixture must cross actual corner tessellation thresholds"
+    );
 }

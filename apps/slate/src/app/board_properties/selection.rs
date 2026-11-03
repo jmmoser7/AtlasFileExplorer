@@ -93,7 +93,11 @@ impl ObjectPanelMemory {
 
 impl SlateApp {
     fn remembered_panel_eligible(&self, id: NodeId) -> bool {
-        self.image_palette_eligible(id) || self.is_artifact_node(id)
+        self.image_palette_eligible(id)
+            || self.is_artifact_node(id)
+            || self.doc().scene.node(id).is_some_and(
+                |node| matches!(&node.kind, NodeKind::Text(text) if text.agent.is_some()),
+            )
     }
 
     pub(crate) fn remember_object_panel_open(&mut self, id: NodeId, panel: Panel) {

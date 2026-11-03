@@ -45,3 +45,25 @@ pub(super) const ZOOM_TOOL: CommandSpec = spec(
     Availability::BOARD_VIEW,
     &["magnify", "zoom window"],
 );
+
+pub(super) const ZOOM_IN: CommandSpec = spec(
+    "canvas.zoom_in",
+    "Navigation",
+    "Zoom in / out",
+    "+ / −",
+    None, // handled per-view next to fit
+    Repeat::Never,
+    GLOBAL,
+    &[],
+);
+
+pub(super) const MINIMAP: CommandSpec = spec(
+    "canvas.minimap",
+    "Navigation",
+    "Minimap",
+    "M",
+    Some(Chord::bare(Key::M)),
+    Repeat::Repeatable,
+    GLOBAL,
+    &["map", "overview"],
+);

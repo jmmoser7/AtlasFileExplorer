@@ -3,6 +3,107 @@
 use super::*;
 
 #[test]
+fn text_count_creates_distinct_queued_requests_with_one_frozen_capture() {
+    let (mut h, id, _) =
+        super::test_support::generator_with_note("text-count-jobs", "Original prompt");
+    h.app.patch_nodes(&[id], |node| {
+        let agent = slate_doc::agent_chat::agent_mut(node).unwrap();
+        agent.view = atlas_agent::PortalView::Text;
+        agent.generator.count = Some(3);
+        agent.generator.preserve_history = Some(false);
+    });
+    // Hold dispatch while inspecting the actual existing request queue.
+    h.app.agents.awaiting.insert(
+        id,
+        AgentAwait::Sent {
+            at: Instant::now(),
+            req_at: 1,
+        },
+    );
+    let request = AgentRequest {
+        id: "count-fixture".into(),
+        prompt: "Original prompt".into(),
+        image: None,
+        ..Default::default()
+    };
+    let prep = h
+        .app
+        .begin_agent_input_preparation(request.inputs.clone())
+        .unwrap();
+    assert!(h.app.enqueue_prepared_generation_as(
+        id,
+        request,
+        prep,
+        slate_doc::scene::CmdAuthor::Human
+    ));
+    let queued = &h.app.agents.comfy_queue[&id];
+    assert_eq!(queued.len(), 3);
+    assert!(queued
+        .iter()
+        .all(|job| job.request.oneshot && job.request.image.is_none()));
+    let ids: HashSet<_> = queued.iter().map(|job| job.request.id.as_str()).collect();
+    assert_eq!(ids.len(), 3);
+    assert!(std::rc::Rc::ptr_eq(
+        queued[0].inputs.capture.as_ref().unwrap(),
+        queued[2].inputs.capture.as_ref().unwrap()
+    ));
+}
+
+#[test]
+fn cloned_branch_preparations_use_frozen_dynamic_values_and_submitted_prompt() {
+    let (mut h, id, _) =
+        super::test_support::generator_with_note("frozen-source-values", "Initial prompt");
+    h.app.patch_nodes(&[id], |node| {
+        slate_doc::agent_chat::agent_mut(node).unwrap().view = atlas_agent::PortalView::Text
+    });
+    let item = atlas_agent::ContextItem {
+        node: 99999,
+        text: "before capture".into(),
+        images: vec![],
+        outputs: Default::default(),
+        active: None,
+        depth: None,
+        slot: Some(atlas_agent::InputSlot::Prompt),
+    };
+    let mut request = AgentRequest {
+        id: "frozen-parent".into(),
+        prompt: "before capture\n\nSubmitted instruction".into(),
+        inputs: atlas_agent::InputSnapshot {
+            wired: vec![item],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut prep = h
+        .app
+        .begin_agent_input_preparation(request.inputs.clone())
+        .unwrap();
+    prep.freeze_capture(&request);
+    {
+        let mut frozen = prep.capture.as_ref().unwrap().borrow_mut();
+        frozen.ready = true;
+        frozen
+            .completed
+            .insert((99999, atlas_agent::InputSlot::Prompt));
+        frozen.request.inputs.wired[0].text = "frozen web text".into();
+    }
+    let mut sibling = prep.clone();
+    let mut sibling_request = request.clone();
+    *h.app.agents.prompt_mut(id) = "Later draft must not enter submission".into();
+    assert!(h
+        .app
+        .capture_prepared_generator_inputs(id, &mut prep, &mut request, false)
+        .unwrap());
+    assert!(h
+        .app
+        .capture_prepared_generator_inputs(id, &mut sibling, &mut sibling_request, false)
+        .unwrap());
+    assert_eq!(request.inputs, sibling_request.inputs);
+    assert_eq!(request.prompt, "frozen web text\n\nSubmitted instruction");
+    assert_eq!(sibling_request.prompt, request.prompt);
+}
+
+#[test]
 fn authored_image_input_is_captured_as_a_reference_before_worker_completion() {
     use slate_doc::scene::{ConnectorEnd, Crop, ImageNode, Side};
 
@@ -100,6 +201,7 @@ fn a_generation_queued_for_another_tab_is_never_dispatched() {
         .entry(generator)
         .or_default()
         .push_back(super::runtime::QueuedGeneration {
+            creation_step: None,
             doc: stale_doc,
             author: slate_doc::scene::CmdAuthor::Human,
             request,
@@ -188,6 +290,7 @@ fn failed_layer_bake_fails_input_preparation_with_a_clear_error() {
     let token = crate::app::board_image_layers::LayerBakeReadiness::new();
     token.resolve(&Err("Disk full".into()));
     let mut prep = super::input_prep::InputPreparation {
+        capture: None,
         inputs: atlas_agent::InputSnapshot::default(),
         replacements: vec![],
         bake_dependencies: vec![token],
@@ -218,6 +321,7 @@ fn stop_removes_a_chat_send_waiting_for_image_preparation() {
                 preserve_composer: false,
             },
             inputs: super::input_prep::InputPreparation {
+                capture: None,
                 inputs: atlas_agent::InputSnapshot::default(),
                 replacements: vec![],
                 bake_dependencies: vec![crate::app::board_image_layers::LayerBakeReadiness::new()],

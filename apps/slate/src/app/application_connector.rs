@@ -8,6 +8,7 @@ use slate_doc::NodeId;
 use std::{collections::HashMap, path::PathBuf, time::Duration};
 mod actions;
 mod children;
+mod headless;
 mod hosting;
 pub(crate) mod native;
 mod presentation;
@@ -17,6 +18,7 @@ mod worker;
 #[derive(Default)]
 pub(crate) struct ConnectorRuntime {
     sessions: HashMap<(u64, NodeId), Session>,
+    headless: headless::HumanJobs,
     children: HashMap<(u64, NodeId, String), children::ChildSurface>,
     uncertain: Vec<native::Completion>,
     retired: Vec<native::TicketEntry>,
@@ -64,7 +66,13 @@ impl SlateApp {
                 .connectors
                 .sessions
                 .get(&(self.tab().id, id))
-                .is_some_and(|s| s.enabled)
+                .is_some_and(|s| {
+                    s.enabled
+                        && !s
+                            .descriptor
+                            .as_ref()
+                            .is_some_and(|d| d.mode == SurfaceMode::Headless)
+                })
     }
     pub(crate) fn connector_activate(&mut self, id: NodeId) {
         self.activate_connector_mode(id, None);
@@ -196,6 +204,7 @@ impl SlateApp {
         changed
     }
     pub(crate) fn maintain_application_connectors(&mut self, ctx: &egui::Context) {
+        self.pump_headless_models(ctx);
         let active_tab = (!self.at_home).then(|| self.tab().id);
         let stale: Vec<_> = self
             .connectors
@@ -215,6 +224,9 @@ impl SlateApp {
                     ))
                 });
                 path.as_ref() != Some(&self.connectors.sessions[key].path)
+                    && !path
+                        .as_ref()
+                        .is_some_and(|path| self.headless_history_preview(*key, path))
             })
             .collect();
         for key in stale {
@@ -305,10 +317,21 @@ impl SlateApp {
                         session.process_id = process_id;
                         session.binding = Some(binding);
                         session.descriptor = Some(surface.clone());
-                        session.status = "Rhino.Inside".into();
+                        session.status = if surface.mode == SurfaceMode::Headless {
+                            "Rhino headless"
+                        } else {
+                            "Rhino.Inside"
+                        }
+                        .into();
                         // Prepare an authenticated poster while hidden. Presentation
                         // alone may reveal/focus after actual placement is ready.
-                        session.request_native_focus(false, true);
+                        if surface.mode != SurfaceMode::Headless {
+                            session.request_native_focus(false, true);
+                        }
+                    }
+                    worker::Event::Progress(message) => {
+                        session.status = message;
+                        ctx.request_repaint();
                     }
                     worker::Event::Status(message) => {
                         session.failure = Some(message.clone());

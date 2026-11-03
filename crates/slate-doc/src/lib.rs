@@ -31,6 +31,7 @@ mod spatial;
 pub mod stage;
 pub mod tag_command;
 mod tags;
+pub mod text_answers;
 pub mod vertex_style;
 mod view;
 pub mod wire;

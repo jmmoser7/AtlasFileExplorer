@@ -67,6 +67,7 @@ fn wire_grab_zone_uses_a_grab_cursor_on_every_node_kind() {
     let node = h.app.doc_mut().scene.build_node(
         slate_doc::scene::WorldRect::new(0.0, 0.0, 160.0, 40.0),
         NodeKind::Text(slate_doc::scene::TextNode {
+            answers: Default::default(),
             text: "Hello".into(),
             style: Default::default(),
             family: Default::default(),

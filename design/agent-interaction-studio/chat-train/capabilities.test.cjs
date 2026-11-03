@@ -1,0 +1,21 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const scope=vm.createContext({window:{}});
+for(const file of ['agent-catalog.js','model.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,file),'utf8'),scope);
+const C=scope.window.ChatAgentCatalog,M=scope.window.ChatTrainModel;
+assert.equal(C.normalize({provider:'cursor',model:'Luna',effort:'xhigh',speed:'ultra'}).effort,'medium');
+assert.equal(C.normalize({provider:'cursor',model:'Luna',effort:'xhigh',speed:'ultra'}).speed,'standard');
+assert.equal(C.normalize({provider:'local',effort:'high',speed:'fast'}).effort,'automatic');
+assert.equal(C.normalize({provider:'local',effort:'high',speed:'fast'}).speed,'automatic');
+assert.equal(C.normalize({provider:'codex',model:'Sol',speed:'ultra'}).speed,'ultra');
+assert.deepEqual(Array.from(['standard','fast','ultra'],id=>C.speedInfo[id].bolts),[0,1,2]);
+assert.throws(()=>C.register({id:'broken',models:[{id:'none'}]}),/declare/);
+assert.throws(()=>C.register({id:'bad-speed',models:[{id:'one',efforts:[],speeds:['unregistered']}]}),/metadata/);
+C.registerSpeed('extra','Extra fast',2);C.register({id:'future',models:[{id:'One',efforts:['low'],speeds:['standard','extra']}]});
+assert.equal(C.normalize({provider:'future',model:'One',effort:'high',speed:'extra'}).effort,'low');
+const s=M.create();const card=M.project(s).at(-1);M.setAgent(s,card.id,{provider:'cursor',model:'Luna',effort:'high',speed:'ultra'});
+const request=M.send(s,card.id,'Check capability filtering');
+assert.ok(request);assert.equal(s.turns.at(-1).effort,'medium');assert.equal(s.turns.at(-1).speed,'standard');
+console.log('Capability checks passed.');
+
+assert.equal(C.labels.ultra,'Ultra fast');assert.equal(C.normalize({provider:'cursor',model:'Astra',speed:'ultra_fast'}).speed,'ultra_fast');assert.equal(C.normalize({provider:'cursor',model:'Luna',speed:'ultra_fast'}).speed,'standard');

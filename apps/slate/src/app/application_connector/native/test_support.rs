@@ -10,6 +10,12 @@ pub(crate) struct Peer {
     pub binding: BindingSnapshot,
 }
 
+/// Configure a fixture surface through the private session owner; authority is unchanged.
+pub(crate) fn set_surface_descriptor(h: &mut Harness, node: NodeId, descriptor: SurfaceDescriptor) {
+    let key = (h.app.tab().id, node);
+    h.app.connectors.sessions.get_mut(&key).unwrap().descriptor = Some(descriptor);
+}
+
 /// Add one advertised capability through the fixture's own private session owner.
 pub(crate) fn add_command(h: &mut Harness, node: NodeId, command: CommandDescriptor) {
     let key = (h.app.tab().id, node);
@@ -25,6 +31,22 @@ pub(crate) fn add_command(h: &mut Harness, node: NodeId, command: CommandDescrip
         .push(command);
 }
 impl Peer {
+    pub(in crate::app::application_connector) fn next_preparation(
+        &self,
+    ) -> Option<(BindingKey, PathBuf, String, Lease)> {
+        while let Ok(action) = self.actions.try_recv() {
+            if let worker::Action::PrepareHeadless {
+                key,
+                path,
+                revision,
+                lease,
+            } = action
+            {
+                return Some((key, path, revision, lease));
+            }
+        }
+        None
+    }
     pub(in crate::app::application_connector) fn background_discoveries(&self) -> usize {
         self.actions
             .try_iter()

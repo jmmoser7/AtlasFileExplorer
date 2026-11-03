@@ -133,8 +133,14 @@ impl SlateApp {
         });
         let released = self.release_stream_open(&ids);
         self.refit_agent_cards(ctx, &ids, |chat| {
-            chat.collapsed = collapse;
-            chat.partial = false;
+            write_fold(
+                chat,
+                if collapse {
+                    train_ux::CardFold::Collapsed
+                } else {
+                    train_ux::CardFold::Open
+                },
+            );
         }) || released
     }
     /// One chevron steps a level; the double jumps two. A missing detail keeps the keyboard toggle. Folding a
@@ -207,23 +213,44 @@ impl SlateApp {
     /// workbook: agent full access here, web origin consent in `board_web`.
     pub(crate) fn install_local_grants(&mut self) {
         let path = atlas_ai::access::store_path();
-        self.agents.access_snapshot = atlas_ai::access::load_snapshot_in(&path);
-        self.agents.full_access = self.agents.access_snapshot.full_sessions();
-        self.agents.dashboard_full_access =
-            self.agents.access_snapshot.artifact_default_full_access();
-        self.agents.crosstalk.trust = self
-            .agents
-            .full_access
-            .iter()
-            .filter(|s| self.agents.access_snapshot.relay_granted(s))
-            .cloned()
-            .collect();
         self.agents.access_path = Some(path);
+        self.refresh_agent_access();
         self.web
             .use_consent_file(atlas_core::index::data_dir().join("web-consent.json"));
     }
+    /// Observe the per-user policy at admission, never while painting chrome.
+    pub(super) fn refresh_agent_access(&mut self) {
+        let Some(path) = self.agents.access_path.as_deref() else {
+            return;
+        };
+        self.agents.access_snapshot = atlas_ai::access::load_snapshot_in(path);
+        self.agents.full_access = self.agents.access_snapshot.full_sessions();
+        self.agents.dashboard_full_access =
+            self.agents.access_snapshot.global_default_full_access();
+        self.agents.crosstalk.trust = self
+            .agents
+            .access_snapshot
+            .relay_sessions()
+            .into_iter()
+            .collect();
+    }
+    pub(super) fn admit_agent_access(
+        &mut self,
+        session: &str,
+        request: &AgentRequest,
+    ) -> atlas_ai::sidecar::SidecarPolicy {
+        self.refresh_agent_access();
+        atlas_ai::sidecar::SidecarPolicy::from_grants(
+            request,
+            self.agents
+                .access_snapshot
+                .granted_for_request(session, request),
+            self.agents.access_snapshot.relay_granted(session),
+        )
+    }
     pub(crate) fn agent_full_access(&self, session: &str) -> bool {
-        self.agents.full_access.contains(session)
+        self.agents.access_snapshot.granted(session)
+            || (self.agents.access_path.is_none() && self.agents.full_access.contains(session))
     }
     pub(crate) fn agent_session_access_granted(&self, session: &str) -> bool {
         self.agents.access_snapshot.granted(session)
@@ -249,8 +276,7 @@ impl SlateApp {
     #[cfg(test)]
     pub(crate) fn set_agent_access_store_for_tests(&mut self, path: std::path::PathBuf) {
         self.agents.access_path = Some(path.clone());
-        self.agents.access_snapshot = atlas_ai::access::load_snapshot_in(&path);
-        self.agents.full_access = self.agents.access_snapshot.full_sessions();
+        self.refresh_agent_access();
     }
     /// The person's explicit grant for one conversation: the provider runs
     /// commands and edits files without asking. Applies from the next message.
@@ -312,7 +338,7 @@ impl SlateApp {
         let ids = self.selected_chat_cards();
         self.refit_agent_cards(ctx, &ids, |chat| {
             chat.size = None;
-            chat.partial = false;
+            write_fold(chat, train_ux::CardFold::Open);
         })
     }
     /// Edit each card's view and refit its rect in the same journal step, so
@@ -325,7 +351,7 @@ impl SlateApp {
     ) -> bool {
         self.refit_agent_cards_by(ctx, ids, |_, chat| edit(chat))
     }
-    fn refit_agent_cards_by(
+    pub(super) fn refit_agent_cards_by(
         &mut self,
         ctx: &egui::Context,
         ids: &[NodeId],

@@ -2,6 +2,20 @@
 use super::*;
 use crate::scene::{ArtifactGeneratorRef, ConnectorEnd, ImageNode, PortalNode, Scene};
 
+#[test]
+fn graft_capsules_center_four_terminals_and_cap_further_wires() {
+    assert_eq!(graft_capsule_height(0), 12.0);
+    assert_eq!(graft_capsule_height(2), 16.0);
+    assert_eq!(graft_capsule_height(4), 24.0);
+    assert_eq!(graft_capsule_height(100), 24.0);
+    assert_eq!(
+        (0..5)
+            .map(|i| graft_terminal_offset(i, 5))
+            .collect::<Vec<_>>(),
+        [-6.0, -2.0, 2.0, 6.0, 6.0]
+    );
+}
+
 fn source_image(scene: &mut Scene, height: f32) -> Node {
     scene.build_node(
         WorldRect::new(20.0, 40.0, 680.0, height),
@@ -101,8 +115,8 @@ fn a_mixed_size_image_train_routes_straight_from_the_shared_saved_identities() {
         crate::wire::WireRouting::Orthogonal,
     ] {
         let path = crate::wire::connector_route_in_scene(&scene, None, &a, &b, routing).unwrap();
-        assert!((path.start()[1] - 70.0).abs() < 0.001);
-        assert!((path.end()[1] - 70.0).abs() < 0.001);
+        assert!((path.start()[1] - (40.0 + FLOW_PORT_TOP)).abs() < 0.001);
+        assert!((path.end()[1] - (40.0 + FLOW_PORT_TOP)).abs() < 0.001);
     }
 }
 
@@ -237,37 +251,55 @@ fn ordinary_source_arbitrary_saved_anchors_keep_their_existing_edge_geometry() {
 #[test]
 fn compact_source_and_revealed_input_rail_share_the_same_output_site() {
     let mut scene = Scene::default();
-    for height in [1.0, 12.0, 36.0, 127.99, 128.0, 128.01, 400.0] {
-        for rotation in [0.0, 37.0, 90.0] {
-            let mut node = source_image(&mut scene, height);
-            node.rotation_deg = rotation;
-            let source = WireHost::from_node(&node);
-            let revealed = WireHost::from_node_flow(&node, &crate::agent_inputs::GENERATOR_PORTS);
-            let midpoint = node.rect.rotate_point(
-                [node.rect.x + node.rect.w, node.rect.y + height * 0.5],
-                rotation,
-            );
-            assert!(
-                dist(
-                    source.anchor(Side::Right, crate::agent_inputs::OUTPUT_T),
-                    midpoint
-                ) < 0.001
-            );
-            assert_eq!(
-                source.anchor(Side::Right, crate::agent_inputs::OUTPUT_T),
-                revealed.anchor(Side::Right, crate::agent_inputs::OUTPUT_T)
-            );
-            for port in revealed.ports() {
-                let (cx, cy) = node.rect.center();
-                let (x, y) = crate::geom::world_to_local_about(
-                    port.point[0],
-                    port.point[1],
-                    cx,
-                    cy,
+    for empty_ref in [false, true] {
+        for height in [1.0, 12.0, 36.0, 127.99, 128.0, 128.01, 400.0] {
+            for rotation in [0.0, 37.0, 90.0] {
+                let mut node = source_image(&mut scene, height);
+                node.rotation_deg = rotation;
+                if empty_ref {
+                    let NodeKind::Image(image) = &mut node.kind else {
+                        unreachable!()
+                    };
+                    let mut settings =
+                        crate::scene::AgentPortalRef::unbound(atlas_agent::PortalView::Images);
+                    settings.generator.preserve_history = Some(true);
+                    settings.generator.grafted_slots.insert("style".into());
+                    image.agent = Some(Box::new(settings));
+                }
+                let before = node.clone();
+                let source = WireHost::from_node(&node);
+                let revealed =
+                    WireHost::from_node_flow(&node, &crate::agent_inputs::GENERATOR_PORTS);
+                let midpoint = node.rect.rotate_point(
+                    [node.rect.x + node.rect.w, node.rect.y + height * 0.5],
                     rotation,
                 );
-                assert!(x >= node.rect.x - 0.001 && x <= node.rect.x + node.rect.w + 0.001);
-                assert!(y >= node.rect.y - 0.001 && y <= node.rect.y + node.rect.h + 0.001);
+                assert!(
+                    dist(
+                        source.anchor(Side::Right, crate::agent_inputs::OUTPUT_T),
+                        midpoint
+                    ) < 0.001
+                );
+                assert_eq!(
+                    source.anchor(Side::Right, crate::agent_inputs::OUTPUT_T),
+                    revealed.anchor(Side::Right, crate::agent_inputs::OUTPUT_T)
+                );
+                for port in revealed.ports() {
+                    let (cx, cy) = node.rect.center();
+                    let (x, y) = crate::geom::world_to_local_about(
+                        port.point[0],
+                        port.point[1],
+                        cx,
+                        cy,
+                        rotation,
+                    );
+                    assert!(x >= node.rect.x - 0.001 && x <= node.rect.x + node.rect.w + 0.001);
+                    assert!(y >= node.rect.y - 0.001 && y <= node.rect.y + node.rect.h + 0.001);
+                }
+                assert_eq!(
+                    node, before,
+                    "revealing inputs never mutates the linked source or graph settings"
+                );
             }
         }
     }

@@ -115,8 +115,10 @@ impl SlateApp {
         };
         let shown = surface.show(
             ctx,
-            Id::new("shape_property_editor"),
-            egui::LayerId::background(),
+            (
+                Id::new("shape_property_editor"),
+                egui::LayerId::background(),
+            ),
             (
                 chrome::ImagePanelKind::Custom {
                     main_height: height,
@@ -124,6 +126,7 @@ impl SlateApp {
                 height,
             ),
             true,
+            false,
             |ui, rect, _| self.paint_portal_capture_launch(ui, rect, node, z),
         );
         shown.is_some_and(|shown| capture_contains(ctx, shown.area, self.canvas_rect))
@@ -170,8 +173,10 @@ impl SlateApp {
         let theme = self.palette();
         let shown = surface.show(
             ctx,
-            Id::new(("portal_capture_transport", self.tab().id, status.node.0)),
-            egui::LayerId::background(),
+            (
+                Id::new(("portal_capture_transport", self.tab().id, status.node.0)),
+                egui::LayerId::background(),
+            ),
             (
                 chrome::ImagePanelKind::Custom {
                     main_height: height,
@@ -179,6 +184,7 @@ impl SlateApp {
                 height,
             ),
             true,
+            false,
             |ui, rect, _| capture::active(ui, rect, phase, status.elapsed, z, theme),
         );
         let owns = shown.as_ref().is_some_and(|shown| {

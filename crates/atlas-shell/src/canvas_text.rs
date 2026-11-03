@@ -344,7 +344,7 @@ impl Scaled {
                         egui::Sense::hover()
                     },
                 );
-                // Bookkeep against the global clip, then restore local clipping.
+                // Bookkeep globally; paint ink within the parent viewport, not the hit band.
                 let first = text_ui
                     .ctx()
                     .graphics_mut(|layers| layers.entry(layer).next_idx());
@@ -361,7 +361,7 @@ impl Scaled {
                     let list = layers.entry(layer);
                     for index in first.0..list.next_idx().0 {
                         list.mutate_shape(egui::layers::ShapeIdx(index), |shape| {
-                            shape.clip_rect = visible
+                            shape.clip_rect = viewport
                         });
                     }
                 });

@@ -51,7 +51,70 @@ pub fn connector_route_in_scene_with_hosts(
             .unwrap_or_default(),
         _ => OrthoLane::default(),
     };
-    connector_route(a, b, host_of, routing, &obstacles, lane)
+    let graft = connector_id.and_then(|id| graft_offset(scene, id));
+    connector_route(
+        a,
+        b,
+        |id| {
+            let mut host = host_of(id)?;
+            if let Some((target, offset)) = graft.filter(|(target, _)| *target == id) {
+                let _ = target;
+                let angle = host.rotation_deg.to_radians();
+                host.rect.x -= offset * angle.sin();
+                host.rect.y += offset * angle.cos();
+            }
+            Some(host)
+        },
+        routing,
+        &obstacles,
+        if graft.is_some() {
+            OrthoLane::default()
+        } else {
+            lane
+        },
+    )
+}
+
+fn graft_offset(scene: &Scene, connector: NodeId) -> Option<(NodeId, f32)> {
+    use crate::agent_inputs::endpoint_node;
+    let NodeKind::Connector(conn) = &scene.node(connector)?.kind else {
+        return None;
+    };
+    let binding = conn.binding.as_ref()?;
+    let target = endpoint_node(binding.target_end(conn))?;
+    let slot = binding.slot.as_deref()?;
+    let agent = crate::agent_chat::agent(scene.node(target)?)?;
+    if !agent.generator.grafted_slots.contains(slot) {
+        return None;
+    }
+    let mut wires: Vec<_> = scene
+        .nodes
+        .iter()
+        .filter_map(|node| {
+            let NodeKind::Connector(conn) = &node.kind else {
+                return None;
+            };
+            let binding = conn.binding.as_ref()?;
+            (endpoint_node(binding.target_end(conn)) == Some(target)
+                && binding.slot.as_deref() == Some(slot))
+            .then(|| {
+                (
+                    if binding.order.is_empty() {
+                        vec![node.id.0]
+                    } else {
+                        binding.order.clone()
+                    },
+                    node.id,
+                )
+            })
+        })
+        .collect();
+    wires.sort();
+    let index = wires.iter().position(|(_, id)| *id == connector)?;
+    Some((
+        target,
+        crate::wire_host::graft_terminal_offset(index, wires.len()),
+    ))
 }
 
 /// AABB of the derived route (connector `Node.rect` stays equal to this).
@@ -94,10 +157,25 @@ fn memory_route(
 ) -> Option<ConnectorPath> {
     let binding = conn.binding.as_ref().filter(|binding| {
         binding.kind == crate::agent_inputs::InputKind::Memory
-            && binding.slot.as_deref() == Some("memory")
+            && matches!(binding.slot.as_deref(), Some("memory" | "generator_memory"))
     })?;
     let source = crate::agent_inputs::endpoint_node(binding.source_end(conn))?;
     let target = crate::agent_inputs::endpoint_node(binding.target_end(conn))?;
+    if binding.slot.as_deref() == Some("generator_memory") {
+        let source = host_of(source)?;
+        let target = host_of(target)?;
+        let a = source.rect.rotate_point(
+            [source.rect.x + source.rect.w - 6.0, source.rect.y + 10.0],
+            source.rotation_deg,
+        );
+        let b = target.rect.rotate_point(
+            [target.rect.x + 6.0, target.rect.y + 10.0],
+            target.rotation_deg,
+        );
+        return Some(ConnectorPath::Bezier(
+            crate::scene::connector_bezier_from_dirs(a, [1.0, 0.0], b, [-1.0, 0.0]),
+        ));
+    }
     Some(ConnectorPath::Bezier(crate::agent_chat::rail(
         host_of(source)?.rect,
         host_of(target)?.rect,
