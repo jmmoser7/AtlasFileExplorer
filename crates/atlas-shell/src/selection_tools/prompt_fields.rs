@@ -45,7 +45,7 @@ pub fn image_prompt_line_count(
     prompt: &str,
     width_board_units: f32,
 ) -> usize {
-    let width = (width_board_units - 40.0).max(1.0);
+    let width = (width_board_units - 28.0).max(1.0);
     canvas_text::world_layout(
         painter.ctx(),
         prompt,
@@ -86,6 +86,9 @@ fn prompt_field_at_scale(
     input_ui.set_clip_rect(field.intersect(ui.clip_rect()));
     input_ui.style_mut().visuals = theme.visuals();
     input_ui.spacing_mut().item_spacing = Vec2::ZERO;
+    if !input_ui.is_enabled() || !input_ui.is_visible() || (!editing && !take_focus) {
+        crate::menu_wheel::release_focused(ui.ctx(), id);
+    }
     if !editing && !take_focus {
         if canvas_text::legible(font.size) {
             let painter = input_ui.painter();
@@ -107,8 +110,10 @@ fn prompt_field_at_scale(
         return PromptField::default();
     }
     let had_focus = ui.memory(|m| m.has_focus(id));
-    let submit =
-        had_focus && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+    let submit = had_focus
+        && ui.input_mut(|i| {
+            !i.modifiers.shift && i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+        });
     let world_font = canvas_scale::font(font_units, 1.0);
     let world_wrap = field.width() / zoom;
     let mut layouter = |ui: &egui::Ui, text: &str, _wrap: f32| {
@@ -185,6 +190,15 @@ fn prompt_field_at_scale(
                 (scroll.state.offset.y / zoom).clamp(0.0, edited_max_offset),
             )
         });
+        super::generator::scroll::paint(
+            ui,
+            id,
+            field,
+            edited_text_h,
+            scroll.state.offset.y,
+            zoom,
+            theme,
+        );
         scroll.inner
     } else {
         ui.ctx()
@@ -194,9 +208,21 @@ fn prompt_field_at_scale(
     if take_focus {
         response.request_focus();
     }
+    if input_ui.is_enabled() && input_ui.is_visible() {
+        let visible = field.intersect(input_ui.clip_rect());
+        let transform = ui
+            .ctx()
+            .layer_transform_to_global(response.layer_id)
+            .unwrap_or_default();
+        crate::menu_wheel::claim_focused(ui.ctx(), transform * visible, id, response.layer_id);
+    }
     PromptField {
         changed: response.changed(),
         submit,
         focused: response.has_focus(),
     }
 }
+
+#[cfg(test)]
+#[path = "prompt_fields/wheel_tests.rs"]
+mod wheel_tests;

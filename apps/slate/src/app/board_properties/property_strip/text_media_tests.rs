@@ -14,6 +14,7 @@ fn text(h: &mut Harness, linked: bool) -> Node {
         NodeKind::Image(image)
     } else {
         NodeKind::Text(slate_doc::scene::TextNode {
+            answers: Default::default(),
             text: "Generated text body".into(),
             style: Default::default(),
             family: Default::default(),
@@ -78,8 +79,8 @@ fn legacy_and_linked_text_media_use_the_shared_notch_and_one_prompt_owner() {
                 egui::Shape::Text(text) if text.galley.text()=="Run")
             });
             assert_eq!(
-                legacy_run, !selected,
-                "selected shared controls own the interaction, linked={linked}"
+                legacy_run, false,
+                "the explicit Agent dialogue owns Send for every selection state, linked={linked}"
             );
         }
     }

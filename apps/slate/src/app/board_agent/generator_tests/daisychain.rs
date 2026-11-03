@@ -33,7 +33,10 @@ fn finish_preparation(
     mut preparation: crate::app::board_agent::input_prep::InputPreparation,
     source: NodeId,
 ) -> image::RgbaImage {
-    let deadline = Instant::now() + Duration::from_secs(3);
+    // Completion is the functional condition; this is only a harness deadlock
+    // backstop, not a product latency budget under concurrent release validation.
+    let started = Instant::now();
+    let deadline = started + Duration::from_secs(15);
     loop {
         if h.app
             .poll_agent_input_preparation(&mut preparation)
@@ -43,7 +46,11 @@ fn finish_preparation(
         }
         assert!(
             Instant::now() < deadline,
-            "captured pinned image preparation finishes"
+            "captured pinned image preparation finishes: source={}, elapsed={:?}, replacements={}, bake dependencies={}",
+            source.0,
+            started.elapsed(),
+            preparation.replacements.len(),
+            preparation.bake_dependencies.len()
         );
         std::thread::sleep(Duration::from_millis(5));
     }

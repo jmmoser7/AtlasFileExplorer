@@ -3,6 +3,49 @@
 use super::*;
 
 impl SlateApp {
+    /// Selection chrome may own egui's layer over a model body at any size.
+    /// Keep its double-click entry without letting real controls fall through.
+    pub(super) fn canvas_media_double_clicked(
+        &self,
+        ui: &egui::Ui,
+        response: &egui::Response,
+    ) -> bool {
+        if response.double_clicked() {
+            return true;
+        }
+        if self.board_tool != BoardTool::Select
+            || !ui.is_enabled()
+            || self.property_inline_editor_open()
+            || ui.ctx().memory(|memory| memory.any_popup_open())
+            || !ui.input(|input| {
+                input
+                    .pointer
+                    .button_double_clicked(egui::PointerButton::Primary)
+            })
+        {
+            return false;
+        }
+        let Some(point) =
+            ui.input(|input| input.pointer.press_origin().or(input.pointer.latest_pos()))
+        else {
+            return false;
+        };
+        self.canvas_rect.contains(point)
+            && ui.clip_rect().contains(point)
+            && ui.ctx().layer_id_at(point).is_some_and(|layer| {
+                layer == ui.layer_id()
+                    || layer == atlas_shell::selection_tools::selection_chrome_layer()
+            })
+            && !self
+                .shape_properties
+                .chrome_hits
+                .iter()
+                .any(|rect| rect.contains(point))
+            && matches!(self.transform_hit_at(point),
+                Some((Some(id), board_handles::BoardHitTarget::Body))
+                    if self.model_node_info(id).is_some())
+    }
+
     /// A painted grip or object body keeps its native canvas drag even when
     /// last frame's overlapping strip/stringer was egui's press target.
     /// Claim only after the drag threshold; normal clicks keep their owner.

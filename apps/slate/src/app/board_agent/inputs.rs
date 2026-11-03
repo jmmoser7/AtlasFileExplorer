@@ -3,6 +3,7 @@
 use super::*;
 mod document_cards;
 mod presence;
+mod values;
 pub(crate) use presence::ScopedImageInput;
 
 impl SlateApp {
@@ -173,6 +174,7 @@ impl SlateApp {
             }
         }
         Ok(input_prep::InputPreparation {
+            capture: None,
             inputs,
             replacements,
             bake_dependencies,
@@ -273,87 +275,15 @@ impl SlateApp {
     ) -> Result<atlas_ai::agent::InputSnapshot, String> {
         #[cfg(test)]
         super::runtime::INPUT_RESOLVES_ON_THIS_THREAD.with(|count| count.set(count.get() + 1));
-        let mut outputs = std::collections::BTreeMap::new();
-        for node in &self.doc().scene.nodes {
-            if slate_doc::agent_chat::is_agent_node(node) {
-                let images = self
-                    .agent_images(node.id)
-                    .iter()
-                    .map(|i| {
-                        resolve_source(self.tab().path.as_deref(), &i.source)
-                            .to_string_lossy()
-                            .into_owned()
-                    })
-                    .collect();
-                let text = self
-                    .agents
-                    .sessions
-                    .get(&node.id)
-                    .filter(|s| s.status == AgentStatus::Idle)
-                    .and_then(|s| s.turns.iter().rev().find(|t| t.role == "assistant"))
-                    .map(|t| t.text.clone())
-                    .unwrap_or_default();
-                let image_outputs = self
-                    .agent_images(node.id)
-                    .iter()
-                    .map(|i| {
-                        (
-                            i.id.clone(),
-                            resolve_source(self.tab().path.as_deref(), &i.source)
-                                .to_string_lossy()
-                                .into_owned(),
-                        )
-                    })
-                    .collect();
-                let active = self.agent_active_output(node.id);
-                outputs.insert(
-                    node.id,
-                    atlas_ai::agent::ContextItem {
-                        node: node.id.0,
-                        text,
-                        images,
-                        outputs: image_outputs,
-                        active,
-                        depth: None,
-                        slot: None,
-                    },
-                );
+        let mut inputs = self.projected_agent_input_snapshot(id, |source| {
+            // A missing selected checkpoint must fail before a linked document
+            // readiness check, just as the eager projection did.
+            let _ = self.resolved_selected_text_output(source)?;
+            if self.active_authored_text(source).is_some() {
+                return Ok(());
             }
-            // A placed text document supplies the words its card shows. Read
-            // once by the card or a queued run (`snippet_for`), never here.
-            if let NodeKind::Image(image) = &node.kind {
-                let text_doc = self.doc().item(image.item).is_some_and(|item| {
-                    slate_doc::media_kind(&item.path) == slate_doc::MediaKind::Text
-                });
-                if text_doc {
-                    let text = image
-                        .text_override
-                        .clone()
-                        .or_else(|| self.cached_snippet(image.item).map(str::to_string))
-                        .unwrap_or_default();
-                    outputs.insert(
-                        node.id,
-                        atlas_ai::agent::ContextItem {
-                            node: node.id.0,
-                            text,
-                            images: vec![],
-                            outputs: Default::default(),
-                            active: None,
-                            depth: None,
-                            slot: None,
-                        },
-                    );
-                }
-            }
-        }
-        let mut inputs = slate_doc::agent_inputs::snapshot_with_source_check(
-            self.doc(),
-            id,
-            AgentContextScope::Selection,
-            &[],
-            &outputs,
-            |source| self.check_document_input_preview(source),
-        )?;
+            self.check_document_input_preview(source)
+        })?;
         for item in inputs.context.iter_mut().chain(inputs.wired.iter_mut()) {
             for source in item
                 .images
@@ -366,12 +296,15 @@ impl SlateApp {
                     .into_owned();
             }
         }
-        // A prompt being typed steers before the edit commits.
-        if let Some((editing, text)) = &self.text_edit {
-            for item in &mut inputs.wired {
-                if item.node == editing.0 && item.images.is_empty() {
-                    item.text = text.clone();
-                }
+        // Pure snapshot selection may use durable shown_text to choose the output map.
+        // Both native and linked editors override that result with the same live
+        // authored buffer which suspends the preview, including contextual inputs.
+        for item in inputs.context.iter_mut().chain(inputs.wired.iter_mut()) {
+            if let Some(text) = self.active_authored_text(NodeId(item.node)) {
+                item.text = text.to_string();
+                item.images.clear();
+                item.outputs.clear();
+                item.active = None;
             }
         }
         Ok(inputs)
@@ -433,3 +366,6 @@ impl SlateApp {
             .is_some_and(|s| s.status == AgentStatus::Thinking)
     }
 }
+#[cfg(test)]
+#[path = "input_selection_tests.rs"]
+mod selection_tests;

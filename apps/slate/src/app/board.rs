@@ -42,6 +42,8 @@
 //! - Frames drag their members with them (geometric membership, captured at
 //!   gesture start).
 mod paint_node;
+#[cfg(test)]
+pub(crate) mod paint_probe;
 use super::{
     board_color, board_crop, board_forcefield, board_handles, board_osnap, board_path, board_place,
     board_snap, board_web, kits, model3d, SlateApp, ThumbState,
@@ -74,57 +76,11 @@ pub(crate) enum BoardMark {
     Tags(slate_doc::TagCommand),
 }
 
-/// The node a scene command adds, removes, or patches.
-pub(crate) fn cmd_node_id(cmd: &SceneCmd) -> NodeId {
-    match cmd {
-        SceneCmd::Add { node, .. }
-        | SceneCmd::Remove { node, .. }
-        | SceneCmd::LayerNodeAdd { node, .. }
-        | SceneCmd::LayerNodeRemove { node, .. } => node.id,
-        SceneCmd::Patch { after, .. } | SceneCmd::LayerNodePatch { after, .. } => after.id,
-    }
-}
+mod command_targets;
+pub(crate) use command_targets::cmd_node_id;
 
-pub(crate) struct SheetMark {
-    pub item: ItemId,
-    pub path: PathBuf,
-    pub row: usize,
-    pub col: usize,
-    pub prior: atlas_core::office::PriorCell,
-}
-
-#[derive(Clone)]
-pub(crate) struct SheetHit {
-    pub node: NodeId,
-    pub item: ItemId,
-    pub row: usize,
-    pub col: usize,
-    pub rect: Rect,
-    pub add: bool,
-}
-
-pub(crate) struct SheetEdit {
-    pub node: NodeId,
-    pub item: ItemId,
-    pub row: usize,
-    pub col: usize,
-    pub buf: String,
-    pub origin: String,
-    /// The edit started as a new column, so naming it stays one undo step.
-    pub fresh: bool,
-    pub screen: Rect,
-    pub font_px: f32,
-}
-
-/// A column or row boundary the open spreadsheet can drag.
-#[derive(Clone, Copy)]
-pub(crate) struct SheetGrip {
-    pub node: NodeId,
-    pub rect: Rect,
-    /// Column to the left of this boundary. `None` is a row boundary.
-    pub col: Option<usize>,
-    pub row: Option<usize>,
-}
+mod sheet_state;
+pub(crate) use sheet_state::{SheetEdit, SheetGrip, SheetHit, SheetMark};
 
 /// In-flight click/drag text-box compose. Nothing is journaled until
 /// [`SlateApp::commit_text_box_draft`] runs with non-empty content.
@@ -299,7 +255,6 @@ mod board_tests;
 
 impl SlateApp {
     // ----- main board entry -----------------------------------------------------
-
     pub fn board_canvas(&mut self, ui: &mut egui::Ui, rect: Rect) {
         self.poll_image_rasters(ui.ctx());
         self.validate_image_paint_session();
@@ -325,7 +280,9 @@ impl SlateApp {
         // generation (journal commits / undo / redo), never per frame.
         self.sync_connector_rects();
         let palette = self.palette();
-        let presence_capture = self.presence_capsules(ui.ctx());
+        self.paint_carried_history_view(ui.ctx());
+        let modal_capture = ui.ctx().memory(|memory| memory.top_modal_layer().is_some());
+        let presence_capture = self.presence_capsules(ui.ctx()) || modal_capture;
         if !presence_capture {
             self.presence_takeover(ui.ctx());
         }
@@ -340,8 +297,8 @@ impl SlateApp {
         let wp = pointer.map(|p| xf.s2w(p));
         let editing_text = self.text_compose_active();
         // Object chrome runs before gestures so it can capture clicks.
-        let agent_controls_capture =
-            self.agent_spawn_input(ui, &xf) | self.image_result_drag_input(ui, &xf);
+        let agent_controls_capture = modal_capture
+            || self.agent_spawn_input(ui, &xf) | self.image_result_drag_input(ui, &xf);
         let other_toolbar_captures = self.shape_properties_ui(ui, &xf)
             | self.corner_entry_ui(ui, &xf)
             | self.tip_numeric_ui(ui, &xf)
@@ -358,7 +315,7 @@ impl SlateApp {
         let now = ui.input(|i| i.time);
         let mut canvas_nav = false;
         // A focused page owns wheel input; its chrome stays draggable (D17/D22).
-        if !shot_captures {
+        if !modal_capture && !shot_captures {
             self.peel_contents_focus_if_clicked_outside(ui, &xf, pointer);
         }
         self.peel_sheet(ui, &xf, pointer);
@@ -368,7 +325,8 @@ impl SlateApp {
         }
         let page_capture =
             !(popup_capture || presence_capture) && self.web_input_frame(ui, &xf, pointer);
-        let external_capture = page_capture || self.atlas_input_frame(ui, &xf, pointer);
+        let external_capture =
+            modal_capture || page_capture || self.atlas_input_frame(ui, &xf, pointer);
         // The shelf still receives the wheel. A drag moves the train card
         // unless a text field is the action under the pointer.
         let web_capture = external_capture || self.agent_text_editing_captures(&xf, pointer);
@@ -390,7 +348,7 @@ impl SlateApp {
         // Every other agent card still zooms the board.
         // An open navigable menu scrolls itself (P0.10).
         let card_scrolls = self.pointer_over_project_picker(&xf, pointer)
-            || self.pointer_over_scrolling_agent_card(&xf, pointer)
+            || self.pointer_over_scrolling_agent_card(ui.ctx(), &xf, pointer)
             || atlas_shell::menu_wheel::wheel_owned(ui.ctx());
         // --- camera ---
         if !card_scrolls
@@ -477,7 +435,22 @@ impl SlateApp {
         // Alt+right is size. Shift+right is opacity. Ctrl+right is the color
         // wheel. Ctrl and Alt beat Shift. Each chord owns the button before
         // turbo pan or a plain right-drag pan.
-        let model_pointer = wp.is_some_and(|world| self.live_model_at(world.x, world.y).is_some());
+        let model_pointer = matches!(
+            self.board_drag,
+            Some(BoardDrag::ModelOrbit {
+                button: egui::PointerButton::Secondary,
+                ..
+            })
+        ) || wp
+            .is_some_and(|world| self.live_model_at(world.x, world.y).is_some());
+        if !modal_capture {
+            self.model_secondary_navigation(
+                ui,
+                &xf,
+                pointer,
+                !tag_popup && !button_capture && !model_toolbar_captures && !external_capture,
+            );
+        }
         let claim_right = !model_pointer
             && (self.brush_hud.is_some()
                 || self.tip_numeric_eats()
@@ -508,7 +481,8 @@ impl SlateApp {
             dock_nav.canvas_pan() || other_toolbar_captures || shot_captures,
             space || hand_pan,
         );
-        let brush_right = self.drive_brush_hud(hud_pointer, secondary_down, secondary_pressed);
+        let brush_right =
+            !modal_capture && self.drive_brush_hud(hud_pointer, secondary_down, secondary_pressed);
         if let Some((_, target)) = self.brush_cursor_warp.take() {
             ui.ctx()
                 .send_viewport_cmd(egui::ViewportCommand::CursorPosition(target));
@@ -827,13 +801,14 @@ impl SlateApp {
         // A second click on a grip is not a canvas double-click: that would
         // collapse a multi-selection and open text editing.
         let mut grip_released = false;
-        if self.board_sides_pressed
+        if !modal_capture
+            && self.board_sides_pressed
             && ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary))
         {
             self.board_sides_pressed = false;
             grip_released = true;
         }
-        if matches!(self.board_drag, Some(BoardDrag::FilletRadius { .. })) {
+        if !modal_capture && matches!(self.board_drag, Some(BoardDrag::FilletRadius { .. })) {
             let mods = ui.input(|i| i.modifiers);
             if ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
                 if let Some(w) = wp {
@@ -870,10 +845,12 @@ impl SlateApp {
                 self.board_align_eat_press = true;
             }
         }
-        if matches!(
-            &self.board_drag,
-            Some(BoardDrag::Wire(wd)) if matches!(wd.mode, super::board_wire::WireMode::Add { from } if self.is_crosstalk_port(from))
-        ) {
+        if !modal_capture
+            && matches!(
+                &self.board_drag,
+                Some(BoardDrag::Wire(wd)) if matches!(wd.mode, super::board_wire::WireMode::Add { from } if self.is_crosstalk_port(from))
+            )
+        {
             let mods = ui.input(|i| i.modifiers);
             if ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
                 if let Some(w) = wp {
@@ -912,14 +889,18 @@ impl SlateApp {
                 }
             }
         }
-        if matches!(self.board_drag, Some(BoardDrag::ModelMeasure { .. }))
+        if !modal_capture
+            && matches!(self.board_drag, Some(BoardDrag::ModelMeasure { .. }))
             && ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary))
         {
             let w = wp.unwrap_or(Pos2::ZERO);
             let mods = ui.input(|i| i.modifiers);
             self.end_gesture(w, pointer, mods);
         }
-        if self.board_drag.is_none() && ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO) {
+        if !modal_capture
+            && self.board_drag.is_none()
+            && ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO)
+        {
             if let Some(p) = pointer {
                 self.model_measure_hover(p);
             }
@@ -933,7 +914,9 @@ impl SlateApp {
             && !over_dock_strip
             && !self.board_align_eat_press;
         let resp = self.canvas_grip_drag_response(ui, resp, edge_start);
-        self.curve_subselect_input(ui, &xf, pointer, edge_start);
+        if !modal_capture {
+            self.curve_subselect_input(ui, &xf, pointer, edge_start);
+        }
         if resp.drag_started_by(egui::PointerButton::Primary)
             && !ordered_drawing
             && !space
@@ -977,12 +960,12 @@ impl SlateApp {
         }
 
         // --- live gesture update ---
-        if self.sheet_resize.is_some() {
-            if let Some(p) = pointer {
-                self.update_sheet_resize(p);
-            }
-        }
-        if resp.dragged_by(egui::PointerButton::Primary) && !panning && !ordered_drawing {
+        self.sheet_resize_input(ui, pointer);
+        if !modal_capture
+            && resp.dragged_by(egui::PointerButton::Primary)
+            && !panning
+            && !ordered_drawing
+        {
             if let Some(BoardDrag::ModelMeasure { id, .. }) = &self.board_drag {
                 if let Some(p) = pointer {
                     if let Some(n) = self.doc().scene.node(*id) {
@@ -996,7 +979,8 @@ impl SlateApp {
             }
         }
 
-        if resp.drag_stopped_by(egui::PointerButton::Primary)
+        if !modal_capture
+            && resp.drag_stopped_by(egui::PointerButton::Primary)
             && self.board_drag.is_some()
             && !ordered_drawing
             && self.board_tool != BoardTool::Line
@@ -1012,24 +996,11 @@ impl SlateApp {
         // the drag (an Esc the cancel stack never saw, with the palette or a
         // text field focused), and a release outside the window leaves no
         // pointer position. A node drag still live now goes back (P0.1).
-        if resp.drag_stopped() {
+        if !modal_capture && resp.drag_stopped() {
             self.cancel_node_drag();
         }
 
-        // A small movement turns egui's click into a drag. The + lives on
-        // that edge, so the release is what adds the column.
-        let mut ate_plus = false;
-        if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
-            if let Some(origin) = ui.input(|i| i.pointer.press_origin()) {
-                if let Some(hit) = self.sheet_add_hit(origin) {
-                    let moved = pointer.map(|p| origin.distance(p)).unwrap_or(0.0);
-                    if moved < 8.0 {
-                        self.add_sheet_column(hit);
-                        ate_plus = true;
-                    }
-                }
-            }
-        }
+        let ate_plus = self.sheet_add_release_input(ui, pointer);
 
         // --- clicks (the armed zoom tool owns the primary button) ---
         if resp.clicked()
@@ -1105,9 +1076,7 @@ impl SlateApp {
                 }
             }
         }
-        if ui.input(|i| i.pointer.primary_released()) && self.sheet_resize.is_some() {
-            self.finish_sheet_resize();
-        }
+        self.sheet_resize_release_input(ui);
         // Chrome-owned presses and quick curve/vertex picks cannot leak
         // through to double-click canvas actions (P1.curve.grips,
         // P1.shape.vertex-style).
@@ -1118,7 +1087,7 @@ impl SlateApp {
                     .or(pointer)
                     .is_some_and(|p| self.curve_grip_under(p) || self.hovered_vertex(p).is_some())
         };
-        if resp.double_clicked()
+        if self.canvas_media_double_clicked(ui, &resp)
             && (!self.board_align_eat_press || (ordered_drawing && !self.tip_numeric_eats()))
             && !zoom_tool
             && !web_capture
@@ -1133,7 +1102,9 @@ impl SlateApp {
                 }
             }
         }
-        self.board_align_eat_press &= !ui.input(|i| i.pointer.primary_released());
+        if !modal_capture {
+            self.board_align_eat_press &= !ui.input(|i| i.pointer.primary_released());
+        }
 
         // Crosshair while a drawing tool is armed (D10). The Line tool also
         // resolves its rubber-band cursor on plain hover (a live press
@@ -1225,17 +1196,12 @@ impl SlateApp {
             }
         }
         let secondary = resp.secondary_clicked()
-            && !page_capture
             && !self.turbo_pan.should_suppress_context_menu()
             && !hold_right;
         self.turbo_pan.acknowledge_context_menu();
         if secondary {
             if let (Some(p), Some(w)) = (pointer, wp) {
-                if let Some(id) = self.board_pick_node(w.x, w.y) {
-                    self.board_menu = Some((id, p));
-                } else {
-                    self.board_empty_menu = Some(p);
-                }
+                self.board_context_click(ui.ctx(), p, w, &xf, !page_capture && !model_pointer);
             }
         }
 
@@ -1283,13 +1249,7 @@ impl SlateApp {
                 .is_some_and(|g| g.hovered.is_some());
             self.hover_transform_chrome(pointer, &xf, ui.ctx(), wire_grip_hovered);
         }
-        if hover_live && self.board_hover_hit.is_none() {
-            if let Some(w) = wp {
-                self.video_pointer(w);
-            }
-        } else {
-            self.video_clear_hover();
-        }
+        self.update_video_hover(wp, hover_live);
         let hover_target = if hover_live && !align_hovered {
             self.hover_preview_target(wp)
         } else {
@@ -1308,6 +1268,8 @@ impl SlateApp {
             self.property_panel_fades_selection(),
         );
 
+        #[cfg(test)]
+        paint_probe::record(&xf, &self.board_sel);
         if self.board_show_grid {
             let _grid = atlas_core::session_log::span("slate.board.grid");
             let grid_alpha = self.tab().grid_fade.alpha(now);
@@ -2209,7 +2171,9 @@ impl SlateApp {
                 }
                 self.update_image_drop_offer(world, &ids);
             }
-            Some(BoardDrag::ModelOrbit { id, last_screen }) => {
+            Some(BoardDrag::ModelOrbit {
+                id, last_screen, ..
+            }) => {
                 let id = *id;
                 let last = *last_screen;
                 let xf = self.board_xf();

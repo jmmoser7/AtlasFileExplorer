@@ -136,6 +136,7 @@ fn text_and_unrotated_rect_share_oriented_mids() {
         clip: None,
         bumper: None,
         kind: NodeKind::Text(TextNode {
+            answers: Default::default(),
             text: "hi".into(),
             style: Default::default(),
             family: Typeface::Sans,

@@ -15,6 +15,7 @@ pub(crate) struct FakeLog {
     pub(crate) keyboard_releases: usize,
     pub(crate) current_urls: std::collections::HashMap<slate_doc::NodeId, String>,
     pub(crate) navigations: Vec<(slate_doc::NodeId, String)>,
+    pub(crate) controls: std::collections::HashMap<slate_doc::NodeId, Result<String, String>>,
 }
 
 #[derive(Default, Clone)]
@@ -42,6 +43,9 @@ impl FakeWebHost {
 }
 
 impl board_web::WebHost for FakeWebHost {
+    fn take_controls(&mut self, id: slate_doc::NodeId) -> Option<Result<String, String>> {
+        self.0.borrow_mut().controls.remove(&id)
+    }
     fn take_escape(&mut self) -> bool {
         std::mem::take(&mut self.0.borrow_mut().escape)
     }

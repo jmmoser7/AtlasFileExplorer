@@ -267,3 +267,44 @@ fn bottom_cluster_clears_the_width_stringer() {
         );
     }
 }
+
+#[test]
+fn alignment_clusters_clear_the_same_scaled_wire_fields_used_for_picking() {
+    use crate::app::tests::{add_rect, align_board, select_ids};
+    let mut h = align_board("alignment-scaled-wire-reach");
+    let ids = [
+        add_rect(&mut h.app, 0.0, 0.0),
+        add_rect(&mut h.app, 500.0, 40.0),
+    ];
+    h.app.patch_nodes(&ids, |node| {
+        node.rect.w = 360.0;
+        node.rect.h = 240.0;
+        node.kind = NodeKind::Image(slate_doc::scene::ImageNode::new(slate_doc::ItemId::NONE));
+    });
+    select_ids(&mut h.app, &ids);
+    for zoom in [1.0, 3.0, 8.0] {
+        h.app.tab_mut().cam.z = zoom;
+        h.frame();
+        h.frame();
+        let xf = h.app.board_xf();
+        let layout = h.app.align_layout(&xf).unwrap();
+        for id in ids {
+            let node = h.app.doc().scene.node(id).unwrap();
+            let reach = h.app.wire_port_reach(node, &xf).unwrap();
+            let outer = hit_regions::wire_outer_reach(reach);
+            assert!(
+                reach >= 6.0 * zoom,
+                "typed disc must fit its semantic field"
+            );
+            for port in h.app.wire_host(node).ports() {
+                let point = xf.w2s(Pos2::from(port.point));
+                for rect in &layout.chrome.left {
+                    if point.y >= rect.top() - outer && point.y <= rect.bottom() + outer {
+                        assert!(rect.right() + alignment::ICON_GAP_PX <= point.x - outer,
+                            "alignment cannot overlap the real radius-aware wire field at zoom {zoom}");
+                    }
+                }
+            }
+        }
+    }
+}

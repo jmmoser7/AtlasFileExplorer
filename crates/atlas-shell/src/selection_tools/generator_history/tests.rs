@@ -219,24 +219,40 @@ fn all_fit_history_stays_right_aligned_without_navigation_targets() {
         assert_eq!(layout.chip(2, row.center().y).right(), row.right());
         assert_eq!(layout.diameter, HEIGHT * zoom);
     }
-    assert!(fits(26.0, 1));
-    assert!(fits(55.0, 2));
-    assert!(!fits(55.0, 3));
-    assert!(fits(64.0, 20));
+    for (width, count, expected) in [
+        (26.0, 1, 0..1),
+        (55.0, 2, 0..2),
+        (53.0, 3, 0..1),
+        (54.0, 20, 0..1),
+    ] {
+        let row = Rect::from_min_size(Pos2::ZERO, Vec2::new(width, HEIGHT));
+        assert_eq!(visible_range(row, count, None), expected);
+        let layout = HistoryLayout::new(row, row.center().y, count, None, 1.0);
+        assert_eq!(layout.earlier.is_some(), count > expected.len());
+        assert_eq!(layout.later.is_some(), count > expected.len());
+        assert_eq!(
+            visible_range(row, count, Some(count - 1)).end,
+            count,
+            "pagination keeps the selected final output visible"
+        );
+    }
 }
 
 #[test]
 fn a_large_indexed_album_materializes_only_the_visible_global_indices() {
-    struct Album(std::cell::RefCell<Vec<usize>>);
+    struct Album {
+        len: usize,
+        calls: std::cell::RefCell<Vec<usize>>,
+    }
     impl GeneratorHistory for Album {
         fn len(&self) -> usize {
-            1_000_000
+            self.len
         }
         fn get(&self, index: usize) -> Option<GeneratorHistoryItem<'_>> {
             if index >= self.len() {
                 return None;
             }
-            self.0.borrow_mut().push(index);
+            self.calls.borrow_mut().push(index);
             Some(GeneratorHistoryItem {
                 label: "Borrowed output".into(),
                 thumb: None,
@@ -245,39 +261,58 @@ fn a_large_indexed_album_materializes_only_the_visible_global_indices() {
     }
     for width in [64.0, 96.0, 900.0] {
         for zoom in [0.5, 1.0, 2.0] {
-            let ctx = egui::Context::default();
-            let album = Album(Default::default());
-            let selected = 712_345;
-            let row = Rect::from_min_size(Pos2::new(80.0, 80.0), Vec2::new(width, HEIGHT) * zoom);
-            let expected =
-                HistoryLayout::new(row, row.center().y, album.len(), Some(selected), zoom);
-            let _ = ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(4000.0, 1600.0))),
-                    ..Default::default()
-                },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
-                        history_row(
-                            ui,
-                            row,
-                            row.center().y,
-                            &album,
-                            Some(selected),
-                            zoom,
-                            Palette::dark(),
-                        );
-                    });
-                },
-            );
-            assert_eq!(
-                *album.0.borrow(),
-                (expected.start..expected.start + expected.count).collect::<Vec<_>>()
-            );
-            assert!(
-                album.0.borrow().len() < 32,
-                "album size does not become frame work"
-            );
+            let mut prior_visible_count = None;
+            for len in [1_000_000, 1_000_000_000] {
+                let ctx = egui::Context::default();
+                let album = Album {
+                    len,
+                    calls: Default::default(),
+                };
+                let selected = 712_345;
+                let row =
+                    Rect::from_min_size(Pos2::new(80.0, 80.0), Vec2::new(width, HEIGHT) * zoom);
+                let expected =
+                    HistoryLayout::new(row, row.center().y, album.len(), Some(selected), zoom);
+                let _ = ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(
+                            Pos2::ZERO,
+                            Vec2::new(4000.0, 1600.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            history_row(
+                                ui,
+                                row,
+                                row.center().y,
+                                &album,
+                                Some(selected),
+                                zoom,
+                                Palette::dark(),
+                            );
+                        });
+                    },
+                );
+                let calls = album.calls.borrow();
+                assert_eq!(
+                    *calls,
+                    (expected.start..expected.start + expected.count).collect::<Vec<_>>()
+                );
+                let viewport_capacity = ((width + GAP) / (HEIGHT + GAP)).floor().max(1.0) as usize;
+                assert!(calls.len() <= viewport_capacity,
+                    "frame work is bounded by viewport/pitch: width={width}, zoom={zoom}, album={len}, calls={}, capacity={viewport_capacity}", calls.len());
+                assert!(calls.contains(&selected));
+                if let Some(previous) = prior_visible_count {
+                    assert_eq!(
+                        calls.len(),
+                        previous,
+                        "1000x album growth adds no frame materialization"
+                    );
+                }
+                prior_visible_count = Some(calls.len());
+            }
         }
     }
 }

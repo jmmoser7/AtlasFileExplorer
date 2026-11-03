@@ -41,6 +41,63 @@ pub enum Aspect {
     Portrait,
     /// 16:9.
     Wide,
+    Custom {
+        #[serde(deserialize_with = "custom_dimension")]
+        width: u16,
+        #[serde(deserialize_with = "custom_dimension")]
+        height: u16,
+    },
+}
+
+fn custom_dimension<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u16, D::Error> {
+    let value = u16::deserialize(deserializer)?;
+    if (1..=10000).contains(&value) {
+        Ok(value)
+    } else {
+        Err(serde::de::Error::custom(
+            "Custom aspect dimensions must be 1 through 10000",
+        ))
+    }
+}
+
+#[cfg(test)]
+mod custom_tests {
+    use super::*;
+    #[test]
+    fn legacy_presets_and_valid_custom_round_trip_with_strict_dimensions() {
+        for aspect in Aspect::ALL {
+            let json = serde_json::to_string(&aspect).unwrap();
+            assert_eq!(serde_json::from_str::<Aspect>(&json).unwrap(), aspect);
+            assert!(json.starts_with('"'));
+        }
+        let aspect = Aspect::Custom {
+            width: 16,
+            height: 9,
+        };
+        assert_eq!(
+            serde_json::from_str::<Aspect>(r#"{"custom":{"width":16,"height":9}}"#).unwrap(),
+            aspect
+        );
+        assert_eq!(
+            serde_json::from_str::<Aspect>(&serde_json::to_string(&aspect).unwrap()).unwrap(),
+            aspect
+        );
+        for (width, height) in [(0, 1), (1, 0), (10001, 1), (1, 10001)] {
+            assert!(serde_json::from_value::<Aspect>(
+                serde_json::json!({"custom":{"width":width,"height":height}})
+            )
+            .is_err());
+            assert!(Aspect::Custom { width, height }.validate().is_err());
+        }
+        assert!(Aspect::Custom {
+            width: 1,
+            height: 10000
+        }
+        .validate_comfy(false)
+        .is_err());
+        assert!(aspect.validate_comfy(true).is_err());
+        assert_eq!(aspect.ratio(), Some(16.0 / 9.0));
+    }
 }
 
 impl Aspect {
@@ -63,6 +120,7 @@ impl Aspect {
             Self::Landscape => "3:2",
             Self::Portrait => "2:3",
             Self::Wide => "16:9",
+            Self::Custom { .. } => "Custom…",
         }
     }
 
@@ -74,7 +132,44 @@ impl Aspect {
             Self::Landscape => Some(1.5),
             Self::Portrait => Some(2.0 / 3.0),
             Self::Wide => Some(16.0 / 9.0),
+            Self::Custom { width, height }
+                if (1..=10000).contains(&width) && (1..=10000).contains(&height) =>
+            {
+                Some(f32::from(width) / f32::from(height))
+            }
+            Self::Custom { .. } => None,
         }
+    }
+    pub fn custom(self) -> Option<[u16; 2]> {
+        if let Self::Custom { width, height } = self {
+            Some([width, height])
+        } else {
+            None
+        }
+    }
+    pub fn validate(self) -> Result<(), String> {
+        if self.custom().is_some() && self.ratio().is_none() {
+            Err("Custom aspect dimensions must be 1 through 10000".into())
+        } else {
+            Ok(())
+        }
+    }
+    /// Current Comfy generation contract: latent dimensions are rounded to 8px.
+    /// Source transformation workflows retain their source size.
+    pub fn validate_comfy(self, source_transform: bool) -> Result<(), String> {
+        self.validate()?;
+        if self.custom().is_some() {
+            if source_transform {
+                return Err("Custom aspect is available for new Comfy images; source transformations keep their source shape".into());
+            }
+            if !self
+                .ratio()
+                .is_some_and(|ratio| (0.25..=4.0).contains(&ratio))
+            {
+                return Err("Comfy custom aspect must be between 1:4 and 4:1".into());
+            }
+        }
+        Ok(())
     }
 }
 

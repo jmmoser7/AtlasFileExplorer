@@ -87,7 +87,7 @@ fn frame(h: &mut Harness, events: Vec<egui::Event>) -> Sample {
     }
 }
 
-fn synthetic_assets(base: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
+pub(super) fn synthetic_assets(base: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
     std::fs::create_dir_all(base).unwrap();
     let images = (0..24)
         .map(|i| {
@@ -108,27 +108,33 @@ fn synthetic_assets(base: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
             p
         })
         .collect();
-    let mut models = Vec::new();
-    for side in [16usize, 128] {
-        let path = base.join(format!("grid-{side}.obj"));
-        if !path.exists() {
-            let mut f = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
-            for y in 0..=side {
-                for x in 0..=side {
-                    writeln!(f, "v {x} {y} {}", ((x * 3 + y * 7) % 13) as f32 * 0.1).unwrap();
-                }
-            }
-            for y in 0..side {
-                for x in 0..side {
-                    let a = y * (side + 1) + x + 1;
-                    let b = a + side + 1;
-                    writeln!(f, "f {a} {} {b}\nf {} {} {b}", a + 1, a + 1, b + 1).unwrap();
-                }
+    let models = [16, 128]
+        .into_iter()
+        .map(|side| synthetic_grid(base, side))
+        .collect();
+    (images, models)
+}
+
+/// The same deterministic grid at a bounded scale, for native GPU stress.
+pub(super) fn synthetic_grid(base: &Path, side: usize) -> PathBuf {
+    assert!((16..=512).contains(&side));
+    let path = base.join(format!("grid-{side}.obj"));
+    if !path.exists() {
+        let mut f = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
+        for y in 0..=side {
+            for x in 0..=side {
+                writeln!(f, "v {x} {y} {}", ((x * 3 + y * 7) % 13) as f32 * 0.1).unwrap();
             }
         }
-        models.push(path);
+        for y in 0..side {
+            for x in 0..side {
+                let a = y * (side + 1) + x + 1;
+                let b = a + side + 1;
+                writeln!(f, "f {a} {} {b}\nf {} {} {b}", a + 1, a + 1, b + 1).unwrap();
+            }
+        }
     }
-    (images, models)
+    path
 }
 
 fn resident_downloads() -> (Vec<PathBuf>, Vec<PathBuf>) {
@@ -214,7 +220,12 @@ fn stroke(i: usize, brush: bool) -> NodeKind {
     })
 }
 
-fn seed(h: &mut Harness, n: usize, image_items: &[ItemId], model_items: &[ItemId]) -> WorldRect {
+pub(super) fn seed(
+    h: &mut Harness,
+    n: usize,
+    image_items: &[ItemId],
+    model_items: &[ItemId],
+) -> WorldRect {
     let columns = (n as f32).sqrt().ceil() as usize;
     let mut nodes = Vec::with_capacity(n);
     for i in 0..n {
@@ -239,6 +250,7 @@ fn seed(h: &mut Harness, n: usize, image_items: &[ItemId], model_items: &[ItemId
                 })
             }
             1 => NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: format!("Review {i}\nMixed board image model pen brush frame"),
                 style: Default::default(),
                 family: Default::default(),

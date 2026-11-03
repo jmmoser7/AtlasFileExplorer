@@ -17,6 +17,7 @@ fn ordinary_image_inputs_bind_words_from_text_stickies_and_imported_documents() 
             NodeKind::Image(ImageNode::new(words))
         } else {
             NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: "warm afternoon".into(),
                 style: Default::default(),
                 family: Default::default(),

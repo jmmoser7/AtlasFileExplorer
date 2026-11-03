@@ -17,8 +17,14 @@ pub fn checkpoint(
 /// shown ones and never shrinks or rewrites them. `None` keeps `shown` as is.
 pub fn reloaded(shown: &AgentSession, fetched: AgentSession) -> Option<AgentSession> {
     let other_stream = !shown.conversation.is_empty() && shown.conversation != fetched.conversation;
-    if shown.turns.is_empty() || other_stream {
+    if shown.turns.is_empty() {
         return (*shown != fetched).then_some(fetched);
+    }
+    // This is a background refresh, not an explicit conversation selection.
+    // A late read of a replaced provider thread must not rebase train indexes
+    // or overwrite the current request and its retained logical history.
+    if other_stream {
+        return None;
     }
     let said = |t: &&AgentTurn| t.role != "system";
     let known: Vec<_> = shown.turns.iter().filter(said).collect();

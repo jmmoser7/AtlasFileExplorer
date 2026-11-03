@@ -2,10 +2,129 @@
 
 use super::*;
 pub(super) mod image_import;
+#[cfg(test)]
+mod text_answer_tests;
 
 impl SlateApp {
+    /// Provider cancellation may acknowledge late. Only the current generator
+    /// request can update its displayed source or active model memory.
+    pub(super) fn generator_session_is_current(&self, id: NodeId, session: &AgentSession) -> bool {
+        if self
+            .doc()
+            .scene
+            .node(id)
+            .is_some_and(slate_doc::agent_chat::is_chat_host)
+        {
+            return true;
+        }
+        self.agents.cancelled_generations.get(&id) != Some(&session.request)
+            && (session.request.is_empty()
+                || !self.agents.cancelled_generations.contains_key(&id)
+                || self.agents.requests.contains_key(&id))
+            && (session.request.is_empty()
+                || self
+                    .agents
+                    .requests
+                    .get(&id)
+                    .is_none_or(|request| request == &session.request))
+    }
+    /// Only completed, current, uncancelled requests can author a passage link.
+    pub(crate) fn finish_text_answer_requests(&mut self) {
+        let doc = self.tab().id;
+        let pending: Vec<_> = self
+            .agents
+            .flow
+            .text_answer_requests
+            .iter()
+            .filter(|((workbook, _, _), _)| *workbook == doc)
+            .map(|(key, snapshot)| (key.clone(), snapshot.clone()))
+            .collect();
+        for (key, snapshot) in pending {
+            let (_, id, ref request) = key;
+            let queued = self
+                .agents
+                .comfy_queue
+                .get(&id)
+                .is_some_and(|queue| queue.iter().any(|q| q.request.id == *request));
+            let current = self.agents.requests.get(&id) == Some(request);
+            let cancelled = self.agents.cancelled_generations.get(&id) == Some(request);
+            let unchanged = self.text_answer_source(id).is_some_and(|(text, revision)| {
+                text == snapshot.source && revision == snapshot.source_revision
+            });
+            if cancelled || (!unchanged && !queued) || (!queued && !current) {
+                self.agents.flow.text_answer_requests.remove(&key);
+                continue;
+            }
+            let Some(session) = self.agents.sessions.get(&id).cloned() else {
+                continue;
+            };
+            if !current || session.request != *request {
+                continue;
+            }
+            if matches!(session.status, atlas_agent::AgentStatus::Thinking) {
+                continue;
+            }
+            self.agents.flow.text_answer_requests.remove(&key);
+            if !matches!(session.status, atlas_agent::AgentStatus::Idle)
+                || self
+                    .agent_session_for(id)
+                    .is_none_or(|(name, _)| name != snapshot.session)
+            {
+                continue;
+            }
+            let Some((index, answer)) = session
+                .turns
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, turn)| turn.role == "assistant" && !turn.text.trim().is_empty())
+            else {
+                continue;
+            };
+            let selected_review = if snapshot.review {
+                self.record_text_review(
+                    id,
+                    request,
+                    &snapshot.group,
+                    snapshot.context_epoch,
+                    snapshot.source.clone(),
+                    snapshot.source_revision.clone(),
+                    snapshot.selected.then(|| snapshot.range.clone()),
+                    snapshot.question.clone(),
+                    answer.text.clone(),
+                    slate_doc::text_answers::TextAnswerRef {
+                        session: snapshot.session.clone(),
+                        through: index + 1,
+                    },
+                )
+            } else {
+                true
+            };
+            if snapshot.selected && selected_review {
+                self.record_text_answer(
+                    id,
+                    &snapshot.source,
+                    snapshot.range.clone(),
+                    slate_doc::text_answers::TextAnswerRef {
+                        session: snapshot.session,
+                        through: index + 1,
+                    },
+                    snapshot.question,
+                    answer.text.clone(),
+                );
+                if snapshot.review {
+                    self.link_text_review(id, request, &snapshot.range);
+                }
+            }
+        }
+    }
+
     pub(crate) fn agent_pump(&mut self, ctx: &egui::Context) {
         self.ai.packs.begin_frame();
+        if let Some((node, response)) = self.take_text_answer_navigation(ctx) {
+            self.agents.flow.text_answer_navigation = Some((self.tab().id, node, response));
+        }
+        self.apply_text_answer_navigation();
         self.paint_pack_key_entry(ctx);
         self.sync_agent_doc();
         self.pump_agent_approval_deliveries(ctx);
@@ -192,6 +311,10 @@ impl SlateApp {
                 None
             };
             if let Some(session) = self.agents.sources.poll(&dir, context.as_ref()) {
+                if !self.generator_session_is_current(id, &session) {
+                    continue;
+                }
+                self.sync_chat_train_provider_channel(id, &session);
                 if self
                     .agents
                     .sessions
@@ -278,6 +401,57 @@ impl SlateApp {
                 self.sync_agent_text_output(id);
                 ctx.request_repaint();
             }
+        }
+        self.finish_text_answer_requests();
+        let shown_sources = self
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .filter_map(|node| slate_doc::agent_chat::agent(node))
+            .filter_map(|agent| agent.generator.shown_text.as_ref())
+            .map(|reference| {
+                slate_doc::scene::resolve_source(
+                    self.tab().path.as_deref(),
+                    &reference.source.locator,
+                )
+            })
+            .filter_map(|path| path.parent().map(std::path::Path::to_path_buf))
+            .collect::<Vec<_>>();
+        let mut shown_sources = shown_sources;
+        shown_sources.extend(
+            self.agents
+                .flow
+                .viewed_dialogues
+                .iter()
+                .filter(|((tab, _), _)| *tab == self.tab().id)
+                .map(|(_, reference)| {
+                    slate_doc::scene::resolve_source(
+                        self.tab().path.as_deref(),
+                        &reference.source.locator,
+                    )
+                })
+                .filter_map(|path| path.parent().map(std::path::Path::to_path_buf)),
+        );
+        if let Some((tab, _, reference)) = self
+            .agents
+            .flow
+            .text_answer_navigation
+            .as_ref()
+            .filter(|(tab, _, _)| *tab == self.tab().id)
+        {
+            let _ = tab;
+            let path = slate_doc::scene::resolve_source(
+                self.tab().path.as_deref(),
+                &reference.source.locator,
+            );
+            if let Some(dir) = path.parent() {
+                shown_sources.push(dir.to_path_buf());
+            }
+        }
+        for dir in shown_sources {
+            self.agents.sources.poll(&dir, None);
+            live_dirs.insert(dir);
         }
         self.agents.sources.retain(&live_dirs);
         self.pump_agent_text_outputs();

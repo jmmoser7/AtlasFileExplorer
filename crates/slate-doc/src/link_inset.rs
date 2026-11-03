@@ -32,7 +32,11 @@ pub fn rail_inset() -> f32 {
 /// Anchor of a connector end. Coding-card top and bottom ports move inward
 /// by [`PORT_INSET`]; every other anchor stays on the edge.
 pub fn anchor(node: &Node, side: Side, t: f32) -> [f32; 2] {
-    let host = WireHost::from_node(node);
+    anchor_with_host(node, side, t, &WireHost::from_node(node))
+}
+
+/// Apply the same native inset policy to a caller's current typed host pose.
+pub fn anchor_with_host(node: &Node, side: Side, t: f32, host: &WireHost) -> [f32; 2] {
     let point = host.anchor(side, t);
     if !is_coding_card(node) || (t - 0.5).abs() > 0.001 || !matches!(side, Side::Top | Side::Bottom)
     {
@@ -66,6 +70,19 @@ mod tests {
         let rect = node.rect;
         let top = anchor(&node, Side::Top, 0.5);
         let bottom = anchor(&node, Side::Bottom, 0.5);
+        for direction in Side::BOX {
+            for t in [0.2, 0.5, 0.72, 0.91] {
+                assert_eq!(
+                    anchor(&node, direction, t),
+                    anchor_with_host(
+                        &node,
+                        direction,
+                        t,
+                        &WireHost::from_node_with_paths(&node, &|_| None)
+                    )
+                );
+            }
+        }
         let side = PORT_INSET;
         assert!(
             (top[1] - (rect.y + side)).abs() < 0.01,

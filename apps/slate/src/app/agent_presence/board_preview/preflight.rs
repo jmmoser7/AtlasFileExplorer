@@ -109,6 +109,7 @@ mod tests {
         scene.build_node(
             WorldRect::new(0.0, 0.0, 1.0, 1.0),
             NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text,
                 style: Default::default(),
                 family: Default::default(),

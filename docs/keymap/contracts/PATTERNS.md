@@ -74,8 +74,8 @@ is searchable.
   convention; user decision 25 September 2026). The path they edit still
   scales. **Selection-control exception** (user approved 20 October 2026,
   `selection-hit-regions.md`): ephemeral compact selection frames and pointer
-  hit regions, including transient wire-port dots, matching host cutouts and
-  port-role labels, follow **P1.node.hit-regions** in screen space. They do not
+  hit regions follow **P1.node.hit-regions** in screen space. Wire-port dots,
+  matching host cutouts and port-role labels retain P0.9 canvas scaling. They do not
   change authored content paint, content labels, property strips, dimension
   stringers, or portal tabs. A tab on a portal frame is a canvas object, not
   window chrome — maximized, that same tab may stay screen-sized because
@@ -239,10 +239,11 @@ is searchable.
   slop, guide reach, and lane distances retain screen-pixel meaning throughout
   this range. Compatibility canvas profiles keep their own limits.
 
-  Transient wire-port dots and their host cutouts use the shared domain's
-  bounded screen presentation, rather than multiplying a marker radius by
-  camera zoom. Port-role labels share that prominence and remain bounded;
-  authored text and labels still follow P0.9. Dot and cutout radius come from
+  Wire-port dots, their host cutouts and port-role labels use board units
+  multiplied by camera zoom, without screen-size floors or ceilings (user
+  correction, 1 November 2026). Projected relevance may hide or fade them;
+  it never changes their world size. Illegible labels drop under P0.9.
+  Dot and cutout radius come from
   the same shared owner, while `WireHost` remains authoritative for each
   actual port site and identity. Tool blisters retain their existing scaling.
 
@@ -793,17 +794,17 @@ is searchable.
   holds the port. A press inside a multi-selection's bounding box moves that
   selection. Polygon vertex rotation halos occlude port targets; hover and
   press share this exclusion (polygon D13).
-- **P1.wire.flow-datum** (user, 17 October 2026): typed generator inputs use
+- **P1.wire.flow-datum** (user, 17 October; image output repair, 23 October 2026): typed generator inputs use
   a fixed top datum and pitch in board units, independent of host height.
-  The output shares the first input's datum, so aligned image trains keep
-  straight wires across differently sized cards. An ordinary source image's
-  right output uses that same top datum before it acquires generator inputs;
+  Ordinary image outputs stay at the right-edge midpoint, including while
+  their optional inputs are revealed, so that grip can create an AI from the
+  image. Generated images and other flow hosts keep the first input's output datum;
   a host too short to contain its rail continuously compresses the shared
   derived rail to fit, so zoom can restore its ports under
   **P1.node.hit-regions**. `WireHost` uses
   `scale = min(1, height / (30 + (rows - 1) * 42 + 14))`, with lengths in board
-  units; an ordinary source output has one row. Normal hosts retain the fixed
-  datum and pitch. This changes derived placement, not saved port identities.
+  units. Normal input rails retain the fixed datum and pitch. This changes
+  derived placement, not saved port identities.
   Saved `Side` + `t` values remain port identities; `WireHost` resolves the
   new position for paint,
   picking, routing and export. Chat header/history rails and 3D View retain

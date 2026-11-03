@@ -49,6 +49,7 @@ fn participant_descriptors_include_slide_order_and_basic_authored_styles() {
     };
     shape.stroke.width = 2.0;
     let text = TextNode {
+        answers: Default::default(),
         text: "Body".into(),
         style: TextStyle::default(),
         family: Typeface::Mono,

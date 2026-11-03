@@ -1,6 +1,27 @@
 //! Image crop, save and result actions, including range selection.
 use super::*;
 
+pub(super) const USE: CommandSpec = spec(
+    "portal.agent.result.use", "Results", "Use this result",
+    "Result menu → Use this result; selects an existing immutable output without restoring agent context",
+    None, Repeat::Never, BOARD, &["result", "choice"],
+);
+pub(super) const REMOVE: CommandSpec = spec(
+    "portal.agent.result.remove",
+    "Results",
+    "Remove result from results",
+    "Result menu → Remove result; journal presentation removal, retaining saved files and history",
+    None,
+    Repeat::Never,
+    BOARD,
+    &["result", "hide output"],
+);
+pub(super) const DUPLICATE: CommandSpec = spec(
+    "portal.agent.result.duplicate", "Results", "Duplicate active result",
+    "Result menu → Duplicate; only the active output becomes a plain canvas object with its visual appearance",
+    None, Repeat::Never, BOARD, &["result", "plain copy"],
+);
+
 pub(super) const CROP: CommandSpec = spec(
     "board.crop",
     "Board",

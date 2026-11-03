@@ -53,6 +53,16 @@ fn click(h: &mut Harness, p: Pos2) {
     h.frame();
 }
 
+fn open_model_agent(h: &mut Harness, model: NodeId) {
+    assert!(!h.app.source_agent_dialogue_open(model));
+    let robot = h
+        .ctx
+        .data(|data| data.get_temp::<Rect>(Id::new(("painted-agent-tool-hit", model.0))))
+        .expect("the selected native Model paints its robot");
+    click(h, robot.center());
+    assert!(h.app.source_agent_dialogue_open(model));
+}
+
 fn click_screenshot_button(h: &mut Harness) {
     let button = h
         .app
@@ -62,10 +72,14 @@ fn click_screenshot_button(h: &mut Harness) {
 }
 
 #[test]
-fn a_model_draws_and_hits_no_view_port_at_rest() {
+fn model_graph_inputs_offer_three_typed_ports_without_a_resting_view_grip() {
     use slate_doc::agent_inputs::{input_ports_of, MODEL_VIEW_PORT_T};
     use slate_doc::scene::Side;
     let (mut h, model) = selected_model("view_port_rest");
+    let plain = h.app.doc().scene.node(model).unwrap().clone();
+    assert!(!h.app.flow_ports_visible(&plain, &h.ctx, &h.app.board_xf()));
+    open_model_agent(&mut h, model);
+    assert_eq!(h.app.doc().scene.node(model), Some(&plain));
     let xf = h.app.board_xf();
     let node = h.app.doc().scene.node(model).unwrap().clone();
     let old_port = slate_doc::WireHost::from_node_flow(&node, input_ports_of(&node, true))
@@ -77,10 +91,39 @@ fn a_model_draws_and_hits_no_view_port_at_rest() {
         h.app.paint_flow_ports(&ctx.layer_painter(layer), &xf);
     });
     assert!(
-        out.shapes.is_empty(),
-        "selected, pointer on the old site: nothing painted"
+        !out.shapes.is_empty(),
+        "the selected Model offers its three Studio graph inputs"
     );
-    assert_eq!(h.app.wire_grip_at(at, &xf), None, "and nothing to grab");
+    let ports = h.app.wire_input_ports(&node);
+    assert_eq!(
+        ports.iter().map(|p| p.slot).collect::<Vec<_>>(),
+        [
+            atlas_agent::InputSlot::Media,
+            atlas_agent::InputSlot::Prompt,
+            atlas_agent::InputSlot::Style
+        ]
+    );
+    for port in ports {
+        let site = h.app.wire_input_host(&node).anchor(Side::Left, port.t);
+        assert_eq!(
+            h.app.wire_grip_at(xf.w2s(Pos2::from(site)), &xf),
+            Some((model, Side::Left, port.t))
+        );
+    }
+    let sites = h.app.wire_input_host(&node).ports();
+    assert_eq!(
+        sites.len(),
+        4,
+        "three typed inputs and one output, with no resting View grip"
+    );
+    assert!(!sites
+        .iter()
+        .any(|site| site.side == Side::Left && site.t == MODEL_VIEW_PORT_T));
+    if let Some((owner, side, t)) = h.app.wire_grip_at(at, &xf) {
+        assert_eq!((owner, side), (model, Side::Left));
+        assert!(ports.iter().any(|port| port.t == t && port.slot != atlas_agent::InputSlot::View),
+            "a nearby approved typed input can own the old View location; it must never become a View grip");
+    }
 }
 
 #[test]
@@ -99,8 +142,9 @@ fn a_view_wire_snaps_to_the_model_edge_during_a_drag_and_binds() {
         NodeKind::Image(ImageNode::new(item)),
     );
     let shot = h.app.add_nodes(vec![node])[0];
-    h.app.board_sel.clear();
+    h.app.board_sel = [model].into_iter().collect();
     h.frame();
+    open_model_agent(&mut h, model);
 
     let xf = h.app.board_xf();
     let source = h.app.doc().scene.node(shot).unwrap();
@@ -111,15 +155,33 @@ fn a_view_wire_snaps_to_the_model_edge_during_a_drag_and_binds() {
     else {
         panic!("a wire starts at the picture's grip");
     };
-    let near_edge = Pos2::new(rect.x - 2.0 / xf.z, rect.y + rect.h * 0.7);
+    let model_before = h.app.doc().scene.node(model).unwrap().clone();
+    let model_host = h.app.wire_input_host(&model_before);
+    for port in h.app.wire_input_ports(&model_before) {
+        assert_eq!(
+            h.app.wire_snap_target(
+                Pos2::from(model_host.anchor(Side::Left, port.t)),
+                Some((shot, Side::Right, 0.5))
+            ),
+            Some((model, Side::Left, port.t)),
+            "actual typed site wins before native View edge fallback"
+        );
+    }
+    // Legacy arbitrary View edges still bind away from explicit graph slots.
+    let near_edge = Pos2::new(rect.x - 2.0 / xf.z, rect.y + rect.h * 0.9);
     h.app.wire_drag_update(&mut wd, near_edge, false);
     let (node, side, t) = wd.snap.expect("near the edge, the model takes the wire");
     assert_eq!((node, side), (model, Side::Left));
     assert!(
-        (t - 0.7).abs() < 0.05,
+        (t - 0.9).abs() < 0.05,
         "at the pointer, not a fixed port: {t}"
     );
     h.app.finish_wire_drag(wd);
+    assert_eq!(
+        h.app.doc().scene.node(model),
+        Some(&model_before),
+        "wire creation preserves the imported source, camera, style, clip and authored geometry"
+    );
     let binding = h
         .app
         .doc()

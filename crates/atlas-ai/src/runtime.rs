@@ -1,10 +1,14 @@
 //! Process supervision. Vendor protocol stays in the renderer-free leaf crate.
 mod artifact;
+mod image_history;
 mod models;
 use crate::agent::{atomic_write_json, AgentRequest, AgentSession, AgentStatus};
 pub use artifact::validate_artifact_submission;
 use crossbeam_channel::{bounded, Sender};
-pub use models::{image_models, text_models};
+pub use models::{
+    codex_executable, codex_models, codex_projects, comfy_models, cursor_models, image_models,
+    local_models, openai_image_models, openai_text_models, text_models,
+};
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -13,36 +17,40 @@ use std::{
     },
 };
 
-pub fn codex_executable() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("CODEX_BIN")
-        .map(PathBuf::from)
-        .filter(|p| p.is_file())
-    {
-        return Some(path);
-    }
-    if let Some(paths) = std::env::var_os("PATH") {
-        for dir in std::env::split_paths(&paths) {
-            for name in ["codex.exe", "codex"] {
-                let p = dir.join(name);
-                if p.is_file() {
-                    return Some(p);
-                }
-            }
-        }
-    }
-    let root = PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("OpenAI/Codex/bin");
-    let mut entries: Vec<_> = std::fs::read_dir(root)
-        .ok()?
-        .flatten()
-        .map(|e| e.path().join("codex.exe"))
-        .filter(|p| p.is_file())
-        .collect();
-    entries.sort();
-    entries.pop()
-}
-
 pub fn linear_provider(provider: &str) -> bool {
     matches!(provider, "codex" | "cursor")
+}
+/// The existing Comfy Generate graph accepts ratio-driven latent dimensions.
+/// Other adapters currently expose only preset sizes, not arbitrary ratios.
+pub fn custom_image_aspect_supported(provider: &str, source_transform: bool) -> bool {
+    provider == "comfy" && !source_transform
+}
+pub fn image_seed_supported(provider: &str) -> bool {
+    provider == "comfy"
+}
+pub fn validate_image_parameters(provider: &str, request: &AgentRequest) -> Result<(), String> {
+    let Some(image) = &request.image else {
+        return Ok(());
+    };
+    image.aspect.validate()?;
+    if image.seed.is_some() && !image_seed_supported(provider) {
+        return Err(
+            "This image provider does not expose a repeatable seed; unlock Seed before sending"
+                .into(),
+        );
+    }
+    let source_transform = request
+        .inputs
+        .on(atlas_agent::InputSlot::Media)
+        .any(|item| item.depth.is_some() || item.images.iter().any(|image| !image.is_empty()));
+    if image.aspect.custom().is_some() && !custom_image_aspect_supported(provider, source_transform)
+    {
+        return Err("Custom aspect requires Comfy generation without a source image or model; choose a supported preset".into());
+    }
+    if provider == "comfy" {
+        image.aspect.validate_comfy(source_transform)?;
+    }
+    Ok(())
 }
 pub fn conversations(provider: &str, cwd: &Path) -> Result<Vec<atlas_agent::Conversation>, String> {
     match provider {
@@ -66,47 +74,8 @@ pub fn read_conversation(provider: &str, cwd: &Path, id: &str) -> Result<AgentSe
         _ => Err("This provider does not expose saved conversations".into()),
     }
 }
-pub fn comfy_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
-    let _ = atlas_comfy::Client::start(&AtomicBool::new(false))?;
-    Ok(atlas_comfy::checkpoints()?
-        .into_iter()
-        .map(|name| atlas_agent::AgentModel {
-            id: name.clone(),
-            name,
-            ..Default::default()
-        })
-        .collect())
-}
-pub fn local_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
-    let _ = atlas_ollama::Client::start(None, &AtomicBool::new(false))?;
-    Ok(atlas_ollama::models()?
-        .into_iter()
-        .filter(|m| !m.contains("cloud"))
-        .map(|name| atlas_agent::AgentModel {
-            id: name.clone(),
-            name,
-            ..Default::default()
-        })
-        .collect())
-}
-pub fn codex_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
-    atlas_codex::Client::models(
-        &codex_executable().ok_or("Codex is not installed")?,
-        &std::env::current_dir().map_err(|e| e.to_string())?,
-    )
-}
-pub fn cursor_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
-    serde_json::from_value(crate::sidecar::query_cursor_models()?)
-        .map_err(|e| format!("Cursor model catalog: {e}"))
-}
-pub fn codex_projects() -> Vec<(String, PathBuf)> {
-    codex_executable()
-        .and_then(|exe| atlas_codex::Client::projects(&exe, &std::env::current_dir().ok()?).ok())
-        .unwrap_or_default()
-}
-
 pub struct CodexLink {
-    tx: Sender<AgentRequest>,
+    tx: Sender<(AgentRequest, Option<crate::access::Snapshot>)>,
     steer_tx: std::sync::mpsc::SyncSender<atlas_codex::SteerCommand>,
     cancel: Arc<AtomicBool>,
     preview: atlas_comfy::PreviewSink,
@@ -150,7 +119,12 @@ fn record_image_sidecars(session: &AgentSession, request: &AgentRequest) {
         return;
     };
     let created = crate::context::now_secs();
-    for image in &session.bundle.images {
+    for image in session
+        .bundle
+        .images
+        .iter()
+        .filter(|image| image.request == request.id)
+    {
         let path = Path::new(&image.source);
         if image.source.is_empty() {
             continue;
@@ -180,33 +154,6 @@ pub use atlas_openai::KEY_SLOT as OPENAI_KEY_SLOT;
 /// GPT Image models that stand in until the key's catalog arrives.
 pub use atlas_openai::{DEFAULT_TEXT_MODEL as OPENAI_TEXT_MODEL, MODELS as OPENAI_IMAGE_MODELS};
 
-/// GPT Image models the stored key may call, newest first. Worker-only: it
-/// reads Credential Manager and asks the API.
-pub fn openai_image_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
-    let key = atlas_core::secrets::load(OPENAI_KEY_SLOT).ok_or("Add an OpenAI API key.")?;
-    Ok(atlas_openai::models(&key)?
-        .into_iter()
-        .map(|(id, name)| atlas_agent::AgentModel {
-            id,
-            name,
-            ..Default::default()
-        })
-        .collect())
-}
-
-/// OpenAI text models the stored key may call, newest first. Worker-only.
-pub fn openai_text_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
-    let key = atlas_core::secrets::load(OPENAI_KEY_SLOT).ok_or("Add an OpenAI API key.")?;
-    Ok(atlas_openai::text_models(&key)?
-        .into_iter()
-        .map(|(id, name)| atlas_agent::AgentModel {
-            id,
-            name,
-            ..Default::default()
-        })
-        .collect())
-}
-
 impl Engine {
     fn start(
         provider: &str,
@@ -215,6 +162,7 @@ impl Engine {
         cancel: &AtomicBool,
         preview: &atlas_comfy::PreviewSink,
         workbook: Option<&Path>,
+        board_image_workspace: Option<&Path>,
     ) -> Result<Self, String> {
         let leaf = crate::packs::leaf(provider);
         if leaf == Some("atlas-ollama") {
@@ -249,6 +197,9 @@ impl Engine {
         let mut c = atlas_codex::Client::start(&executable, cwd, previous.as_deref())?;
         c.set_approval_dir(dir);
         c.set_board_cloud_guard(atlas_core::cloud::is_dehydrated);
+        if let Some(workspace) = board_image_workspace {
+            c.set_board_image_workspace(workspace);
+        }
         std::fs::write(dir.join("codex-thread.txt"), c.thread_id()).map_err(|e| e.to_string())?;
         Ok(Self::Codex(Box::new(c)))
     }
@@ -278,17 +229,20 @@ impl CodexLink {
         Self::start_provider(dir, cwd, "codex".into())
     }
     pub fn start_provider(dir: PathBuf, cwd: PathBuf, provider: String) -> Self {
-        Self::start_beside(dir, cwd, provider, None)
+        Self::start_beside(dir, cwd, provider, None, None)
     }
     /// `workbook` is the `.slate` path when it has been saved. Generators then
     /// write under `assets/generated`. `None` keeps the data-directory folder.
+    /// `board_image_workspace` is the host's established AI workspace, not the
+    /// agent's project cwd. Without it, board image transport stays unavailable.
     pub fn start_beside(
         dir: PathBuf,
         cwd: PathBuf,
         provider: String,
         workbook: Option<PathBuf>,
+        board_image_workspace: Option<PathBuf>,
     ) -> Self {
-        let (tx, rx) = bounded::<AgentRequest>(1);
+        let (tx, rx) = bounded::<(AgentRequest, Option<crate::access::Snapshot>)>(1);
         let (steer_tx, steer_rx) = std::sync::mpsc::sync_channel::<atlas_codex::SteerCommand>(16);
         let cancel = Arc::new(AtomicBool::new(false));
         let stop = cancel.clone();
@@ -312,23 +266,24 @@ impl CodexLink {
                     updated_at: 0,
                     bundle: Default::default(),
                 });
-            while let Ok(request) = rx.recv() {
+            while let Ok((mut request, access_snapshot)) = rx.recv() {
+                image_history::prepare_request(&mut request);
                 session.request = request.id.clone();
                 session.activity.clear();
-                if request.oneshot {
-                    session.turns.clear();
-                }
-                if session.turns.is_empty() {
-                    session.turns = request.history.clone();
-                }
+                let retained_image_turns = image_history::begin(&request, &mut session);
 
                 let result = (|| -> Result<(), String> {
                     validate_artifact_submission(&request, &provider)?;
+                    validate_image_parameters(&provider, &request)?;
                     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
                     session.status = AgentStatus::Thinking;
                     session.updated_at = crate::context::now_secs();
-                    atomic_write_json(&dir.join("session.json"), &session)
-                        .map_err(|e| e.to_string())?;
+                    image_history::write_public(
+                        &dir.join("session.json"),
+                        &session,
+                        retained_image_turns.as_ref(),
+                    )
+                    .map_err(|e| e.to_string())?;
                     for input in request.inputs.context.iter().chain(&request.inputs.wired) {
                         for image in input.images.iter().chain(&input.depth) {
                             let path = Path::new(image);
@@ -367,6 +322,7 @@ impl CodexLink {
                             &stop,
                             &frames,
                             workbook.as_deref(),
+                            board_image_workspace.as_deref(),
                         )?);
                     }
                     if !request.history.is_empty() && !dir.join("checkpoint.json").exists() {
@@ -376,33 +332,53 @@ impl CodexLink {
                     if let Some(Engine::Codex(c)) = client.as_mut() {
                         let session = crate::access::session_of(&dir);
                         let session = session.as_deref();
-                        c.set_full_access(turn_full_access(
-                            session.is_some_and(|session| {
-                                crate::access::granted_for_request(session, &request)
-                            }),
-                            session.is_some_and(crate::access::relay_granted),
+                        c.set_full_access(request_full_access(
+                            session,
                             &request,
+                            access_snapshot.as_ref(),
                         ));
                     }
                     // Persist before submission: a crash never silently replays a paid turn.
                     std::fs::write(&ledger, &request.id).map_err(|e| e.to_string())?;
+                    if image_history::record_submitted_user(
+                        &request,
+                        &mut session,
+                        matches!(client.as_ref(), Some(Engine::Codex(_))),
+                    ) {
+                        image_history::write_public(
+                            &dir.join("session.json"),
+                            &session,
+                            retained_image_turns.as_ref(),
+                        )
+                        .map_err(|e| e.to_string())?;
+                    }
                     client.as_mut().unwrap().run(
                         &request,
                         &mut session,
                         &stop,
                         &steer_rx,
                         |state| {
-                            let _ = atomic_write_json(&dir.join("session.json"), state);
+                            let _ = image_history::write_public(
+                                &dir.join("session.json"),
+                                state,
+                                retained_image_turns.as_ref(),
+                            );
                         },
                     )?;
                     record_image_sidecars(&session, &request);
                     Ok(())
                 })();
+                if let Some(retained) = retained_image_turns {
+                    session.turns = retained.turns;
+                    session.conversation = retained.conversation;
+                }
                 if let Err(error) = result {
                     session.approval = None;
                     session.status = AgentStatus::Error(error);
                     session.updated_at = crate::context::now_secs();
                     client = None;
+                    let _ = atomic_write_json(&dir.join("session.json"), &session);
+                } else if request.image.is_some() && request.image_history.is_some() {
                     let _ = atomic_write_json(&dir.join("session.json"), &session);
                 }
             }
@@ -419,10 +395,18 @@ impl CodexLink {
         self.preview.lock().ok()?.clone()
     }
     pub fn send(&self, request: AgentRequest) -> Result<(), String> {
+        self.send_with_access_snapshot(request, None)
+    }
+    /// Keep the host-observed policy off request.json and retain it for this turn.
+    pub fn send_with_access_snapshot(
+        &self,
+        request: AgentRequest,
+        access: Option<crate::access::Snapshot>,
+    ) -> Result<(), String> {
         request.validate_artifact_request()?;
         self.cancel.store(false, Ordering::Relaxed);
         self.tx
-            .try_send(request)
+            .try_send((request, access))
             .map_err(|_| "The agent is busy. Wait or stop the current response.".into())
     }
     pub fn stop(&self) {
@@ -470,6 +454,28 @@ pub fn launch_codex(workspace: &Path) -> Result<(), String> {
 
 /// Whether one turn runs under the person's full-access grant. A message
 /// another agent wrote also needs the relay grant; a read-only turn never has it.
+pub fn request_full_access(
+    session: Option<&str>,
+    request: &AgentRequest,
+    observed: Option<&crate::access::Snapshot>,
+) -> bool {
+    let Some(session) = session else {
+        return false;
+    };
+    let loaded;
+    let snapshot = if let Some(observed) = observed {
+        observed
+    } else {
+        loaded = crate::access::load_snapshot_in(&crate::access::store_path());
+        &loaded
+    };
+    turn_full_access(
+        snapshot.granted_for_request(session, request),
+        snapshot.relay_granted(session),
+        request,
+    )
+}
+
 pub fn turn_full_access(granted: bool, relay_granted: bool, request: &AgentRequest) -> bool {
     request.policy.is_default() && granted && (request.relayed_from.is_none() || relay_granted)
 }

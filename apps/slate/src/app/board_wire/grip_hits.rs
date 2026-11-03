@@ -1,6 +1,6 @@
 //! Shared wire-port pointer reach and overlap eligibility.
 use super::*;
-use atlas_shell::selection_tools::hit_regions::{Domain, Field};
+use atlas_shell::selection_tools::hit_regions::{self, Domain, Field};
 
 impl SlateApp {
     pub(super) fn wire_host_overlaps_lower(&self, node: &Node, xf: &BoardXf) -> bool {
@@ -37,6 +37,17 @@ impl SlateApp {
             )
     }
 
+    /// Paint, press and alignment all consume the same projected port radius.
+    pub(crate) fn wire_port_reach(&self, node: &Node, xf: &BoardXf) -> Option<f32> {
+        let shortest = node.rect.w.abs().min(node.rect.h.abs()) * xf.z;
+        let presentation = if self.wire_input_ports(node).is_empty() {
+            hit_regions::PortPresentation::ordinary(shortest, xf.z)
+        } else {
+            Self::flow_port_presentation(node, xf)
+        }?;
+        hit_regions::wire_reach(shortest, presentation.radius)
+    }
+
     pub(super) fn semantic_wire_pick(
         &self,
         node: &Node,
@@ -45,8 +56,7 @@ impl SlateApp {
         point: [f32; 2],
         outward: [f32; 2],
     ) -> bool {
-        let shortest = node.rect.w.abs().min(node.rect.h.abs()) * xf.z;
-        let Some(reach) = Domain::Wire.reach(shortest, GRIP_HIT_PX) else {
+        let Some(reach) = self.wire_port_reach(node, xf) else {
             return false;
         };
         let a = xf.w2s(Pos2::new(point[0], point[1]));

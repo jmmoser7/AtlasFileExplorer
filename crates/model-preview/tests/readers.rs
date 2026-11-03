@@ -144,3 +144,29 @@ fn triangle_glb() -> Vec<u8> {
     glb.extend(bin);
     glb
 }
+
+#[test]
+fn rhino_empty_model_has_neutral_start_guidance_but_nonempty_mesh_gap_is_preserved() {
+    let mut bytes = b"3D Geometry File Format       80".to_vec();
+    bytes.extend_from_slice(&0x1000_0013u32.to_le_bytes());
+    bytes.extend_from_slice(&12i64.to_le_bytes());
+    bytes.extend_from_slice(&0xffff_ffffu32.to_le_bytes());
+    bytes.extend_from_slice(&0i64.to_le_bytes());
+    let empty = load_preview(Path::new("arbitrary-name.3dm"), &bytes).unwrap_err();
+    assert!(matches!(&empty, LoadError::Empty(_)));
+    assert_eq!(
+        empty.to_string(),
+        "Empty model. Describe what to build with its agent."
+    );
+    // Despite its fixture name, this file contains a real line curve.
+    let nonempty = include_bytes!("../../rhino-mesh/tests/fixtures/empty.3dm");
+    let missing = load_preview(Path::new("empty.3dm"), nonempty).unwrap_err();
+    assert_eq!(
+        missing.to_string(),
+        "No render meshes in this Rhino file. Save it from a shaded viewport."
+    );
+    assert!(matches!(
+        load_preview(Path::new("empty.3dm"), b"broken"),
+        Err(LoadError::Malformed(_))
+    ));
+}

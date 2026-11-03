@@ -16,6 +16,29 @@ fn ordinary_launch_does_not_select_a_capture_or_fixture_scope() {
 }
 
 #[test]
+fn capture_open_preserves_recent_entries_and_ignores_pending_pruning() {
+    let mut h = crate::app::tests::Harness::new("capture_recent_isolation");
+    let retained = h.base.join("retained.slate");
+    h.app.recents.record(retained.clone(), "Retained");
+    let (tx, rx) = std::sync::mpsc::channel();
+    tx.send(vec![retained.clone()]).unwrap();
+    h.app.recent_prune_rx = Some(rx);
+    h.app.screenshot = resolve(Some("capture.png"), None).unwrap();
+    let fixture = h.base.join("capture-fixture.slate");
+    let doc = h.app.doc().clone();
+    h.app.record_recent_workbook(&fixture, &doc);
+    h.app.poll_recent_prune();
+    assert_eq!(h.app.recents.entries.len(), 1);
+    assert_eq!(h.app.recents.entries[0].path, retained);
+
+    h.app.screenshot = None;
+    h.app.record_recent_workbook(&fixture, &doc);
+    h.app.poll_recent_prune();
+    assert_eq!(h.app.recents.entries.len(), 1);
+    assert_eq!(h.app.recents.entries[0].path, fixture);
+}
+
+#[test]
 fn repeated_capture_outputs_reserve_distinct_retained_recovery_roots() {
     let first = resolve(Some("same.png;600"), Some("workspace"))
         .unwrap()
@@ -131,7 +154,7 @@ fn screenshot_waits_for_isolated_storage_then_requests_only_one_frame() {
     let ctx = egui::Context::default();
     let frame = |capture: &mut Capture, number, ready| {
         ctx.run(egui::RawInput::default(), |ctx| {
-            capture.frame(ctx, number, Ok(ready));
+            capture.frame(ctx, number, Ok(ready), Some(1.0));
         })
     };
     let requests = |output: egui::FullOutput| {
@@ -169,4 +192,46 @@ fn optional_fixture_readiness_is_enforced_at_the_existing_request_boundary() {
         capture.request_due(8, true),
         Err("fixture disappeared before image receipt")
     );
+}
+
+#[test]
+fn ordinary_capture_writes_current_metadata_without_enabling_presence_fixture() {
+    let h = crate::app::tests::Harness::new("ordinary_capture_metadata");
+    let output = h.base.join("ordinary.png");
+    let capture = resolve(Some(output.to_str().unwrap()), None)
+        .unwrap()
+        .unwrap();
+    let ctx = egui::Context::default();
+    ctx.set_pixels_per_point(1.5);
+    ctx.set_visuals(egui::Visuals::light());
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        capture
+            .write_receipt(ctx, 19, [900, 600], Some(0.8))
+            .unwrap();
+    });
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.with_extension("capture.json")).unwrap())
+            .unwrap();
+    assert!(capture.presence_workspace().is_none());
+    assert_eq!(receipt["kind"], "slate-render-capture");
+    assert_eq!(receipt["presenceFixtureEnabled"], false);
+    assert!(receipt["requestedState"].is_null());
+    assert_eq!(receipt["eventFrame"], 19);
+    assert_eq!(receipt["pixelsPerPoint"], 1.5);
+    assert_eq!(receipt["theme"], "light");
+    assert!((receipt["canvasZoom"].as_f64().unwrap() - 0.8).abs() < 0.000001);
+    assert_eq!(receipt["imagePixels"], serde_json::json!([900, 600]));
+    let home_output = h.base.join("home.png");
+    let home_capture = resolve(Some(home_output.to_str().unwrap()), None)
+        .unwrap()
+        .unwrap();
+    home_capture
+        .write_receipt(&ctx, 20, [900, 600], None)
+        .unwrap();
+    let home_receipt: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(home_output.with_extension("capture.json")).unwrap())
+            .unwrap();
+    assert!(home_receipt["canvasZoom"].is_null());
+    // Never overwrite another capture's receipt, even when reusing an output path.
+    assert!(capture.write_receipt(&ctx, 20, [1, 1], Some(2.0)).is_err());
 }

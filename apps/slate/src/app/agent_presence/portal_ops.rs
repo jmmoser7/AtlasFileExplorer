@@ -19,7 +19,9 @@ fn portal_reply(call: &BoardCall, result: Value) -> BoardReply {
 
 mod read_file;
 use read_file::read_text_page;
+mod atlas_read;
 mod image_file;
+mod native;
 
 const SOURCE_INPUTS: &str = "board-file-inputs";
 
@@ -38,22 +40,24 @@ pub(super) struct PortalOp {
     source_generation: Option<u64>,
     source_snapshot: Option<(u64, i64)>,
     started: bool,
+    native: Option<native::NativeOp>,
 }
 pub(super) fn recognizes(command: &str) -> bool {
-    matches!(
-        command,
-        "portal.web.focus"
-            | "portal.atlas.list"
-            | "portal.atlas.highlight"
-            | "portal.atlas.read_file"
-            | "portal.web.read_text"
-            | "portal.web.capture"
-            | "portal.web.navigate"
-            | "portal.web.click"
-            | "portal.web.scroll"
-            | "portal.web.type"
-            | "portal.web.key"
-    )
+    native::recognizes(command)
+        || matches!(
+            command,
+            "portal.web.focus"
+                | "portal.atlas.list"
+                | "portal.atlas.highlight"
+                | "portal.atlas.read_file"
+                | "portal.web.read_text"
+                | "portal.web.capture"
+                | "portal.web.navigate"
+                | "portal.web.click"
+                | "portal.web.scroll"
+                | "portal.web.type"
+                | "portal.web.key"
+        )
 }
 
 impl SlateApp {
@@ -101,15 +105,19 @@ impl SlateApp {
             .node(id)
             .cloned()
             .ok_or("Portal no longer exists")?;
-        let NodeKind::Portal(portal) = &node.kind else {
-            return Err("Target is not a portal".into());
+        let is_native = native::recognizes(command);
+        let (is_atlas, is_web) = match &node.kind {
+            NodeKind::Portal(portal) => (
+                command.starts_with("portal.atlas.") && portal.kind == PortalKind::FileAtlas,
+                command.starts_with("portal.web.") && portal.kind == PortalKind::Web,
+            ),
+            _ => (false, false),
         };
-        let is_atlas = command.starts_with("portal.atlas.") && portal.kind == PortalKind::FileAtlas;
-        let is_web = command.starts_with("portal.web.") && portal.kind == PortalKind::Web;
-        if !is_atlas && !is_web {
+        if !is_atlas && !is_web && !is_native {
             return Err("Command and portal kind do not match".into());
         }
-        let needs_file_grant = is_atlas || (is_web && self.agent_web_needs_file_grant(id)?);
+        let needs_file_grant =
+            is_native || is_atlas || (is_web && self.agent_web_needs_file_grant(id)?);
         if needs_file_grant
             && !grant
                 .readable_sources
@@ -121,6 +129,11 @@ impl SlateApp {
         if is_web {
             self.agent_web_check_scope(id)?;
         }
+        let native = if is_native {
+            Some(native::NativeOp::prepare(self, a, call, id)?)
+        } else {
+            None
+        };
         if command == "portal.atlas.read_file" {
             let locator = arguments["locator"]
                 .as_str()
@@ -184,6 +197,7 @@ impl SlateApp {
             source_generation: None,
             source_snapshot: None,
             started: false,
+            native,
         };
         a.portal = Some(op);
         a.observed_target = Some(id);
@@ -199,6 +213,19 @@ impl SlateApp {
         elapsed: Duration,
     ) -> Option<BoardReply> {
         let mut op = a.portal.take()?;
+        if let Some(native) = op.native.as_ref() {
+            if let Err(reason) = native.validate(self, a, &op.call, op.portal, &op.node) {
+                return Some(native::failed_reply(&op.call, "authority_changed", &reason));
+            }
+            if a.paused {
+                native.cancel();
+                return Some(native::failed_reply(
+                    &op.call,
+                    "revoked_before_or_after_dispatch",
+                    "Native work was paused by the human; no rollback is claimed",
+                ));
+            }
+        }
         if a.paused {
             self.release_presence_portal_focus(&op.call.request_id);
             a.portal = Some(op);
@@ -304,10 +331,19 @@ impl SlateApp {
                     return Ok(None);
                 }
             }
-            self.execute_portal_operation(&mut op)
+            if op.native.is_some() {
+                native::advance(self, a, &mut op)
+            } else {
+                self.execute_portal_operation(&mut op)
+            }
         })();
         match result {
-            Ok(Some(value)) => Some(portal_reply(&op.call, value)),
+            Ok(Some(value)) => {
+                let success = op.native.is_none() || value["status"] == "completed";
+                let mut reply = portal_reply(&op.call, value);
+                reply.success = success;
+                Some(reply)
+            }
             Ok(None) => {
                 a.portal = Some(op);
                 None
@@ -317,7 +353,19 @@ impl SlateApp {
                 self.clear_portal_highlight(&op);
                 a.activity = "blocked".into();
                 a.status = error.clone();
-                Some(BoardReply::error(&op.call, &error))
+                if let Some(native) = op.native.as_ref() {
+                    Some(native::failed_reply(
+                        &op.call,
+                        if native.admitted() {
+                            "native_action_stopped_after_admission"
+                        } else {
+                            "not_dispatched"
+                        },
+                        &error,
+                    ))
+                } else {
+                    Some(BoardReply::error(&op.call, &error))
+                }
             }
         }
     }
@@ -417,67 +465,6 @@ impl SlateApp {
             }
             _ => Err("Unknown portal operation".into()),
         }
-    }
-
-    fn read_atlas_file(&mut self, op: &mut PortalOp) -> Result<Option<Value>, String> {
-        if let Some(rx) = &op.text_rx {
-            let locator = op.arguments["locator"]
-                .as_str()
-                .ok_or("Read_file needs one relative locator")?;
-            let (_, _, current_generation, size, mtime) =
-                self.agent_atlas_file_ref(op.portal, locator)?;
-            if Some(current_generation) != op.source_generation
-                || Some((size, mtime)) != op.source_snapshot
-            {
-                return Err("Atlas scan changed during this file read".into());
-            }
-            return match rx.try_recv() {
-                Ok(result) => result.map(Some),
-                Err(mpsc::TryRecvError::Empty) => Ok(None),
-                Err(mpsc::TryRecvError::Disconnected) => Err("Text read worker stopped".into()),
-            };
-        }
-        match op
-            .arguments
-            .get("mode")
-            .and_then(Value::as_str)
-            .unwrap_or("text")
-        {
-            "image" => return image_file::read_image(self, op),
-            "text" => {}
-            _ => return Err("Read_file mode must be text or image".into()),
-        }
-        let locator = op.arguments["locator"]
-            .as_str()
-            .ok_or("Read_file needs one relative locator")?;
-        let (root, path, generation, size, mtime) =
-            self.agent_atlas_file_ref(op.portal, locator)?;
-        let cursor = number(&op.arguments, "cursor", 0, 4 * 1024 * 1024)?;
-        if cursor > 0 && op.arguments.get("generation").and_then(Value::as_u64) != Some(generation)
-        {
-            return Err(
-                "Continuation generation is missing or stale; restart at cursor zero".into(),
-            );
-        }
-        let limit = number(&op.arguments, "limit", 4096, 16 * 1024)?;
-        if !(4..=16 * 1024).contains(&limit) {
-            return Err("Text page limit must be 4–16384 bytes".into());
-        }
-        self.agent_atlas_highlight(op.portal, locator, &op.call.request_id, &op.observer)?;
-        let (tx, rx) = mpsc::channel();
-        op.text_rx = Some(rx);
-        op.source_generation = Some(generation);
-        op.source_snapshot = Some((size, mtime));
-        let locator = locator.to_owned();
-        std::thread::Builder::new()
-            .name("atlas-agent-portal-text".into())
-            .spawn(move || {
-                let result =
-                    read_text_page(root, path, &locator, generation, size, mtime, cursor, limit);
-                let _ = tx.send(result);
-            })
-            .map_err(|e| format!("Could not start bounded text read: {e}"))?;
-        Ok(None)
     }
 
     /// Lifecycle hook for stop/revoke/request completion, including when the

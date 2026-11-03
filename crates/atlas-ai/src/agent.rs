@@ -57,7 +57,7 @@ pub fn provider_by_id(id: &str) -> AgentProvider {
         "image-link" => ("Image link", LaunchKind::None),
         "comfy" => ("ComfyUI", LaunchKind::None),
         "codex-image" => ("ChatGPT", LaunchKind::None),
-        "openai-image" => ("GPT Image", LaunchKind::None),
+        "openai-image" => ("OpenAI API", LaunchKind::None),
         "codex-text" => ("ChatGPT", LaunchKind::None),
         "openai-text" => ("OpenAI", LaunchKind::None),
         _ => (id, LaunchKind::None),
@@ -129,6 +129,13 @@ pub struct AgentSources {
     outputs: std::collections::HashMap<PathBuf, std::sync::Arc<crate::outputs::LinkOutputs>>,
 }
 impl AgentSources {
+    /// Immutable already-loaded transcript for display-only checkpoint references.
+    pub fn peek(&self, dir: &Path) -> Option<&AgentSession> {
+        self.snapshots.get(dir).map(std::sync::Arc::as_ref)
+    }
+    pub fn snapshot(&self, dir: &Path) -> Option<std::sync::Arc<AgentSession>> {
+        self.snapshots.get(dir).cloned()
+    }
     pub fn retain(&mut self, dirs: &std::collections::HashSet<PathBuf>) {
         self.links.retain(|dir, _| dirs.contains(dir));
         self.snapshots.retain(|dir, _| dirs.contains(dir));

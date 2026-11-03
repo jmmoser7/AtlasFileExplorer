@@ -70,6 +70,23 @@ pub fn hash_bytes(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+/// Stream the same SHA-256 used by viewport provenance without loading a large model.
+pub fn hash_reader(mut reader: impl std::io::Read) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 65_536];
+    loop {
+        let count = match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
+        hash.update(&buffer[..count]);
+    }
+    Ok(format!("{:x}", hash.finalize()))
+}
+
 pub fn build_xmp_packet(input: &ViewMetaInput) -> Result<String, ViewMetaError> {
     if !input.model_path.is_empty() && path_looks_absolute(&input.model_path) {
         return Err(ViewMetaError::InvalidPath);

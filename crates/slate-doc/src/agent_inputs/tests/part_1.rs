@@ -313,6 +313,7 @@ fn add(doc: &mut SlateDoc, kind: NodeKind, x: f32) -> NodeId {
 }
 fn text(s: &str) -> NodeKind {
     NodeKind::Text(TextNode {
+        answers: Default::default(),
         text: s.into(),
         style: Default::default(),
         family: Default::default(),

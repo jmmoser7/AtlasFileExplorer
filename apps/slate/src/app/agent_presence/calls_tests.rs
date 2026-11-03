@@ -142,6 +142,7 @@ fn opted_in_collaborator_saves_current_authored_board_text() {
     let node = h.app.doc_mut().scene.build_node(
         WorldRect::new(24.0, 32.0, 260.0, 72.0),
         NodeKind::Text(TextNode {
+            answers: Default::default(),
             text: "Authorized authored text".into(),
             style: Default::default(),
             family: Typeface::Sans,

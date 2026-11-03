@@ -250,6 +250,7 @@ mod tests {
         let node = scene.build_node(
             rect,
             NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: text.into(),
                 style: Default::default(),
                 family: Default::default(),
@@ -487,6 +488,7 @@ mod tests {
         let node = doc.scene.build_node(
             WorldRect::new(100.0, 50.0, 80.0, 60.0),
             NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: "solo".into(),
                 style: Default::default(),
                 family: Default::default(),
@@ -720,6 +722,7 @@ mod tests {
         let node = doc.scene.build_node(
             WorldRect::new(20.0, 20.0, 200.0, 200.0),
             NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: "sticky".into(),
                 style: Default::default(),
                 family: Default::default(),
@@ -943,6 +946,7 @@ mod tests {
         let mut node = doc.scene.build_node(
             WorldRect::new(10.0, 10.0, 100.0, 50.0),
             NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: "ghost".into(),
                 style: Default::default(),
                 family: Default::default(),
@@ -1820,6 +1824,7 @@ mod tests {
         let mut node = doc.scene.build_node(
             WorldRect::new(0.0, 0.0, 100.0, 40.0),
             NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: "HELLO".into(),
                 style: Default::default(),
                 family: Default::default(),
@@ -1928,6 +1933,11 @@ mod tests {
             picture_id,
             vec!["assets/newest.png".into(), "assets/older.png".into()],
         );
+        if let Some(node) = doc.scene.node_mut(note_id) {
+            if let NodeKind::Text(text) = &mut node.kind {
+                text.text = "Authored source stays intact".into();
+            }
+        }
         assets.insert_agent_reply(note_id, "A calm harbour at dusk.".into());
         let html = render_html(&doc, &assets);
         assert!(html.contains("<img src=\"assets/newest.png\""));
@@ -1937,5 +1947,6 @@ mod tests {
         );
         assert!(!html.contains("agent-image-bundle"));
         assert!(html.contains("A calm harbour at dusk."));
+        assert!(!html.contains("Authored source stays intact"));
     }
 }

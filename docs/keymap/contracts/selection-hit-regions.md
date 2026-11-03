@@ -47,11 +47,12 @@ this contract does not maintain a second set of numbers. Existing per-command
 drag thresholds, snapping tolerances, crop limits, and direct-edit pick radii
 remain with their original contracts.
 
-The named P0.9 exception includes transient wire-port dots, their matching host
-cutouts, and port-role labels. They follow the Wire domain's projected-size
-prominence and bounded screen presentation. Their native `WireHost` sites and
-identities are unchanged. Authored labels, content paint, and tool blisters
-retain their existing camera scaling; these editing overlays are not exported.
+Wire-port dots, matching host cutouts and port-role labels retain P0.9 canvas
+scaling (user correction, 1 November 2026). The Wire domain may hide or fade
+these controls by projected relevance; their paint remains board units times
+zoom without a screen-size floor or ceiling. The hit field includes the
+projected disc. Native `WireHost` sites and identities are unchanged; these
+editing overlays are not exported.
 Transient fillet-grip squares likewise use Resize prominence and bounded screen
 paint; authored corner radii continue to follow the camera.
 

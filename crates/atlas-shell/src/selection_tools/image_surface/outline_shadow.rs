@@ -21,12 +21,11 @@ impl ShadowInput {
         &self,
         owner: Id,
         outline: &[Pos2],
-        transform: TSTransform,
+        _transform: TSTransform,
         ppp: f32,
         dark: bool,
     ) -> bool {
         self.owner == owner
-            && self.zoom == transform.scaling
             && self.pixels_per_point == ppp
             && self.dark_mode == dark
             && self.outline.len() == outline.len()
@@ -62,8 +61,9 @@ struct ShadowState {
 
 /// Same shadow tokens as rectangular media, with the existing vector-ink
 /// radial raster owner. One worker and one texture bound this feature.
-/// Geometry/zoom/DPI/theme changes replace the pending request; camera
-/// translation only places a four-vertex image in the caller's paint list.
+/// Geometry/DPI/theme changes replace the pending request. Camera pan and zoom
+/// project the accepted board-local texture; resize retains that same-owner,
+/// same-style shadow at the current bounds until the replacement is ready.
 pub fn paint_outline_interaction_shadow(
     painter: &egui::Painter,
     owner: Id,
@@ -119,15 +119,15 @@ pub fn paint_outline_interaction_shadow(
                         ),
                         egui::TextureOptions::LINEAR,
                     );
+                    let raster_zoom = result.input.zoom;
                     let rect = Rect::from_min_size(
                         Pos2::new(
-                            pixels.origin[0],
-                            pixels.origin[1]
-                                + canvas_scale::px(IMAGE_SHADOW_OFFSET, result.input.zoom),
+                            pixels.origin[0] / raster_zoom,
+                            pixels.origin[1] / raster_zoom + IMAGE_SHADOW_OFFSET,
                         ),
                         Vec2::new(
-                            pixels.width as f32 * pixels.pixel,
-                            pixels.height as f32 * pixels.pixel,
+                            pixels.width as f32 * pixels.pixel / raster_zoom,
+                            pixels.height as f32 * pixels.pixel / raster_zoom,
                         ),
                     );
                     state.cached = Some(Arc::new(CachedOutlineShadow {
@@ -160,19 +160,16 @@ pub fn paint_outline_interaction_shadow(
             }
         }
     }
-    let cached = state.cached.clone().filter(|c| {
-        c.input.owner == owner
-            && state
-                .desired
-                .as_ref()
-                .is_some_and(|i| i.generation == c.input.generation)
-    });
+    let cached = state
+        .cached
+        .clone()
+        .filter(|c| c.input.owner == owner && c.input.dark_mode == theme.dark_mode);
     let pending = state.job.is_some();
     drop(state);
     if let Some(cached) = cached {
         painter.image(
             cached.texture.id(),
-            cached.rect.translate((transform * outline[0]).to_vec2()),
+            projected_rect(&cached, outline, transform),
             Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
             Color32::WHITE,
         );
@@ -180,6 +177,27 @@ pub fn paint_outline_interaction_shadow(
     if pending {
         ctx.request_repaint();
     }
+}
+
+/// Preserve the accepted shadow's board-unit blur margin while following current
+/// host bounds. The old texture is only a same-host interim during raster work.
+fn projected_rect(cached: &CachedOutlineShadow, outline: &[Pos2], transform: TSTransform) -> Rect {
+    let before = cached
+        .input
+        .outline
+        .iter()
+        .fold(Rect::NOTHING, |bounds, p| {
+            bounds.union(Rect::from_min_max(p.to_pos2(), p.to_pos2()))
+        });
+    let after = outline.iter().fold(Rect::NOTHING, |bounds, p| {
+        let p = (*p - outline[0]).to_pos2();
+        bounds.union(Rect::from_min_max(p, p))
+    });
+    let rect = Rect::from_min_max(
+        after.min + (cached.rect.min - before.min),
+        after.max + (cached.rect.max - before.max),
+    );
+    transform * rect.translate(outline[0].to_vec2())
 }
 
 fn rasterize(input: &ShadowInput) -> Option<vector_ink::StampImage> {
@@ -309,11 +327,31 @@ mod tests {
         );
         let zoom = TSTransform::new(transform.translation, 1.2);
         let pending = frame(&ctx, &translated, zoom);
-        assert!(!pending.shapes.iter().any(|s| matches!(&s.shape,egui::Shape::Mesh(mesh) if mesh.texture_id == after.texture.id())),"an old generation is never displayed while rebuilding");
+        assert!(pending.shapes.iter().any(|s| matches!(&s.shape,egui::Shape::Mesh(mesh) if mesh.texture_id == after.texture.id())), "zoom keeps the accepted shadow visible");
+        let state = ctx
+            .data(|d| d.get_temp::<Arc<Mutex<ShadowState>>>(cache_id()))
+            .unwrap();
+        {
+            let state = state.lock().unwrap();
+            assert_eq!(
+                state.generation, after.input.generation,
+                "zoom cannot change the geometry generation"
+            );
+            assert_eq!(
+                state.attempted, after.input.generation,
+                "zoom schedules no worker"
+            );
+            assert!(state.job.is_none());
+        }
+        assert!(!pending
+            .textures_delta
+            .set
+            .iter()
+            .any(|(id, _)| *id == after.texture.id()));
         let zoomed = settled(&ctx, &translated, zoom);
         assert!(
-            !Arc::ptr_eq(&after, &zoomed),
-            "zoom changes the raster density"
+            Arc::ptr_eq(&after, &zoomed),
+            "camera zoom only projects the accepted board-local shadow"
         );
         let changed = translated.map(|p| Pos2::new(p.x * 1.2, p.y));
         let edited = settled(&ctx, &changed, zoom);
@@ -323,5 +361,60 @@ mod tests {
         );
         let size = edited.texture.size();
         assert!(size[0] <= 512 && size[1] <= 512 && size[0] * size[1] <= 70_000);
+    }
+    #[test]
+    fn pending_resize_keeps_same_host_shadow_at_current_zoom_and_bounds() {
+        let ctx = egui::Context::default();
+        let outline = [
+            Pos2::new(20.0, 30.0),
+            Pos2::new(140.0, 30.0),
+            Pos2::new(140.0, 130.0),
+            Pos2::new(20.0, 130.0),
+        ];
+        let cached = settled(&ctx, &outline, TSTransform::IDENTITY);
+        let state = ctx
+            .data(|d| d.get_temp::<Arc<Mutex<ShadowState>>>(cache_id()))
+            .unwrap();
+        // Hold the worker slot, making the pending frame deterministic.
+        let (_tx, rx) = mpsc::sync_channel(1);
+        state.lock().unwrap().job = Some(ShadowJob { rx });
+        let resized = outline.map(|p| Pos2::new(p.x * 1.6, p.y * 0.8));
+        let transform = TSTransform::new(Vec2::new(173.25, 81.75), 2.5);
+        let output = frame(&ctx, &resized, transform);
+        let painted = output
+            .shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Mesh(mesh) if mesh.texture_id == cached.texture.id() => {
+                    Some(mesh.calc_bounds())
+                }
+                _ => None,
+            })
+            .expect("pending resize must retain its accepted shadow");
+        assert_eq!(painted, projected_rect(&cached, &resized, transform));
+        assert_ne!(
+            painted,
+            transform * cached.rect.translate(outline[0].to_vec2()),
+            "the pending shadow follows current host dimensions, not the old rectangle"
+        );
+        for (owner, theme) in [
+            (Id::new("other-node"), Palette::light()),
+            (Id::new("field"), Palette::dark()),
+        ] {
+            let output = ctx.run(Default::default(), |ctx| {
+                paint_outline_interaction_shadow(
+                    &ctx.layer_painter(egui::LayerId::background()),
+                    owner,
+                    &resized,
+                    transform,
+                    theme,
+                );
+            });
+            assert!(
+                !output.shapes.iter().any(|s| matches!(&s.shape,
+                egui::Shape::Mesh(mesh) if mesh.texture_id == cached.texture.id())),
+                "a retained shadow cannot cross node or palette identity"
+            );
+        }
     }
 }

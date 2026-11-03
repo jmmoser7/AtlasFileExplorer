@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "generator_tests.rs"]
 mod generator_tests;
+#[path = "keyboard_tests.rs"]
+mod keyboard_tests;
 
 struct Menu {
     ctx: egui::Context,

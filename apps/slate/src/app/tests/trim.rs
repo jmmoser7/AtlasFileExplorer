@@ -318,6 +318,7 @@ fn trim_text_clip_punches_a_hole() {
         let node = h.app.doc_mut().scene.build_node(
             rect,
             slate_doc::scene::NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: "HELLO".into(),
                 style: Default::default(),
                 family: Typeface::Sans,

@@ -295,103 +295,131 @@ fn submitting_the_image_editor_captures_the_picked_crop_before_releasing_it() {
 
 #[test]
 fn running_an_edited_generated_text_card_releases_its_override_as_one_undo() {
-    let (mut h, generator) = crate::app::board_flow::tests::generator_with_output("text-rerun");
-    // Settle the existing seed's independent aspect-fit before testing the
-    // text run. Its first rendered frame must not add an unrelated undo step.
-    h.app
-        .fit_generator_frame(generator, "img-1", "r", egui::vec2(8.0, 8.0));
-    let detail =
-        serde_json::json!({"source": generator.0, "kind": "text", "prompt": "Describe the scene"});
-    assert!(h.app.spawn_flow_node(Some(&detail.to_string())));
-    let note = *h.app.board_sel.iter().next().unwrap();
-    let node = h.app.doc().scene.node(note).unwrap().clone();
-    let NodeKind::Image(image) = &node.kind else {
-        unreachable!()
-    };
-    let item = image.item;
-    let path = h.app.doc().item(item).unwrap().path.clone();
-    h.app
-        .cache_snippet(item, Some("first generated reply".into()));
-    let point = Pos2::new(
-        node.rect.x + node.rect.w * 0.5,
-        node.rect.y + node.rect.h * 0.5,
-    );
-    h.app.board_double_click_for_test(point);
-    h.app.text_doc_edit.as_mut().unwrap().buffer = "person's authored words".into();
-    h.app.commit_text_doc_edit();
-
-    let downstream = serde_json::json!({"source": note.0, "kind": "text"});
-    assert!(h.app.spawn_flow_node(Some(&downstream.to_string())));
-    let target = *h.app.board_sel.iter().next().unwrap();
-    assert!(h
-        .app
-        .agent_input_snapshot(target)
-        .unwrap()
-        .wired
-        .iter()
-        .any(|input| input.node == note.0 && input.text == "person's authored words"));
-    h.app.agents.awaiting.remove(&note);
-    let before = h.app.tab().journal.undo_depth();
-    h.app.queue_text_block(note);
-    let NodeKind::Image(image) = &h.app.doc().scene.node(note).unwrap().kind else {
-        unreachable!()
-    };
-    assert!(
-        image.text_override.is_none(),
-        "accepted Run follows generated words again"
-    );
-    assert_eq!(h.app.tab().journal.undo_depth(), before + 1);
-
-    set_chat_streaming(&mut h, note, false);
-    h.app.agents.awaiting.remove(&note);
-    h.app.sync_agent_text_output(note);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while std::fs::read_to_string(&path).ok().as_deref() != Some(CHAT_REPLY) {
-        h.app.pump_agent_text_outputs();
-        assert!(
-            std::time::Instant::now() < deadline,
-            "new reply reaches generated output"
+    for preserve in [false, true] {
+        let (mut h, generator) = crate::app::board_flow::tests::generator_with_output("text-rerun");
+        // Settle the existing seed's independent aspect-fit before testing the
+        // text run. Its first rendered frame must not add an unrelated undo step.
+        h.app
+            .fit_generator_frame(generator, "img-1", "r", egui::vec2(8.0, 8.0));
+        let detail = serde_json::json!({"source": generator.0, "kind": "text", "prompt": "Describe the scene"});
+        assert!(h.app.spawn_flow_node(Some(&detail.to_string())));
+        let note = *h.app.board_sel.iter().next().unwrap();
+        h.app.patch_nodes(&[note], |node| {
+            slate_doc::agent_chat::agent_mut(node)
+                .unwrap()
+                .generator
+                .preserve_history = Some(preserve);
+        });
+        let node = h.app.doc().scene.node(note).unwrap().clone();
+        let NodeKind::Image(image) = &node.kind else {
+            unreachable!()
+        };
+        let item = image.item;
+        let path = h.app.doc().item(item).unwrap().path.clone();
+        h.app
+            .cache_snippet(item, Some("first generated reply".into()));
+        let point = Pos2::new(
+            node.rect.x + node.rect.w * 0.5,
+            node.rect.y + node.rect.h * 0.5,
         );
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.app.board_double_click_for_test(point);
+        h.app.text_doc_edit.as_mut().unwrap().buffer = "person's authored words".into();
+        h.app.commit_text_doc_edit();
+
+        let downstream = serde_json::json!({"source": note.0, "kind": "text"});
+        assert!(h.app.spawn_flow_node(Some(&downstream.to_string())));
+        let target = *h.app.board_sel.iter().next().unwrap();
+        assert!(h
+            .app
+            .agent_input_snapshot(target)
+            .unwrap()
+            .wired
+            .iter()
+            .any(|input| input.node == note.0 && input.text == "person's authored words"));
+        h.app.agents.awaiting.remove(&note);
+        let before = h.app.tab().journal.undo_depth();
+        h.app.queue_text_block(note);
+        let request = h
+            .app
+            .agents
+            .comfy_queue
+            .get(&note)
+            .and_then(|queue| queue.front())
+            .map(|entry| &entry.request)
+            .or_else(|| {
+                h.app
+                    .agents
+                    .dispatched
+                    .iter()
+                    .rev()
+                    .find(|(id, _)| *id == note)
+                    .map(|(_, request)| request)
+            })
+            .unwrap();
+        assert_eq!(
+            request.oneshot, !preserve,
+            "provider history mode stays independent from output replacement"
+        );
+        let NodeKind::Image(image) = &h.app.doc().scene.node(note).unwrap().kind else {
+            unreachable!()
+        };
+        assert!(
+            image.text_override.is_none(),
+            "accepted Run follows generated words again"
+        );
+        assert_eq!(h.app.tab().journal.undo_depth(), before + 1);
+
+        set_chat_streaming(&mut h, note, false);
+        h.app.agents.awaiting.remove(&note);
+        h.app.sync_agent_text_output(note);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while std::fs::read_to_string(&path).ok().as_deref() != Some(CHAT_REPLY) {
+            h.app.pump_agent_text_outputs();
+            assert!(
+                std::time::Instant::now() < deadline,
+                "new reply reaches generated output"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        h.app.pump_agent_text_outputs();
+        h.app.invalidate_document_card(item);
+        assert!(
+            h.app.snippet_for(item, &path).is_none(),
+            "preparation is asynchronous"
+        );
+        let excerpt = slate_artifact::read_snippet(&path).unwrap();
+        h.app.complete_document_preview_for_test(item, &excerpt);
+        assert_eq!(h.app.snippet_for(item, &path).as_deref(), Some(CHAT_REPLY));
+        assert!(h
+            .app
+            .agent_input_snapshot(target)
+            .unwrap()
+            .wired
+            .iter()
+            .any(|input| input.node == note.0 && input.text == CHAT_REPLY));
+        h.app.zoom_to_rect(node.rect);
+        let depth_after_run = h.app.tab().journal.undo_depth();
+        let out = h.frame_output(|_| {});
+        assert!(painted_block(&out, CHAT_REPLY, h.app.board_xf().z).is_some());
+        assert_eq!(
+            h.app.tab().journal.undo_depth(),
+            depth_after_run,
+            "painting the completed reply adds no unrelated authoring step"
+        );
+        h.app.board_undo();
+        let NodeKind::Image(image) = &h.app.doc().scene.node(note).unwrap().kind else {
+            unreachable!()
+        };
+        assert_eq!(
+            image.text_override.as_deref(),
+            Some("person's authored words")
+        );
+        assert!(h
+            .app
+            .agent_input_snapshot(target)
+            .unwrap()
+            .wired
+            .iter()
+            .any(|input| input.node == note.0 && input.text == "person's authored words"));
     }
-    h.app.pump_agent_text_outputs();
-    h.app.invalidate_document_card(item);
-    assert!(
-        h.app.snippet_for(item, &path).is_none(),
-        "preparation is asynchronous"
-    );
-    let excerpt = slate_artifact::read_snippet(&path).unwrap();
-    h.app.complete_document_preview_for_test(item, &excerpt);
-    assert_eq!(h.app.snippet_for(item, &path).as_deref(), Some(CHAT_REPLY));
-    assert!(h
-        .app
-        .agent_input_snapshot(target)
-        .unwrap()
-        .wired
-        .iter()
-        .any(|input| input.node == note.0 && input.text == CHAT_REPLY));
-    h.app.zoom_to_rect(node.rect);
-    let depth_after_run = h.app.tab().journal.undo_depth();
-    let out = h.frame_output(|_| {});
-    assert!(painted_block(&out, CHAT_REPLY, h.app.board_xf().z).is_some());
-    assert_eq!(
-        h.app.tab().journal.undo_depth(),
-        depth_after_run,
-        "painting the completed reply adds no unrelated authoring step"
-    );
-    h.app.board_undo();
-    let NodeKind::Image(image) = &h.app.doc().scene.node(note).unwrap().kind else {
-        unreachable!()
-    };
-    assert_eq!(
-        image.text_override.as_deref(),
-        Some("person's authored words")
-    );
-    assert!(h
-        .app
-        .agent_input_snapshot(target)
-        .unwrap()
-        .wired
-        .iter()
-        .any(|input| input.node == note.0 && input.text == "person's authored words"));
 }

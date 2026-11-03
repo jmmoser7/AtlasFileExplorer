@@ -49,6 +49,136 @@ pub struct AgentPortalRef {
     /// How a generator's runs are shaped: pictures per run, aspect, seed lock.
     #[serde(default, skip_serializing_if = "ImageSettings::is_default")]
     pub image: ImageSettings,
+    /// Shared generator choices. Absent values preserve older workbook behavior.
+    #[serde(default, skip_serializing_if = "GeneratorSettings::is_default")]
+    pub generator: GeneratorSettings,
+}
+
+impl AgentPortalRef {
+    /// Authored graph settings before a program is configured. This reference
+    /// carries no executable provider, session, transcript or runtime grant.
+    pub fn unbound(view: atlas_agent::PortalView) -> Self {
+        Self {
+            provider: String::new(),
+            session: String::new(),
+            context: Default::default(),
+            channel: None,
+            model: None,
+            model_parameters: Default::default(),
+            bundle: None,
+            seed: None,
+            view,
+            chat: Default::default(),
+            live: false,
+            instruction: String::new(),
+            image: Default::default(),
+            generator: Default::default(),
+        }
+    }
+}
+
+/// Provider-neutral, journaled generator input and history choices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GraphInputKind {
+    Image,
+    Text,
+    Style,
+}
+
+/// Provider-neutral, journaled generator input and history choices.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GeneratorSettings {
+    /// A plain authored input source, not a generator or a configured program.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_source_kind: Option<GraphInputKind>,
+    /// Last explicit inherited-history source, retained after a terminal cut.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history_source: Option<NodeId>,
+    /// Prefix actually replayed into the current public image transcript.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherited_turn_count: Option<u32>,
+    /// Agent-panel Text responses review the original document, unlike legacy
+    /// explicit output nodes whose body is the generated text.
+    #[serde(skip_serializing_if = "is_false")]
+    pub text_response_only: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub text_context: Vec<atlas_agent::AgentTurn>,
+    /// Explicit Preserve OFF boundary; pending outcomes from older epochs never
+    /// repopulate the retained context when Preserve is enabled again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_context_epoch: Option<u64>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub text_reviews: Vec<crate::text_answers::TextReview>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shown_review: Option<usize>,
+    /// Immutable native model outputs; independent from provider transcript memory.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub model_outputs: Vec<ModelOutputRef>,
+    /// Removed presentation entries. Immutable outputs, sources and memory remain linked.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub hidden_outputs: Vec<HiddenOutputRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shown_model: Option<String>,
+    /// A terminal cut archives prior model context independently of outputs.
+    #[serde(skip_serializing_if = "is_false")]
+    pub history_cut: bool,
+    /// Existing transcript manifests retained for inspection after a context cut.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub archived_history: Vec<SourceUri>,
+    /// Selected text output is presentation state, independent of active memory.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shown_text: Option<crate::text_answers::TextOutputRef>,
+    /// None retains the legacy image count; adapters clamp authored counts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<u8>,
+    /// None retains the pre-existing checkpoint behavior on old documents.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preserve_history: Option<bool>,
+    /// Existing InputSlot IDs; no geometry or wire endpoint identity is stored.
+    #[serde(skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub grafted_slots: std::collections::BTreeSet<String>,
+}
+
+/// Actual immutable output identity, independent of the host's current agent context.
+/// Image requests survive seed/unbundle/history cuts; model tickets and artifact
+/// family/revision IDs are native producer identities, never path aliases.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum HiddenOutputRef {
+    Image {
+        request: String,
+        id: String,
+    },
+    Model {
+        ticket: String,
+    },
+    Text {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        review_id: Option<String>,
+        response: crate::text_answers::TextAnswerRef,
+    },
+    Artifact {
+        family: String,
+        revision: String,
+    },
+}
+
+impl HiddenOutputRef {
+    /// Legacy images with no immutable request origin cannot be removed safely.
+    pub fn image(output: &atlas_agent::ImageOutput) -> Option<Self> {
+        (!output.request.is_empty() && !output.id.is_empty()).then(|| Self::Image {
+            request: output.request.clone(),
+            id: output.id.clone(),
+        })
+    }
+}
+
+impl GeneratorSettings {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 /// Journaled image-agent settings (D20). A locked seed makes runs repeatable.

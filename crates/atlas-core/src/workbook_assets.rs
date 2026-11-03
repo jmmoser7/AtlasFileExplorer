@@ -15,7 +15,9 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+mod headless_models;
 mod paths;
+pub use headless_models::write_headless_model_provenance;
 use paths::under;
 pub use paths::{generated_provider_dir, same_path};
 mod tree_copy;
@@ -398,7 +400,7 @@ fn plan_data_dir_asset(data_dir: &Path, workbook: &Path, source: &Path, now_secs
     {
         return Plan::Refuse("not a pasted or generated image");
     }
-    if !is_raster(source) && !is_capture_video(data_dir, source, &child) {
+    if !headless_models::is_collectable_output(data_dir, source, &child) {
         return Plan::Refuse("not a pasted or generated image");
     }
     if cloud_blocked(source) {

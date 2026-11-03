@@ -32,6 +32,7 @@ impl SlateApp {
         let node = self.doc_mut().scene.build_node(
             rect,
             NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: String::new(),
                 style: Default::default(),
                 family: Typeface::Sans,
@@ -67,6 +68,7 @@ impl SlateApp {
         let node = self.doc_mut().scene.build_node(
             rect,
             NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: String::new(),
                 style,
                 family,

@@ -57,6 +57,29 @@ pub(crate) struct InputPreparation {
     pub(crate) inputs: atlas_agent::InputSnapshot,
     pub(super) replacements: Vec<(NodeId, u64, PathBuf)>,
     pub(super) bake_dependencies: Vec<crate::app::board_image_layers::LayerBakeReadiness>,
+    /// Shared only among one submission's branches, never between submissions.
+    pub(super) capture: Option<std::rc::Rc<std::cell::RefCell<GeneratorInputCapture>>>,
+}
+
+#[derive(Clone)]
+pub(super) struct GeneratorInputCapture {
+    pub(super) request: atlas_agent::AgentRequest,
+    pub(super) completed: HashSet<(u64, atlas_agent::InputSlot)>,
+    pub(super) ready: bool,
+}
+
+impl InputPreparation {
+    pub(super) fn freeze_capture(&mut self, request: &atlas_agent::AgentRequest) {
+        let mut request = request.clone();
+        request.inputs = self.inputs.clone();
+        self.capture = Some(std::rc::Rc::new(std::cell::RefCell::new(
+            GeneratorInputCapture {
+                request,
+                completed: HashSet::new(),
+                ready: false,
+            },
+        )));
+    }
 }
 
 struct Work {

@@ -2,6 +2,10 @@
 
 use super::*;
 
+#[cfg(test)]
+#[path = "dimension_spacing_tests.rs"]
+mod dimension_spacing_tests;
+
 pub(super) fn dimension_editable(n: &Node) -> bool {
     !matches!(n.kind, NodeKind::Connector(_) | NodeKind::DockStrip(_))
 }
@@ -183,15 +187,11 @@ pub(super) fn stringer_lane(
     } else {
         Vec2::RIGHT
     };
-    let gap = if lane == Vec2::DOWN {
-        chrome::BOTTOM_STRINGER_GAP
-    } else {
-        chrome::STRINGER_GAP
-    };
+    let offset = chrome::stringer_offset(outward, true);
     if outward.dot(lane) < -1e-4 {
-        (opposite, -outward * gap)
+        (opposite, -offset)
     } else {
-        (home, outward * gap)
+        (home, offset)
     }
 }
 
@@ -255,8 +255,18 @@ impl SlateApp {
         } else {
             self.shape_properties.dimensions.clone()
         };
+        let external_strip = self
+            .shape_properties
+            .last_chrome
+            .as_ref()
+            .is_some_and(|last| !last.blister && !last.image && !last.items.is_empty());
         let mut dimension_commit = None;
         for (index, d) in dims.iter().enumerate() {
+            let offset = if d.kind == DimensionKind::Length {
+                d.offset
+            } else {
+                chrome::stringer_offset(d.offset, external_strip)
+            };
             let mut edit = self.shape_properties.number.take();
             let is_current = edit.as_ref().is_some_and(|e| e.kind == d.kind);
             let mut input = if is_current {
@@ -273,7 +283,7 @@ impl SlateApp {
                             ui,
                             Id::new(("shape_stringer", index)),
                             d.ends.map(|p| xf.w2s(p)),
-                            d.offset * z,
+                            offset * z,
                             d.value,
                             if d.kind == DimensionKind::Diameter {
                                 "Ø "

@@ -182,7 +182,6 @@ pub struct AgentRuntime {
     /// The open model list remains anchored under its title while zooming.
     pub(super) model_menu: Option<NodeId>,
     /// False until the press that opened the model list is released.
-    pub(super) model_menu_armed: bool,
     pub(super) model_menu_rect: Option<Rect>,
     /// Streaming card whose Stop took the press; it stops on release there.
     pub(super) stop_press: Option<NodeId>,

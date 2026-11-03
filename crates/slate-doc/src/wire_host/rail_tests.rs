@@ -2,6 +2,20 @@
 use super::*;
 use crate::scene::{ArtifactGeneratorRef, ConnectorEnd, ImageNode, PortalNode, Scene};
 
+#[test]
+fn graft_capsules_center_four_terminals_and_cap_further_wires() {
+    assert_eq!(graft_capsule_height(0), 12.0);
+    assert_eq!(graft_capsule_height(2), 16.0);
+    assert_eq!(graft_capsule_height(4), 24.0);
+    assert_eq!(graft_capsule_height(100), 24.0);
+    assert_eq!(
+        (0..5)
+            .map(|i| graft_terminal_offset(i, 5))
+            .collect::<Vec<_>>(),
+        [-6.0, -2.0, 2.0, 6.0, 6.0]
+    );
+}
+
 fn source_image(scene: &mut Scene, height: f32) -> Node {
     scene.build_node(
         WorldRect::new(20.0, 40.0, 680.0, height),
@@ -101,8 +115,8 @@ fn a_mixed_size_image_train_routes_straight_from_the_shared_saved_identities() {
         crate::wire::WireRouting::Orthogonal,
     ] {
         let path = crate::wire::connector_route_in_scene(&scene, None, &a, &b, routing).unwrap();
-        assert!((path.start()[1] - 70.0).abs() < 0.001);
-        assert!((path.end()[1] - 70.0).abs() < 0.001);
+        assert!((path.start()[1] - (40.0 + FLOW_PORT_TOP)).abs() < 0.001);
+        assert!((path.end()[1] - (40.0 + FLOW_PORT_TOP)).abs() < 0.001);
     }
 }
 
@@ -136,7 +150,7 @@ fn view_and_chat_header_semantics_keep_their_distinct_datums() {
 }
 
 #[test]
-fn ordinary_source_output_preserves_normal_datum_and_recovers_compact_ports() {
+fn ordinary_image_output_stays_at_the_edge_midpoint_at_every_size_and_rotation() {
     let mut scene = Scene::default();
     for height in [12.0, 36.0, 44.0, 120.0, 600.0] {
         for rotation in [0.0, 30.0, 90.0, 180.0] {
@@ -148,12 +162,7 @@ fn ordinary_source_output_preserves_normal_datum_and_recovers_compact_ports() {
                 "an ordinary source has no generator input rail"
             );
             let expected = node.rect.rotate_point(
-                [
-                    node.rect.x + node.rect.w,
-                    node.rect.y
-                        + FLOW_PORT_TOP
-                            * (height / (FLOW_PORT_TOP + 2.0 * FLOW_PORT_PITCH + 14.0)).min(1.0),
-                ],
+                [node.rect.x + node.rect.w, node.rect.y + height * 0.5],
                 rotation,
             );
             assert!(
@@ -180,6 +189,43 @@ fn ordinary_source_output_preserves_normal_datum_and_recovers_compact_ports() {
 }
 
 #[test]
+fn generated_image_output_keeps_the_top_datum() {
+    let mut scene = Scene::default();
+    for height in [12.0, 36.0, 128.0, 400.0] {
+        for rotation in [0.0, 37.0, 90.0] {
+            let mut node = source_image(&mut scene, height);
+            let NodeKind::Portal(portal) = media(&mut scene, 0, height).kind else {
+                unreachable!()
+            };
+            if let NodeKind::Image(image) = &mut node.kind {
+                image.agent = portal.agent;
+            }
+            node.rotation_deg = rotation;
+            let host = WireHost::from_node(&node);
+            assert!(host.is_flow());
+            let scale = (height / (FLOW_PORT_TOP + 2.0 * FLOW_PORT_PITCH + 14.0)).min(1.0);
+            let expected = node.rect.rotate_point(
+                [
+                    node.rect.x + node.rect.w,
+                    node.rect.y + FLOW_PORT_TOP * scale,
+                ],
+                rotation,
+            );
+            assert!(
+                dist(
+                    host.anchor(Side::Right, crate::agent_inputs::OUTPUT_T),
+                    expected
+                ) < 0.001
+            );
+            assert!(host
+                .ports()
+                .iter()
+                .any(|port| { port.side == Side::Right && dist(port.point, expected) < 0.001 }));
+        }
+    }
+}
+
+#[test]
 fn ordinary_source_arbitrary_saved_anchors_keep_their_existing_edge_geometry() {
     let mut scene = Scene::default();
     for height in [12.0, 400.0] {
@@ -189,9 +235,6 @@ fn ordinary_source_arbitrary_saved_anchors_keep_their_existing_edge_geometry() {
             let host = WireHost::from_node(&node);
             for side in Side::BOX {
                 for t in [-0.2, 0.0, 0.2, 0.5, 0.71, 1.0, 1.4] {
-                    if side == Side::Right && t == crate::agent_inputs::OUTPUT_T {
-                        continue;
-                    }
                     let expected = node
                         .rect
                         .rotate_point(connector_anchor_point(node.rect, side, t), rotation);
@@ -208,27 +251,55 @@ fn ordinary_source_arbitrary_saved_anchors_keep_their_existing_edge_geometry() {
 #[test]
 fn compact_source_and_revealed_input_rail_share_the_same_output_site() {
     let mut scene = Scene::default();
-    for height in [1.0, 12.0, 36.0, 127.99, 128.0, 128.01, 400.0] {
-        for rotation in [0.0, 37.0, 90.0] {
-            let mut node = source_image(&mut scene, height);
-            node.rotation_deg = rotation;
-            let source = WireHost::from_node(&node);
-            let revealed = WireHost::from_node_flow(&node, &crate::agent_inputs::GENERATOR_PORTS);
-            assert_eq!(
-                source.anchor(Side::Right, crate::agent_inputs::OUTPUT_T),
-                revealed.anchor(Side::Right, crate::agent_inputs::OUTPUT_T)
-            );
-            for port in revealed.ports() {
-                let (cx, cy) = node.rect.center();
-                let (x, y) = crate::geom::world_to_local_about(
-                    port.point[0],
-                    port.point[1],
-                    cx,
-                    cy,
+    for empty_ref in [false, true] {
+        for height in [1.0, 12.0, 36.0, 127.99, 128.0, 128.01, 400.0] {
+            for rotation in [0.0, 37.0, 90.0] {
+                let mut node = source_image(&mut scene, height);
+                node.rotation_deg = rotation;
+                if empty_ref {
+                    let NodeKind::Image(image) = &mut node.kind else {
+                        unreachable!()
+                    };
+                    let mut settings =
+                        crate::scene::AgentPortalRef::unbound(atlas_agent::PortalView::Images);
+                    settings.generator.preserve_history = Some(true);
+                    settings.generator.grafted_slots.insert("style".into());
+                    image.agent = Some(Box::new(settings));
+                }
+                let before = node.clone();
+                let source = WireHost::from_node(&node);
+                let revealed =
+                    WireHost::from_node_flow(&node, &crate::agent_inputs::GENERATOR_PORTS);
+                let midpoint = node.rect.rotate_point(
+                    [node.rect.x + node.rect.w, node.rect.y + height * 0.5],
                     rotation,
                 );
-                assert!(x >= node.rect.x - 0.001 && x <= node.rect.x + node.rect.w + 0.001);
-                assert!(y >= node.rect.y - 0.001 && y <= node.rect.y + node.rect.h + 0.001);
+                assert!(
+                    dist(
+                        source.anchor(Side::Right, crate::agent_inputs::OUTPUT_T),
+                        midpoint
+                    ) < 0.001
+                );
+                assert_eq!(
+                    source.anchor(Side::Right, crate::agent_inputs::OUTPUT_T),
+                    revealed.anchor(Side::Right, crate::agent_inputs::OUTPUT_T)
+                );
+                for port in revealed.ports() {
+                    let (cx, cy) = node.rect.center();
+                    let (x, y) = crate::geom::world_to_local_about(
+                        port.point[0],
+                        port.point[1],
+                        cx,
+                        cy,
+                        rotation,
+                    );
+                    assert!(x >= node.rect.x - 0.001 && x <= node.rect.x + node.rect.w + 0.001);
+                    assert!(y >= node.rect.y - 0.001 && y <= node.rect.y + node.rect.h + 0.001);
+                }
+                assert_eq!(
+                    node, before,
+                    "revealing inputs never mutates the linked source or graph settings"
+                );
             }
         }
     }
@@ -254,7 +325,7 @@ fn compact_rail_fit_is_continuous_at_the_normal_datum_boundary() {
 }
 
 #[test]
-fn ordinary_source_to_generator_routes_share_the_top_datum_without_moving_cards() {
+fn ordinary_image_wire_routes_from_its_midpoint_without_moving_cards() {
     for source_height in [128.0, 180.0, 700.0] {
         for target_height in [180.0, 600.0] {
             let mut scene = Scene::default();
@@ -279,10 +350,10 @@ fn ordinary_source_to_generator_routes_share_the_top_datum_without_moving_cards(
             ] {
                 let path =
                     crate::wire::connector_route_in_scene(&scene, None, &a, &b, routing).unwrap();
-                assert!((path.start()[1] - (40.0 + FLOW_PORT_TOP)).abs() < 0.001);
+                assert!((path.start()[1] - (40.0 + source_height * 0.5)).abs() < 0.001);
                 assert!(
-                    (path.end()[1] - path.start()[1]).abs() < 0.001,
-                    "aligned cards {source_height}/{target_height}, {routing:?}"
+                    (path.end()[1] - (40.0 + FLOW_PORT_TOP)).abs() < 0.001,
+                    "typed target {source_height}/{target_height}, {routing:?}"
                 );
             }
             assert_eq!(scene, before, "datum resolution never moves either card");

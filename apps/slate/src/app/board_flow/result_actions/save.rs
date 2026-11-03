@@ -165,13 +165,24 @@ impl SlateApp {
         if !self.board_image_save_available(id) {
             return false;
         }
-        if let Some(ImageResultId::Output(output)) = self.image_result_id(id) {
+        if let Some(ImageResultId::Output(output)) =
+            self.image_result_id(id).filter(|result| match result {
+                ImageResultId::Output(output) => self
+                    .agent_images(id)
+                    .iter()
+                    .any(|image| &image.id == output),
+                _ => true,
+            })
+        {
             let Some(binding) = self.result_binding(id) else {
                 return false;
             };
             return self.begin_result_save(
                 ctx,
                 ResultAddress {
+                    references: Vec::new(),
+                    target: None,
+                    witness: None,
                     tab: self.tab().id,
                     host: id,
                     binding,
@@ -252,7 +263,7 @@ impl SlateApp {
         names: Option<BatchNameEdit>,
     ) -> bool {
         let request = if names.is_some() {
-            PickRequest::folder().title("Choose folder for images")
+            PickRequest::folder().title("Choose folder for results")
         } else {
             let suggested = self
                 .agents
@@ -260,13 +271,26 @@ impl SlateApp {
                 .results
                 .save
                 .single_save_path(&snapshot.extensions[0]);
+            let image = matches!(
+                snapshot.extensions[0].as_str(),
+                "png" | "jpg" | "jpeg" | "webp"
+            );
             let request = PickRequest::save()
-                .title("Save image as")
+                .title(if image {
+                    "Save image as"
+                } else {
+                    "Save result as"
+                })
                 .confirm_overwrite(false)
-                .file_name(suggested.file_name().unwrap_or_default().to_string_lossy())
-                .filter("PNG", &["png"])
-                .filter("JPEG", &["jpg", "jpeg"])
-                .filter("WebP", &["webp"]);
+                .file_name(suggested.file_name().unwrap_or_default().to_string_lossy());
+            let request = if image {
+                request
+                    .filter("PNG", &["png"])
+                    .filter("JPEG", &["jpg", "jpeg"])
+                    .filter("WebP", &["webp"])
+            } else {
+                request.filter("Saved output", &[snapshot.extensions[0].as_str()])
+            };
             match suggested
                 .parent()
                 .filter(|path| !path.as_os_str().is_empty())

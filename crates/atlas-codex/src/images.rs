@@ -58,7 +58,7 @@ pub(super) fn image_turn_with_inputs(
     };
     format!(
         "Create {count} image{plural} with your built-in image_gen tool, one image_gen call per image{variants}. Shape: {shape}. {roles}Do not run shell commands or manually write files, and do not ask questions: Slate collects the images from Codex's generated images folder. Use only image viewing and generation tools for this task. When done, reply with one short line.\n\nImage prompt:\n{}",
-        request.prompt.trim()
+        if request.text_source.is_some() || !request.history.is_empty() || request.image_history.is_some() {request.prompt_with_history()} else {request.prompt.trim().to_owned()}
     )
 }
 
@@ -66,7 +66,7 @@ pub(super) fn image_turn_with_inputs(
 pub fn oneshot_turn(request: &AgentRequest) -> String {
     format!(
         "Answer directly in this reply. Do not run commands, read or write files, or ask questions. Reply with only the requested text: no preamble, no headings, and no closing remarks. Any attached image is the picture the instruction refers to.\n\n{}",
-        request.prompt.trim()
+        if request.text_source.is_some() || !request.history.is_empty() || request.image_history.is_some() {request.prompt_with_history()} else {request.prompt.trim().to_owned()}
     )
 }
 

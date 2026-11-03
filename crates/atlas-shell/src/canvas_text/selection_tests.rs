@@ -189,3 +189,89 @@ fn selected_text_remains_copyable_after_scrolling_fully_out_of_view() {
         assert!(output.platform_output.commands.iter().any(|command| matches!(command, egui::OutputCommand::CopyText(text) if text == "Selectable")), "copy after scrolling failed at {scale}: {:?}", output.platform_output.commands);
     }
 }
+
+#[test]
+fn selectable_ink_overhang_uses_parent_clip_without_expanding_hit_band() {
+    for scale in [0.5, 1.0, 2.0] {
+        for cropped in [false, true] {
+            let ctx = egui::Context::default();
+            let id = egui::Id::new("overhanging-selection");
+            let at = Pos2::new(100.0, 100.0);
+            let mut expected = Rect::NOTHING;
+            let mut viewport = Rect::NOTHING;
+            let mut logical_bottom = 0.0;
+            let mut output = None;
+            for _ in 0..3 {
+                output = Some(ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::splat(800.0))),
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            let mut galley = ui.painter().layout_no_wrap(
+                                "Raster descenders: gyjp".into(),
+                                FontId::proportional(20.0),
+                                Color32::WHITE,
+                            );
+                            // Emulate a world raster rung whose tight ink extends beyond
+                            // its reference line box; keep the actual glyph mesh intact.
+                            let galley_mut = Arc::make_mut(&mut galley);
+                            galley_mut.rect.max.y = galley_mut.mesh_bounds.bottom() - 2.0;
+                            logical_bottom = at.y + galley.size().y * scale;
+                            expected = galley.mesh_bounds * scale;
+                            expected = expected.translate(at.to_vec2());
+                            viewport = Rect::from_min_max(
+                                Pos2::new(50.0, 50.0),
+                                Pos2::new(
+                                    750.0,
+                                    if cropped {
+                                        logical_bottom
+                                    } else {
+                                        expected.bottom() + 20.0
+                                    },
+                                ),
+                            );
+                            ui.set_clip_rect(viewport);
+                            Scaled::from_galley(galley, scale).selectable(
+                                ui,
+                                id,
+                                at,
+                                Color32::WHITE,
+                            );
+                        });
+                    },
+                ));
+            }
+            fn text(shape: &Shape) -> Option<Rect> {
+                match shape {
+                    Shape::Text(t) => Some(t.visual_bounding_rect()),
+                    Shape::Vec(shapes) => shapes.iter().find_map(text),
+                    _ => None,
+                }
+            }
+            let output = output.unwrap();
+            let (painted, clip) = output
+                .shapes
+                .iter()
+                .find_map(|s| text(&s.shape).map(|ink| (ink, s.clip_rect)))
+                .expect("selection paints ink");
+            assert_eq!(painted, expected);
+            assert_eq!(
+                clip, viewport,
+                "only the actual parent clips ink at scale {scale}"
+            );
+            assert_eq!(
+                clip.contains_rect(painted),
+                !cropped,
+                "ink={painted:?}, parent={clip:?}, scale={scale}"
+            );
+            let layer = egui::LayerId::new(egui::Order::Background, id);
+            assert_ne!(
+                ctx.layer_id_at(Pos2::new(at.x + 5.0, logical_bottom + scale)),
+                Some(layer),
+                "ink overhang must not extend logical selection hit ownership"
+            );
+        }
+    }
+}

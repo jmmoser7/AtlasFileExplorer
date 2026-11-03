@@ -8,12 +8,8 @@ use std::{
 };
 use vector_ink::{kurbo::BezPath, Cap, InkMesh, InkVertex, Join, StrokeStyle};
 
-/// Bare plus shared by add controls; callers own their surrounding surface.
-pub fn paint_plus(painter: &egui::Painter, center: egui::Pos2, radius: f32, stroke: egui::Stroke) {
-    for axis in [egui::Vec2::X, egui::Vec2::Y] {
-        painter.line_segment([center - axis * radius, center + axis * radius], stroke);
-    }
-}
+mod primitives;
+pub use primitives::{paint_more, paint_plus};
 
 macro_rules! catalog {
     ($($name:ident),+ $(,)?) => {
@@ -25,7 +21,7 @@ macro_rules! catalog {
         }
     };
 }
-catalog! { Media, Image, Model, Video, TextDoc, Pages, Select, DirectSelect, Pan, Frame, Deck, FrameLetter, FrameTabloid, FrameWide, FrameCustom, Rect, Ellipse, Polygon, Lasso, Line, Arc, Polyline, Bezier, Pen, Text, Ruler, Trim, Join, Split, Portals, Agent, WebPortal, Tags, Filters, Sliders, Grid, Snap, AtlasLens, Fit, Shapes, Actions, ObjectProperties, DocumentSettings, Selection, Display, Mode, Workflow, Ai, ChevronRight, ChevronLeft, Align, AlignLeft, AlignCenterH, AlignRight, AlignTop, AlignCenterV, AlignBottom, DistributeHorizontal, DistributeVertical, JustifyLeft, JustifyCenter, JustifyRight, Bold, Italic, Underline, Brush, Eraser, Smooth, Eyedropper, Sticky, Colors, View, Lens, SnapGrid, SnapEnd, SnapMid, SnapCenter, SnapNear, SnapInt, SnapQuad, SnapPerp, SnapTan, Swap, Reset, Dark, Ghost, Hide, ModeEdit, Fill, Corners, Crop, Bumper, ChatBundle, ChatUnbundle, ChatTrain, ChatWindow, ChatPairs, Feedback, Stop, Camera, Clock, ProviderCursor, ProviderCodex, ProviderOllama }
+catalog! { Rhino, Media, Image, Model, Video, TextDoc, Pages, Select, DirectSelect, Pan, Frame, Deck, FrameLetter, FrameTabloid, FrameWide, FrameCustom, Rect, Ellipse, Polygon, Lasso, Line, Arc, Polyline, Bezier, Pen, Text, Ruler, Trim, Join, Split, Portals, Agent, WebPortal, Tags, Filters, Sliders, Grid, Snap, AtlasLens, Fit, Shapes, Actions, ObjectProperties, DocumentSettings, Selection, Display, Mode, Workflow, Ai, ChevronRight, ChevronLeft, Align, AlignLeft, AlignCenterH, AlignRight, AlignTop, AlignCenterV, AlignBottom, DistributeHorizontal, DistributeVertical, JustifyLeft, JustifyCenter, JustifyRight, Bold, Italic, Underline, Brush, Eraser, Smooth, Eyedropper, Sticky, Colors, View, Lens, SnapGrid, SnapEnd, SnapMid, SnapCenter, SnapNear, SnapInt, SnapQuad, SnapPerp, SnapTan, Swap, Reset, Dark, Ghost, Hide, ModeEdit, Fill, Corners, Crop, Bumper, ChatBundle, ChatUnbundle, ChatTrain, ChatWindow, ChatPairs, Feedback, Stop, Camera, Clock, Thought, Speed, SpeedDouble, Key, MenuCrop, MenuMode, MenuSettings, MenuLayers, MenuImage, MenuCheck, ProviderCursor, ProviderCodex, ProviderOllama }
 
 #[derive(serde::Deserialize)]
 struct Definition {

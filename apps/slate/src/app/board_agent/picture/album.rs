@@ -14,6 +14,10 @@ impl SlateApp {
         reveal: bool,
         z: f32,
     ) {
+        if self.generator_history_open(id) {
+            self.remember_result_strip(id, body, Rect::NOTHING, z);
+            return;
+        }
         let base = self.tab().path.clone();
         // Squares under the card: every result, grouped by run. While it
         // flows they follow the flow.
@@ -73,7 +77,7 @@ impl SlateApp {
                 z,
             );
             let strip = atlas_shell::home::album_strip_rect(placement, images.len(), z);
-            self.handle_result_interaction(ui, id, interaction, strip);
+            self.handle_result_interaction(ui, id, interaction, strip, true);
         } else {
             self.remember_result_strip(id, body, Rect::NOTHING, z);
         }

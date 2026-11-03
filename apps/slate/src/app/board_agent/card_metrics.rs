@@ -157,7 +157,7 @@ pub(super) fn output_circle_center(card: Rect, z: f32) -> Pos2 {
 
 /// A person's resize of a chat card is authored size, recorded in the same
 /// patch as the rect. It also opens a collapsed card. Drafts and bundles still fit.
-pub(crate) fn record_agent_resize(node: &mut Node) -> bool {
+pub(crate) fn record_agent_resize(node: &mut Node, height_authored: bool) -> bool {
     let size = [node.rect.w, node.rect.h];
     let NodeKind::Portal(p) = &mut node.kind else {
         return false;
@@ -174,6 +174,9 @@ pub(crate) fn record_agent_resize(node: &mut Node) -> bool {
         return false;
     }
     a.chat.size = Some(size);
+    if height_authored {
+        a.chat.fit_height = false;
+    }
     a.chat.collapsed = false;
     a.chat.partial = false;
     true
@@ -308,7 +311,8 @@ pub(super) fn write_fold(chat: &mut slate_doc::agent_chat::ChatView, fold: train
         train_ux::CardFold::Open => {
             chat.collapsed = false;
             chat.partial = false;
-            chat.size = None;
+            chat.fit_height = true;
+            chat.window_height = None;
         }
     }
 }

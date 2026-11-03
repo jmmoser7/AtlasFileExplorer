@@ -5,9 +5,15 @@ use std::time::Instant;
 impl super::SlateApp {
     pub(crate) fn frame_input(&mut self, ctx: &eframe::egui::Context) {
         let _span = atlas_core::session_log::span("slate.input");
+        if ctx.memory(|memory| memory.top_modal_layer().is_some()) {
+            return;
+        }
         self.desktop_sample_frame(ctx);
         let tag_edit = super::super::ui::tools::tags::editor_open(self, ctx);
-        if (tag_edit || (!self.shape_property_keys(ctx) && !self.tip_numeric_keys(ctx)))
+        if (tag_edit
+            || (!self.dismiss_generator_popup_for_escape(ctx)
+                && !self.shape_property_keys(ctx)
+                && !self.tip_numeric_keys(ctx)))
             && self.desktop_sample.is_none()
             && !self.presence_captures_shortcut(ctx)
         {
@@ -53,3 +59,6 @@ pub struct BareLetterHold {
     pub buffer: String,
     pub started_at: Instant,
 }
+
+#[cfg(test)]
+mod credential_modal_tests;

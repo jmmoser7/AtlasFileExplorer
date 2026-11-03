@@ -467,6 +467,7 @@ impl SlateApp {
                 let probe = scene.build_node(
                     slate_doc::scene::WorldRect::new(0.0, 0.0, 1.0, 1.0),
                     NodeKind::Text(slate_doc::scene::TextNode {
+                        answers: Default::default(),
                         text: String::new(),
                         style: Default::default(),
                         family: Default::default(),
@@ -900,6 +901,7 @@ mod tests {
         scene.build_node(
             WorldRect::new(x, y, 100.0, 50.0),
             NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: "t".into(),
                 style: Default::default(),
                 family: Default::default(),

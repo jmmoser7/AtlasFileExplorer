@@ -26,6 +26,7 @@ impl EditorHost<'_> {
         layer: egui::LayerId,
         panel: (chrome::ImagePanelKind, f32),
         enabled: bool,
+        agent_panel: bool,
         paint: impl FnOnce(&mut egui::Ui, Rect, Option<&chrome::ImagePresentationLayout>) -> T,
     ) -> Option<EditorResponse<T>> {
         let (kind, height) = panel;
@@ -61,6 +62,13 @@ impl EditorHost<'_> {
                         self.theme,
                     );
                 }
+            } else if agent_panel {
+                chrome::paint_detached_agent_surface(
+                    content.painter(),
+                    rect,
+                    self.zoom,
+                    self.theme,
+                );
             }
             content
                 .add_enabled_ui(enabled, |ui| paint(ui, rect, layout.as_ref()))
@@ -75,17 +83,27 @@ impl EditorHost<'_> {
         layer: egui::LayerId,
         layout: &chrome::ImagePresentationLayout,
         enabled: bool,
+        detached_agent: bool,
         paint: impl FnOnce(&mut egui::Ui) -> T,
     ) -> Option<EditorResponse<T>> {
         self.show_area(ctx, id, layer, layout.overall, |ui| {
-            chrome::paint_blister_surface(
-                ui.painter(),
-                layout.overall,
-                self.strip,
-                self.zoom,
-                self.theme,
-                0.0,
-            );
+            if detached_agent {
+                chrome::paint_detached_agent_surface(
+                    ui.painter(),
+                    layout.overall,
+                    self.zoom,
+                    self.theme,
+                );
+            } else {
+                chrome::paint_blister_surface(
+                    ui.painter(),
+                    layout.overall,
+                    self.strip,
+                    self.zoom,
+                    self.theme,
+                    0.0,
+                );
+            }
             ui.add_enabled_ui(enabled, paint).inner
         })
     }
@@ -198,9 +216,26 @@ impl SlateApp {
                         .and_then(scene::artifact)
                         .is_some()
                 })
-                .map_or(chrome::AGENT_HEIGHT, |id| {
-                    self.artifact_editor_height(painter, id, width_units)
-                }),
+                .map_or_else(
+                    || {
+                        let id = self.shape_properties.ids.first().copied();
+                        let height = id
+                            .filter(|id| {
+                                self.doc()
+                                    .scene
+                                    .node(*id)
+                                    .and_then(slate_doc::agent_chat::agent)
+                                    .is_some()
+                                    || self.model_node_info(*id).is_some()
+                                    || self.pending_generator_host(*id).is_some()
+                            })
+                            .map_or(chrome::AGENT_HEIGHT, |id| {
+                                self.bound_generator_height(painter, id, width_units)
+                            });
+                        height
+                    },
+                    |id| self.artifact_editor_height(painter, id, width_units),
+                ),
             Panel::ModelDisplay => self.model_display_editor_height(),
             Panel::Capture => chrome::capture::launch_height(
                 self.shape_properties

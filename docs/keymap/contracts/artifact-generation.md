@@ -3,7 +3,7 @@
 Status: agreed
 Family: portal
 Reference: User request, 16 October 2026; image-workflow; portal-agent-link; portal-web-embed
-Command: portal.agent.spawn / portal.agent.run / portal.agent.stop; portal.artifact.accept / reject / revision / fork / memory_disconnect / memory_inspect / source_open
+Command: portal.agent.spawn / portal.agent.run / portal.agent.stop / portal.agent.generator_settings; board.input.graft; portal.artifact.accept / portal.artifact.reject / portal.artifact.revision / portal.artifact.fork / portal.artifact.memory_disconnect / portal.artifact.memory_inspect / portal.artifact.source_open
 Inherits: P0.* (all), P1.node, P1.wire, P1.image.frame, P1.generator, P1.shape.properties, P1.portal, P1.portal.local-ui, P2.PortalPlace, P2.PortalHost — deviations below.
 
 This is an artifact-generation capability attached to the existing Web host,
@@ -11,6 +11,7 @@ not a new portal kind. The user has requested the fourth blank-wire choice,
 image-generator presentation, Cursor/Codex harness execution, content and
 removable memory wires, immutable evolution/forking, and source fidelity.
 All 35 behavior rows were accepted by the user on 16 October 2026, with one offline self-contained HTML file per revision, source/data/assets preservation first, live controls as session state, and explicit Play/Single. Implementation proceeds under the DRY extract-first plan. This is not a shipped claim.
+The reviewed 30 October generator refinement adds Count per graft branch: ungrafted inputs remain shared bundles, grafted inputs use longest-list matching with the shorter list's last item repeated, and empty grafted input refuses submission. Artifact work uses the existing bounded queue (at most eight jobs per submission and two active workers); Stop removes pending work while completed accepted revisions remain independently inspectable.
 
 Review: [interactive matrix](C:/Users/jmoser/.cursor/projects/c-Users-jmoser-source-repos-AtlasFileExplorer/canvases/artifact-generation-tool-contract.canvas.tsx).
 
@@ -25,7 +26,7 @@ Review: [interactive matrix](C:/Users/jmoser/.cursor/projects/c-Users-jmoser-sou
 | D05 | Modifiers | No new modifier or keyboard binding. Existing wire selection, Delete, undo/redo, camera navigation and browser keys apply in their current contexts. | pattern | 88 |
 | D06 | Constraints & snapping | Inherit existing agent_spawn_rect / resolve_point_snap placement and P2.PortalPlace. Preview and commit use the same resolved position. Artifact layout is page-owned, not a new board snap system. | pattern | 90 |
 | D07 | Direction / value locks | n/a for generation. Existing board placement locks remain inherited; no generator lock icon (image-workflow D07). | precedent | 90 |
-| D08 | Numeric / manual entry | One artifact per explicit Play, prompt text, installed harness/model dropdown and Settings. Speed and thought level appear only with provider-advertised choices (P1.generator.model-controls); each request captures and validates them. Default is Single. Image count/seed controls remain capability-specific. | stated | 100 |
+| D08 | Numeric / manual entry | Explicit Play snapshots prompt text, installed harness/model choices, advertised settings and Count (1–8) per graft branch through portal.agent.generator_settings. board.input.graft selects supported typed input slots: ungrafted inputs are shared bundles; grafted lists use longest-list matching, repeating the shorter list's last item, without a Cartesian product. Empty grafted input refuses submission. Count multiplies each branch; artifact submissions are capped at eight jobs with two active workers. Stop cancels pending work and preserves completed accepted revisions. Speed and thought level appear only with provider-advertised choices (P1.generator.model-controls); each request captures and validates them. Default is Single. Image seed controls remain capability-specific. | stated | 100 |
 | D09 | Preview & readouts | Inherit P1.generator and the shared style guide for compact prompts, flowing public activity, chat-train expansion/follow-scroll, approval and deselected busy-perimeter feedback. The browser result must preserve fidelity to the explicitly wired reference. | stated | 100 |
 | D10 | Cursor | Inherit P1.wire on board connections and the existing Web host cursor when contents-focused. Generator controls use shared shell cursors. | pattern | 90 |
 | D11 | Commit | Creating the destination and its explicit wires is one undo step. Completed output is validated and frozen, then its binding is staged, visible and rejectable under the existing workspace policy. Acceptance (or a prior autonomy grant) makes one attributed journal commit. Ancestors never change. | pattern | 88 |

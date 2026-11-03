@@ -62,14 +62,22 @@ pub(super) fn node_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem>
     if nodes.iter().any(|n| image_is_text(app, n)) {
         items.retain(|item| *item != StripItem::Panel(Panel::Filter));
     }
-    if nodes.len() == 1 && app.model_has_viewport(nodes[0].id) {
+    let native = nodes.len() == 1 && app.application_connector_active(nodes[0].id);
+    if native {
+        items.retain(|item| *item != StripItem::Panel(Panel::Filter));
+        items.extend([StripItem::ModelScreenshot, StripItem::ModelMaximize]);
+    } else if nodes.len() == 1 && app.model_has_viewport(nodes[0].id) {
         items.retain(|item| *item != StripItem::Panel(Panel::Filter));
         items.extend([
             StripItem::Panel(Panel::ModelDisplay),
             StripItem::ModelMeasure,
             StripItem::ModelScreenshot,
+            StripItem::ModelMaximize,
             StripItem::Panel(Panel::Filter),
         ]);
+    }
+    if nodes.len() == 1 && app.application_connector_eligible(nodes[0].id) {
+        items.push(StripItem::ApplicationConnector);
     }
     if nodes.len() == 1 && image_is_model(app, &nodes[0]) && !app.model_has_viewport(nodes[0].id) {
         items.retain(|item| *item != StripItem::Panel(Panel::Filter));
@@ -172,7 +180,9 @@ pub(super) fn edits_picked_vertices(item: &StripItem) -> bool {
         | StripItem::Frame(_)
         | StripItem::Agent(_)
         | StripItem::ModelMeasure
-        | StripItem::ModelScreenshot => false,
+        | StripItem::ModelScreenshot
+        | StripItem::ModelMaximize
+        | StripItem::ApplicationConnector => false,
     }
 }
 
@@ -284,6 +294,22 @@ impl SlateApp {
                 "Viewport display",
                 Icon::Model,
                 self.shape_properties.panel == Some(Panel::ModelDisplay),
+            ),
+            StripItem::ApplicationConnector => (
+                "Rhino.Inside: switch native / Slate 3D; right-click to open an isolated copy",
+                Icon::Rhino,
+                self.shape_properties
+                    .ids
+                    .first()
+                    .is_some_and(|id| self.application_connector_active(*id)),
+            ),
+            StripItem::ModelMaximize => (
+                "Maximize / restore model portal",
+                Icon::Fit,
+                self.shape_properties
+                    .ids
+                    .first()
+                    .is_some_and(|id| self.portal_is_maximized(*id)),
             ),
             StripItem::ModelMeasure => (
                 "Measure: pick two points on the model",

@@ -89,9 +89,12 @@ impl SlateApp {
                 .presence_preview(node)
                 .or_else(|| self.doc().scene.node(node))
             {
-                let p = connector_anchor_on(n, side, t);
-                let s = xf.w2s(Pos2::new(p[0], p[1]));
-                painter.circle_stroke(s, 8.0, EStroke::new(2.0_f32, palette.accent));
+                let s = xf.w2s(self.wire_port_point(n, side, t));
+                painter.circle_stroke(
+                    s,
+                    atlas_shell::canvas_scale::px(8.0, xf.z),
+                    EStroke::new(atlas_shell::canvas_scale::px(2.0, xf.z), palette.accent),
+                );
             }
         }
         // Modifier glyph near the pointer.

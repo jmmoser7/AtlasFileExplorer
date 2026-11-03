@@ -1,3 +1,4 @@
+mod model_source;
 use super::*;
 use crate::app::board_flow::tests::{generator_with_output, place};
 use slate_doc::scene::TextNode;
@@ -12,6 +13,7 @@ fn words_wired_to_an_ordinary_image_enable_generation_in_one_undo() {
         });
         let image = place(&mut h, "target.png", 800.0);
         let mut text = TextNode {
+            answers: Default::default(),
             text: "a warm sunset".into(),
             style: Default::default(),
             family: Default::default(),

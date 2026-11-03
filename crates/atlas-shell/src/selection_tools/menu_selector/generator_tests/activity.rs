@@ -27,25 +27,15 @@ fn attached_activity_chevrons_remain_live_after_following_an_overflowing_transcr
                 (0, CardFold::Collapsed),
             ] {
                 let output = editor.frame(vec![]).1;
-                // The lifecycle summary is also the activity fold header.
-                // Its chevrons stay outside the followed transcript viewport.
-                let header_y = label_center(&output, "Ready").y;
-                assert_eq!(
-                    output
-                        .shapes
-                        .iter()
-                        .filter(|shape| {
-                            matches!(&shape.shape, egui::Shape::Text(text)
-                        if text.galley.text() == "Ready" || text.galley.text() == "Activity")
-                        })
-                        .count(),
-                    1,
-                    "one summary owns the fold controls"
-                );
-                let point = Pos2::new(
-                    editor.bounds().right() - (24.0 + 24.0 * index as f32) * zoom,
-                    header_y,
-                );
+                // Continuous dialogue keeps the existing fold controls in the
+                // datum, with no duplicate Ready/Activity summary label.
+                assert_eq!(editor.fold_hits.len(), 2);
+                assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape,
+                    egui::Shape::Text(text) if ["Ready", "Activity"].contains(&text.galley.text()))));
+                let hit = editor.fold_hits[index];
+                assert!(editor.bounds().contains_rect(hit));
+                assert!((hit.width() / zoom - 14.0).abs() < 0.01);
+                let point = hit.center();
                 assert!(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0)).contains(point));
                 let response = editor.click(point).0;
                 assert_eq!(

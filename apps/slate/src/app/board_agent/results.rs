@@ -7,6 +7,40 @@ use super::*;
 mod presence_stop_tests;
 
 impl SlateApp {
+    /// Cancel through the existing owner while the old execution/session
+    /// locators still belong to this target, then retire every queued snapshot.
+    pub(crate) fn cancel_generator_history_work(&mut self, id: NodeId) {
+        let request = self.agents.requests.get(&id).cloned();
+        if let Some(request) = &request {
+            self.agents
+                .cancelled_generations
+                .insert(id, request.clone());
+        }
+        // A legacy artifact may share its runtime with an upstream host. Never
+        // cancel another host's active invocation; retiring this target's request
+        // and switching its source below still rejects its delayed publication.
+        let shared_active = self.agent_session_for(id).is_some_and(|(session, _)| {
+            self.doc().scene.nodes.iter().any(|node| {
+                node.id != id
+                    && slate_doc::agent_chat::agent(node)
+                        .is_some_and(|agent| agent.session == session)
+                    && self.agent_generation_dispatched(node.id)
+            })
+        });
+        if !shared_active
+            && (self.agent_is_running(id) || self.artifact_request_submitted(id))
+            && request.is_some()
+        {
+            // Request-scoped Stop leaves live-mode authoring to the cut's one
+            // journaled patch; pending siblings are retired immediately below.
+            self.stop_agent_at(id, request.as_deref());
+        } else if let Some(request) = &request {
+            self.revoke_chat_train_request(id, request);
+        }
+        self.connector_stop_headless(id);
+        self.invalidate_queued_generator_history(id);
+    }
+
     pub(crate) fn unbundle_selected_agent(&mut self) -> bool {
         let Some(id) = self.selected_agent_portal() else {
             return false;
@@ -143,6 +177,12 @@ impl SlateApp {
     }
 
     fn stop_agent_at(&mut self, id: NodeId, expected_request: Option<&str>) -> bool {
+        if let Some(request) = expected_request
+            .map(str::to_owned)
+            .or_else(|| self.agents.requests.get(&id).cloned())
+        {
+            self.revoke_chat_train_request(id, &request);
+        }
         let artifact = self
             .doc()
             .scene
@@ -383,73 +423,6 @@ impl SlateApp {
             .unwrap_or(model_default(agent));
         atlas_ai::agent::model_label(name).to_string()
     }
-    /// The one model menu: a chat title and a generator's checkpoint chip open it.
-    /// Returns the choice; empty means the provider's default.
-    pub(super) fn model_menu_items(
-        &self,
-        ui: &mut egui::Ui,
-        id: NodeId,
-        agent: &slate_doc::scene::AgentPortalRef,
-        z: f32,
-    ) -> Option<String> {
-        atlas_shell::menu::prepare(ui, self.palette().dark_mode);
-        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-        ui.style_mut().override_font_id =
-            Some(FontId::proportional(canvas_text::authored_px(13.0, z)));
-        let catalog = atlas_ai::agent::model_catalog(&agent.provider);
-        let running = self.agent_is_running(id);
-        let mut chosen = None;
-        // The catalog is newest-first and longer than the window. An unscrolling
-        // menu is shoved upward until its top (Grok 4.7, Opus 5, …) sits above
-        // the screen, so only the older tail looks available.
-        let max_h = (ui.ctx().screen_rect().height() - 48.0).max(160.0);
-        // A popup lays out inside last frame's size. Its rows grow with the
-        // zoom, so without room of its own the list clips and scrolls away.
-        ui.set_max_height(max_h);
-        egui::ScrollArea::vertical()
-            .max_height(max_h)
-            .show(ui, |ui| {
-                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-                // A local chat model is always an explicit choice; a text
-                // block's Auto picks an installed model that reads pictures.
-                if (catalog != "ollama" || agent.view == atlas_ai::agent::PortalView::Text)
-                    && ui
-                        .add_enabled(
-                            !running,
-                            egui::SelectableLabel::new(agent.model.is_none(), model_default(agent)),
-                        )
-                        .clicked()
-                {
-                    chosen = Some(String::new());
-                    ui.close_menu();
-                }
-                for model in self.agents.models.get(catalog).into_iter().flatten() {
-                    if ui
-                        .add_enabled(
-                            !running,
-                            egui::SelectableLabel::new(
-                                agent.model.as_ref() == Some(&model.id),
-                                atlas_ai::agent::model_label(&model.name),
-                            ),
-                        )
-                        .clicked()
-                    {
-                        chosen = Some(model.id.clone());
-                        ui.close_menu();
-                    }
-                }
-                if let Some(error) = self.agents.models_error.get(catalog) {
-                    ui.label(error);
-                }
-                if self.agents.models_rx.is_some() {
-                    ui.label("Loading models…");
-                }
-            });
-        if !ui.is_sizing_pass() {
-            atlas_shell::menu_wheel::claim(ui.ctx(), ui.min_rect());
-        }
-        chosen
-    }
     /// A generator or text block switches engine or model. Its runtime link is
     /// dropped so the next run starts on the new engine, and the choice becomes
     /// the default for new agents of its kind.
@@ -464,8 +437,17 @@ impl SlateApp {
             }
         }
         let chosen = (!model.is_empty()).then(|| model.to_string());
+        let custom_supported = self.custom_aspect_available(id, provider);
         self.patch_nodes(&[id], |n| {
             if let Some(a) = slate_doc::agent_chat::agent_mut(n) {
+                if image && a.provider != provider {
+                    if a.image.aspect.custom().is_some() && !custom_supported {
+                        a.image.aspect = atlas_agent::Aspect::Source;
+                    }
+                    if !atlas_ai::runtime::image_seed_supported(provider) {
+                        a.image.seed = None;
+                    }
+                }
                 a.provider = provider.to_string();
                 a.model = chosen.clone();
                 a.model_parameters.clear();

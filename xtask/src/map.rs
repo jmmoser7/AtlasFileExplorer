@@ -167,7 +167,7 @@ fn normalize_rel(path: &Path, root: &Path) -> String {
         .replace('\\', "/")
 }
 
-fn file_purpose(text: &str) -> String {
+pub(crate) fn file_purpose(text: &str) -> String {
     for line in text.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() {

@@ -121,6 +121,7 @@ impl SlateApp {
                 return self.dispatch_targeted_human_with_context(ctx, id.0, detail.as_deref());
             }
             "portal.agent.run" => self.dispatch_image_generate(detail.as_deref()),
+            "portal.artifact.full_access" => self.dashboard_set_full_access(detail.as_deref()),
             command if command.starts_with("portal.artifact.") => {
                 self.dispatch_artifact(command, detail.as_deref())
             }
@@ -194,6 +195,13 @@ impl SlateApp {
             }
             command if Self::image_action_command(command) => {
                 self.dispatch_image_result_action(ctx, command, detail.as_deref())
+            }
+            "board.objects.link_media" => self.dispatch_link_media(detail.as_deref()),
+            command
+                if command.starts_with("board.model.connector.")
+                    || command.starts_with("board.model.headless.") =>
+            {
+                self.dispatch_application_connector(command, detail.as_deref())
             }
             "board.model_display" => self.dispatch_model_display(detail.as_deref()),
             "board.model_materials" => self.dispatch_model_materials(detail.as_deref()),
@@ -527,8 +535,20 @@ impl SlateApp {
             "portal.agent.fork" => self.agent_fork_selected(detail.as_deref()),
             "portal.agent.collapse" => self.agent_fold(ctx, detail.as_deref()),
             "portal.agent.fit" => self.agent_fit_to_text(ctx),
+            "portal.agent.board_access" => self.open_chat_train_board_access(),
             "portal.agent.full_access" => self.agent_toggle_full_access(),
-            "portal.artifact.full_access" => self.dashboard_set_full_access(detail.as_deref()),
+            "portal.agent.model_output" => self.select_model_output(detail.as_deref()),
+            "portal.agent.text_output" => self.select_text_output(detail.as_deref()),
+            "portal.agent.text_review.apply" => {
+                self.dispatch_text_review_action(ctx, detail.as_deref(), true)
+            }
+            "portal.agent.text_review.dismiss" => {
+                self.dispatch_text_review_action(ctx, detail.as_deref(), false)
+            }
+            "portal.agent.generator_settings" => self.set_generator_settings(detail.as_deref()),
+            "board.input.graft" => self.set_input_grafted(detail.as_deref()),
+            "board.input.add" => self.add_graph_input_source(detail.as_deref()),
+            "board.image.history" => self.image_history_command(detail.as_deref()),
             "portal.agent.model_parameter" => self.generator_set_parameter(detail.as_deref()),
             "portal.agent.schedule" => self.agent_set_schedule(detail.as_deref()),
             "portal.agent.pocket" => self.agent_toggle_pocket(detail.as_deref()),
@@ -544,10 +564,12 @@ impl SlateApp {
             "portal.agent.crosstalk.more" => self.crosstalk_more(detail.as_deref()),
             "portal.agent.crosstalk.trust" => self.crosstalk_trust(detail.as_deref()),
             "portal.agent.identity" => {
-                self.agent_set_detail(slate_doc::agent_chat::Detail::Identity)
+                self.agent_set_detail(ctx, slate_doc::agent_chat::Detail::Identity)
             }
-            "portal.agent.summary" => self.agent_set_detail(slate_doc::agent_chat::Detail::Summary),
-            "portal.agent.full" => self.agent_set_detail(slate_doc::agent_chat::Detail::Full),
+            "portal.agent.summary" => {
+                self.agent_set_detail(ctx, slate_doc::agent_chat::Detail::Summary)
+            }
+            "portal.agent.full" => self.agent_set_detail(ctx, slate_doc::agent_chat::Detail::Full),
             "portal.agent.provider" => self.toggle_selected_agent_provider(),
             "portal.agent.reveal" => self.reveal_selected_agent_link(),
             "portal.agent.launch" => self.launch_selected_agent_provider(),

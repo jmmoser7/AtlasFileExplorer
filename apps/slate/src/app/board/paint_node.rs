@@ -153,6 +153,7 @@ impl SlateApp {
                         );
                     } else {
                         self.paint_text_snippet_card(
+                            ui,
                             painter,
                             &outline,
                             srect,
@@ -410,6 +411,9 @@ impl SlateApp {
             NodeKind::Portal(p) => {
                 let portal = p.clone();
                 match portal.kind {
+                    PortalKind::Application => {
+                        self.paint_application_surface(ui, painter, xf, node, &portal)
+                    }
                     PortalKind::Slate => {
                         self.paint_slate_portal(ui, painter, xf, node, &portal);
                     }

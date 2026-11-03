@@ -8,14 +8,17 @@
 //! longer occupy a separate panel row.
 
 mod bubble;
+mod portal_action;
 pub use bubble::{paint_tab_bubble, tab_bubble_outline, tab_scanline_x, TabBubble, TabHost};
+use portal_action::paint_portal_max_hover;
+pub use portal_action::{paint_maximize_glyph, portal_action_button, portal_maximize_button};
 
 use crate::theme::Palette;
 use crate::tokens::TopBarTokens;
 use crate::widgets::trunc;
 use eframe::egui::{
-    self, Align, Align2, Color32, CursorIcon, FontId, Layout, Pos2, Rect, Sense, Shape, Stroke,
-    StrokeKind, Ui, Vec2,
+    self, Align, Align2, Color32, CursorIcon, FontId, Layout, Pos2, Rect, Sense, Shape, Stroke, Ui,
+    Vec2,
 };
 
 #[derive(Clone, Copy)]
@@ -491,87 +494,6 @@ pub enum PortalTabAction {
     ToggleMaximize,
     Collapse,
     Context,
-}
-
-/// Windows / Slate caption maximize glyph: a square made of four corner
-/// chevrons. `restored` paints the overlapping-squares restore mark.
-/// Do not use a Unicode box — those fight the tab typeface.
-pub fn paint_maximize_glyph(painter: &egui::Painter, hit: Rect, color: Color32, restored: bool) {
-    // Slim portal bars are short; the window-control slot is wider than it
-    // is tall. Size the glyph from the larger axis so it stays readable.
-    let scale = (hit.width().max(hit.height()) / 30.0).max(0.01);
-    let c = hit.center();
-    let s = Stroke::new(1.2 * scale, color);
-    if restored {
-        let r = Rect::from_center_size(c + Vec2::new(-1.0, 1.0) * scale, Vec2::splat(8.0 * scale));
-        let back = r.translate(Vec2::new(2.5 * scale, -2.5 * scale));
-        painter.line_segment([back.left_top(), back.right_top()], s);
-        painter.line_segment([back.right_top(), back.right_bottom()], s);
-        painter.rect_stroke(r, 1.0 * scale, s, StrokeKind::Middle);
-        return;
-    }
-    let half = 4.5 * scale;
-    let arm = 3.2 * scale;
-    let r = Rect::from_center_size(c, Vec2::splat(half * 2.0));
-    painter.line_segment([r.left_top(), Pos2::new(r.left() + arm, r.top())], s);
-    painter.line_segment([r.left_top(), Pos2::new(r.left(), r.top() + arm)], s);
-    painter.line_segment([r.right_top(), Pos2::new(r.right() - arm, r.top())], s);
-    painter.line_segment([r.right_top(), Pos2::new(r.right(), r.top() + arm)], s);
-    painter.line_segment(
-        [r.right_bottom(), Pos2::new(r.right() - arm, r.bottom())],
-        s,
-    );
-    painter.line_segment(
-        [r.right_bottom(), Pos2::new(r.right(), r.bottom() - arm)],
-        s,
-    );
-    painter.line_segment([r.left_bottom(), Pos2::new(r.left() + arm, r.bottom())], s);
-    painter.line_segment([r.left_bottom(), Pos2::new(r.left(), r.bottom() - arm)], s);
-}
-
-/// Floating maximize hit on a portal that has no identity tab (or whose tab
-/// is folded). Sits on the node, upper-right. Returns true on click.
-pub fn portal_maximize_button(
-    ui: &Ui,
-    palette: &Palette,
-    rect: Rect,
-    id_salt: u64,
-    maximized: bool,
-) -> bool {
-    if rect.width() < 4.0 || rect.height() < 4.0 {
-        return false;
-    }
-    let resp = ui.interact(
-        rect,
-        ui.id().with(("portal_max", id_salt, maximized)),
-        Sense::click(),
-    );
-    paint_portal_max_hover(ui, palette, rect, &resp, maximized);
-    resp.clicked()
-}
-
-/// Hover wash, hand cursor, and tooltip for the portal maximize / restore slot.
-fn paint_portal_max_hover(
-    ui: &Ui,
-    palette: &Palette,
-    rect: Rect,
-    resp: &egui::Response,
-    maximized: bool,
-) {
-    let hovered = resp.hovered();
-    if hovered {
-        let colors = TabChromeColors::from_palette(palette, &crate::tokens::current().topbar);
-        ui.painter().rect_filled(rect, 0.0, colors.inactive_hover);
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-    }
-    paint_maximize_glyph(
-        ui.painter(),
-        rect,
-        if hovered { palette.ink } else { palette.sub },
-        maximized,
-    );
-    resp.clone()
-        .on_hover_text(if maximized { "Restore" } else { "Maximize" });
 }
 
 /// Paint a plain, centered portal title bar, plus the maximize hit.

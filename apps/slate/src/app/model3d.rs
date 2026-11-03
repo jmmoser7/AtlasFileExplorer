@@ -1270,6 +1270,10 @@ impl SlateApp {
 
     /// Unlock a model node into a live viewport (parses + uploads lazily).
     pub fn unlock_model(&mut self, id: NodeId) {
+        if self.application_connector_active(id) {
+            self.portal_enter_interactive(id);
+            return;
+        }
         if self.model3d.live.contains_key(&id) {
             return;
         }
@@ -1458,6 +1462,9 @@ impl SlateApp {
 
     /// Per-frame upkeep: parse results, auto-lock, eviction, repaint ticks.
     pub fn model3d_frame(&mut self, ctx: &egui::Context) {
+        self.maintain_application_connectors(ctx);
+        self.poll_media_links(ctx);
+        self.pump_production_session(ctx);
         if self.model3d.drain_parses() | self.model3d.drain_sniffs() {
             ctx.request_repaint();
         }
@@ -2359,7 +2366,11 @@ impl SlateApp {
         &mut self,
         id: NodeId,
         dir: &std::path::Path,
+        agent_id: &str,
     ) -> Result<Option<ModelCapture>, String> {
+        if self.application_connector_active(id) {
+            return self.capture_connector_inputs(id, dir, agent_id);
+        }
         let info = self
             .model_node_info(id)
             .ok_or("That node is not a 3D model.")?;
@@ -2546,6 +2557,10 @@ fn bytemuck_u32_slice(v: &[u32]) -> &[u8] {
 }
 
 #[cfg(test)]
+#[path = "model3d/input_tests.rs"]
+mod input_tests;
+
+#[cfg(test)]
 mod tests {
     use super::super::tests::Harness;
     use super::*;
@@ -2620,88 +2635,6 @@ mod tests {
         h.app.lock_model(id);
         assert!(!h.app.frame_chrome_suppressed(id));
         assert!(!h.app.selection_stringers_suppressed());
-    }
-
-    #[test]
-    fn model_input_routes_orbit_pan_and_zoom_without_moving_the_board() {
-        let (mut h, id) = live_model("model_input");
-        let rect = h.app.doc().scene.node(id).unwrap().rect;
-        let board_cam = h.app.tab().cam;
-        let start = h.app.canvas_rect.center();
-        let world = h.app.board_xf().s2w(start);
-        assert_eq!(h.app.live_model_at(world.x, world.y), Some(id));
-        assert_eq!(h.app.board_tool, super::super::board::BoardTool::Select);
-        // egui Areas settle their size across initial passes; selection
-        // chrome must have its final hit rect before the pointer presses.
-        for _ in 0..3 {
-            h.frame_with(|input| input.events.push(egui::Event::PointerMoved(start)));
-        }
-        for pan in [false, true] {
-            let before = h.app.model3d.live[&id].cam;
-            let modifiers = egui::Modifiers {
-                shift: pan,
-                ..Default::default()
-            };
-            h.frame_with(|input| {
-                input.modifiers = modifiers;
-                input.events.push(egui::Event::PointerMoved(start));
-                input.events.push(egui::Event::PointerButton {
-                    pos: start,
-                    button: egui::PointerButton::Primary,
-                    pressed: true,
-                    modifiers,
-                });
-            });
-            for dx in [20.0, 60.0] {
-                h.frame_with(|input| {
-                    input.modifiers = modifiers;
-                    input
-                        .events
-                        .push(egui::Event::PointerMoved(start + egui::vec2(dx, 20.0)));
-                });
-                assert!(
-                    matches!(
-                        h.app.board_drag,
-                        Some(super::super::board::BoardDrag::ModelOrbit { .. })
-                    ),
-                    "drag routing: {:?}, align={}, pointer={:?}, canvas={:?}",
-                    h.app.board_drag.as_ref().map(std::mem::discriminant),
-                    h.app.board_align_eat_press,
-                    h.ctx.pointer_hover_pos(),
-                    h.app.canvas_rect
-                );
-            }
-            h.frame_with(|input| {
-                input.modifiers = modifiers;
-                input.events.push(egui::Event::PointerButton {
-                    pos: start + egui::vec2(60.0, 20.0),
-                    button: egui::PointerButton::Primary,
-                    pressed: false,
-                    modifiers,
-                });
-            });
-            let after = h.app.model3d.live[&id].cam;
-            if pan {
-                assert_ne!(after.target, before.target, "Shift+drag pans the model");
-                assert_eq!((after.yaw, after.pitch), (before.yaw, before.pitch));
-            } else {
-                assert_ne!(after.yaw, before.yaw, "drag orbits the model");
-                assert_eq!(after.target, before.target);
-            }
-        }
-        let distance = h.app.model3d.live[&id].cam.distance;
-        h.frame_with(|input| {
-            input.events.push(egui::Event::PointerMoved(start));
-            input.events.push(egui::Event::MouseWheel {
-                unit: egui::MouseWheelUnit::Point,
-                delta: egui::vec2(0.0, 50.0),
-                modifiers: Default::default(),
-            });
-        });
-        assert_ne!(h.app.model3d.live[&id].cam.distance, distance);
-        assert_eq!(h.app.doc().scene.node(id).unwrap().rect, rect);
-        assert_eq!(h.app.tab().cam.offset, board_cam.offset);
-        assert_eq!(h.app.tab().cam.z, board_cam.z);
     }
 
     #[test]
@@ -3830,25 +3763,7 @@ mod tests {
         assert!(p.fraction() <= READ_SPAN + 1e-6);
     }
 
-    #[test]
-    fn quantize_px_steps_and_clamps() {
-        assert_eq!(quantize_px(1.0), 64);
-        assert_eq!(quantize_px(100.0), 128);
-        assert_eq!(quantize_px(128.0), 128);
-        assert_eq!(quantize_px(1e9), MAX_RENDER_PX);
-    }
-
-    #[test]
-    fn every_model_extension_has_one_preview_owner() {
-        let mut preview: Vec<_> = model_preview::extensions().collect();
-        preview.sort_unstable();
-        let mut media = slate_doc::media::MediaGroup::Model.extensions();
-        media.sort_unstable();
-        assert_eq!(
-            preview, media,
-            "slate-doc model extensions and model-preview readers drifted"
-        );
-    }
+    mod render_limits;
 
     #[test]
     fn raycast_hits_a_simple_triangle() {

@@ -78,7 +78,9 @@ pub enum ReadError {
     NotA3dm,
     /// Archive version older than we support (< Rhino 5 / archive 50).
     UnsupportedVersion(u32),
-    /// Valid 3dm but no extractable meshes (e.g. saved with "Save Small" or
+    /// A complete object table contains no objects. No geometry is implied.
+    EmptyModel,
+    /// Nonempty 3dm but no extractable meshes (e.g. saved with "Save Small" or
     /// wireframe-only).
     NoMeshes,
     /// Structural parse failure.
@@ -93,6 +95,7 @@ impl std::fmt::Display for ReadError {
             ReadError::UnsupportedVersion(v) => {
                 write!(f, ".3dm archive version {v} is older than Rhino 5 (50)")
             }
+            ReadError::EmptyModel => write!(f, "empty Rhino model"),
             ReadError::NoMeshes => write!(
                 f,
                 "no extractable meshes (file may be wireframe-only or saved with \"Save Small\")"
@@ -147,6 +150,7 @@ pub fn read_render_meshes_from(bytes: &[u8]) -> Result<Model, ReadError> {
     let mut tables = appearance::Tables::default();
     let mut cur = Cursor::new(&bytes[32..]);
     let mut saw_object_table = false;
+    let mut object_count = 0;
 
     // Top level: a flat sequence of table chunks ending with TCODE_ENDOFFILE.
     while !cur.is_empty() {
@@ -162,7 +166,7 @@ pub fn read_render_meshes_from(bytes: &[u8]) -> Result<Model, ReadError> {
             TCODE_ENDOFFILE => break,
             TCODE_OBJECT_TABLE => {
                 saw_object_table = true;
-                objects::read_table(chunk.content, &mut raw_parts, &mut skipped);
+                object_count += objects::read_table(chunk.content, &mut raw_parts, &mut skipped)?;
             }
             chunk::TCODE_MATERIAL_TABLE | chunk::TCODE_LAYER_TABLE => {
                 tables.read(chunk.typecode, chunk.content)
@@ -173,6 +177,10 @@ pub fn read_render_meshes_from(bytes: &[u8]) -> Result<Model, ReadError> {
     }
     if !saw_object_table {
         return Err(ReadError::Malformed("no object table".into()));
+    }
+
+    if object_count == 0 {
+        return Err(ReadError::EmptyModel);
     }
 
     let parts: Vec<MeshPart> = raw_parts

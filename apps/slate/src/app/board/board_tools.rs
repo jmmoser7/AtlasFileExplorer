@@ -415,7 +415,11 @@ pub enum BoardDrag {
     },
     /// Orbit/pan inside an unlocked 3D model viewport (Shift = pan). The
     /// camera pose is journaled once, when the viewport locks.
-    ModelOrbit { id: NodeId, last_screen: Pos2 },
+    ModelOrbit {
+        id: NodeId,
+        last_screen: Pos2,
+        button: egui::PointerButton,
+    },
     /// Point-to-point measurement inside a live viewport (Navigate tool uses
     /// [`ModelOrbit`] instead).
     ModelMeasure { id: NodeId, start_screen: Pos2 },

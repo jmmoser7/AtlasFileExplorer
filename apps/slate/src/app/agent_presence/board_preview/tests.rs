@@ -46,6 +46,7 @@ fn fixture() -> (crate::app::tests::Harness, String, slate_doc::NodeId) {
     let text = h.app.doc_mut().scene.build_node(
         slate_doc::WorldRect::new(100.0, 20.0, 80.0, 60.0),
         NodeKind::Text(TextNode {
+            answers: Default::default(),
             text: "VISIBLE".into(),
             style: TextStyle::default(),
             family: Typeface::Sans,

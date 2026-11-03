@@ -61,6 +61,9 @@ impl SlateApp {
     }
 
     pub(crate) fn save_chrome_prefs(&self) {
+        if self.screenshot.is_some() {
+            return;
+        }
         // Headless interaction tests retain changes only in their app instance.
         #[cfg(not(test))]
         atlas_shell::prefs::ChromePrefs {

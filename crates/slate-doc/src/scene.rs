@@ -27,7 +27,9 @@ use crate::ids::{GroupId, ItemId, TagId};
 use crate::spatial::SpatialIndex;
 
 mod agent;
-pub use agent::{AgentContextScope, AgentPortalRef, ImageSettings};
+pub use agent::{AgentContextScope, AgentPortalRef, GeneratorSettings, GraphInputKind, HiddenOutputRef, ImageSettings};
+mod model_output;
+pub use model_output::ModelOutputRef;
 mod image;
 pub use image::ImageNode;
 
@@ -1173,6 +1175,8 @@ pub enum PortalClass {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PortalKind {
+    /// Authenticated native secondary surface; locator contains no process handles.
+    Application,
     Agent,
     Web,
     /// File Atlas folder map hosted on a Slate board (not a File Atlas app feature).
@@ -1551,6 +1555,7 @@ impl PortalNode {
                 live: false,
                 instruction: String::new(),
                 image: ImageSettings::default(),
+                generator: GeneratorSettings::default(),
             })),
             web: None,
             atlas: AtlasPortalQuery::default(),
@@ -2138,6 +2143,9 @@ pub fn ensure_shape_text(node: &mut Node) -> Option<&mut ShapeText> {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TextNode {
+    /// Answer links anchored to exact text; independent of live model memory.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<crate::text_answers::TextAnswer>,
     pub text: String,
     #[serde(default)]
     pub style: TextStyle,
@@ -2178,6 +2186,7 @@ impl TextNode {
     /// A sticky an agent writes into. It shows the reply until a person edits it.
     pub fn agent_note(agent: AgentPortalRef) -> TextNode {
         TextNode {
+            answers: Default::default(),
             text: String::new(),
             style: Default::default(),
             family: Typeface::Sans,
@@ -5351,6 +5360,7 @@ mod tests {
         let mut node = scene.build_node(
             WorldRect::new(0.0, 0.0, 10.0, 10.0),
             NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: "x".into(),
                 style: Default::default(),
                 family: Default::default(),
@@ -6026,6 +6036,7 @@ mod corner_percentage_tests {
         }));
         let image = node(NodeKind::Image(ImageNode::new(crate::ItemId(1))));
         let text = node(NodeKind::Text(TextNode {
+            answers: Default::default(),
             text: "Note".into(),
             style: Default::default(),
             family: Typeface::default(),

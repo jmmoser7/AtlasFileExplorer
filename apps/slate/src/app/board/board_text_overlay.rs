@@ -5,6 +5,8 @@ use super::board_text_place::{
 };
 use super::*;
 mod document;
+#[cfg(test)]
+mod review_tests;
 
 /// In-flight authored text on a linked card. Source bytes are never edited.
 #[derive(Clone)]
@@ -287,7 +289,7 @@ impl SlateApp {
         } else {
             0.0
         };
-        let area = sr.shrink(inset);
+        let area = self.text_source_viewport(ctx, id, sr, xf.z).shrink(inset);
         if !editor_rect_ok(area) {
             return;
         }
@@ -301,7 +303,14 @@ impl SlateApp {
             .show(ctx, |ui| {
                 ui.set_width(box_w);
                 ui.set_height(box_h);
-                ui.set_clip_rect(area);
+                ui.set_clip_rect(if self.text_review_visible(id) {
+                    self.text_source_editor_clip(ctx, id, area)
+                } else {
+                    area
+                });
+                if self.text_review_visible(id) {
+                    self.text_source_editor_hits(ctx, id, ui.clip_rect(), ui.layer_id());
+                }
                 ui.visuals_mut().override_text_color = Some(rgba32(color));
                 if center_block && !shape_host {
                     // Sticky ink is dark; the theme cursor is a light stroke.
@@ -309,7 +318,9 @@ impl SlateApp {
                     ui.visuals_mut().text_cursor.blink = true;
                 }
                 let color32 = rgba32(color);
-                let world_wrap = if let Some(layout) = &growth {
+                let world_wrap = if self.text_response_only(id) {
+                    area.width() / xf.z.max(1.0e-4)
+                } else if let Some(layout) = &growth {
                     layout.wrap.max(0.0)
                 } else if shape_host {
                     (node.rect.w - 16.0).max(0.0)
@@ -336,18 +347,61 @@ impl SlateApp {
                     std::sync::Arc::new(owned)
                 };
                 let screen_font = FontId::new(font.size * zoom, font.family.clone());
-                let resp = ui.add(
+                // Keep the native editor identity when a review introduces a
+                // scroll child UI, so its selection/caret/IME state survives.
+                let editor_id = ui.next_auto_id();
+                let review_scrolling = self.text_review_visible(id);
+                let show_editor = |ui: &mut egui::Ui| {
                     egui::TextEdit::multiline(&mut buf)
+                        .id(editor_id)
                         .desired_width(box_w)
                         .desired_rows(1)
                         .frame(false)
-                        .clip_text(true)
+                        // The surrounding source ScrollArea needs the full
+                        // multiline extent to bring its caret into view.
+                        .clip_text(!review_scrolling)
                         .margin(egui::Margin::ZERO)
                         .font(screen_font)
                         .horizontal_align(egui::Align::LEFT)
                         .vertical_align(egui::Align::TOP)
-                        .layouter(&mut layouter),
-                );
+                        .layouter(&mut layouter)
+                        .show(ui)
+                };
+                let output = if self.text_review_visible(id) {
+                    let scrolling = egui::ScrollArea::vertical()
+                        .id_salt(("text-source-editor", id.0))
+                        .enable_scrolling(self.text_source_editor_wheel_enabled(ctx, id, area))
+                        .max_height(box_h)
+                        .auto_shrink([false, false])
+                        .animated(false)
+                        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                        .vertical_scroll_offset(self.text_source_offset(ctx, id, zoom))
+                        .show(ui, show_editor);
+                    self.set_text_source_offset(ctx, id, scrolling.state.offset.y, zoom);
+                    self.text_sheet_scroll(
+                        ui,
+                        id,
+                        area,
+                        scrolling.inner.galley.size().y,
+                        zoom,
+                        false,
+                        false,
+                    );
+                    scrolling.inner
+                } else {
+                    show_editor(ui)
+                };
+                let resp = &output.response;
+                if matches!(node.kind, NodeKind::Text(_)) {
+                    if let Some(range) = output.cursor_range.as_ref() {
+                        self.capture_text_answer_selection(
+                            ui.ctx(),
+                            id,
+                            &buf,
+                            range.as_sorted_char_range(),
+                        );
+                    }
+                }
                 let keep_focus = ui.memory(|m| m.focused().is_none_or(|fid| fid == resp.id));
                 if keep_focus {
                     resp.request_focus();

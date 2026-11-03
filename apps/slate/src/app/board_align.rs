@@ -324,7 +324,7 @@ impl SlateApp {
             })
             .flat_map(|n| {
                 let reach =
-                    hit_regions::wire_outer_reach(n.rect.w.min(n.rect.h) * xf.z).unwrap_or(0.0);
+                    hit_regions::wire_outer_reach(self.wire_port_reach(n, xf).unwrap_or(0.0));
                 self.wire_host(n)
                     .ports()
                     .into_iter()

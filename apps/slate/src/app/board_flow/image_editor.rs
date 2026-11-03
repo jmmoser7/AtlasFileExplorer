@@ -53,6 +53,15 @@ impl ImageResultDrag {
 }
 
 impl SlateApp {
+    pub(crate) fn image_dialogue_enabled(&self, id: NodeId) -> bool {
+        self.pending_generator_preserve(id).unwrap_or_else(|| {
+            self.doc()
+                .scene
+                .node(id)
+                .and_then(slate_doc::agent_chat::agent)
+                .is_some_and(|a| a.generator.preserve_history.unwrap_or(true))
+        })
+    }
     pub(crate) fn set_image_agent_count(&mut self, id: NodeId, count: u8) -> bool {
         if self.tab().read_only {
             return false;
@@ -73,6 +82,7 @@ impl SlateApp {
         self.patch_nodes(&[id], |node| {
             if let Some(agent) = slate_doc::agent_chat::agent_mut(node) {
                 agent.image.count = count;
+                agent.generator.count = Some(count);
             }
         });
         self.last_board_edit = None;
@@ -185,7 +195,11 @@ impl SlateApp {
         let status = self.image_agent_status(id);
         let data = self.generator_chrome_data(id);
         let mut state = self.generator_presentation(id).activity.unwrap_or_default();
-        let view = data.view(&mut state, self.agent_is_running(id));
+        let view = data.view_with_dialogue_policy(
+            &mut state,
+            self.agent_is_running(id),
+            Some(self.image_dialogue_enabled(id)),
+        );
         chrome::image_agent_layout(
             painter.ctx(),
             width,
@@ -225,6 +239,17 @@ impl SlateApp {
         theme: atlas_shell::theme::Palette,
     ) -> chrome::AgentEditResponse {
         if !self.image_palette_eligible(id) {
+            if self
+                .doc()
+                .scene
+                .node(id)
+                .and_then(slate_doc::agent_chat::agent)
+                .is_some()
+                || self.model_node_info(id).is_some()
+                || self.pending_generator_host(id).is_some()
+            {
+                return self.paint_bound_generator_editor(ui, rect, id, edit, z, theme);
+            }
             return chrome::agent_editor(ui, rect, edit, z, theme);
         }
         let images = self.agent_images(id);
@@ -264,7 +289,9 @@ impl SlateApp {
         let mut live_open = presentation.live_open;
         let mut activity_state = presentation.activity.unwrap_or_default();
         let data = self.generator_chrome_data(id);
-        let mut chrome_view = data.view(&mut activity_state, running);
+        let preserve = self.image_dialogue_enabled(id);
+        let mut chrome_view =
+            data.view_with_dialogue_policy(&mut activity_state, running, Some(preserve));
         chrome_view.picker_page = presentation.picker_page;
         let mut out = chrome::image_agent_editor(
             ui,
@@ -273,6 +300,13 @@ impl SlateApp {
             chrome::ImageAgentOptions {
                 history: &history,
                 selected_history,
+                preserve_history: self
+                    .doc()
+                    .scene
+                    .node(id)
+                    .and_then(slate_doc::agent_chat::agent)
+                    .map(|agent| agent.generator.preserve_history.unwrap_or(true))
+                    .or_else(|| self.pending_generator_preserve(id)),
                 running,
                 live_active: live,
                 status: status.as_deref(),
@@ -284,15 +318,52 @@ impl SlateApp {
             theme,
         );
         drop(status);
+        #[cfg(test)]
+        if let Some(response) = ui.ctx().read_response(ui.id().with("image-agent-settings")) {
+            let transform = ui
+                .ctx()
+                .layer_transform_to_global(response.layer_id)
+                .unwrap_or_default();
+            ui.ctx().data_mut(|data| {
+                data.insert_temp(
+                    Id::new("painted-generator-options-hit"),
+                    transform * response.rect,
+                )
+            });
+        }
+        #[cfg(test)]
+        if let Some(response) = ui.ctx().read_response(ui.id().with("image-agent-prompt")) {
+            let transform = ui
+                .ctx()
+                .layer_transform_to_global(response.layer_id)
+                .unwrap_or_default();
+            let visible = response.interact_rect.intersect(ui.clip_rect());
+            let hit = (
+                response.id,
+                transform * visible,
+                response.layer_id,
+                response.enabled() && ui.is_visible(),
+            );
+            let key = Id::new(("painted-generator-composer-hit", id.0));
+            ui.ctx().data_mut(|data| data.insert_temp(key, hit));
+        }
         self.restore_generator_presentation(id, out.presentation);
         self.dispatch_generator_chrome(ui.ctx(), id, out.model_parameter, out.full_access);
+        self.dispatch_generator_provider(id, out.provider, out.edit_key);
+        self.dispatch_generator_settings(ui.ctx(), id, None, out.preserve_history);
         if let Some(index) = out
             .clicked_history
             .filter(|_| out.result_interaction.clicked.is_none())
         {
             self.pick_agent_result(id, index);
         }
-        self.handle_result_interaction(ui, id, out.result_interaction, ui.clip_rect().union(rect));
+        self.handle_result_interaction(
+            ui,
+            id,
+            out.result_interaction,
+            ui.clip_rect().union(rect),
+            false,
+        );
         if let Some(popup) = self.result_popup_rect() {
             out.popups.push(popup);
         }
@@ -316,6 +387,7 @@ impl SlateApp {
             model: out.model,
             count: out.count,
             aspect: out.aspect,
+            custom_aspect: out.custom_aspect,
             seed_locked: out.seed_locked,
             live: out.live,
             submit,
@@ -324,7 +396,7 @@ impl SlateApp {
         }
     }
 
-    pub(crate) fn image_result_drag_input(&mut self, ui: &egui::Ui, xf: &BoardXf) -> bool {
+    pub(crate) fn image_result_drag_input(&mut self, ui: &mut egui::Ui, xf: &BoardXf) -> bool {
         let controls_capture = self.result_controls_input(ui, xf);
         let Some(drag) = self.agents.flow.image_result_drag.take() else {
             return controls_capture;

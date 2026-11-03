@@ -293,8 +293,14 @@ impl Session {
 
     fn apply_outcome(&mut self, request: &RequestEnvelope, outcome: &ReplyBody) {
         match (&request.operation, outcome) {
-            (_, ReplyBody::SourceBound { binding }) => self.binding = Some(binding.clone()),
-            (Operation::UnbindSource, ReplyBody::Ack) => self.binding = None,
+            (_, ReplyBody::SourceBound { binding }) => {
+                self.draft_grants.clear();
+                self.binding = Some(binding.clone());
+            }
+            (Operation::UnbindSource, ReplyBody::Ack) => {
+                self.draft_grants.clear();
+                self.binding = None;
+            }
             (Operation::Surface { action }, ReplyBody::Ack) => match action {
                 SurfaceAction::Attach { surface } => {
                     self.surface = Some(surface.clone());
@@ -336,6 +342,7 @@ impl Session {
                 self.focused = false;
                 self.visible = false;
                 self.detached = true;
+                self.draft_grants.clear();
             }
             _ => {}
         }

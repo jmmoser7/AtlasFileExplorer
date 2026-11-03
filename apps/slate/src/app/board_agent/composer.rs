@@ -72,9 +72,16 @@ impl SlateApp {
             .filter(|n| slate_doc::agent_chat::agent(n).is_some_and(|a| a.chat.parent == Some(id)))
             .map(|n| n.id)
             .collect();
-        // An empty coding card is the first beat of its stream. A card that
-        // already has a child is a fork point, not that beat.
-        let draft = a.chat.draft || (linear && source.is_empty() && children.is_empty());
+        // A fresh model chat, like a fresh coding chat, sends in its original
+        // host. Checkpoints, continuations and occupied roots remain fork points.
+        let fresh_model = !linear
+            && a.chat.parent.is_none()
+            && a.chat.start == 0
+            && a.chat.end.is_none()
+            && a.chat.bundled.is_empty()
+            && a.channel.is_none();
+        let draft =
+            a.chat.draft || ((linear || fresh_model) && source.is_empty() && children.is_empty());
         let branches = children.len();
         let lane_height = slate_doc::agent_chat::subtree(&self.doc().scene, &children)
             .iter()

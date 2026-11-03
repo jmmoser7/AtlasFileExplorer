@@ -92,7 +92,11 @@ impl SlateApp {
         let NodeKind::Image(original) = &node.kind else {
             return None;
         };
-        if original.agent.is_some() {
+        if original
+            .agent
+            .as_ref()
+            .is_some_and(|a| !a.provider.is_empty())
+        {
             if !original.paint_layers.is_empty() {
                 if let Some(result) = self.image_result_id(id) {
                     let NodeKind::Image(image) = &mut node.kind else {
@@ -103,8 +107,12 @@ impl SlateApp {
             }
             return Some(node);
         }
-        let item = self.doc().item(original.item)?;
-        if slate_doc::media_kind(&item.path) != slate_doc::MediaKind::Image {
+        let item = self.doc().item(original.item);
+        if item.is_none() && original.item != slate_doc::ItemId::NONE {
+            return None;
+        }
+        if item.is_some_and(|item| slate_doc::media_kind(&item.path) != slate_doc::MediaKind::Image)
+        {
             return None;
         }
         let program = atlas_ai::agent::provider_by_id(provider);
@@ -112,64 +120,49 @@ impl SlateApp {
         binding_node.kind = NodeKind::Portal(PortalNode::unbound_agent("", program.id.clone()));
         bind_program(&mut binding_node, &program, &self.program_binding(Some(id)));
         let mut agent = slate_doc::agent_chat::agent(&binding_node)?.clone();
-        let seed_id = format!("placed-{}-{}", id.0, original.item.0);
-        agent.seed = Some(atlas_ai::agent::ImageOutput {
-            id: seed_id.clone(),
-            source: super::super::board_portal::source_locator(
-                self.tab().path.as_deref(),
-                &slate_doc::scene::resolve_source(
+        // A new prepared session has no saved transcript to wait for.
+        // First dispatch installs its manifest through the existing owner.
+        agent.bundle = None;
+        if let Some(previous) = original.agent.as_ref() {
+            agent.generator = previous.generator.clone();
+        }
+        if let Some(item) = item {
+            let seed_id = format!("placed-{}-{}", id.0, original.item.0);
+            agent.seed = Some(atlas_ai::agent::ImageOutput {
+                id: seed_id.clone(),
+                source: super::super::board_portal::source_locator(
                     self.tab().path.as_deref(),
-                    &item.path.to_string_lossy(),
+                    &slate_doc::scene::resolve_source(
+                        self.tab().path.as_deref(),
+                        &item.path.to_string_lossy(),
+                    ),
                 ),
-            ),
-            request: String::new(),
-            prompt: String::new(),
-            model: String::new(),
-            task: String::new(),
-            live: String::new(),
-        });
+                request: String::new(),
+                prompt: String::new(),
+                model: String::new(),
+                task: String::new(),
+                live: String::new(),
+            });
+            let NodeKind::Image(image) = &mut node.kind else {
+                unreachable!()
+            };
+            let item_result = ImageResultId::Item(image.item);
+            let output_result = ImageResultId::Output(seed_id);
+            if let Some(stack) = image
+                .result_layers
+                .iter_mut()
+                .find(|s| s.result == item_result)
+            {
+                stack.result = output_result;
+            } else if !image.paint_layers.is_empty() {
+                slate_doc::image_paint::seed_result_from_legacy(image, output_result);
+            }
+        }
         let NodeKind::Image(image) = &mut node.kind else {
             unreachable!()
         };
-        let item_result = ImageResultId::Item(image.item);
-        let output_result = ImageResultId::Output(seed_id);
-        if let Some(stack) = image
-            .result_layers
-            .iter_mut()
-            .find(|s| s.result == item_result)
-        {
-            stack.result = output_result;
-        } else if !image.paint_layers.is_empty() {
-            slate_doc::image_paint::seed_result_from_legacy(image, output_result);
-        }
         image.agent = Some(Box::new(agent));
         Some(node)
-    }
-
-    /// The wire and capability change are committed by the wire owner together.
-    pub(crate) fn image_wire_target_command(&self, wire: &Node) -> Option<SceneCmd> {
-        let NodeKind::Connector(connector) = &wire.kind else {
-            return None;
-        };
-        let binding = connector.binding.as_ref()?;
-        let target = agent_inputs::endpoint_node(binding.target_end(connector))?;
-        let node = self.doc().scene.node(target)?;
-        if node.locked {
-            return None;
-        }
-        if !agent_inputs::image_generation_target(node, &|id| {
-            self.doc().item(id).map(|item| item.path.as_path())
-        }) {
-            return None;
-        }
-        let provider = self
-            .default_model(true)
-            .map_or_else(|| "comfy".into(), |m| m.0);
-        let after = self.image_generator_plan(target, &provider)?;
-        Some(SceneCmd::Patch {
-            before: Box::new(node.clone()),
-            after: Box::new(after),
-        })
     }
 
     pub(super) fn submit_image_in_place(
@@ -190,6 +183,9 @@ impl SlateApp {
             return false;
         };
         agent.provider = provider.to_string();
+        agent.generator.input_source_kind = None;
+        agent.generator.preserve_history = Some(draft.preserve_history);
+        agent.generator.count = Some(draft.count);
         agent.model = (!model.is_empty()).then(|| model.to_string());
         agent.instruction = draft.prompt.trim().to_string();
         agent.image = ImageSettings {

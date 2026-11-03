@@ -44,8 +44,12 @@ impl SlateApp {
             return None;
         }
         let host = self.doc().scene.node(host_id)?.clone();
-        let NodeKind::Image(host_img) = &host.kind else {
-            return None;
+        let host_img = match &host.kind {
+            NodeKind::Image(image) => image.clone(),
+            NodeKind::Portal(portal) if portal.kind == slate_doc::scene::PortalKind::Agent => {
+                ImageNode::new(slate_doc::ItemId::NONE)
+            }
+            _ => return None,
         };
         let images = self.agent_images(host_id);
         let output = images.iter().find(|output| output.id == output_id)?.clone();

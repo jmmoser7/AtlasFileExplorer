@@ -3,11 +3,20 @@
 use super::*;
 use eframe::egui::emath::GuiRounding;
 
+mod action_popup;
+mod keyboard;
+pub use action_popup::{
+    studio_action_popup, StudioActionResponse, StudioActionRow, StudioActionStyle,
+};
+mod presentation;
+mod rows_paint;
 #[cfg(test)]
 mod tests;
+mod trigger;
 
 pub(crate) struct CapsuleMenu {
     pub(crate) picked: Option<usize>,
+    pub(crate) secondary_picked: Option<usize>,
     /// Actual global bounds; input/camera owners never compare local geometry.
     pub(crate) popup: Option<Rect>,
     pub(crate) opened: bool,
@@ -31,13 +40,57 @@ pub(super) struct SelectorRow<'a> {
     pub detail: Option<&'a str>,
     pub submenu: Option<Icon>,
     pub selected: bool,
+    /// Explicit toggle state; ordinary selected rows retain their current styling.
+    pub checked: Option<bool>,
     pub interactive: bool,
     pub danger: bool,
+    pub expanded: bool,
+    pub icon: Option<Icon>,
+    /// The trailing chevron owns a distinct action (provider key editing).
+    pub secondary: bool,
 }
 
 pub(super) trait SelectorRows {
     fn len(&self) -> usize;
     fn get(&self, index: usize) -> Option<SelectorRow<'_>>;
+    fn cyclic_keyboard(&self) -> bool {
+        false
+    }
+    fn action_icon(&self, _index: usize) -> Option<crate::menu::MenuIcon> {
+        None
+    }
+    /// Agent settings reserve the same glyph and trailing columns on every row.
+    fn agent_datums(&self) -> bool {
+        false
+    }
+    fn presentation(&self) -> Presentation {
+        if self.agent_datums() {
+            Presentation::ModelPicker
+        } else {
+            Presentation::Native
+        }
+    }
+    fn divider_before(&self, _index: usize) -> bool {
+        false
+    }
+    fn hint(&self, _index: usize) -> Option<&str> {
+        None
+    }
+}
+
+/// Existing Studio menus share their controller, but not their glyph/value slots.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Presentation {
+    Native,
+    ModelPicker,
+    ImageOptions,
+    ElementOptions,
+    PlainActions,
+}
+impl Presentation {
+    fn studio(self) -> bool {
+        self != Self::Native
+    }
 }
 
 pub(super) struct RichBareMenu<'a> {
@@ -51,6 +104,9 @@ pub(super) struct RichBareMenu<'a> {
     pub theme: Palette,
     pub label_danger: bool,
     pub label_hint: Option<&'a str>,
+    pub label_detail: Option<(&'a str, u8)>,
+    /// Model selectors keep their caret; a compact options button paints its glyph.
+    pub trailing_caret: bool,
 }
 
 pub(super) fn rich_bare_menu(ui: &mut egui::Ui, menu: RichBareMenu<'_>) -> CapsuleMenu {
@@ -69,6 +125,8 @@ pub(super) fn rich_bare_menu(ui: &mut egui::Ui, menu: RichBareMenu<'_>) -> Capsu
         menu.label_danger,
         menu.label_hint,
         Some(menu.scroll_id),
+        menu.label_detail,
+        menu.trailing_caret,
     )
 }
 
@@ -87,6 +145,7 @@ pub(super) fn capsule_menu(
 ) -> CapsuleMenu {
     menu_selector(
         ui, id, rect, label, options, selected, open, zoom, theme, true, None, false, None, None,
+        None, true,
     )
 }
 
@@ -108,6 +167,8 @@ pub(crate) fn bare_menu(ui: &mut egui::Ui, menu: BareMenu<'_>) -> CapsuleMenu {
         false,
         None,
         None,
+        None,
+        true,
     )
 }
 
@@ -127,14 +188,18 @@ fn menu_selector(
     label_danger: bool,
     label_hint: Option<&str>,
     scroll_id: Option<Id>,
+    label_detail: Option<(&str, u8)>,
+    trailing_caret: bool,
 ) -> CapsuleMenu {
     let mut out = CapsuleMenu {
         picked: None,
+        secondary_picked: None,
         popup: None,
         opened: false,
         dismissed_outside: false,
     };
     let response = ui.interact(rect, id, Sense::click());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     if !capsule_style && !*open {
         let _ = object_hover_text(response.clone(), label_hint.unwrap_or(label));
     }
@@ -142,77 +207,75 @@ fn menu_selector(
         *open = !*open;
         out.opened = *open;
     }
-    if capsule_style {
-        paint_capsule(ui, rect, zoom, theme);
-    }
-    let radius = rect.height() * 0.5;
-    let mut center = Pos2::new(
-        rect.right() - if capsule_style { radius } else { 5.0 * zoom },
-        rect.center().y,
-    );
-    let label_right = if capsule_style {
-        center.x - radius - 2.0 * zoom
-    } else {
-        rect.right() - 12.0 * zoom
-    };
-    let label_rect = Rect::from_min_max(rect.min, Pos2::new(label_right, rect.bottom()));
-    let painter = ui.painter().with_clip_rect(label_rect);
-    let text_bounds = canvas_text::text(
-        &painter,
-        label_rect.left_center() + Vec2::new(if capsule_style { 10.0 } else { 1.0 } * zoom, 0.0),
-        Align2::LEFT_CENTER,
+    trigger::paint(
+        ui,
+        rect,
         label,
-        canvas_scale::font(if capsule_style { 9.0 } else { 11.0 }, zoom),
-        if label_danger {
-            theme.danger
-        } else if needs_key_label(label) {
-            theme.sub
-        } else {
-            theme.ink
-        },
+        zoom,
+        theme,
+        capsule_style,
+        label_danger,
+        label_detail,
+        trailing_caret,
+        response.hovered(),
+        *open,
     );
-    if !capsule_style {
-        center.x = (text_bounds.right().min(label_rect.right()) + 7.0 * zoom)
-            .min(rect.right() - 4.0 * zoom);
-        center.y = text_bounds.center().y;
-    }
-    if capsule_style {
-        ui.painter().circle_filled(center, radius - zoom, theme.bg);
-        ui.painter().circle_stroke(
-            center,
-            radius - zoom,
-            Stroke::new(0.8 * zoom, theme.border_strong),
-        );
-    }
-    let arm = if capsule_style {
-        radius * 0.32
-    } else {
-        2.5 * zoom
-    };
-    let tip = center + Vec2::new(0.0, arm * 0.55);
-    let menu_ink = if response.hovered() || *open || capsule_style {
-        theme.ink
-    } else {
-        theme.sub
-    };
-    let stroke = Stroke::new(1.0 * zoom, menu_ink);
-    ui.painter()
-        .line_segment([center + Vec2::new(-arm, -arm * 0.35), tip], stroke);
-    ui.painter()
-        .line_segment([center + Vec2::new(arm, -arm * 0.35), tip], stroke);
     if !*open {
+        keyboard::clear(ui.ctx(), id);
         return out;
     }
-    let row_h = 22.0 * zoom;
+    popup_selector(
+        ui,
+        id,
+        rect,
+        options,
+        selected,
+        open,
+        zoom,
+        theme,
+        rows,
+        scroll_id,
+        Some(id),
+        out,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn popup_selector(
+    ui: &mut egui::Ui,
+    id: Id,
+    rect: Rect,
+    options: &[&str],
+    selected: usize,
+    open: &mut bool,
+    zoom: f32,
+    theme: Palette,
+    rows: Option<&dyn SelectorRows>,
+    scroll_id: Option<Id>,
+    return_focus: Option<Id>,
+    mut out: CapsuleMenu,
+) -> CapsuleMenu {
+    // Rich configuration menus remain screen-sized as the canvas zooms.
+    let zoom = if rows.is_some() { 1.0 } else { zoom };
+    let presentation = rows.map_or(Presentation::Native, |rows| rows.presentation());
+    let agent_datums = presentation == Presentation::ModelPicker;
+    let studio = presentation.studio();
+    let row_h = if rows.is_some() { 30.0 } else { 22.0 } * zoom;
     let count = rows.map_or(options.len(), |rows| rows.len());
-    let desired_content_height = count.min(if rows.is_some() { 14 } else { 8 }) as f32 * row_h;
-    let frame = egui::Frame::NONE
-        .fill(theme.panel)
-        // Frame margins and egui widget allocations must share the logical
-        // layout grid; a fractional border otherwise grows the measured Area.
-        .stroke(Stroke::new((0.8 * zoom).round_ui(), theme.border_strong))
-        .corner_radius(egui::CornerRadius::same((10.0 * zoom).round() as u8))
-        .inner_margin(egui::Margin::same((4.0 * zoom).round() as i8));
+    let visible_count = count.min(if rows.is_some() { 14 } else { 8 });
+    let row_gap = if studio { 1.5 * zoom } else { 0.0 };
+    let divider_before = |index| rows.is_some_and(|rows| rows.divider_before(index));
+    let desired_content_height = visible_count as f32 * row_h
+        + (1..visible_count)
+            .map(|i| {
+                if divider_before(i) {
+                    12.72 * zoom
+                } else {
+                    row_gap
+                }
+            })
+            .sum::<f32>();
+    let (theme, frame) = presentation::popup_frame(theme, studio, zoom);
     let margin = frame.total_margin().sum();
     // Keep the whole frame and its scroll viewport on screen. Near the
     // bottom edge the upper side has the usable room; resizing only the Area
@@ -221,19 +284,45 @@ fn menu_selector(
         .ctx()
         .layer_transform_to_global(ui.layer_id())
         .unwrap_or_default();
-    let viewport = (to_global.inverse() * ui.ctx().screen_rect()).shrink(4.0 * zoom);
-    let below_top = (rect.bottom() + 4.0 * zoom).clamp(viewport.top(), viewport.bottom());
+    let viewport = (to_global.inverse() * ui.ctx().screen_rect()).shrink(
+        match presentation {
+            Presentation::ImageOptions => 6.0,
+            Presentation::Native => 4.0,
+            _ => 8.0,
+        } * zoom,
+    );
+    let below_top = if agent_datums {
+        (rect.bottom() + 5.0 * zoom).clamp(
+            viewport.top(),
+            (viewport.bottom() - 152.0 * zoom).max(viewport.top()),
+        )
+    } else if studio {
+        (rect.bottom()
+            + if presentation == Presentation::ImageOptions {
+                3.0
+            } else {
+                4.0
+            } * zoom)
+            .clamp(
+                viewport.top(),
+                (viewport.bottom() - desired_content_height - margin.y).max(viewport.top()),
+            )
+    } else {
+        (rect.bottom() + 4.0 * zoom).clamp(viewport.top(), viewport.bottom())
+    };
     let above_bottom = (rect.top() - 4.0 * zoom).clamp(viewport.top(), viewport.bottom());
     let below = viewport.bottom() - below_top;
     let above = above_bottom - viewport.top();
     let desired_height = desired_content_height + margin.y;
-    let open_above = desired_height > below && above > below;
+    let open_above = !studio && desired_height > below && above > below;
     let height = desired_height.min(if open_above { above } else { below });
     let content_height = (height - margin.y).max(0.0);
-    let width = rect
-        .width()
-        .max(if rows.is_some() { 248.0 } else { 168.0 } * zoom)
-        .min(viewport.width());
+    let width = if rows.is_some() {
+        232.0
+    } else {
+        rect.width().max(168.0 * zoom)
+    }
+    .min(viewport.width());
     let popup = Rect::from_min_size(
         Pos2::new(
             rect.left().clamp(viewport.left(), viewport.right() - width),
@@ -253,8 +342,7 @@ fn menu_selector(
             rect.translate(popup.min - rect.min).intersect(popup)
         });
     let click = ui.input(|i| {
-        i.pointer
-            .any_click()
+        (if studio { i.pointer.any_pressed() } else { i.pointer.any_click() })
             .then(|| i.pointer.interact_pos())
             .flatten()
             .map(|point| to_global.inverse() * point)
@@ -264,11 +352,16 @@ fn menu_selector(
             *open = false;
             out.dismissed_outside = true;
             out.popup = None;
+            keyboard::clear(ui.ctx(), id);
             return out;
         }
     }
-    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+    if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
         *open = false;
+        keyboard::clear(ui.ctx(), id);
+        if let Some(target) = return_focus {
+            ui.memory_mut(|memory| memory.request_focus(target));
+        }
         return out;
     }
     let scroll_id = scroll_id.unwrap_or_else(|| id.with("rows"));
@@ -286,11 +379,17 @@ fn menu_selector(
         .sense(Sense::hover())
         .fade_in(false)
         .show(ui.ctx(), |ui| {
+            let keyboard_intent =
+                rows.and_then(|rows| keyboard::input(ui, id, rows, scroll_id, out.opened));
+            if studio {
+                ui.style_mut().interaction.tooltip_delay = 0.75;
+            }
             ui.set_max_size(popup.size());
             frame.show(ui, |ui| {
                 ui.set_width((popup.width() - margin.x).max(0.0));
                 let mut scroll = egui::ScrollArea::vertical()
                     .id_salt(scroll_id)
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
                     // Fit every declared row even when Area/Frame geometry
                     // rounds a fractional border down. A phantom scrollbar
                     // would otherwise steal the row's right-hand click.
@@ -299,7 +398,7 @@ fn menu_selector(
                 if reset_scroll {
                     scroll = scroll.vertical_scroll_offset(0.0);
                 }
-                scroll.show(ui, |ui| {
+                let scrolled = scroll.show(ui, |ui| {
                     // The declared row height includes its spacing. Extra
                     // inherited gaps otherwise hide the last Settings action.
                     ui.spacing_mut().item_spacing.y = 0.0;
@@ -310,113 +409,76 @@ fn menu_selector(
                                 detail: None,
                                 submenu: None,
                                 selected: i == selected,
+                                checked: None,
                                 interactive: true,
                                 danger: false,
+                                expanded: false,
+                                icon: None,
+                                secondary: false,
                             },
                             |rows| rows.get(i).expect("row source length"),
                         )
                     });
                     for (i, choice) in choices.enumerate() {
-                        let option = choice.label;
-                        let (row, response) = ui.allocate_exact_size(
-                            Vec2::new(ui.available_width(), row_h),
-                            if choice.interactive {
-                                Sense::click()
-                            } else {
-                                Sense::hover()
-                            },
-                        );
-                        let on = choice.selected;
-                        if on || (choice.interactive && response.hovered()) {
+                        if divider_before(i) {
+                            ui.add_space(6.0 * zoom);
+                            let (_, rule) =
+                                ui.allocate_space(Vec2::new(ui.available_width(), 0.72 * zoom));
                             ui.painter().rect_filled(
-                                row,
-                                6.0 * zoom,
-                                if on {
-                                    theme.select_fill
-                                } else {
-                                    theme.card_hover
-                                },
+                                rule.shrink2(Vec2::new(16.0 * zoom, 0.0)),
+                                0.0,
+                                theme.border_strong,
                             );
+                            ui.add_space(6.0 * zoom);
                         }
-                        let back = choice.submenu == Some(Icon::ChevronLeft);
-                        let label_left = row.left() + if back { 22.0 } else { 8.0 } * zoom;
-                        let detail_right = row.right()
-                            - if choice.submenu.is_some() && !back {
-                                22.0
-                            } else {
-                                8.0
-                            } * zoom;
-                        let label_right = if choice.detail.is_some() {
-                            row.left() + row.width() * 0.48
-                        } else {
-                            detail_right
-                        };
-                        let label_rect = Rect::from_min_max(
-                            Pos2::new(label_left, row.top()),
-                            Pos2::new(label_right, row.bottom()),
+                        let pointer_intent = rows_paint::paint(
+                            ui,
+                            id,
+                            i,
+                            choice,
+                            rows.and_then(|rows| rows.hint(i)),
+                            rows.and_then(|rows| rows.action_icon(i)),
+                            row_h,
+                            zoom,
+                            theme,
+                            presentation,
+                            rows.is_some(),
                         );
-                        canvas_text::text(
-                            &ui.painter()
-                                .with_clip_rect(label_rect.intersect(ui.clip_rect())),
-                            label_rect.left_center(),
-                            Align2::LEFT_CENTER,
-                            option,
-                            canvas_scale::font(11.0, zoom),
-                            if choice.danger {
-                                theme.danger
-                            } else if !choice.interactive {
-                                theme.sub
-                            } else if on {
-                                theme.select_stroke
-                            } else if needs_key_label(option) {
-                                theme.sub
-                            } else {
-                                theme.ink
-                            },
-                        );
-                        if let Some(detail) = choice.detail {
-                            let detail_rect = Rect::from_min_max(
-                                Pos2::new(label_right + 6.0 * zoom, row.top()),
-                                Pos2::new(detail_right, row.bottom()),
-                            );
-                            canvas_text::text(
-                                &ui.painter()
-                                    .with_clip_rect(detail_rect.intersect(ui.clip_rect())),
-                                detail_rect.right_center(),
-                                Align2::RIGHT_CENTER,
-                                detail,
-                                canvas_scale::font(11.0, zoom),
-                                theme.sub,
-                            );
+                        match keyboard_intent
+                            .filter(|(index, _)| *index == i)
+                            .map_or(pointer_intent, |(_, intent)| intent)
+                        {
+                            rows_paint::RowIntent::Primary => {
+                                out.picked = Some(i);
+                                *open = false;
+                            }
+                            rows_paint::RowIntent::Secondary => {
+                                out.secondary_picked = Some(i);
+                                *open = false;
+                            }
+                            rows_paint::RowIntent::None => {}
                         }
-                        if let Some(icon) = choice.submenu {
-                            icons::paint(
-                                ui.painter(),
-                                Rect::from_center_size(
-                                    Pos2::new(
-                                        if back {
-                                            row.left() + 11.0 * zoom
-                                        } else {
-                                            row.right() - 11.0 * zoom
-                                        },
-                                        row.center().y,
-                                    ),
-                                    Vec2::splat(7.0 * zoom),
-                                ),
-                                icon,
-                                theme.sub,
-                            );
-                        }
-                        if choice.interactive && response.clicked() {
-                            out.picked = Some(i);
-                            *open = false;
+                        if i + 1 < count && row_gap > 0.0 && !divider_before(i + 1) {
+                            ui.add_space(row_gap);
                         }
                     }
                 });
+                generator::scroll::paint(
+                    ui,
+                    scroll_id,
+                    scrolled.inner_rect,
+                    scrolled.content_size.y,
+                    scrolled.state.offset.y,
+                    zoom,
+                    theme,
+                );
             });
         });
     let screen_rect = to_global * shown.response.rect;
     out.popup = Some(screen_rect);
+    if !*open {
+        keyboard::clear(ui.ctx(), id);
+    }
     crate::menu_wheel::claim(ui.ctx(), screen_rect);
     out
 }

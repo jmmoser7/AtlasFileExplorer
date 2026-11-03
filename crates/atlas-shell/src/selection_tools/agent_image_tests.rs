@@ -33,11 +33,15 @@ fn editor_frame(
                     aspects: &["Source"],
                     aspect: 0,
                     aspect_open: &mut aspect_open,
+                    custom_aspect: None,
+                    custom_aspect_supported: false,
                     seed_locked: false,
+                    seed_supported: false,
                     live: false,
                     take_focus: false,
                 },
                 ImageAgentOptions {
+                    preserve_history: None,
                     history: &[],
                     selected_history: None,
                     running: false,
@@ -61,7 +65,16 @@ fn image_agent_count_arrows_accept_repeated_clicks_at_each_layout_and_zoom() {
         for zoom in [0.5, 1.0, 2.0] {
             let ctx = egui::Context::default();
             let rect = Rect::from_min_size(Pos2::new(30.0, 30.0), Vec2::new(width, 240.0) * zoom);
-            let datum = image_agent_datum_layout(rect.shrink(12.0 * zoom), zoom);
+            editor_frame(&ctx, rect, zoom, 1, vec![]);
+            let datum = image_agent_datum_layout(
+                &ctx,
+                Rect::from_min_size(
+                    rect.min + Vec2::new(8.0 * zoom, 2.0 * zoom),
+                    Vec2::new(rect.width() - 16.0 * zoom, 0.0),
+                ),
+                zoom,
+                "Auto",
+            );
             let plus = Pos2::new(datum.count.right() - 6.5 * zoom, datum.count.center().y);
             let minus = Pos2::new(datum.count.left() + 6.5 * zoom, datum.count.center().y);
             let mut count = 1;

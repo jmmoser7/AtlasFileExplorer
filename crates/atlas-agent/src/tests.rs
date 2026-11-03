@@ -91,17 +91,51 @@ fn a_reload_never_shrinks_or_rewrites_the_shown_conversation() {
     assert_eq!(reloaded(&shown, diverged), None);
 }
 #[test]
-fn a_reload_fills_an_empty_card_and_replaces_another_conversation() {
+fn a_reload_fills_an_empty_card_but_cannot_replace_another_conversation() {
     let fetched = session("c", &[("user", "q0", 0), ("assistant", "a0", 0)]);
     let empty = session("c", &[]);
     assert_eq!(reloaded(&empty, fetched.clone()), Some(fetched.clone()));
     let other = session("old", &[("user", "x", 1)]);
-    assert_eq!(reloaded(&other, fetched.clone()), Some(fetched.clone()));
+    assert_eq!(reloaded(&other, fetched.clone()), None);
     assert_eq!(reloaded(&fetched, fetched.clone()), None);
     let unnamed = session("", &[("user", "q0", 3), ("assistant", "a0", 3)]);
     let named = reloaded(&unnamed, fetched).unwrap();
     assert_eq!(named.conversation, "c");
     assert_eq!(named.turns, unnamed.turns);
+}
+
+#[test]
+fn a_stale_provider_reload_cannot_rebase_logical_train_checkpoints() {
+    let mut current = session(
+        "replacement-tools-thread",
+        &[
+            ("user", "original brief", 1),
+            ("assistant", "original acknowledgement", 2),
+            ("user", "use the wired source", 3),
+            ("assistant", "current tool result", 4),
+        ],
+    );
+    current.request = "current-native-request".into();
+    current.provider = "codex".into();
+    let mut stale = session(
+        "old-provider-thread",
+        &[
+            ("user", "recall context wrapper", 0),
+            ("assistant", "later recall", 0),
+        ],
+    );
+    stale.request.clear();
+    stale.provider = "codex".into();
+    assert_eq!(reloaded(&current, stale), None);
+    assert_eq!(
+        checkpoint(&current.turns, Some(2)).unwrap()[1].text,
+        "original acknowledgement"
+    );
+    assert_eq!(
+        checkpoint(&current.turns, Some(4)).unwrap()[3].text,
+        "current tool result"
+    );
+    assert_eq!(current.request, "current-native-request");
 }
 #[test]
 fn rapid_requests_have_distinct_identity() {

@@ -14,6 +14,30 @@ fn recover_request_history(request: &AgentRequest, session: &AgentSession) -> Op
     (!replay.history.is_empty()).then_some(replay)
 }
 
+fn request_for_thread(
+    replay: bool,
+    request: &AgentRequest,
+    session: &AgentSession,
+) -> Option<AgentRequest> {
+    // Text response and image requests start a fresh thread below. Their
+    // explicitly admitted history must survive regardless of rebind replay.
+    if (request.oneshot || request.image.is_some()) && !request.history.is_empty() {
+        None
+    } else if replay {
+        if request.history.is_empty() {
+            recover_request_history(request, session)
+        } else {
+            Some(request.clone())
+        }
+    } else if !request.history.is_empty() {
+        let mut current = request.clone();
+        current.history.clear();
+        Some(current)
+    } else {
+        None
+    }
+}
+
 fn completed_before_interrupt(status: Option<&str>, error: Option<&str>) -> bool {
     status == Some("completed")
         && error
@@ -43,30 +67,27 @@ impl Client {
         steering: Option<&std::sync::mpsc::Receiver<SteerCommand>>,
         mut changed: impl FnMut(&AgentSession),
     ) -> Result<(), String> {
+        if let Some(image) = &request.image {
+            image.aspect.validate()?;
+            if image.aspect.custom().is_some() {
+                return Err("The Codex image adapter has no declared custom aspect capability; choose a supported preset".into());
+            }
+        }
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Codex request cancelled before submission.".into());
+        }
+        self.prepare_board_session(request)?;
         let replay_history = self.replay_visible_history;
         self.replay_visible_history = false;
-        let request_for_thread = if replay_history {
-            if request.history.is_empty() {
-                recover_request_history(request, session)
-            } else {
-                Some(request.clone())
-            }
-        } else if !request.history.is_empty() {
-            let mut current = request.clone();
-            current.history.clear();
-            Some(current)
-        } else {
-            None
-        };
+        let request_for_thread = request_for_thread(replay_history, request, session);
         let request = request_for_thread.as_ref().unwrap_or(request);
         if cancel.load(Ordering::Relaxed) {
             return Err("Codex request cancelled before submission.".into());
         }
         session.request = request.id.clone();
         session.activity.clear();
-        self.prepare_board_session(request)?;
-        // A text block or picture run is one-shot: a fresh thread, so earlier
-        // runs never ride along as context.
+        // Text and picture runs use a fresh thread. Only explicitly admitted
+        // request history is quoted by their payload builder.
         if request.oneshot || request.image.is_some() {
             let response = self.rpc("thread/start", thread_params(&self.cwd.clone(), None))?;
             self.thread = response
@@ -336,6 +357,56 @@ impl Client {
 mod tests {
     use super::*;
     #[test]
+    fn actual_oneshot_leaf_keeps_explicit_source_and_history_for_both_thread_paths() {
+        for image in [false, true] {
+            for replay in [false, true] {
+                let mut request = AgentRequest {
+                    prompt: "  Exact visible question  ".into(),
+                    oneshot: !image,
+                    text_source: (!image).then(|| "SOURCE_é".into()),
+                    history: vec![AgentTurn {
+                        role: "user".into(),
+                        text: "ADMITTED_CONTEXT".into(),
+                        at: 0,
+                    }],
+                    image: image.then(Default::default),
+                    ..Default::default()
+                };
+                let session = AgentSession {
+                    turns: vec![AgentTurn {
+                        role: "user".into(),
+                        text: "EXCLUDED_OLD_TURN".into(),
+                        at: 0,
+                    }],
+                    ..Default::default()
+                };
+                let prepared = request_for_thread(replay, &request, &session);
+                let actual = prepared.as_ref().unwrap_or(&request);
+                let payload = if image {
+                    images::image_turn(actual)
+                } else {
+                    oneshot_turn(actual)
+                };
+                assert_eq!(payload.matches("ADMITTED_CONTEXT").count(), 1);
+                assert!(!payload.contains("EXCLUDED_OLD_TURN"));
+                if !image {
+                    assert_eq!(payload.matches("SOURCE_é").count(), 1);
+                }
+                assert_eq!(request.prompt, "  Exact visible question  ");
+                request.history.clear();
+                let prepared = request_for_thread(replay, &request, &session);
+                let actual = prepared.as_ref().unwrap_or(&request);
+                let payload = if image {
+                    images::image_turn(actual)
+                } else {
+                    oneshot_turn(actual)
+                };
+                assert!(!payload.contains("ADMITTED_CONTEXT"));
+                assert!(!payload.contains("EXCLUDED_OLD_TURN"));
+            }
+        }
+    }
+    #[test]
     fn only_a_completed_turn_resolves_the_known_inactive_interrupt_race() {
         let inactive = r#"{"code":-32600,"message":"no active turn to interrupt"}"#;
         assert!(completed_before_interrupt(
@@ -381,5 +452,40 @@ mod tests {
         assert_eq!(text.matches("Prior conversation checkpoint").count(), 1);
         assert_eq!(text.matches("First question").count(), 1);
         assert_eq!(text.matches("First answer").count(), 1);
+    }
+
+    #[test]
+    fn replacement_tools_thread_replays_visible_training_but_not_hidden_events() {
+        let request = AgentRequest {
+            prompt: "Use the wired model".into(),
+            ..Default::default()
+        };
+        let session = AgentSession {
+            turns: vec![
+                AgentTurn {
+                    role: "user".into(),
+                    text: "Use metres and preserve accessibility".into(),
+                    at: 1,
+                },
+                AgentTurn {
+                    role: "assistant".into(),
+                    text: "I will apply those design criteria".into(),
+                    at: 2,
+                },
+                AgentTurn {
+                    role: "tool".into(),
+                    text: "private tool event".into(),
+                    at: 3,
+                },
+            ],
+            ..Default::default()
+        };
+        let replay = request_for_thread(true, &request, &session).unwrap();
+        assert_eq!(replay.history.len(), 2);
+        assert!(replay
+            .prompt_with_history()
+            .contains("preserve accessibility"));
+        assert!(!replay.prompt_with_history().contains("private tool event"));
+        assert!(request_for_thread(false, &request, &session).is_none());
     }
 }

@@ -33,6 +33,9 @@ impl SlateApp {
         from: Option<&str>,
         queued: Option<&str>,
     ) -> Result<(), String> {
+        if self.is_chat_train_identity(who) {
+            return Err("Send from this agent's existing chat-train composer".into());
+        }
         validate_message_text(text)?;
         let provider = self
             .presence
@@ -159,6 +162,7 @@ impl SlateApp {
                         ws.clone(),
                         "codex".into(),
                         workbook,
+                        Some(ws.clone()),
                     )
                 });
                 runtime

@@ -37,9 +37,20 @@ fn the_model_list_is_a_popup_above_canvas_chrome() {
         layer,
         egui::LayerId::new(
             atlas_shell::selection_tools::POPUP_ORDER,
-            Id::new(("agent-model-menu", card.0)),
+            Id::new(("agent-model-menu", card.0)).with("pop"),
         ),
-        "the model list paints and takes the pointer above canvas chrome"
+        "the painted shared model popup owns the pointer at its model row"
+    );
+    assert!(
+        layer.order > atlas_shell::selection_tools::selection_chrome_layer().order,
+        "the actual model popup hit layer must sit above object/canvas chrome"
+    );
+    assert!(
+        h.app
+            .agents
+            .model_menu_rect
+            .is_some_and(|popup| popup.contains(terra)),
+        "the point hit belongs to the reported model popup bounds"
     );
 }
 

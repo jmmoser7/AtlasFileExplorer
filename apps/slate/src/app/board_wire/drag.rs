@@ -31,16 +31,31 @@ impl SlateApp {
             if !host.offers_ports() {
                 continue;
             }
-            if let Some(port) = host
-                .ports()
+            if let Some(port) = self
+                .presented_wire_ports(n)
                 .into_iter()
                 .find(|port| Pos2::new(port.point[0], port.point[1]).distance(world) <= snap_w)
             {
                 return Some((n.id, port.side, port.t));
             }
+            // Explicit typed sites win above. Elsewhere a Model retains its
+            // native arbitrary edge attachment and View binding semantics.
+            let view_input = slate_doc::agent_inputs::input_ports_for(n, &|id| {
+                doc.item(id).map(|item| item.path.as_path())
+            })
+            .iter()
+            .any(|port| port.slot == atlas_agent::InputSlot::View);
+            if view_input {
+                let snap = host.snap([world.x, world.y]);
+                if snap.dist <= snap_w {
+                    return Some((n.id, snap.side, snap.t));
+                }
+                continue;
+            }
             // Dropped anywhere on a generator or text block, a wire lands on
             // the port that reads it; drawn back from an input, on the output.
             if host.is_flow()
+                && self.source_agent_inputs_visible(n.id)
                 && (n.rect.contains_rotated(world.x, world.y, n.rotation_deg)
                     || host.snap([world.x, world.y]).dist <= snap_w)
             {
@@ -55,8 +70,17 @@ impl SlateApp {
                         doc.item(id).map(|item| item.path.as_path())
                     })
                 {
-                    return Some((n.id, Side::Left, port.t));
+                    if self.source_agent_input_visible(n.id, port.slot) {
+                        return Some((n.id, Side::Left, port.t));
+                    }
                 }
+                continue;
+            }
+            // Flow inputs snap only through their actually presented canonical
+            // sites or the admitted body-default above. An arbitrary edge
+            // fallback must not reconnect a hidden Prompt/Style role.
+            // Model View keeps its separate native edge branch above.
+            if host.is_flow() {
                 continue;
             }
             let snap = host.snap([world.x, world.y]);
@@ -80,7 +104,7 @@ impl SlateApp {
                     .doc()
                     .scene
                     .node(from.0)
-                    .map(|n| port_point(n, from.1, from.2)),
+                    .map(|n| self.wire_port_point(n, from.1, from.2)),
                 _ => None,
             };
             if let Some(o) = origin {
@@ -102,7 +126,7 @@ impl SlateApp {
                     .doc()
                     .scene
                     .node(from.0)
-                    .map(|n| port_point(n, from.1, from.2)),
+                    .map(|n| self.wire_port_point(n, from.1, from.2)),
                 _ => None,
             };
             let skip: Vec<NodeId> = exclude.into_iter().collect();
@@ -199,6 +223,21 @@ impl SlateApp {
                 }
             },
             WireMode::Detach { conn, before, .. } => {
+                if let NodeKind::Connector(old) = &before.kind {
+                    if let Some(target) =
+                        slate_doc::agent_inputs::generator_memory_target(&self.doc().scene, old)
+                    {
+                        // Restore the live preview before journaling the cut so
+                        // Undo restores both exact endpoints and context mode.
+                        if let Some(node) = self.doc_mut().scene.node_mut(conn) {
+                            *node = before;
+                        }
+                        if wd.snap.is_none() {
+                            self.artifact_disconnect_memory(target);
+                        }
+                        return;
+                    }
+                }
                 if let Some(mut after) = self.doc().scene.node(conn).cloned() {
                     if let (NodeKind::Connector(old), NodeKind::Connector(new)) =
                         (&before.kind, &mut after.kind)
@@ -206,7 +245,7 @@ impl SlateApp {
                         new.binding = self.rebind_wire(old, new);
                     }
                     if after != before {
-                        let promotion = self.image_wire_target_command(&after);
+                        let promotion = self.graph_wire_settings_commands(&after);
                         let mut commands = vec![SceneCmd::Patch {
                             before: Box::new(before),
                             after: Box::new(after),
@@ -252,9 +291,11 @@ impl SlateApp {
                     let n = cmds.len();
                     let promotions: std::collections::BTreeMap<_, _> = cmds
                         .iter()
-                        .filter_map(|cmd| match cmd {
-                            SceneCmd::Patch { after, .. } => self.image_wire_target_command(after),
-                            _ => None,
+                        .flat_map(|cmd| match cmd {
+                            SceneCmd::Patch { after, .. } => {
+                                self.graph_wire_settings_commands(after)
+                            }
+                            _ => Vec::new(),
                         })
                         .map(|cmd| match &cmd {
                             SceneCmd::Patch { after, .. } => (after.id, cmd),

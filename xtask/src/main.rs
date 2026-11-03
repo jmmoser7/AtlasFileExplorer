@@ -11,7 +11,7 @@ use xtask::{
 };
 
 const USAGE: &str =
-    "usage: cargo xtask <metrics | map [--check] | contracts | kits [dir] | theme | size [--update-ceilings]>";
+    "usage: cargo xtask <metrics | observatory | observatory-graph | observatory-source | map [--check] | contracts | kits [dir] | theme | size [--update-ceilings]>";
 
 fn main() -> ExitCode {
     match run() {
@@ -27,6 +27,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let command = std::env::args().nth(1);
     match command.as_deref() {
         Some("metrics") => metrics(),
+        Some("observatory") => {
+            let root = std::env::current_dir()?;
+            xtask::observatory::write(&root)?;
+            println!("wrote tools/slate-observatory/data.js and theme.css");
+            Ok(())
+        }
+        Some("observatory-graph") => {
+            xtask::observatory_graph::write(&std::env::current_dir()?)?;
+            println!("wrote tools/slate-observatory/code-graph.js");
+            Ok(())
+        }
+        Some("observatory-source") => xtask::observatory_source::run(),
         Some("map") => code_map(),
         Some("contracts") => contracts(),
         Some("kits") => kits(std::env::args().nth(2)),

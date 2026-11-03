@@ -565,6 +565,7 @@ fn v2_document() -> SlateDoc {
     let mut text = scene.build_node(
         WorldRect::new(640.0, 460.0, 420.0, 120.0),
         NodeKind::Text(TextNode {
+            answers: Default::default(),
             text: "Harbour frontage — draft".into(),
             style: Default::default(),
             family: Typeface::Serif,

@@ -114,16 +114,13 @@ fn measured_generators_use_datum_history_space_before_adding_a_row() {
         };
         let empty = measure(900.0, 0);
         let preserved = measure(900.0, 12);
-        assert_eq!(
-            empty.height, 94.0,
-            "12 inset + 24 datum + 6 gap + 40 prompt + 12 inset"
-        );
+        assert_eq!(empty.height, 68.0, "28 datum + 32 prompt + 8 lower inset");
         assert_eq!(
             preserved.height, empty.height,
             "history fits the datum lane"
         );
         assert!(preserved.history.unwrap().bottom() < preserved.prompt.top());
-        assert_eq!(preserved.prompt.height(), 40.0);
+        assert_eq!(preserved.prompt.height(), 32.0);
     }
     let empty = image_agent_layout(
         &ctx,
@@ -137,8 +134,8 @@ fn measured_generators_use_datum_history_space_before_adding_a_row() {
     );
     assert_eq!(
         preserved.height - empty.height,
-        32.0,
-        "a narrow free lane uses one paged row"
+        0.0,
+        "a narrow datum paginates without adding a row"
     );
     let single = image_agent_layout(
         &ctx,
@@ -152,10 +149,10 @@ fn measured_generators_use_datum_history_space_before_adding_a_row() {
     );
     assert_eq!(
         overflow.height - single.height,
-        32.0,
-        "a chip-only lane cannot strand the overflow navigation controls"
+        0.0,
+        "paged history stays on the header datum"
     );
-    assert!(history::fits(overflow.history.unwrap().width(), 12));
+    assert!(!overflow.visible_history_range(12, None).is_empty());
 }
 
 #[test]
@@ -199,18 +196,21 @@ fn errors_and_approval_stay_visible_with_one_activity_header_at_every_fold() {
                 &chrome,
             ),
         );
-        assert_eq!(measured.summary.unwrap().height(), 24.0);
+        assert!(
+            measured.summary.is_none(),
+            "activity does not add a summary row"
+        );
         let approval = measured.approval.unwrap();
-        assert!(approval.top() >= measured.summary.unwrap().bottom() + 6.0);
-        assert!(measured.prompt.top() >= approval.bottom() + 6.0);
+        assert!(approval.top() >= 36.0);
+        assert!(measured.prompt.top() >= approval.bottom() + 2.0);
         assert_eq!(
             measured.activity.map(|rect| rect.height()),
             match fold {
                 activity::CardFold::Collapsed => None,
-                activity::CardFold::Partial => Some(96.0),
+                activity::CardFold::Partial => Some(220.0),
                 activity::CardFold::Open => Some(480.0),
             }
         );
-        assert_eq!(measured.prompt.height(), 40.0);
+        assert_eq!(measured.prompt.height(), 20.0);
     }
 }

@@ -13,9 +13,14 @@ impl SlateApp {
         node: &Node,
         portal: &PortalNode,
     ) {
-        let Some(agent) = portal.agent.as_ref() else {
-            return;
+        let agent = portal.agent.as_deref();
+        let pending_chat = slate_doc::agent_chat::ChatView {
+            train: true,
+            detail: slate_doc::agent_chat::Detail::Pair,
+            ..Default::default()
         };
+        let chat = agent.map(|a| &a.chat).unwrap_or(&pending_chat);
+        let provider = agent.map_or("", |a| a.provider.as_str());
         let z = xf.z;
         let rect = xf.rect_w2s(node.rect);
         let card = atlas_shell::tokens::current().chat_card;
@@ -30,7 +35,7 @@ impl SlateApp {
         }
         let anchor = chat_dot_center(rect, false, z);
         let (status_color, status_label, pulse) = agent_status_chip(
-            &agent.provider,
+            provider,
             self.agents.ide,
             self.agents.session(node.id).map(|s| &s.status),
             self.agents.awaiting.get(&node.id),
@@ -56,9 +61,7 @@ impl SlateApp {
         }
         let title = portal.title.clone();
         let running = self.agent_is_running(node.id);
-        let show_model = (agent.provider == "codex"
-            || agent.provider == "cursor"
-            || agent.provider.starts_with("ollama"))
+        let show_model = (!provider.is_empty() || self.pending_generator_host(node.id).is_some())
             && self.agents.project_picker != Some(node.id)
             && !self
                 .agents
@@ -103,6 +106,9 @@ impl SlateApp {
             } else if edit.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 self.board_sel.clear();
                 self.board_sel.insert(node.id);
+                if agent.is_none() {
+                    self.prepare_unbound_chat_presentation(node.id);
+                }
                 self.dispatch(
                     ui.ctx(),
                     atlas_commands::CommandId("portal.agent.rename"),
@@ -111,9 +117,13 @@ impl SlateApp {
                 self.agents.title_edit = None;
             }
         } else {
-            let tail = agent.chat.draft || !self.agent_has_child(node.id);
-            let model_owned = show_model.then(|| self.model_menu_label(agent));
-            let full = show_model && self.agent_full_access(&agent.session);
+            let tail = chat.draft || !self.agent_has_child(node.id);
+            let model_owned = show_model.then(|| {
+                agent
+                    .filter(|a| !a.provider.is_empty())
+                    .map(|a| self.model_menu_label(a))
+                    .unwrap_or_else(|| "Choose model".into())
+            });
             let font = canvas_scale::font(card.title_size, z);
             let rise = interactive_text::x_height_rise(painter, &font);
             let dot_top =
@@ -183,68 +193,16 @@ impl SlateApp {
                 );
                 self.paint_header_responding(&mut respond, node.id, z);
             } else if tail {
-                if let Some(model_name) = model_owned.as_deref() {
-                    let color = atlas_shell::selection_tools::generator::access::ink(full, palette);
-                    let mut model = interactive_text::hover_interactive_text(
-                        ui,
-                        Id::new(("agent-model-name", node.id.0)),
+                if model_owned.is_some() {
+                    let hit = Rect::from_min_max(
                         Pos2::new(x, at.y),
-                        model_name,
-                        z,
-                        card.title_size,
-                        color,
+                        Pos2::new(title_rect.right().max(x + 20.0 * z), at.y + 20.0 * z),
                     );
-                    let hit = model.rect;
-                    model =
-                        atlas_shell::selection_tools::generator::access::label_hint(model, full);
-                    if model.clicked() {
-                        let open = self.agents.model_menu == Some(node.id);
-                        self.agents.model_menu = (!open).then_some(node.id);
-                        self.agents.model_menu_armed = false;
-                    }
+                    self.paint_chat_model_picker(ui, node.id, agent, hit, z);
                     model_rect = Some(hit);
                 }
             }
-            if tail {
-                if let Some(menu_at) =
-                    model_rect.filter(|_| self.agents.model_menu == Some(node.id))
-                {
-                    let mut armed = self.agents.model_menu_armed;
-                    let shown = atlas_shell::menu::anchored_measured(
-                        ui.ctx(),
-                        Id::new(("agent-model-menu", node.id.0)),
-                        ui.layer_id(),
-                        menu_at.left_bottom() + egui::vec2(0.0, canvas_scale::px(2.0, z)),
-                        palette.dark_mode,
-                        ui.ctx().screen_rect().width(),
-                        Some(&mut armed),
-                        |ui| self.model_menu_items(ui, node.id, agent, z),
-                    );
-                    let chosen = shown.inner;
-                    self.agents.model_menu_armed = armed;
-                    let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
-                    let pressed_title = ui.input(|i| {
-                        i.pointer.any_pressed()
-                            && i.pointer
-                                .interact_pos()
-                                .is_some_and(|p| menu_at.contains(p))
-                    });
-                    if chosen.is_some() || escape || (shown.dismissed && !pressed_title) {
-                        self.agents.model_menu = None;
-                        self.agents.model_menu_rect = None;
-                    } else {
-                        self.agents.model_menu_rect = Some(shown.rect);
-                    }
-                    if let Some(model) = chosen {
-                        self.board_sel = std::iter::once(node.id).collect();
-                        self.dispatch(
-                            ui.ctx(),
-                            atlas_commands::CommandId("portal.agent.model"),
-                            Some(model),
-                        );
-                    }
-                }
-            } else if self.agents.model_menu == Some(node.id) {
+            if !tail && self.agents.model_menu == Some(node.id) {
                 self.agents.model_menu = None;
                 self.agents.model_menu_rect = None;
             }
@@ -252,7 +210,7 @@ impl SlateApp {
                 ui.ctx().data_mut(|d| d.insert_temp(model_key, hit));
             }
         }
-        let draft = agent.chat.draft;
+        let draft = chat.draft;
         let leaf = !self.agent_has_child(node.id);
         // Cluster stays pinned to the old right edge. Dot size and spacing are tokens.
         let legacy_r = canvas_scale::px(3.5, z);
@@ -292,7 +250,7 @@ impl SlateApp {
             widget.bg_stroke = egui::Stroke::NONE;
         }
         let (mut command, mut command_detail) =
-            self.agent_header_menu(&mut menu_ui, menu_rect, node, agent, running, leaf);
+            self.agent_header_menu(&mut menu_ui, menu_rect, node, agent, chat, running, leaf);
         let dots_hot = ui
             .ctx()
             .pointer_hover_pos()
@@ -322,7 +280,7 @@ impl SlateApp {
                 palette.sub.gamma_multiply(if near { 0.9 } else { 0.72 }),
             );
         }
-        if !draft && !(agent.chat.train && !agent.chat.bundled.is_empty()) {
+        if !draft && !(chat.train && !chat.bundled.is_empty()) {
             if let Some(detail) =
                 self.paint_agent_collapse_toggle(ui, node, rect, menu_rect.left(), dot_cy, z)
             {
@@ -331,6 +289,23 @@ impl SlateApp {
             }
         }
         if let Some(command) = command {
+            if self.pending_generator_host(node.id).is_some()
+                && [
+                    "portal.agent.chat",
+                    "portal.agent.train",
+                    "portal.agent.pairs",
+                    "portal.agent.full",
+                    "portal.agent.collapse",
+                    "portal.agent.fit",
+                ]
+                .contains(&command)
+                && !self.bind_pending_chat(node.id)
+            {
+                return;
+            }
+            if agent.is_none() && command.starts_with("portal.agent.") {
+                self.prepare_unbound_chat_presentation(node.id);
+            }
             if command != "portal.agent.bundle_chat" {
                 self.board_sel.clear();
                 self.board_sel.insert(node.id);

@@ -30,8 +30,8 @@ defect (`paint_atlas_empty` vs `paint_portal_empty`).
 - Ephemeral selection control frames and pointer hit regions, only as named
   in `docs/keymap/contracts/selection-hit-regions.md` / **P1.node.hit-regions**.
   Their screen-space reach depends on projected host size and cursor proximity.
-  Transient wire-port dots, their matching host cutouts, and port-role labels
-  share that domain's projected-size relevance and bounded screen presentation.
+  Wire-port dots, matching host cutouts and port-role labels follow P0.9;
+  projected relevance may hide them, but cannot hold their paint screen-sized.
   Transient fillet-grip squares share Resize prominence and bounded screen paint.
   This exception does not enlarge or clamp authored object paint, authored or
   content labels, property strips, dimension stringers, or portal tabs.

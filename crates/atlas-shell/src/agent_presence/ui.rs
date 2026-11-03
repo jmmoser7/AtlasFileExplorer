@@ -229,11 +229,7 @@ pub(super) fn draw_glyph(p: &Painter, r: Rect, glyph: Glyph, color: Color32) {
                 egui::Stroke::NONE,
             ));
         }
-        Glyph::More => {
-            for x in [-s * 0.3, 0.0, s * 0.3] {
-                p.circle_filled(center + Vec2::new(x, 0.0), s * 0.07, color);
-            }
-        }
+        Glyph::More => icons::paint_more(p, center, s * 0.3, s * 0.07, color),
         Glyph::Send => {
             p.line_segment(
                 [

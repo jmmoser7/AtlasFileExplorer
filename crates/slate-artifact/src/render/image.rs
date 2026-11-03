@@ -50,13 +50,25 @@ pub(super) fn render_image(
         render_img_tag(html, url, img, node.id);
     } else if img.agent.is_some() && img.item.is_none() {
         // Not generated yet: an empty picture, not a missing file.
-    } else if let Some(text) = img
-        .text_override
-        .as_deref()
+    } else if let Some(text) = assets
+        .agent_reply(node.id)
+        .or(img.text_override.as_deref())
         .filter(|_| path_opt.is_some_and(|path| media_kind(path) == MediaKind::Text))
     {
         let path = path_opt.unwrap();
-        render_text_card(html, assets.get(path), file_name, Some(text), path);
+        render_text_card(
+            html,
+            assets.get(path),
+            file_name,
+            Some(text),
+            path,
+            node.id,
+            &img.answers,
+            img.text_override
+                .is_none()
+                .then(|| item.map(|item| item.cache_key.as_str()))
+                .flatten(),
+        );
     } else if missing {
         html.push_str("<div class=\"missing\">");
         html.push_str(&escape_html(file_name));
@@ -74,7 +86,16 @@ pub(super) fn render_image(
                 if let Some(sheet) = assets.sheet(path) {
                     render_sheet_card(html, url, file_name, sheet, &img.sheet);
                 } else {
-                    render_text_card(html, Some(url), file_name, assets.snippet(path), path);
+                    render_text_card(
+                        html,
+                        Some(url),
+                        file_name,
+                        assets.snippet(path),
+                        path,
+                        node.id,
+                        &img.answers,
+                        item.map(|item| item.cache_key.as_str()),
+                    );
                 }
             }
             // 3D models: the frozen-camera poster for exactly this node,
@@ -146,6 +167,9 @@ fn render_text_card(
     file_name: &str,
     snippet: Option<&str>,
     path: &std::path::Path,
+    id: NodeId,
+    answers: &[slate_doc::text_answers::TextAnswer],
+    revision: Option<&str>,
 ) {
     let Some(snippet) = snippet else {
         if let Some(url) = url {
@@ -153,7 +177,13 @@ fn render_text_card(
         }
         return;
     };
-    if let Some(url) = url {
+    let answers = answers
+        .iter()
+        .filter(|answer| answer.is_valid_for_revision(snippet, revision))
+        .cloned()
+        .collect::<Vec<_>>();
+    let outer_link = answers.is_empty() && url.is_some();
+    if let Some(url) = url.filter(|_| outer_link) {
         html.push_str("<a class=\"textcard\" href=\"");
         html.push_str(&escape_attr(url));
         html.push_str("\" target=\"_blank\">");
@@ -161,14 +191,25 @@ fn render_text_card(
         html.push_str("<div class=\"textcard\">");
     }
     html.push_str("<pre>");
-    html.push_str(&escape_html(snippet));
+    text_answers::render_inline(html, id, snippet, &answers);
     html.push_str("</pre><span class=\"fname\">");
+    if !outer_link {
+        if let Some(url) = url {
+            html.push_str("<a style=\"pointer-events:auto\" href=\"");
+            html.push_str(&escape_attr(url));
+            html.push_str("\" target=\"_blank\" rel=\"noreferrer noopener\">");
+        }
+    }
     html.push_str(&escape_html(file_name));
-    html.push_str(if url.is_some() {
+    if !outer_link && url.is_some() {
+        html.push_str("</a>");
+    }
+    html.push_str(if outer_link {
         "</span></a>"
     } else {
         "</span></div>"
     });
+    text_answers::render_answers(html, id, snippet, &answers);
 }
 
 #[cfg(test)]

@@ -140,6 +140,21 @@ impl HostChannel {
         result.map_err(HostError::before_dispatch)
     }
 
+    /// Trusted host dispatch only; never pass peer-supplied grants.
+    pub fn grant_draft_authority(
+        &mut self,
+        grant_id: &str,
+        agent_id: &str,
+        source: &SourceScope,
+        command_ids: &[String],
+    ) -> Result<(), ProtocolError> {
+        self.session
+            .grant_draft_authority(grant_id, agent_id, source, command_ids)
+    }
+    pub fn revoke_draft_authority(&mut self, grant_id: &str) -> bool {
+        self.session.revoke_draft_authority(grant_id)
+    }
+
     pub fn session(&self) -> &Session {
         &self.session
     }

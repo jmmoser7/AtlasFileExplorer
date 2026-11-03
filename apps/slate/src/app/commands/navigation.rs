@@ -33,3 +33,37 @@ pub(super) const PAN_SCROLL: CommandSpec = spec(
     GLOBAL,
     &[],
 );
+
+pub(super) const ZOOM_TOOL: CommandSpec = spec(
+    "canvas.tool.zoom",
+    "Navigation",
+    "Zoom tool",
+    "Z — click = zoom in, Alt + click = out, drag = zoom window; \
+         Esc or Z disarms (Board)",
+    Some(Chord::bare(Key::Z)),
+    Repeat::Never,
+    Availability::BOARD_VIEW,
+    &["magnify", "zoom window"],
+);
+
+pub(super) const ZOOM_IN: CommandSpec = spec(
+    "canvas.zoom_in",
+    "Navigation",
+    "Zoom in / out",
+    "+ / −",
+    None, // handled per-view next to fit
+    Repeat::Never,
+    GLOBAL,
+    &[],
+);
+
+pub(super) const MINIMAP: CommandSpec = spec(
+    "canvas.minimap",
+    "Navigation",
+    "Minimap",
+    "M",
+    Some(Chord::bare(Key::M)),
+    Repeat::Repeatable,
+    GLOBAL,
+    &["map", "overview"],
+);

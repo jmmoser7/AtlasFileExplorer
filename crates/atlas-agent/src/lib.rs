@@ -71,9 +71,20 @@ pub struct AgentRequest {
     /// Explicit replay into a fresh provider session, never an implicit attach.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub history: Vec<AgentTurn>,
+    /// Exact source explicitly invoked from its Text Agent panel. Kept separate
+    /// from the user's message and from conversation history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_source: Option<String>,
     /// Image-engine controls. Chat providers ignore them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image: Option<ImageParams>,
+    /// Captured Images-panel dialogue policy. None preserves legacy adapters;
+    /// OFF does not erase the public conversation retained for a later ON run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_history: Option<bool>,
+    /// Exact inherited prefix captured with the public Image history at Send.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_history_prefix: Option<u32>,
     /// Owned staged artifact generation; absent for ordinary chat and images.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact: Option<ArtifactRun>,
@@ -194,6 +205,7 @@ pub use activity::*;
 mod activity_semantics;
 pub use activity_semantics::*;
 pub mod collaborator;
+pub mod control;
 #[cfg(test)]
 mod manifest_tests;
 pub mod presence;

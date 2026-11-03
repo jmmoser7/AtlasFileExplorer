@@ -5,7 +5,7 @@ use common::*;
 #[test]
 fn exact_versions_and_required_groups_are_enforced() {
     let mut hello = MockConnector::new(identity("alpha")).hello();
-    hello.versions = vec![ProtocolVersion { major: 0, minor: 2 }];
+    hello.versions = vec![ProtocolVersion { major: 0, minor: 3 }];
     expect_error(
         Session::negotiate(&HostPolicy::default(), &hello, "s".into(), 1),
         ErrorCode::IncompatibleProtocol,
@@ -141,7 +141,8 @@ fn source_scoped_groups_explicitly_require_source_binding_capability() {
 #[test]
 fn schemas_and_fixtures_come_from_serializable_public_types() {
     let schemas = schema_documents();
-    assert_eq!(schemas.len(), 10);
+    assert_eq!(schemas.len(), 11);
+    assert!(schemas.contains_key("capture-metadata.schema.json"));
     assert!(schemas["wire-frame.schema.json"]["$defs"].is_object());
     for (_, frame) in fixture_frames() {
         let mut bytes = Vec::new();

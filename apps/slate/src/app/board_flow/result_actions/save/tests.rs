@@ -4,6 +4,9 @@ use super::*;
 fn batch_save_preserves_pixels_and_numbers_repeated_existing_destinations() {
     let (mut h, host) = super::super::tests::fixture("result-batch-save");
     let address = ResultAddress {
+        references: Vec::new(),
+        target: None,
+        witness: None,
         tab: h.app.tab().id,
         host,
         binding: h.app.result_binding(host).unwrap(),
@@ -307,3 +310,148 @@ fn an_unavailable_next_number_does_not_fail_an_already_published_save() {
     assert!(saved.next_single.is_empty());
     assert!(destination.is_file());
 }
+
+#[test]
+fn saved_model_output_copies_bytes_and_public_provenance_without_replacing_user_json() {
+    use slate_doc::scene::{HiddenOutputRef, ModelOutputRef, SourceUri};
+    let (mut h, host) = super::super::tests::fixture("save-model-output-reference");
+    let source = h.base.join("immutable-model.3dm");
+    std::fs::write(&source, b"saved immutable model bytes").unwrap();
+    let item = h.app.item_for_ready_path(&source, 27, 0);
+    let mut agent = slate_doc::agent_chat::agent(h.app.doc().scene.node(host).unwrap())
+        .unwrap()
+        .clone();
+    agent.provider = "codex".into();
+    agent.seed = None;
+    agent.bundle = None;
+    agent.generator.model_outputs = vec![ModelOutputRef {
+        id: "native-ticket".into(),
+        source: SourceUri {
+            locator: source.to_string_lossy().into(),
+        },
+        size: 27,
+        mtime: 0,
+    }];
+    agent.generator.shown_model = Some("native-ticket".into());
+    let mut image = ImageNode::new(item);
+    image.agent = Some(Box::new(agent));
+    h.app
+        .patch_nodes(&[host], |node| node.kind = NodeKind::Image(image.clone()));
+    let address = ResultAddress {
+        tab: h.app.tab().id,
+        host,
+        binding: h.app.result_binding(host).unwrap(),
+        outputs: vec!["native-ticket".into()],
+        references: vec![HiddenOutputRef::Model {
+            ticket: "native-ticket".into(),
+        }],
+        target: Some("native-ticket".into()),
+        witness: None,
+    };
+    let (doc, nodes) = h.app.result_payload(&address);
+    let snapshot = SaveSnapshot {
+        target: SaveTarget::Results(address),
+        doc,
+        nodes,
+        workbook: None,
+        extensions: vec!["3dm".into()],
+    };
+    let destination = h.base.join("model-copy.3dm");
+    let saved = worker::save(&snapshot, std::slice::from_ref(&destination)).unwrap();
+    assert_eq!(
+        std::fs::read(&saved.paths[0]).unwrap(),
+        std::fs::read(&source).unwrap()
+    );
+    let sidecar = atlas_core::workbook_assets::sidecar_path(&saved.paths[0]);
+    let provenance: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(sidecar).unwrap()).unwrap();
+    assert_eq!(provenance["source_run"], "native-ticket");
+    assert_eq!(provenance["prompt"], "");
+    let collision = h.base.join("user-data.3dm");
+    let user_json = atlas_core::workbook_assets::sidecar_path(&collision);
+    std::fs::write(&user_json, b"user data kept intact").unwrap();
+    assert!(worker::save(&snapshot, &[collision]).is_err());
+    assert_eq!(std::fs::read(user_json).unwrap(), b"user data kept intact");
+}
+
+#[test]
+fn text_result_choice_and_save_keep_authored_words_and_exclude_unlinked_review_reply() {
+    use slate_doc::scene::HiddenOutputRef;
+    use slate_doc::text_answers::{TextAnswerRef, TextOutputRef, TextReview};
+    let (mut h, host) = super::super::tests::fixture("save-public-text-review");
+    let mut agent = slate_doc::agent_chat::agent(h.app.doc().scene.node(host).unwrap())
+        .unwrap()
+        .clone();
+    let response = TextAnswerRef {
+        session: agent.session.clone(),
+        through: 2,
+    };
+    agent.generator.text_response_only = true;
+    agent.generator.text_reviews = vec![TextReview {
+        id: "review-request".into(),
+        group: "request-group".into(),
+        source: "Public authored words".into(),
+        source_revision: None,
+        selection: None,
+        question: "Revise it".into(),
+        text: "PRIVATE_UNLINKED_PROPOSAL".into(),
+        edit: true,
+        output: TextOutputRef {
+            review_id: Some("review-request".into()),
+            source: slate_doc::SourceUri {
+                locator: h.base.join("private-history.json").to_string_lossy().into(),
+            },
+            response: response.clone(),
+        },
+    }];
+    let mut text = slate_doc::scene::TextNode::agent_note(agent);
+    text.text = "Public authored words".into();
+    h.app
+        .patch_nodes(&[host], |node| node.kind = NodeKind::Text(text.clone()));
+    let reference = HiddenOutputRef::Text {
+        review_id: Some("review-request".into()),
+        response,
+    };
+    let choice = h
+        .app
+        .prepare_result_output_mutation(host, &reference, false)
+        .unwrap();
+    assert!(h.app.commit_scene(vec![choice]));
+    assert_eq!(
+        h.app.text_answer_source(host).unwrap().0,
+        "Public authored words"
+    );
+    let address = ResultAddress {
+        tab: h.app.tab().id,
+        host,
+        binding: h.app.result_binding(host).unwrap(),
+        outputs: vec!["review-request".into()],
+        references: vec![reference],
+        target: Some("review-request".into()),
+        witness: None,
+    };
+    let (doc, nodes) = h.app.result_payload(&address);
+    assert!(nodes
+        .iter()
+        .all(|node| slate_doc::agent_chat::agent(node).is_none()));
+    let snapshot = SaveSnapshot {
+        target: SaveTarget::Results(address),
+        doc,
+        nodes,
+        workbook: None,
+        extensions: vec!["txt".into()],
+    };
+    let destination = h.base.join("public-text.txt");
+    worker::save(&snapshot, std::slice::from_ref(&destination)).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(destination).unwrap(),
+        "Public authored words"
+    );
+    assert_eq!(
+        h.app.text_review(host).unwrap().text,
+        "PRIVATE_UNLINKED_PROPOSAL"
+    );
+}
+
+#[path = "tests/html.rs"]
+mod html;

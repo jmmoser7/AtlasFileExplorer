@@ -89,11 +89,72 @@ fn save_base_and_recursive_sources_survive_without_opening_sources() {
     agent.bundle = Some(SourceUri {
         locator: "history/conversation".into(),
     });
+    agent.generator.archived_history = vec![SourceUri {
+        locator: "private/archive.json".into(),
+    }];
+    agent.generator.shown_text = Some(crate::text_answers::TextOutputRef {
+        review_id: None,
+        source: SourceUri {
+            locator: "private/answers.json".into(),
+        },
+        response: crate::text_answers::TextAnswerRef {
+            session: "fixture".into(),
+            through: 1,
+        },
+    });
+    agent
+        .generator
+        .text_reviews
+        .push(crate::text_answers::TextReview {
+            id: "request-output".into(),
+            group: "request".into(),
+            source: "Private captured Unicode café".into(),
+            source_revision: None,
+            selection: Some(0..7),
+            question: "Private question".into(),
+            text: "Private proposed words".into(),
+            edit: true,
+            output: crate::text_answers::TextOutputRef {
+                review_id: Some("request-output".into()),
+                source: SourceUri {
+                    locator: "private/review-session.json".into(),
+                },
+                response: crate::text_answers::TextAnswerRef {
+                    session: "actual-session".into(),
+                    through: 2,
+                },
+            },
+        });
+    agent.generator.shown_review = Some(0);
+    agent.generator.model_outputs = vec![crate::scene::ModelOutputRef {
+        id: "model1".into(),
+        source: SourceUri {
+            locator: "models/one.3dm".into(),
+        },
+        size: 1,
+        mtime: 0,
+    }];
     let mut child_scene = crate::Scene::default();
+    let mut child_image = ImageNode::generated(agent);
+    let mut answer = crate::text_answers::TextAnswer::new(
+        "x",
+        0..1,
+        crate::text_answers::TextAnswerRef {
+            session: "fixture".into(),
+            through: 1,
+        },
+        "question".into(),
+        "answer".into(),
+    )
+    .unwrap();
+    answer.origin = Some(SourceUri {
+        locator: "private/answer-origin.json".into(),
+    });
+    child_image.answers.push(answer);
     add_node(
         &mut child_scene,
         WorldRect::new(0.0, 0.0, 1.0, 1.0),
-        NodeKind::Image(ImageNode::generated(agent)),
+        NodeKind::Image(child_image),
     );
     let mut image = ImageNode::new(item);
     let mut layer = PaintLayer::new(PaintLayerId(1));
@@ -128,6 +189,36 @@ fn save_base_and_recursive_sources_survive_without_opening_sources() {
     let NodeKind::Image(child) = &image.paint_layers[0].nodes[0].kind else {
         panic!()
     };
+    let settings = &child.agent.as_ref().unwrap().generator;
+    assert_eq!(settings.shown_review, Some(0));
+    assert_eq!(
+        settings.text_reviews[0].source,
+        "Private captured Unicode café"
+    );
+    assert_eq!(
+        Path::new(&settings.text_reviews[0].output.source.locator),
+        base.join("private/review-session.json")
+    );
+    assert_eq!(
+        settings.text_reviews[0].output.review_id.as_deref(),
+        Some("request-output")
+    );
+    assert_eq!(
+        Path::new(&child.answers[0].origin.as_ref().unwrap().locator),
+        base.join("private/answer-origin.json")
+    );
+    assert_eq!(
+        Path::new(&settings.archived_history[0].locator),
+        base.join("private/archive.json")
+    );
+    assert_eq!(
+        Path::new(&settings.shown_text.as_ref().unwrap().source.locator),
+        base.join("private/answers.json")
+    );
+    assert_eq!(
+        Path::new(&settings.model_outputs[0].source.locator),
+        base.join("models/one.3dm")
+    );
     assert_eq!(
         Path::new(
             &child

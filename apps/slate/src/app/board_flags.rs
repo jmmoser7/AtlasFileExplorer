@@ -235,6 +235,62 @@ impl SlateApp {
             .show(ctx, |ui| {
                 metrics.frame(dark).show(ui, |ui| {
                     metrics.prepare(ui, dark);
+                    // Native canvas capabilities stay here; the three plain
+                    // Studio input-source commands share this existing Add surface.
+                    let world = self.board_xf().s2w(pos);
+                    let source_at = ctx.data_mut(|data| {
+                        let key = egui::Id::new(("plain-input-context-world", self.tab().id));
+                        if let Some((opened, at)) = data
+                            .get_temp::<(egui::Pos2, [f32; 2])>(key)
+                            .filter(|(opened, _)| *opened == pos)
+                        {
+                            let _ = opened;
+                            at
+                        } else {
+                            let at = [world.x, world.y];
+                            data.insert_temp(key, (pos, at));
+                            at
+                        }
+                    });
+                    for (kind, label) in [
+                        ("image", "Add image input"),
+                        ("text", "Add text input"),
+                        ("style", "Add style image input"),
+                    ] {
+                        let response = ui
+                            .add_enabled_ui(!self.tab().read_only, |ui| {
+                                metrics.row(
+                                    ui,
+                                    atlas_shell::menu::Row::new(
+                                        atlas_shell::menu::MenuIcon::None,
+                                        label,
+                                    ),
+                                    dark,
+                                )
+                            })
+                            .inner;
+                        #[cfg(test)]
+                        {
+                            let transform = ctx
+                                .layer_transform_to_global(response.layer_id)
+                                .unwrap_or_default();
+                            ctx.data_mut(|data| {
+                                data.insert_temp(
+                                    egui::Id::new(("painted-plain-input-menu-hit", kind)),
+                                    transform * response.rect,
+                                )
+                            });
+                        }
+                        if response.clicked() {
+                            self.dispatch(
+                                ctx,
+                                atlas_commands::CommandId("board.input.add"),
+                                Some(serde_json::json!({"kind":kind,"at":source_at}).to_string()),
+                            );
+                            close = true;
+                        }
+                    }
+                    metrics.separator(ui, dark);
                     for entry in crate::app::board::board_menu::entries("canvas") {
                         use atlas_shell::menu::{MenuIcon, Row};
                         let (icon, label, shortcut) = match entry {
@@ -278,6 +334,12 @@ impl SlateApp {
         });
         if close || dismiss {
             self.board_empty_menu = None;
+            ctx.data_mut(|data| {
+                data.remove::<(egui::Pos2, [f32; 2])>(egui::Id::new((
+                    "plain-input-context-world",
+                    self.tab().id,
+                )));
+            });
         }
     }
 

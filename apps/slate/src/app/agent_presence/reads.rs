@@ -1,9 +1,11 @@
 //! Incremental, generation-fenced board reads. No whole-board pass on a frame.
 use super::*;
 use serde_json::{json, Value};
+mod image_history;
 mod participants;
 mod text_page;
 use self::participants::helper_result_preview;
+pub(super) use image_history::recognizes as image_history_view;
 
 pub(super) struct ReadJob {
     pub call: BoardCall,
@@ -23,10 +25,12 @@ pub(super) struct ReadJob {
     text_generation: Option<String>,
     text_page: Option<text_page::TextPage>,
     preview: Option<super::board_preview::PreviewJob>,
+    history_page: Option<image_history::HistoryPage>,
 }
 impl ReadJob {
     pub(super) fn new(call: BoardCall, generation: u64) -> Result<Self, String> {
         let text_page = text_page::TextPage::parse(&call, generation)?;
+        let history_page = image_history::HistoryPage::parse(&call, generation)?;
         let (node_ids, participant_ids, offset, limit, text_cursor, text_limit, text_generation) =
             match &call.operation {
                 BoardOperation::Read {
@@ -57,7 +61,9 @@ impl ReadJob {
                 }
                 BoardOperation::Invoke {
                     command, targets, ..
-                } if command == "presence.read_text" && targets.len() == 1 => {
+                } if (command == "presence.read_text" || history_page.is_some())
+                    && targets.len() == 1 =>
+                {
                     (targets.as_slice(), None, 0, 1, None, None, None)
                 }
                 BoardOperation::Invoke {
@@ -97,6 +103,7 @@ impl ReadJob {
             text_generation,
             text_page,
             preview: None,
+            history_page,
         })
     }
 }
@@ -110,6 +117,9 @@ impl SlateApp {
             return Err("Wait for the current board action or read".into());
         }
         let mut job = ReadJob::new(call.clone(), self.doc().scene.scene_gen())?;
+        if let Some(page) = job.history_page.as_mut() {
+            page.initialize(self, a.grant.as_ref().ok_or("Read grant revoked")?)?;
+        }
         if matches!(&call.operation, BoardOperation::Invoke { command, .. } if command == "presence.preview")
         {
             job.preview = Some(super::board_preview::PreviewJob::new(
@@ -219,7 +229,10 @@ impl SlateApp {
                     return Ok(false);
                 }
             }
-            if job.text_page.is_some() {
+            if let Some(page) = &job.history_page {
+                page.value(self, grant)?;
+            }
+            if job.text_page.is_some() || job.history_page.is_some() {
                 if *budget == 0 {
                     return Ok(false);
                 }
@@ -266,6 +279,20 @@ impl SlateApp {
                 None
             }
             Ok(true) => {
+                if let Some(page) = &job.history_page {
+                    let result = page.value(self, a.grant.as_ref().unwrap());
+                    a.activity = "working".into();
+                    return Some(match result {
+                        Ok(result) => BoardReply {
+                            id: job.call.id.clone(),
+                            session_id: a.binding.session_id.clone(),
+                            request_id: a.request.clone(),
+                            success: true,
+                            result,
+                        },
+                        Err(error) => BoardReply::error(&job.call, &error),
+                    });
+                }
                 if let Some(preview) = job.preview.as_mut() {
                     a.activity = "working".into();
                     return Some(BoardReply {

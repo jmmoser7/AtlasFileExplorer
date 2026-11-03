@@ -154,7 +154,9 @@ impl SlateApp {
                 let agent = p.agent.as_ref().map(|a| (&a.provider, &a.session));
                 serde_json::to_string(&(p.kind, &p.source, agent)).ok()?
             }
-            NodeKind::Image(_) if self.model_has_viewport(node) => {
+            NodeKind::Image(_)
+                if self.model_has_viewport(node) || self.application_connector_active(node) =>
+            {
                 let model = self.model_node_info(node)?;
                 format!("model:{}:{}", model.cache_key, model.path.display())
             }
@@ -172,7 +174,9 @@ impl SlateApp {
     }
 
     pub(crate) fn portal_capture_can_video(&self, node: NodeId) -> bool {
-        self.portal_capture_source(node).is_some() && self.portal_capture_rotation_supported(node)
+        !self.application_connector_active(node)
+            && self.portal_capture_source(node).is_some()
+            && self.portal_capture_rotation_supported(node)
     }
 
     fn portal_capture_rotation_supported(&self, node: NodeId) -> bool {
@@ -252,5 +256,22 @@ impl SlateApp {
         if let Some(gpu) = self.portal_chrome.capture.gpu.take() {
             gpu.destroy();
         }
+    }
+}
+
+impl SlateApp {
+    /// Foreign captures rejoin the existing publication and journal placement owner.
+    pub(crate) fn finish_external_portal_capture(
+        &mut self,
+        node: NodeId,
+        file: ReadyFile,
+        size: [u32; 2],
+        canvas: bool,
+        author: slate_doc::scene::CmdAuthor,
+    ) {
+        let Some(source) = self.portal_capture_source(node) else {
+            return;
+        };
+        self.complete_portal_capture_as(source, canvas, size, Ok(file), author);
     }
 }
