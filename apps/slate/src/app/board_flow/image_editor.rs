@@ -347,6 +347,19 @@ impl SlateApp {
             let key = Id::new(("painted-generator-composer-hit", id.0));
             ui.ctx().data_mut(|data| data.insert_temp(key, hit));
         }
+        #[cfg(test)]
+        if let Some(response) = ui.ctx().read_response(ui.id().with("image-agent-play")) {
+            let transform = ui
+                .ctx()
+                .layer_transform_to_global(response.layer_id)
+                .unwrap_or_default();
+            ui.ctx().data_mut(|data| {
+                data.insert_temp(
+                    Id::new(("painted-generator-play-hit", id.0)),
+                    transform * response.interact_rect,
+                )
+            });
+        }
         self.restore_generator_presentation(id, out.presentation);
         self.dispatch_generator_chrome(ui.ctx(), id, out.model_parameter, out.full_access);
         self.dispatch_generator_provider(id, out.provider, out.edit_key);

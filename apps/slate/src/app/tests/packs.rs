@@ -3,7 +3,7 @@
 //! has installed.
 
 use super::*;
-use atlas_ai::packs::{PackHealth, ADD_KEY_LABEL, OPENAI};
+use atlas_ai::packs::{PackHealth, OPENAI};
 
 const PACKS: [&str; 7] = [
     "cursor", "codex", "ollama", "comfy", OPENAI, "sam", "pdfium",
@@ -77,6 +77,36 @@ fn shown(h: &mut Harness) -> Vec<String> {
     painted(h, Pos2::new(2.0, 890.0))
 }
 
+fn click_picker_label(h: &mut Harness, label: &str) {
+    fn find(shape: &egui::Shape, label: &str) -> Option<Pos2> {
+        match shape {
+            egui::Shape::Text(text) if text.galley.text() == label => {
+                Some(text.visual_bounding_rect().center())
+            }
+            egui::Shape::Vec(shapes) => shapes.iter().find_map(|s| find(s, label)),
+            _ => None,
+        }
+    }
+    h.frame();
+    let out = h.frame_output(|_| {});
+    let point = out
+        .shapes
+        .iter()
+        .find_map(|s| find(&s.shape, label).filter(|point| s.clip_rect.contains(*point)))
+        .unwrap_or_else(|| panic!("visible current picker label {label}"));
+    click_board(h, point);
+    h.frame();
+}
+fn open_chat_providers(h: &mut Harness, id: NodeId) {
+    h.frame();
+    let hit = h
+        .ctx
+        .data(|d| d.get_temp::<ERect>(egui::Id::new(("agent-model-hit", id.0))))
+        .unwrap();
+    click_board(h, hit.center());
+    click_picker_label(h, "Provider");
+}
+
 #[test]
 fn a_chooser_with_no_chat_pack_has_no_cursor_and_no_launch_button() {
     let mut h = pack_board("pk1_no_chat", &[]);
@@ -85,7 +115,13 @@ fn a_chooser_with_no_chat_pack_has_no_cursor_and_no_launch_button() {
     for absent in ["Cursor", "Codex", "Ollama", "Launch Cursor", "ComfyUI"] {
         assert!(!texts.iter().any(|t| t == absent), "{absent}: {texts:?}");
     }
-    assert!(texts.iter().any(|t| t == ADD_KEY_LABEL), "{texts:?}");
+    assert!(
+        texts
+            .iter()
+            .any(|t| t == "Set up an available chat program and model in Settings."),
+        "{texts:?}"
+    );
+    assert!(h.app.agents.dispatched.is_empty());
     assert!(!h.app.ai.cursor_ok());
 }
 
@@ -105,6 +141,7 @@ fn a_cursor_install_shows_in_the_chooser_without_a_restart() {
     look_at(&mut h, portal);
     shown(&mut h); // Reopening paints the chooser and starts its new probe.
     settle(&mut h);
+    open_chat_providers(&mut h, portal);
     let texts = shown(&mut h);
     assert!(
         h.app.ai.packs.probes() > probes,
@@ -133,7 +170,11 @@ fn pk2_generate_offers_add_api_key_until_a_key_is_stored() {
     );
     let missing_labels: Vec<_> = rows.iter().map(|row| row.2.clone()).collect();
     assert!(h.app.ai.packs.needs_key(OPENAI));
-    generate_chooser_open(&mut h, |h| h.frame());
+    let picture = generate_chooser_open(&mut h, |h| h.frame());
+    click_picker_label(&mut h, "Provider");
+    let provider_label = atlas_ai::agent::provider_by_id(OPENAI).display_name;
+    click_picker_label(&mut h, &provider_label);
+    click_picker_label(&mut h, "Model");
     let texts = shown(&mut h);
     assert!(
         missing_labels.iter().all(|label| texts.contains(label)),
@@ -158,6 +199,7 @@ fn pk2_generate_offers_add_api_key_until_a_key_is_stored() {
         rows.iter().all(|r| r.2.starts_with("GPT Image")),
         "{rows:?}"
     );
+    assert_eq!(h.app.pending_generator_choice(picture).unwrap().0, OPENAI);
     let texts = shown(&mut h);
     assert!(
         !missing_labels.iter().any(|label| texts.contains(label)),
@@ -171,11 +213,12 @@ fn pk2_key_entry_links_to_the_key_page_and_keeps_the_key_out_of_the_document() {
     let mut h = pack_board("pk2_key_window", &[]);
     h.app.ai.packs.key_entry = true;
     let texts = shown(&mut h);
-    assert!(texts.iter().any(|t| t == "OpenAI API key"), "{texts:?}");
+    assert!(texts.iter().any(|t| t == "OpenAI API"), "{texts:?}");
+    assert!(texts.iter().any(|t| t == "API key"), "{texts:?}");
     assert!(
         texts
             .iter()
-            .any(|t| t == "Get an API key at platform.openai.com"),
+            .any(|t| t == "The key stays on this machine for this Windows user. It is never stored in the workbook or sent in a chat."),
         "{texts:?}"
     );
     assert_eq!(

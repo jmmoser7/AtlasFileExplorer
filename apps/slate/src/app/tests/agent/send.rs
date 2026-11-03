@@ -32,12 +32,16 @@ fn sending_a_prompt_shows_thinking_not_silence_in_pair_mode() {
     ));
     h.app.send_agent_prompt(id);
     assert_send_shows_thinking(&h);
-    // First pair send on a non-linear provider spawns the tail card (draft is false).
+    // A fresh pair sends in its original host; later checkpoints remain fork points.
     assert!(
-        h.app.doc().scene.nodes.iter().any(|n| {
+        !h.app.doc().scene.nodes.iter().any(|n| {
             slate_doc::agent_chat::agent(n).is_some_and(|a| a.chat.parent == Some(id))
         }),
-        "pair presentation still trains on the first send"
+        "the first response must not manufacture a second conversation card"
+    );
+    assert!(
+        h.app.agent_is_awaiting(id),
+        "the original pair owns Thinking"
     );
 }
 

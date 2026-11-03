@@ -817,10 +817,10 @@ impl SlateApp {
     /// Opens the model list of `source`'s Agent editor, as a click would.
     #[cfg(test)]
     pub(crate) fn open_agent_model_menu_for_test(&mut self, source: NodeId) {
-        let mut draft = AgentDraft::new();
-        draft.model_open = true;
-        draft.take_focus = false;
-        self.agents.flow.drafts.insert(source, draft);
+        let mut presentation = self.generator_presentation(source);
+        presentation.model_open = true;
+        presentation.picker_page = atlas_shell::selection_tools::generator::PickerPage::Models;
+        self.restore_generator_presentation(source, presentation);
     }
 
     fn submit_agent_draft(

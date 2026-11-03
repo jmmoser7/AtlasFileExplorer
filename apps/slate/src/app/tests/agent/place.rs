@@ -108,61 +108,51 @@ fn an_agent_place_file_spawns_a_file_atlas_portal() {
     assert!(!h.app.consume_atlas_place(id, &link));
 }
 
-/// Review, 28 September 2026: a new agent portal starts at its program grid's
-/// size, so with more programs than one row holds it lands centered on the
-/// click and the grid fit never moves it. A fit that later lands as its own
-/// step can be undone: the fit waits while redo is pending.
+/// Historical test ID retained: the shared chooser replaces the program grid.
+/// Catalog discovery must not resize or move the authored source or add an undo.
 #[test]
 fn a_new_agent_portal_starts_at_its_program_grid_size() {
     let mut h = Harness::new("agent_grid_size");
     h.app.leave_home();
     h.app.ensure_work_tab();
-    h.app.doc_mut().view.active_view = ViewKind::Board;
     h.app
         .set_agent_programs_for_test(&["cursor", "codex", "ollama", "comfy", "openai-text"]);
-    h.app.tab_mut().cam.z = 1.0;
-    h.frame();
     let center = Pos2::new(300.0, 200.0);
     h.app.place_agent_portal_at(center);
-    let id = *h
-        .app
-        .board_sel
-        .iter()
-        .next()
-        .expect("the portal is selected");
+    let id = *h.app.board_sel.iter().next().unwrap();
     for _ in 0..4 {
         h.frame();
     }
-    let rect = h.app.doc().scene.node(id).unwrap().rect;
-    assert_eq!((rect.w, rect.h), (496.0, 264.0), "two rows of tiles");
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let size = crate::app::board_agent::program_card_size(atlas_agent::PortalView::Chat);
+    assert_eq!((before.rect.w, before.rect.h), (size.x, size.y));
     assert_eq!(
-        (rect.x + rect.w * 0.5, rect.y + rect.h * 0.5),
-        (center.x, center.y),
-        "centered on the click"
+        (
+            before.rect.x + before.rect.w * 0.5,
+            before.rect.y + before.rect.h * 0.5
+        ),
+        (center.x, center.y)
     );
-
-    // Programs change after another edit: the fit is its own step.
-    let other = add_rect(&mut h.app, 900.0, 0.0);
+    let depth = h.app.tab().journal.undo_depth();
     h.app.set_agent_programs_for_test(&["cursor", "codex"]);
     for _ in 0..4 {
         h.frame();
     }
-    assert_eq!(h.app.doc().scene.node(id).unwrap().rect.w, 272.0, "one row");
+    assert_eq!(h.app.doc().scene.node(id), Some(&before));
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth,
+        "catalog updates are not authored edits"
+    );
+    let other = add_rect(&mut h.app, 900.0, 0.0);
     h.app.board_undo();
     for _ in 0..4 {
         h.frame();
     }
-    assert_eq!(
-        h.app.doc().scene.node(id).unwrap().rect.w,
-        496.0,
-        "Undo returns the fit and the fit waits"
-    );
-    assert!(
-        h.app.doc().scene.node(other).is_some(),
-        "the fit was its own step"
-    );
+    assert!(h.app.doc().scene.node(other).is_none());
+    assert_eq!(h.app.doc().scene.node(id), Some(&before));
     assert!(
         h.app.tab().journal.can_redo(),
-        "redo survives the next paint"
+        "a catalog refresh cannot consume redo"
     );
 }

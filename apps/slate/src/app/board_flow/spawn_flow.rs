@@ -25,6 +25,11 @@ impl SlateApp {
         bind_program(&mut node, program, binding);
         if let Some(agent) = slate_doc::agent_chat::agent_mut(&mut node) {
             agent.generator.preserve_history = Some(false);
+            // This is a new image session, not a saved conversation to load.
+            // Submission attaches its real manifest after the first request.
+            if kind == SpawnKind::Image {
+                agent.bundle = None;
+            }
         }
         node.rect = rect;
         node

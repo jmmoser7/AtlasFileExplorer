@@ -65,16 +65,12 @@ pub(super) fn open_model_menu(h: &mut super::super::tests::Harness, card: NodeId
     center_on(h, card);
     h.app.tab_mut().cam.z = z;
     h.frame();
-    let out = h.frame_output(|_| {});
-    let label = h.app.model_menu_label(
-        slate_doc::agent_chat::agent(h.app.doc().scene.node(card).unwrap()).unwrap(),
-    );
-    let texts = painted_at(&out);
-    let at = texts
-        .iter()
-        .find(|(t, _)| *t == label)
-        .map(|(_, r)| r.center())
-        .unwrap_or_else(|| panic!("the tail shows its model name: {texts:?}"));
+    h.frame();
+    let at = h
+        .ctx
+        .data(|data| data.get_temp::<Rect>(Id::new(("agent-model-hit", card.0))))
+        .expect("the tail paints its shared model picker hit region")
+        .center();
     press(h, at);
     let root = h.frame_output(|_| {});
     let model = painted_at(&root)

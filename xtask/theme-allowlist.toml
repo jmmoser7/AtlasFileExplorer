@@ -45,7 +45,7 @@ contains = "let c = Color32::from_rgb(c[0], c[1], c[2]);"
 reason = "HSV hue ring tessellation samples"
 
 [[entry]]
-file = "apps/slate/src/app/board_path.rs"
+file = "apps/slate/src/app/board_path/mesh_conversion.rs"
 contains = "Color32::from_rgba_unmultiplied(r, g, b, a)"
 reason = "authored stroke rgba from scene path"
 

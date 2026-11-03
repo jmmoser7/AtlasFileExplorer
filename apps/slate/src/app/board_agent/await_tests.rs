@@ -74,46 +74,67 @@ fn focused_agent_keeps_canvas_zoom_and_title_rename() {
 
 #[test]
 fn provider_tiles_accept_first_click_near_their_edges() {
-    for (z, offset) in [0.5, 1.0, 2.0].into_iter().flat_map(|z| {
-        [(-47.0, -39.0), (47.0, -39.0), (-47.0, 39.0), (47.0, 39.0)]
-            .into_iter()
-            .map(move |offset| (z, offset))
-    }) {
+    // The retired tile grid is now the shared Provider/Model/Effort/Speed popup.
+    // Its full row, including the padding at all four corners, must take one click.
+    for (z, corner) in [0.5, 1.0, 2.0]
+        .into_iter()
+        .flat_map(|z| (0..4).map(move |corner| (z, corner)))
+    {
         let mut h = super::super::tests::Harness::new("picker_edge");
         h.app.leave_home();
         h.app.ensure_work_tab();
-        h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+        h.app.set_agent_programs_for_test(&["local"]);
         h.app.place_agent_portal_at(Pos2::ZERO);
         let id = h.app.doc().scene.nodes[0].id;
-        h.app.set_agent_programs_for_test(&["local"]);
-        h.app.agents.focused = None;
-        h.app.portals.contents = None;
-        let r = h.app.doc().scene.node(id).unwrap().rect;
-        h.app.tab_mut().cam.offset = egui::vec2(r.x + r.w * 0.5, r.y + r.h * 0.5);
-        h.app.tab_mut().cam.z = z;
+        crate::app::tests::frame_on(&mut h, id, z);
+        let before = h.app.doc().scene.node(id).unwrap().clone();
+        let depth = h.app.tab().journal.undo_depth();
+        let hit = h
+            .ctx
+            .data(|d| d.get_temp::<Rect>(Id::new(("agent-model-hit", id.0))))
+            .unwrap();
+        super::train_setup::press(&mut h, hit.center());
         h.frame();
+        let menu = Id::new(("agent-model-menu", id.0));
+        let provider = h.ctx.read_response(menu.with(("primary", 0usize))).unwrap();
+        super::train_setup::press(&mut h, provider.rect.center());
         h.frame();
+        let row = h
+            .ctx
+            .read_response(menu.with(("primary", 1usize)))
+            .expect("the available provider row");
         let rect = h
-            .app
-            .board_xf()
-            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
-        let point = rect.center() + egui::vec2(offset.0, offset.1) * z;
-        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(point)));
-        for pressed in [true, false] {
-            h.frame_with(|input| {
-                input.events.push(egui::Event::PointerButton {
-                    pos: point,
-                    button: egui::PointerButton::Primary,
-                    pressed,
-                    modifiers: Default::default(),
-                })
-            });
-        }
+            .ctx
+            .layer_transform_to_global(row.layer_id)
+            .unwrap_or_default()
+            * row.interact_rect;
+        let inset = (z * 1.0).max(0.25);
+        let point = match corner {
+            0 => rect.left_top() + egui::vec2(inset, inset),
+            1 => rect.right_top() + egui::vec2(-inset, inset),
+            2 => rect.left_bottom() + egui::vec2(inset, -inset),
+            _ => rect.right_bottom() - egui::vec2(inset, inset),
+        };
+        super::train_setup::press(&mut h, point);
         assert_eq!(
-            h.app.agent_session_for(id).unwrap().1,
+            h.app.pending_generator_choice(id).unwrap().0,
             "local",
-            "tile edge at {z}"
+            "provider row edge at {z}"
         );
+        assert_eq!(
+            h.app.doc().scene.node(id),
+            Some(&before),
+            "choosing is not Send"
+        );
+        assert_eq!(h.app.tab().journal.undo_depth(), depth);
+        assert!(h.app.agents.dispatched.is_empty());
+        let labels = super::paint_probe::painted_text(&mut h, None);
+        for label in ["Provider", "Model", "Effort", "Speed"] {
+            assert!(
+                labels.iter().any(|s| s == label),
+                "shared chooser retains {label}"
+            );
+        }
     }
 }
 

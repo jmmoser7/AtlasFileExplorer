@@ -320,7 +320,12 @@ fn a_spreadsheet_wire_into_a_web_portal_is_a_table_link() {
     .unwrap();
     assert_eq!(binding.kind, InputKind::Table);
     assert!(binding.input_b);
-    assert!(infer_binding(&doc.scene, &a, &b).is_none());
+    // Without a resolved path this is an ordinary image-like Content input,
+    // not a guessed spreadsheet. The resolved path above selects Table instead.
+    let unresolved = infer_binding(&doc.scene, &a, &b).unwrap();
+    assert_eq!(unresolved.kind, InputKind::Images);
+    assert_eq!(unresolved.slot.as_deref(), Some(InputSlot::Media.id()));
+    assert!(unresolved.input_b);
 }
 
 #[test]

@@ -137,7 +137,14 @@ fn actual_svg_model_source_and_target_keep_path_resolved_endpoints_after_seriali
                             } else {
                                 node.rect.x
                             },
-                            node.rect.y + slate_doc::wire_host::FLOW_PORT_TOP * scale,
+                            // Ordinary linked models keep their authored midpoint output;
+                            // only the receiving typed input uses the fitted graph rail.
+                            node.rect.y
+                                + if side > 0.0 {
+                                    node.rect.h * 0.5
+                                } else {
+                                    slate_doc::wire_host::FLOW_PORT_TOP * scale
+                                },
                         ],
                         rotation,
                     );

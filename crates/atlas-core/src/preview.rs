@@ -23,9 +23,11 @@
 //! large extraction.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 mod inbox;
+mod lifetime;
 mod raster;
 pub use inbox::PreviewInbox;
 pub use raster::{MAX_LIVE_ENCODED_BYTES, MAX_LIVE_TARGET_PX};
@@ -117,10 +119,12 @@ struct Shared {
     /// LIFO: the newest request (what the user is looking at) decodes first.
     queue: Mutex<Vec<Job>>,
     cv: Condvar,
+    closing: AtomicBool,
 }
 
 #[derive(Clone)]
 pub struct PreviewPool {
+    _lifetime: Arc<lifetime::PoolLifetime>,
     shared: Arc<Shared>,
     tx: inbox::PreviewSender,
     pub rx: PreviewInbox,
@@ -137,14 +141,22 @@ impl PreviewPool {
         let shared = Arc::new(Shared {
             queue: Mutex::new(Vec::new()),
             cv: Condvar::new(),
+            closing: AtomicBool::new(false),
         });
         let (tx, rx) = inbox::channel();
+        let (lifetime, shutdown) = lifetime::PoolLifetime::new(shared.clone());
         for _ in 0..PREVIEW_WORKERS {
             let shared = shared.clone();
             let tx = tx.clone();
-            std::thread::spawn(move || worker(shared, tx));
+            let shutdown = shutdown.clone();
+            std::thread::spawn(move || worker(shared, tx, shutdown));
         }
-        PreviewPool { shared, tx, rx }
+        PreviewPool {
+            _lifetime: lifetime,
+            shared,
+            tx,
+            rx,
+        }
     }
 
     pub fn request(&self, req: PreviewRequest) {
@@ -183,7 +195,11 @@ impl PreviewPool {
     }
 }
 
-fn worker(shared: Arc<Shared>, tx: inbox::PreviewSender) {
+fn worker(
+    shared: Arc<Shared>,
+    tx: inbox::PreviewSender,
+    shutdown: crossbeam_channel::Receiver<()>,
+) {
     #[cfg(windows)]
     unsafe {
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
@@ -192,6 +208,9 @@ fn worker(shared: Arc<Shared>, tx: inbox::PreviewSender) {
         let req = {
             let mut q = shared.queue.lock().unwrap();
             loop {
+                if shared.closing.load(Ordering::Relaxed) {
+                    return;
+                }
                 if let Some(r) = q.pop() {
                     break r;
                 }
@@ -210,10 +229,18 @@ fn worker(shared: Arc<Shared>, tx: inbox::PreviewSender) {
             Some((w, h, rgba)) => PreviewOutcome::Ready(w, h, rgba),
             None => PreviewOutcome::Unavailable,
         };
-        let _ = tx.send(PreviewResult {
-            id: req.id(),
-            outcome,
-        });
+        if tx
+            .send(
+                PreviewResult {
+                    id: req.id(),
+                    outcome,
+                },
+                &shutdown,
+            )
+            .is_err()
+        {
+            return;
+        }
     }
 }
 
