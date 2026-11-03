@@ -1,16 +1,27 @@
 //! Exact source preparation shared by accepted output and explicit historical Send.
 use super::*;
 
+pub(super) struct SourcePreparation<'a> {
+    pub(super) key: &'a BindingKey,
+    pub(super) path: &'a Path,
+    pub(super) expected: &'a str,
+    pub(super) content: Option<&'a str>,
+    pub(super) lease: Option<&'a Lease>,
+}
+
 pub(super) fn apply(
     draft: &mut HeadlessDraft,
     root: &mut PathBuf,
     serial: &mut u64,
-    key: &BindingKey,
-    path: &Path,
-    expected: &str,
-    content: Option<&str>,
-    lease: Option<&Lease>,
+    source: SourcePreparation<'_>,
 ) -> Result<(), String> {
+    let SourcePreparation {
+        key,
+        path,
+        expected,
+        content,
+        lease,
+    } = source;
     let current = snapshot(draft, root, *serial);
     if current.key() != *key || current.binding.source.revision != expected {
         return Err("Headless source changed before scoped preparation".into());

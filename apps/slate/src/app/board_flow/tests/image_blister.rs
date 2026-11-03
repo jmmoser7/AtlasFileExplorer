@@ -125,8 +125,7 @@ fn narrow_image_history_reaches_the_full_album_without_queueing_hidden_previews(
                         };
                         host.show(
                             ctx,
-                            Id::new("narrow-image-history-editor"),
-                            ui.layer_id(),
+                            (Id::new("narrow-image-history-editor"), ui.layer_id()),
                             (
                                 chrome::ImagePanelKind::Custom {
                                     main_height: height,

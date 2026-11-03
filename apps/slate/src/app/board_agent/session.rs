@@ -86,12 +86,7 @@ impl SlateApp {
                 self.record_text_review(
                     id,
                     request,
-                    &snapshot.group,
-                    snapshot.context_epoch,
-                    snapshot.source.clone(),
-                    snapshot.source_revision.clone(),
-                    snapshot.selected.then(|| snapshot.range.clone()),
-                    snapshot.question.clone(),
+                    &snapshot,
                     answer.text.clone(),
                     slate_doc::text_answers::TextAnswerRef {
                         session: snapshot.session.clone(),

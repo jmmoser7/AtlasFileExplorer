@@ -245,7 +245,7 @@ fn overlapping_reviews_scroll_only_topmost_in_either_paint_order_and_ctrl_bypass
                             if source_sheet {
                                 let source = h.app.text_source_viewport(ctx, id, body, 1.0);
                                 h.app
-                                    .text_sheet_scroll(ui, id, source, 2000.0, 1.0, false, true);
+                                    .text_sheet_scroll(ui, id, (source, 2000.0), 1.0, false, true);
                             }
                         }
                     });
@@ -275,7 +275,12 @@ fn overlapping_reviews_scroll_only_topmost_in_either_paint_order_and_ctrl_bypass
                                 if source_sheet {
                                     let source = h.app.text_source_viewport(ctx, id, body, 1.0);
                                     h.app.text_sheet_scroll(
-                                        ui, id, source, 2000.0, 1.0, false, true,
+                                        ui,
+                                        id,
+                                        (source, 2000.0),
+                                        1.0,
+                                        false,
+                                        true,
                                     );
                                 }
                             }

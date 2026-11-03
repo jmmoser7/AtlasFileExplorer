@@ -381,8 +381,7 @@ impl SlateApp {
                     self.text_sheet_scroll(
                         ui,
                         id,
-                        area,
-                        scrolling.inner.galley.size().y,
+                        (area, scrolling.inner.galley.size().y),
                         zoom,
                         false,
                         false,

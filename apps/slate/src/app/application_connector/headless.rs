@@ -347,6 +347,39 @@ fn outcome_reason(outcome: &NativeOutcome) -> String {
     }
 }
 
+// Deliver an asynchronous connector observation through the production event pump.
+// This fixture deliberately does not touch the document or scene generations.
+#[cfg(test)]
+impl SlateApp {
+    pub(crate) fn test_deliver_headless_identity(
+        &mut self,
+        node: NodeId,
+        binding: super::native::BindingSnapshot,
+        restarted: bool,
+    ) {
+        let key = (self.tab().id, node);
+        let session = self.connectors.sessions.get_mut(&key).unwrap();
+        let surface = session.descriptor.clone().unwrap();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        session.rx = rx;
+        std::thread::spawn(move || {
+            let event = if restarted {
+                worker::Event::Ready {
+                    surface,
+                    process_id: 0,
+                    binding,
+                }
+            } else {
+                worker::Event::Binding(binding)
+            };
+            tx.send(event).unwrap();
+        })
+        .join()
+        .unwrap();
+        self.maintain_application_connectors(&egui::Context::default());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::native::test_support;
@@ -435,38 +468,5 @@ mod tests {
             .native_publish_headless_model(node, &completion)
             .is_err());
         assert_eq!(h.app.doc().scene.node(node), Some(&before));
-    }
-}
-
-// Deliver an asynchronous connector observation through the production event pump.
-// This fixture deliberately does not touch the document or scene generations.
-#[cfg(test)]
-impl SlateApp {
-    pub(crate) fn test_deliver_headless_identity(
-        &mut self,
-        node: NodeId,
-        binding: super::native::BindingSnapshot,
-        restarted: bool,
-    ) {
-        let key = (self.tab().id, node);
-        let session = self.connectors.sessions.get_mut(&key).unwrap();
-        let surface = session.descriptor.clone().unwrap();
-        let (tx, rx) = crossbeam_channel::bounded(1);
-        session.rx = rx;
-        std::thread::spawn(move || {
-            let event = if restarted {
-                worker::Event::Ready {
-                    surface,
-                    process_id: 0,
-                    binding,
-                }
-            } else {
-                worker::Event::Binding(binding)
-            };
-            tx.send(event).unwrap();
-        })
-        .join()
-        .unwrap();
-        self.maintain_application_connectors(&egui::Context::default());
     }
 }

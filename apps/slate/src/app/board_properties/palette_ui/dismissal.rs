@@ -41,7 +41,7 @@ impl SlateApp {
     ) -> bool {
         ctx.pointer_latest_pos().is_some_and(|p| {
             if let [host] = self.shape_properties.nodes.as_slice() {
-                if self.result_strip_contains(&ctx, host.id, xf.rect_w2s(host.rect), z) {
+                if self.result_strip_contains(ctx, host.id, xf.rect_w2s(host.rect), z) {
                     return true;
                 }
                 if self.image_palette_eligible(host.id)

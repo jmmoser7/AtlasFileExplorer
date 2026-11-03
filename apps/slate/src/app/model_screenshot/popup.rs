@@ -115,8 +115,10 @@ impl SlateApp {
         };
         let shown = surface.show(
             ctx,
-            Id::new("shape_property_editor"),
-            egui::LayerId::background(),
+            (
+                Id::new("shape_property_editor"),
+                egui::LayerId::background(),
+            ),
             (
                 chrome::ImagePanelKind::Custom {
                     main_height: height,
@@ -171,8 +173,10 @@ impl SlateApp {
         let theme = self.palette();
         let shown = surface.show(
             ctx,
-            Id::new(("portal_capture_transport", self.tab().id, status.node.0)),
-            egui::LayerId::background(),
+            (
+                Id::new(("portal_capture_transport", self.tab().id, status.node.0)),
+                egui::LayerId::background(),
+            ),
             (
                 chrome::ImagePanelKind::Custom {
                     main_height: height,

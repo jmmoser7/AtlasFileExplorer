@@ -83,7 +83,7 @@ impl SlateApp {
                 0.0
             };
             let scroll = if self.text_review_visible(node.id) {
-                self.text_sheet_scroll(ui, node.id, source, galley.size().y, z, false, chrome)
+                self.text_sheet_scroll(ui, node.id, (source, galley.size().y), z, false, chrome)
             } else {
                 0.0
             };

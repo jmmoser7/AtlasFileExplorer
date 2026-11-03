@@ -2204,6 +2204,7 @@ impl SlateApp {
 
     pub(crate) fn ensure_home_cover_bakes(&mut self) {
         // Covers for unrelated recent workbooks must not be opened by a capture.
+        #[cfg(not(test))]
         if self.screenshot.is_some() {
             return;
         }

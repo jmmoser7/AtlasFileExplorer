@@ -440,8 +440,7 @@ impl SlateApp {
                     }
                     .show(
                         &ctx,
-                        Id::new("shape_property_editor"),
-                        ui.layer_id(),
+                        (Id::new("shape_property_editor"), ui.layer_id()),
                         (kind, height),
                         enabled || panel == Panel::Capture,
                         panel == Panel::Agent,

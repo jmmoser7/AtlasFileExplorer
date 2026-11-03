@@ -23,6 +23,8 @@ pub(super) enum DeferredInvocation {
         waiting: bool,
     },
 }
+pub(super) type InvocationPlan = (Vec<SceneCmd>, Vec<NodeId>, DeferredInvocation);
+
 impl DeferredInvocation {
     pub(super) fn target(&self) -> NodeId {
         match self {
@@ -52,7 +54,7 @@ pub(super) fn prepare_artifact(
     command: &str,
     ids: &[NodeId],
     args: &Value,
-) -> Result<Option<(Vec<SceneCmd>, Vec<NodeId>, DeferredInvocation)>, String> {
+) -> Result<Option<InvocationPlan>, String> {
     if !matches!(
         command,
         "portal.agent.result.use" | "portal.agent.result.remove"
@@ -89,7 +91,7 @@ pub(super) fn prepare(
     app: &SlateApp,
     ids: &[NodeId],
     args: &Value,
-) -> Result<(Vec<SceneCmd>, Vec<NodeId>, DeferredInvocation), String> {
+) -> Result<InvocationPlan, String> {
     prepare::validate_keys(args, schema::arguments("portal.agent.run")?)?;
     if ids.len() != 1 {
         return Err("A provider run requires one explicit image generator target".into());

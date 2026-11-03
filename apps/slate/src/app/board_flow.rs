@@ -27,8 +27,8 @@ use super::SlateApp;
 mod image_editor;
 mod result_actions;
 mod state;
-pub(crate) use state::FlowUi;
 use state::{AgentDraft, Engines, FlowMenu};
+pub(crate) use state::{FlowUi, TextAnswerRequest};
 mod image_workflow;
 mod model_defaults;
 mod pending_editor;
@@ -1406,9 +1406,6 @@ pub(crate) mod tests {
         let on_disk = std::fs::read_to_string(&path).unwrap_or_default();
         assert_eq!(on_disk.trim(), "Warm light on stone.");
     }
-
-    /// A wire dropped on empty board from any media with the Agent squircle
-    /// opens the modality menu, and the new wire leaves from that grip.
 
     /// A placed file on the board, like a drop.
     pub(crate) fn place(h: &mut super::super::tests::Harness, name: &str, x: f32) -> NodeId {

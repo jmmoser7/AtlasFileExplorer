@@ -99,11 +99,13 @@ fn run(path: PathBuf, actions: Receiver<Action>, events: &Sender<Event>) -> Resu
                     &mut draft,
                     &mut root,
                     &mut serial,
-                    &key,
-                    &path,
-                    &revision,
-                    Some(&revision),
-                    None,
+                    rebind::SourcePreparation {
+                        key: &key,
+                        path: &path,
+                        expected: &revision,
+                        content: Some(&revision),
+                        lease: None,
+                    },
                 )?;
                 let _ = events.send(Event::Binding(snapshot(&draft, &root, serial)));
             }
@@ -120,11 +122,13 @@ fn run(path: PathBuf, actions: Receiver<Action>, events: &Sender<Event>) -> Resu
                     &mut draft,
                     &mut root,
                     &mut serial,
-                    &key,
-                    &path,
-                    &revision,
-                    None,
-                    Some(&lease),
+                    rebind::SourcePreparation {
+                        key: &key,
+                        path: &path,
+                        expected: &revision,
+                        content: None,
+                        lease: Some(&lease),
+                    },
                 );
                 lease.complete();
                 match result {
