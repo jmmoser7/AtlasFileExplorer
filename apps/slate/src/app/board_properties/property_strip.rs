@@ -212,6 +212,7 @@ pub(super) fn live_property_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<S
 
 impl SlateApp {
     /// The selected object's shared Agent control owns prompt/run interaction.
+    #[cfg(test)]
     pub(crate) fn agent_property_controls_own(&self, id: NodeId) -> bool {
         self.shape_properties.ids == [id]
             && self.board_sel.len() == 1

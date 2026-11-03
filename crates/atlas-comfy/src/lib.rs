@@ -44,7 +44,7 @@ const CATALOG_TTL: Duration = Duration::from_secs(10);
 
 static SERVER: Mutex<Option<Child>> = Mutex::new(None);
 
-use atlas_curl::{hidden, Failure, Request};
+use atlas_curl::{encode_component, hidden, Failure, Request};
 
 pub fn executable() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("COMFY_BIN")

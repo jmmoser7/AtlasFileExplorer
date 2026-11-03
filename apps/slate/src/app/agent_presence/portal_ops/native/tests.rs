@@ -203,7 +203,7 @@ fn native_draft_box_requires_isolation_and_actual_actor_autonomy() {
     match &request.caller {
         NativeCaller::Agent {
             identity,
-            permit: Some(Box::new(permit)),
+            permit: Some(permit),
             ..
         } => assert!(permit.valid_for(identity, &request.key, "org.slate.rhino.draft_box")),
         _ => panic!("no actual-actor draft permit"),

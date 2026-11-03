@@ -37,15 +37,6 @@ impl SlateApp {
         self.ai.packs.set_health_override(id, health);
         self.ai.packs.record(id, health);
     }
-    /// The unbound agent portal's size (width, height) around its program
-    /// grid, once the installed programs are known.
-    pub(crate) fn agent_program_grid_size(&self) -> Option<(f32, f32)> {
-        let count = self.agents.programs.len();
-        (count > 0).then(|| {
-            let grid = atlas_ai::ui::program_grid_size(count);
-            (grid.x + 48.0, grid.y + 72.0)
-        })
-    }
     pub(crate) fn ensure_agent_programs(&mut self) {
         if !self.agents.programs_started {
             self.agents.programs_started = true;
@@ -153,6 +144,7 @@ impl SlateApp {
             .packs
             .note_chooser_open(self.ai.config.workspace_dir.clone());
     }
+    #[cfg(test)]
     pub(crate) fn set_agent_program(&mut self, id: NodeId, provider: &str) {
         if self
             .doc()

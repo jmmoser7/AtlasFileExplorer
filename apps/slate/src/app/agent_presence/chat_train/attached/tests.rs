@@ -195,7 +195,7 @@ fn attached_model_mutation_uses_existing_scoped_permit_and_revision_does_not_nag
     let native = peer.next().unwrap();
     match &native.caller {
         NativeCaller::Agent {
-            permit: Some(Box::new(permit)),
+            permit: Some(permit),
             ..
         } => assert!(permit.valid_for(&identity, &binding.key(), command)),
         _ => panic!("scoped draft permit missing"),

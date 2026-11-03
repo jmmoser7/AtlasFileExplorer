@@ -7,7 +7,6 @@ use atlas_connector_runtime::headless_rhino::{parse_parameters, GENERATE_COMMAND
 mod blank;
 mod catalog;
 mod send;
-pub(crate) use catalog::ModelGeneratorOutput;
 
 #[cfg(test)]
 thread_local! {
