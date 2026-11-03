@@ -342,10 +342,14 @@ fn popup_selector(
             rect.translate(popup.min - rect.min).intersect(popup)
         });
     let click = ui.input(|i| {
-        (if studio { i.pointer.any_pressed() } else { i.pointer.any_click() })
-            .then(|| i.pointer.interact_pos())
-            .flatten()
-            .map(|point| to_global.inverse() * point)
+        (if studio {
+            i.pointer.any_pressed()
+        } else {
+            i.pointer.any_click()
+        })
+        .then(|| i.pointer.interact_pos())
+        .flatten()
+        .map(|point| to_global.inverse() * point)
     });
     if let Some(pos) = click {
         if !rect.contains(pos) && !previous_popup.contains(pos) {

@@ -1,0 +1,54 @@
+{
+  "hello": {
+    "capabilities": {
+      "offered": [
+        "lifecycle",
+        "sources",
+        "surfaces",
+        "commands",
+        "views"
+      ],
+      "required": [
+        "lifecycle"
+      ]
+    },
+    "commands": [
+      {
+        "agent_allowed": true,
+        "cancellable": true,
+        "effect": "inspect",
+        "id": "org.slate.mock.inspect",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {},
+          "type": "object"
+        },
+        "title": "Inspect mock source",
+        "undo": "none"
+      }
+    ],
+    "identity": {
+      "application_id": "org.example.beta",
+      "application_version": "1.0",
+      "connector_version": "0.1",
+      "pack_id": "org.example.beta"
+    },
+    "protocol": "slate.application",
+    "surface_modes": [
+      "headless"
+    ],
+    "versions": [
+      {
+        "major": 0,
+        "minor": 1
+      }
+    ],
+    "view_schemas": [
+      {
+        "namespace": "org.example.beta.view",
+        "version": 1
+      }
+    ]
+  },
+  "kind": "hello"
+}

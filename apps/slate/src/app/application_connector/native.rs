@@ -134,12 +134,12 @@ impl SlateApp {
                     .map(|c| c.id.clone())
                     .collect();
                 if let Some((identity, _)) = &identity {
-                    permit = Some(DraftPermit {
+                    permit = Some(Box::new(DraftPermit {
                         identity: identity.clone(),
                         key: current.key(),
                         commands,
                         grant_id: format!("native-{}", atlas_agent::request_id()),
-                    });
+                    }));
                 }
             }
         }
@@ -171,7 +171,7 @@ impl SlateApp {
         };
         session
             .tx
-            .try_send(worker::Action::Native(request))
+            .try_send(worker::Action::Native(Box::new(request)))
             .map_err(|_| {
                 NativeOutcome::not_dispatched("Native operation queue is full or disconnected")
             })?;

@@ -1,0 +1,55 @@
+{
+  "$defs": {
+    "SourceScope": {
+      "properties": {
+        "revision": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "ViewFidelity": {
+      "enum": [
+        "exact_native",
+        "shared_approximation",
+        "poster_only"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Native state is opaque data scoped to a reverse-domain application namespace;\nv0 deliberately defines no portable 3D camera until the camera owner exports it.",
+  "properties": {
+    "fidelity": {
+      "$ref": "#/$defs/ViewFidelity"
+    },
+    "schema": {
+      "type": "string"
+    },
+    "schema_version": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceScope"
+    },
+    "state": true
+  },
+  "required": [
+    "source",
+    "schema",
+    "schema_version",
+    "fidelity",
+    "state"
+  ],
+  "title": "ViewSnapshot",
+  "type": "object"
+}

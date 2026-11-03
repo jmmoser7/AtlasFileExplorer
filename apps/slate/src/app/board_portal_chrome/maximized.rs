@@ -51,7 +51,7 @@ impl SlateApp {
         painter.rect_filled(screen, 0.0, fill);
         match portal.kind {
             PortalKind::Application => {
-                let xf=fit_xf(node.rect, layout.body);
+                let xf = fit_xf(node.rect, layout.body);
                 self.paint_application_surface(ui, &painter, &xf, &node, &portal);
             }
             PortalKind::Web => {

@@ -47,9 +47,10 @@ pub(super) enum Action {
         path: PathBuf,
         revision: String,
     },
-    Native(super::native::NativeRequest),
+    Native(Box<super::native::NativeRequest>),
     Focus(super::hosting::FocusRequest),
     FocusChild {
+        key: super::native::BindingKey,
         request: super::hosting::FocusRequest,
         surface: String,
         command: String,
@@ -82,6 +83,7 @@ pub(super) enum Event {
         result: Result<(), String>,
     },
     ChildFocusApplied {
+        key: super::native::BindingKey,
         surface: String,
         request: super::hosting::FocusRequest,
         result: Result<(), String>,
@@ -283,12 +285,23 @@ fn run(
                 Ok(())
             }
             Action::FocusChild {
+                key,
                 request,
                 surface,
                 command,
             } => {
-                let result = focus::child(&mut peer, &command);
+                let current = peer.channel.session().binding().is_some_and(|binding| {
+                    key.worker == peer.channel.session().welcome().session_id
+                        && key.source == binding.source.source_id
+                        && key.document == binding.document_id
+                });
+                let result = if current {
+                    focus::child(&mut peer, &surface, &command, request.focused)
+                } else {
+                    Err("Application window source changed before dispatch".into())
+                };
                 let _ = events.send(Event::ChildFocusApplied {
+                    key,
                     surface,
                     request,
                     result,
@@ -306,7 +319,7 @@ fn run(
                     launched.process_id,
                     &content,
                     &root,
-                    request,
+                    *request,
                 );
                 if refresh && !peer.unusable {
                     if let Ok((width, height, rgba)) =

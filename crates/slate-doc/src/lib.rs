@@ -5,7 +5,6 @@
 
 pub mod agent_chat;
 pub mod agent_inputs;
-pub mod text_answers;
 pub mod authored_text;
 pub mod bumper;
 pub mod create_style;
@@ -32,6 +31,7 @@ mod spatial;
 pub mod stage;
 pub mod tag_command;
 mod tags;
+pub mod text_answers;
 pub mod vertex_style;
 mod view;
 pub mod wire;

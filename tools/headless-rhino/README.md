@@ -11,9 +11,21 @@ private job files are an SDK implementation detail, not another public protocol.
 Run `./tools/headless-rhino/build.ps1` from the repository. Optional
 `-RhinoSystem 'C:\Program Files\Rhino 8\System'` selects the installed SDK.
 The script uses the installed .NET Framework x64 compiler and framework
-`System.Web.Extensions`; it installs no packages and changes no Cargo settings.
+`System.Web.Extensions`. When the local SDK is absent (including on release CI),
+it downloads the official `RhinoCommon` NuGet package version
+`8.18.25100.11001`, verifies SHA-256
+`65b997c1dc357a5e8d1a1ef42e420b817e947899deb8551d7cf24f5b29c5cc62`,
+and extracts only `lib/net48/RhinoCommon.dll` as a compile reference under
+`target/headless-rhino-reference/`. See McNeel's
+[NuGet build guidance](https://developer.rhino3d.com/en/guides/rhinocommon/using-nuget/).
+It installs no Rhino runtime and changes no Cargo settings.
 Output is `target/headless-rhino/HeadlessRhino.exe`. Rhino DLLs remain in their
-installed directory and must never be redistributed with the helper.
+installed directory and must never be redistributed with the helper. The cached
+NuGet reference is not copied to the helper output or release package either.
+At runtime the existing assembly resolver loads RhinoCommon and dependencies
+from the explicitly configured installed Rhino 8 System directory; a licensed
+Rhino installation remains required. The compile reference grants no runtime
+license and does not install or activate Rhino.
 
 ## Supported declarative operations
 
@@ -96,8 +108,10 @@ startup. The output passed the helper's saved-Brep/cached-mesh re-read checks.
 
 `board.model.headless.new` creates a real empty model using the existing media
 link/journal owner and binds the ordinary preferred text agent. Regular release
-build/package scripts place the optional helper beside Slate; an unavailable SDK
-keeps the regular build viable and reports headless capability unavailable.
+build/package scripts place the helper beside Slate. Stable package verification
+requires it and its runtime notes. Local development builds may use
+`-SkipIfUnavailable` when neither a reference download nor the compiler is
+available; checksum failures always stop the build.
 
 With a placed 3D model selected, `board.model.headless.activate` explicitly opens
 an isolated headless capability binding. It leaves the native Slate viewport in

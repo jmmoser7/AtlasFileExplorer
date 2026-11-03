@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Transfer IDs resolve only through the authenticated runtime's bounded store.\nArbitrary filesystem paths and remote URLs are deliberately not wire options.",
+  "properties": {
+    "byte_length": {
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "media_type": {
+      "type": "string"
+    },
+    "sha256": {
+      "description": "Lowercase SHA-256 hex of the transferred bytes, checked by the runtime.",
+      "type": "string"
+    },
+    "transfer_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "transfer_id",
+    "byte_length",
+    "media_type",
+    "sha256"
+  ],
+  "title": "ArtifactTransfer",
+  "type": "object"
+}

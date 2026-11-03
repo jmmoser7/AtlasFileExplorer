@@ -27,7 +27,10 @@ use crate::ids::{GroupId, ItemId, TagId};
 use crate::spatial::SpatialIndex;
 
 mod agent;
-pub use agent::{AgentContextScope, AgentPortalRef, GeneratorSettings, GraphInputKind, HiddenOutputRef, ImageSettings};
+pub use agent::{
+    AgentContextScope, AgentPortalRef, GeneratorSettings, GraphInputKind, HiddenOutputRef,
+    ImageSettings,
+};
 mod model_output;
 pub use model_output::ModelOutputRef;
 mod image;

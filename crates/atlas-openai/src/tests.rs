@@ -1,4 +1,3 @@
-
 #[test]
 fn custom_ratio_is_rejected_before_building_an_api_request() {
     let client = super::Client::new("unused-test-key".into(), std::path::PathBuf::new());

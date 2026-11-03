@@ -5,8 +5,8 @@
 
 pub mod artifact;
 pub(crate) mod deadline;
-pub mod host;
 pub mod headless_rhino;
+pub mod host;
 #[cfg(windows)]
 mod pipe;
 pub mod registration;

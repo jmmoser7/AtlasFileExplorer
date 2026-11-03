@@ -15,7 +15,10 @@ impl SlateApp {
     }
 
     pub(crate) fn queue_view_drop_from_path(&mut self, model: NodeId, image_path: PathBuf) {
-        if self.application_connector_active(model) { self.connector_restore_path(model,image_path); return; }
+        if self.application_connector_active(model) {
+            self.connector_restore_path(model, image_path);
+            return;
+        }
         self.queue_released_view_drop(model, image_path, None);
     }
 
@@ -175,7 +178,9 @@ impl SlateApp {
     /// The move itself has already been rewound.
     pub(crate) fn commit_node_view_drop(&mut self, drop: NodeViewDrop) {
         if self.application_connector_active(drop.model) {
-            if let Some(path)=self.item_path(drop.item) { self.connector_restore_path(drop.model,path); }
+            if let Some(path) = self.item_path(drop.item) {
+                self.connector_restore_path(drop.model, path);
+            }
             return;
         }
         let NodeViewDrop {

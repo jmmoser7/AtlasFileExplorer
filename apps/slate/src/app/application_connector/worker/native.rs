@@ -189,7 +189,7 @@ fn dispatch(
             if let Some(receipt) = error.uncertain_receipt() {
                 peer.unusable = true;
                 return Err(NativeOutcome::OutcomeUnknown {
-                    receipt: Some(receipt.clone()),
+                    receipt: Some(Box::new(receipt.clone())),
                     reason: error.to_string().chars().take(2048).collect(),
                 });
             }
@@ -216,7 +216,7 @@ fn dispatch(
         ReplyBody::OutcomeUnknown { reason } => {
             peer.unusable = true;
             Ok(NativeOutcome::OutcomeUnknown {
-                receipt: Some(retained),
+                receipt: Some(Box::new(retained)),
                 reason: reason.chars().take(2048).collect(),
             })
         }
@@ -224,7 +224,7 @@ fn dispatch(
             let NativeOperation::Capture(artifact) = &request.operation else {
                 peer.unusable = true;
                 return Err(NativeOutcome::OutcomeUnknown {
-                    receipt: Some(retained),
+                    receipt: Some(Box::new(retained)),
                     reason: "Validated capture did not match its typed operation".into(),
                 });
             };

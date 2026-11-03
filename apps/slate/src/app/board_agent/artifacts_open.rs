@@ -218,7 +218,9 @@ impl SlateApp {
                 continue;
             };
             let native_child = self.doc().scene.node(portal).is_some_and(|n| matches!(&n.kind, NodeKind::Portal(p) if p.kind == slate_doc::scene::PortalKind::Application));
-            if !self.is_agent_portal(agent.0) && !(native_child && self.application_connector_eligible(agent.0)) {
+            if !self.is_agent_portal(agent.0)
+                && !(native_child && self.application_connector_eligible(agent.0))
+            {
                 continue;
             }
             let anchor = self

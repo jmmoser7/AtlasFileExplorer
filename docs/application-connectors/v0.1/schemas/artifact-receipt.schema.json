@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Receiver acknowledgement. Construct only after verifying complete length and\nSHA-256; the sender compares it to the descriptor before reporting success.",
+  "properties": {
+    "sha256": {
+      "type": "string"
+    },
+    "transfer_id": {
+      "type": "string"
+    },
+    "verified": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "transfer_id",
+    "sha256",
+    "verified"
+  ],
+  "title": "ArtifactReceipt",
+  "type": "object"
+}

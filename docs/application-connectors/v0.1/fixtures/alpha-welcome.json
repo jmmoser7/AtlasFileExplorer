@@ -1,0 +1,25 @@
+{
+  "kind": "welcome",
+  "welcome": {
+    "capabilities": [
+      "lifecycle",
+      "sources",
+      "surfaces",
+      "commands",
+      "views"
+    ],
+    "generation": 1,
+    "identity": {
+      "application_id": "org.example.alpha",
+      "application_version": "1.0",
+      "connector_version": "0.1",
+      "pack_id": "org.example.alpha"
+    },
+    "protocol": "slate.application",
+    "session_id": "fixture-alpha",
+    "version": {
+      "major": 0,
+      "minor": 1
+    }
+  }
+}

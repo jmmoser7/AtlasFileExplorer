@@ -2,6 +2,9 @@
 param([Parameter(Mandatory)][string]$AppDirectory, [Parameter(Mandatory)][string]$ReleaseDirectory,
     [Parameter(Mandatory)][string]$Channel, [Parameter(Mandatory)][string]$Version)
 $ErrorActionPreference = 'Stop'
+if ($Channel -eq 'stable' -and -not (Test-Path -LiteralPath (Join-Path $AppDirectory 'HeadlessRhino.exe') -PathType Leaf)) {
+    throw 'Stable package is missing HeadlessRhino.exe.'
+}
 if (Test-Path -LiteralPath (Join-Path $AppDirectory 'HeadlessRhino.exe')) {
     if (-not (Test-Path -LiteralPath (Join-Path $AppDirectory 'HeadlessRhino-README.md'))) {throw 'Packaged Rhino bridge is missing its installation/runtime notes.'}
 }

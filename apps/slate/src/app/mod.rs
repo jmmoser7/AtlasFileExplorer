@@ -2141,7 +2141,12 @@ impl SlateApp {
         if self.screenshot.is_some() {
             let canvas_zoom = (!self.at_home && !self.tabs.is_empty()).then(|| self.tab().cam.z);
             if let Some(shot) = &mut self.screenshot {
-                shot.frame(ctx, self.frame_no, self.recovery.capture_status(), canvas_zoom);
+                shot.frame(
+                    ctx,
+                    self.frame_no,
+                    self.recovery.capture_status(),
+                    canvas_zoom,
+                );
             }
         }
     }

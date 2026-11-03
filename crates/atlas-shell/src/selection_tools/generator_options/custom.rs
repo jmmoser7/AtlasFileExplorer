@@ -41,7 +41,13 @@ pub(super) fn paint(ctx: &egui::Context, id: Id, theme: Palette) -> Option<[u16;
     // Modal registers its layer for the next pass. On its first frame there
     // can be no top modal yet; capture Escape before TextEdit consumes it.
     let dialog_layer = egui::LayerId::new(egui::Order::Foreground, id.with("custom-ratio-dialog"));
-    if escape && ctx.memory(|memory| memory.top_modal_layer().is_none_or(|top| top == dialog_layer)) {
+    if escape
+        && ctx.memory(|memory| {
+            memory
+                .top_modal_layer()
+                .is_none_or(|top| top == dialog_layer)
+        })
+    {
         ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
         ctx.data_mut(|data| data.remove::<Draft>(key));
         return None;
@@ -234,9 +240,12 @@ mod tests {
                 },
                 |ctx| {
                     result = paint(ctx, id, Palette::light());
-                    assert!(!ctx.input_mut(|input| input.consume_key(
-                        egui::Modifiers::NONE, egui::Key::Escape)),
-                        "Custom dismissal consumes Escape before the parent Agent panel");
+                    assert!(
+                        !ctx.input_mut(
+                            |input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                        ),
+                        "Custom dismissal consumes Escape before the parent Agent panel"
+                    );
                 },
             );
             assert!(result.is_none());
