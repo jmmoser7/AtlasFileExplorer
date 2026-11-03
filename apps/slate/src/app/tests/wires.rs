@@ -106,7 +106,7 @@ fn a_wire_dropped_on_empty_board_offers_an_agent_chat_train() {
     h.app.board_osnap.enabled = false;
     h.app.board_smart_guides = false;
     h.app.board_snap_grid = false;
-    // Two rows of programs, so the grid differs from the kit's size.
+    // Several installed programs must not enlarge the pending source card.
     h.app
         .set_agent_programs_for_test(&["cursor", "codex", "ollama", "comfy", "openai-text"]);
     h.app.tab_mut().cam.z = 1.0;
@@ -182,12 +182,16 @@ fn a_wire_dropped_on_empty_board_offers_an_agent_chat_train() {
         placed.rect.x > rect.x + rect.w,
         "it lands at the drop, right of the picture"
     );
-    assert_eq!((placed.rect.w, placed.rect.h), (496.0, 264.0), "two rows");
+    assert_eq!(
+        (placed.rect.w, placed.rect.h),
+        board::AGENT_PORTAL_SIZE,
+        "the canonical pending card stays compact regardless of installed programs"
+    );
     let dropped = xf.s2w(drop);
     let input = Pos2::new(placed.rect.x, placed.rect.y + 0.5 * placed.rect.h);
     assert!(
         (input - dropped).length() < 0.5,
-        "its input sits at the drop after the grid fit: {input:?} vs {dropped:?}"
+        "its input sits at the drop with the pending card size: {input:?} vs {dropped:?}"
     );
     let agent = slate_doc::agent_chat::agent(placed).unwrap();
     assert_eq!(agent.provider, "local");

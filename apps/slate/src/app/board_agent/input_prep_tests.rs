@@ -201,6 +201,7 @@ fn a_generation_queued_for_another_tab_is_never_dispatched() {
         .entry(generator)
         .or_default()
         .push_back(super::runtime::QueuedGeneration {
+            creation_step: None,
             doc: stale_doc,
             author: slate_doc::scene::CmdAuthor::Human,
             request,

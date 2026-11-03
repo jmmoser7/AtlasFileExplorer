@@ -1434,7 +1434,8 @@ pub(crate) mod tests {
             h.app.is_agent_media(generator),
             "a generated frame is media too"
         );
-        let before = h.app.doc().scene.nodes.len();
+        let before_nodes = h.app.doc().scene.nodes.clone();
+        let before = before_nodes.len();
         let depth = h.app.tab().journal.undo_depth();
         let detail = serde_json::json!({
             "source": picture.0, "kind": "image", "prompt": "a watercolor of this site",
@@ -1475,6 +1476,8 @@ pub(crate) mod tests {
             .on(atlas_agent::InputSlot::Media)
             .any(|i| i.images[0].ends_with("site.png")));
 
+        let first_spawn = h.app.doc().scene.nodes.clone();
+
         // ChatGPT through the Codex sign-in is the same frame on another engine.
         let detail = serde_json::json!({
             "source": picture.0, "kind": "image", "prompt": "night version",
@@ -1491,6 +1494,20 @@ pub(crate) mod tests {
             .map(|a| a.provider.clone());
         assert_eq!(provider.as_deref(), Some("codex-image"));
         assert_eq!(h.app.agents.dispatched.last().unwrap().0, chatgpt);
+        assert_eq!(h.app.tab().journal.undo_depth(), depth + 2);
+        h.app.board_undo();
+        assert_eq!(
+            h.app.doc().scene.nodes,
+            first_spawn,
+            "one Undo removes the second auto-run frame and its wire"
+        );
+        h.app.board_undo();
+        assert_eq!(
+            h.app.doc().scene.nodes,
+            before_nodes,
+            "one Undo removes the first auto-run frame and wire, preserving unrelated sources"
+        );
+        assert_eq!(h.app.tab().journal.undo_depth(), depth);
     }
 
     #[test]

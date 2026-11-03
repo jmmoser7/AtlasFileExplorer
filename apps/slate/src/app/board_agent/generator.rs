@@ -183,8 +183,25 @@ impl SlateApp {
 
     /// Every press is accepted. One generation runs per note at a time.
     pub(crate) fn queue_generation(&mut self, id: NodeId) {
+        self.queue_generation_in_step(id, None);
+    }
+    pub(crate) fn queue_spawned_generation(
+        &mut self,
+        id: NodeId,
+        step: slate_doc::scene::GroupToken,
+    ) {
+        self.queue_generation_in_step(id, Some(step));
+    }
+    fn queue_generation_in_step(&mut self, id: NodeId, step: Option<slate_doc::scene::GroupToken>) {
         match self.generation_request(id, false) {
-            Ok(request) => self.enqueue_generation(id, request),
+            Ok(request) => {
+                self.enqueue_generation_in_step(
+                    id,
+                    request,
+                    slate_doc::scene::CmdAuthor::Human,
+                    step,
+                );
+            }
             Err(error) => {
                 self.toast(error.clone());
                 self.fail_agent_await(id, error);
@@ -201,6 +218,15 @@ impl SlateApp {
         request: AgentRequest,
         author: slate_doc::scene::CmdAuthor,
     ) -> bool {
+        self.enqueue_generation_in_step(id, request, author, None)
+    }
+    fn enqueue_generation_in_step(
+        &mut self,
+        id: NodeId,
+        request: AgentRequest,
+        author: slate_doc::scene::CmdAuthor,
+        step: Option<slate_doc::scene::GroupToken>,
+    ) -> bool {
         let inputs = match self.begin_agent_input_preparation(request.inputs.clone()) {
             Ok(inputs) => inputs,
             Err(error) => {
@@ -209,7 +235,7 @@ impl SlateApp {
                 return false;
             }
         };
-        self.enqueue_prepared_generation_as(id, request, inputs, author)
+        self.enqueue_prepared_generation_in_step(id, request, inputs, author, step)
     }
     pub(crate) fn enqueue_prepared_generation(
         &mut self,
@@ -244,9 +270,19 @@ impl SlateApp {
     pub(crate) fn enqueue_prepared_generation_as(
         &mut self,
         id: NodeId,
+        request: AgentRequest,
+        inputs: super::input_prep::InputPreparation,
+        author: slate_doc::scene::CmdAuthor,
+    ) -> bool {
+        self.enqueue_prepared_generation_in_step(id, request, inputs, author, None)
+    }
+    fn enqueue_prepared_generation_in_step(
+        &mut self,
+        id: NodeId,
         mut request: AgentRequest,
         mut inputs: super::input_prep::InputPreparation,
         author: slate_doc::scene::CmdAuthor,
+        step: Option<slate_doc::scene::GroupToken>,
     ) -> bool {
         if let Err(error) = self.check_generation_queue(id) {
             self.fail_agent_await(id, error.clone());
@@ -419,6 +455,7 @@ impl SlateApp {
                 }
                 queue.push_back(QueuedGeneration {
                     doc,
+                    creation_step: step,
                     author: author.clone(),
                     request: branch_request,
                     inputs: branch_inputs,

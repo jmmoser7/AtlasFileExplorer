@@ -110,6 +110,8 @@ thread_local! {
 #[derive(Clone)]
 pub(super) struct QueuedGeneration {
     pub(super) doc: u64,
+    /// Only an automatic first run belongs to the interaction that created it.
+    pub(super) creation_step: Option<slate_doc::scene::GroupToken>,
     pub(super) author: slate_doc::scene::CmdAuthor,
     pub(super) request: atlas_agent::AgentRequest,
     pub(super) inputs: super::input_prep::InputPreparation,

@@ -1,5 +1,7 @@
 //! Comfy queue, live pump, and model steer.
 mod live;
+#[cfg(test)]
+mod undo_tests;
 
 use super::*;
 
@@ -30,14 +32,55 @@ impl SlateApp {
             .text_answer_requests
             .retain(|(_, node, _), _| *node != id);
     }
+    /// Undo cancels only the automatic work tagged by that exact creation.
+    pub(crate) fn discard_undone_generator_creation(
+        &mut self,
+        doc: u64,
+        step: slate_doc::scene::GroupToken,
+    ) {
+        let removed: Vec<_> = self
+            .agents
+            .comfy_queue
+            .iter()
+            .flat_map(|(id, queue)| {
+                queue
+                    .iter()
+                    .filter(move |entry| entry.doc == doc && entry.creation_step == Some(step))
+                    .map(move |entry| (*id, entry.request.id.clone()))
+            })
+            .collect();
+        for (id, request) in removed {
+            self.discard_generation_matching(id, &request, Some((doc, step)));
+        }
+    }
     pub(super) fn discard_generation_request(&mut self, id: NodeId, request_id: &str) {
+        self.discard_generation_matching(id, request_id, None);
+    }
+    fn discard_generation_matching(
+        &mut self,
+        id: NodeId,
+        request_id: &str,
+        creation: Option<(u64, slate_doc::scene::GroupToken)>,
+    ) {
+        let matches = |entry: &super::runtime::QueuedGeneration| {
+            entry.request.id == request_id
+                && creation
+                    .is_none_or(|(doc, step)| entry.doc == doc && entry.creation_step == Some(step))
+        };
+        let removed_front = self
+            .agents
+            .comfy_queue
+            .get(&id)
+            .is_none_or(|queue| queue.front().is_none_or(matches));
         if let Some(queue) = self.agents.comfy_queue.get_mut(&id) {
-            queue.retain(|entry| entry.request.id != request_id);
+            queue.retain(|entry| !matches(entry));
             if queue.is_empty() {
                 self.agents.comfy_queue.remove(&id);
             }
         }
-        self.agents.capture_wait.remove(&id);
+        if removed_front {
+            self.agents.capture_wait.remove(&id);
+        }
         self.agents
             .flow
             .text_answer_requests
@@ -147,7 +190,13 @@ impl SlateApp {
                 self.clear_agent_text_output_file(id);
             }
             let image_prefix = request.request.image_history_prefix;
-            self.dispatch_generation(id, request.request, request.author, image_prefix);
+            self.dispatch_generation(
+                id,
+                request.request,
+                request.author,
+                image_prefix,
+                request.creation_step,
+            );
         }
     }
     /// All branches share one frozen set of dynamic source values. Successful
@@ -346,6 +395,7 @@ impl SlateApp {
         request: AgentRequest,
         author: slate_doc::scene::CmdAuthor,
         image_prefix: Option<u32>,
+        creation_step: Option<slate_doc::scene::GroupToken>,
     ) {
         let Some((session, provider)) = self.agent_session_for(id) else {
             return;
@@ -362,18 +412,26 @@ impl SlateApp {
                 &dir.join("session.json"),
             ),
         };
-        if self
+        if let Some(mut after) = self
             .doc()
             .scene
             .node(id)
-            .and_then(slate_doc::agent_chat::agent)
-            .is_some_and(|a| a.bundle.is_none())
+            .filter(|node| {
+                slate_doc::agent_chat::agent(node).is_some_and(|agent| agent.bundle.is_none())
+            })
+            .cloned()
         {
-            self.patch_nodes_as(&[id], author.clone(), |node| {
-                if let Some(a) = slate_doc::agent_chat::agent_mut(node) {
-                    a.bundle.get_or_insert_with(|| manifest.clone());
-                }
+            slate_doc::agent_chat::agent_mut(&mut after).unwrap().bundle = Some(manifest);
+            // Only an auto-run carrying this creation's token completes its
+            // original gesture. A later manual Send is always a separate step.
+            let folded = creation_step.is_some_and(|step| {
+                self.tab().journal.top_token() == Some(step)
+                    && self.tab().journal.top_creates_node(id, &author)
+                    && self.fold_into_last_step(&after)
             });
+            if !folded {
+                self.patch_nodes_as(&[id], author.clone(), |node| *node = after.clone());
+            }
         }
         self.agents.cancelled_generations.remove(&id);
         self.agents.generation_authors.insert(id, author.clone());

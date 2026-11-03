@@ -213,6 +213,22 @@ fn unloaded_preserved_output_drag_refuses_to_create_an_empty_history_pin() {
     let (mut h, generator) = generator_with_output("output-drag-unloaded-history");
     assert!(h.app.image_history_preserved(generator));
     crate::app::tests::frame_on(&mut h, generator, 0.35);
+    // The seed is a real 8x8 image. Let its first asynchronous texture upload
+    // complete the ordinary aspect fit before testing the rejected action.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while h.app.fitted_agent_image_for_test(generator) != Some("img-1") {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the seed image finishes its initial fit"
+        );
+        h.frame();
+        std::thread::yield_now();
+    }
+    let fitted = h.app.doc().scene.node(generator).unwrap().rect;
+    assert_eq!(
+        fitted.w, fitted.h,
+        "the square seed has settled before the drop"
+    );
     let items = h.app.doc().items.clone();
     let before = h.app.doc().scene.clone();
     let depth = h.app.tab().journal.undo_depth();
@@ -241,4 +257,45 @@ fn unloaded_preserved_output_drag_refuses_to_create_an_empty_history_pin() {
     assert_eq!(h.app.doc().items, items);
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
     assert!(h.app.agents.dispatched.is_empty());
+}
+
+#[test]
+fn a_manual_first_send_keeps_blank_image_creation_as_a_separate_undo_step() {
+    let (mut h, _) = generator_with_output("manual-first-image-send");
+    let source = place(&mut h, "source.png", -900.0);
+    let detail = serde_json::json!({"source": source.0, "kind": "image", "provider": "comfy"});
+    assert!(h.app.spawn_flow_node(Some(&detail.to_string())));
+    let child = *h.app.board_sel.iter().next().unwrap();
+    assert!(
+        slate_doc::agent_chat::agent(h.app.doc().scene.node(child).unwrap())
+            .unwrap()
+            .bundle
+            .is_none()
+    );
+    let blank = h.app.doc().scene.nodes.clone();
+    let depth = h.app.tab().journal.undo_depth();
+    assert!(h
+        .app
+        .tab()
+        .journal
+        .top_creates_node(child, &slate_doc::scene::CmdAuthor::Human));
+    let request = h
+        .app
+        .generation_request_with_prompt(child, false, Some("first manual run"))
+        .unwrap();
+    assert!(h
+        .app
+        .enqueue_generation_as(child, request, slate_doc::scene::CmdAuthor::Human));
+    assert_eq!(h.app.agents.dispatched.last().unwrap().0, child);
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth + 1,
+        "manual Send must not fold into an earlier blank creation"
+    );
+    h.app.board_undo();
+    assert_eq!(
+        h.app.doc().scene.nodes,
+        blank,
+        "Undo Send preserves the blank frame and its wire"
+    );
 }

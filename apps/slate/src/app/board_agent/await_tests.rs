@@ -83,10 +83,12 @@ fn provider_tiles_accept_first_click_near_their_edges() {
         let mut h = super::super::tests::Harness::new("picker_edge");
         h.app.leave_home();
         h.app.ensure_work_tab();
-        h.app.set_agent_programs_for_test(&["local"]);
+        h.app.set_agent_programs_for_test(&["local", "codex"]);
+        h.app.set_agent_catalog_for_test("codex", Vec::new());
         h.app.place_agent_portal_at(Pos2::ZERO);
         let id = h.app.doc().scene.nodes[0].id;
         crate::app::tests::frame_on(&mut h, id, z);
+        assert_eq!(h.app.pending_generator_choice(id).unwrap().0, "local");
         let before = h.app.doc().scene.node(id).unwrap().clone();
         let depth = h.app.tab().journal.undo_depth();
         let menu = Id::new(("agent-model-menu", id.0));
@@ -108,16 +110,25 @@ fn provider_tiles_accept_first_click_near_their_edges() {
             .unwrap_or_default()
             * provider.interact_rect;
         super::train_setup::press(&mut h, provider_rect.center());
-        h.frame();
-        let row = h
-            .ctx
-            .read_response(menu.with(("primary", 1usize)))
-            .expect("the available provider row");
-        let rect = h
-            .ctx
-            .layer_transform_to_global(row.layer_id)
-            .unwrap_or_default()
-            * row.interact_rect;
+        // Page changes reuse widget IDs. Wait for the actual Codex option's
+        // paint and hit registration to agree before testing its padding.
+        let provider_name = atlas_ai::agent::provider_by_id("codex").display_name;
+        let rect = (0..4)
+            .find_map(|_| {
+                let out = h.frame_output(|_| {});
+                let ink = super::paint_probe::painted_at(&out)
+                    .into_iter()
+                    .find(|(text, _)| text == &provider_name)?
+                    .1;
+                let row = h.ctx.read_response(menu.with(("primary", 2usize)))?;
+                let rect = h
+                    .ctx
+                    .layer_transform_to_global(row.layer_id)
+                    .unwrap_or_default()
+                    * row.interact_rect;
+                rect.contains(ink.center()).then_some(rect)
+            })
+            .expect("the actual Codex provider option is painted and clickable");
         let inset = (z * 1.0).max(0.25);
         let point = match corner {
             0 => rect.left_top() + egui::vec2(inset, inset),
@@ -128,7 +139,7 @@ fn provider_tiles_accept_first_click_near_their_edges() {
         super::train_setup::press(&mut h, point);
         assert_eq!(
             h.app.pending_generator_choice(id).unwrap().0,
-            "local",
+            "codex",
             "provider row edge at {z}"
         );
         assert_eq!(

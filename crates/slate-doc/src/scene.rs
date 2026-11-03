@@ -3426,6 +3426,19 @@ impl SceneJournal {
     pub fn top_token(&self) -> Option<GroupToken> {
         self.done.last().map(|g| g.token)
     }
+    /// The current step owns creation of this node under the same author.
+    /// Used with its captured token when an automatic first run completes it.
+    pub fn top_creates_node(&self, id: NodeId, author: &CmdAuthor) -> bool {
+        self.undone.is_empty()
+            && self.done.last().is_some_and(|group| {
+                &group.author == author
+                    && group
+                        .cmds
+                        .iter()
+                        .any(|cmd| matches!(cmd, SceneCmd::Add { node, .. } if node.id == id))
+            })
+    }
+
     /// Group `token` is applied to the scene: committed and not undone, or
     /// redone since. Amending a group keeps its token.
     pub fn is_applied(&self, token: GroupToken) -> bool {
@@ -3602,6 +3615,9 @@ impl SceneJournal {
     }
 }
 
+#[cfg(test)]
+#[path = "scene/creation_group_tests.rs"]
+mod creation_group_tests;
 #[cfg(test)]
 #[path = "scene/lookup_tests.rs"]
 mod lookup_tests;
