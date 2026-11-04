@@ -305,6 +305,8 @@ pub enum BoardDrag {
     Resize {
         id: NodeId,
         before: Node,
+        /// Movable Frame members captured before any geometry changes.
+        members: Vec<Node>,
         handle: u8,
         /// Press-time offset from the displayed control to the authored grip.
         grab_offset: Vec2,

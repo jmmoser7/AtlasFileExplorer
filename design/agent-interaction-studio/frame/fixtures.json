@@ -1,0 +1,1571 @@
+{
+  "schema": "slate-frame-fixtures/v1",
+  "cases": [
+    {
+      "id": "letter-idle",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": []
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "letter-selected",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "letter-dark",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": []
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "dark"
+    },
+    {
+      "id": "authored-white-dark",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": true,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": []
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "dark"
+    },
+    {
+      "id": "wide",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 960,
+              "h": 540
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": []
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "rotation--90",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": -90,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": []
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "rotation-90",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 90,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": []
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "rotation-180",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 180,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": []
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "rotation-270",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 270,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": []
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "rotation--27",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": -27,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": []
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "rotation-27",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 27,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": []
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "rotation-45",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 45,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": []
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "rotation-135",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 135,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": []
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "projected-1",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 1,
+              "h": 1
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "projected-3",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 3,
+              "h": 3
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "projected-12",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 12,
+              "h": 12
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "projected-16",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 16,
+              "h": 16
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "projected-30",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 30,
+              "h": 30
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "projected-36",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 36,
+              "h": 36
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "projected-48",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 48,
+              "h": 48
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "projected-62",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 62,
+              "h": 62
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "projected-88",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 88,
+              "h": 88
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "zoom-0.0078125",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 0.0078125
+      },
+      "theme": "light"
+    },
+    {
+      "id": "zoom-0.25",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 0.25
+      },
+      "theme": "light"
+    },
+    {
+      "id": "zoom-0.5",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 0.5
+      },
+      "theme": "light"
+    },
+    {
+      "id": "zoom-1",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "zoom-2",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 2
+      },
+      "theme": "light"
+    },
+    {
+      "id": "zoom-128",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 128
+      },
+      "theme": "light"
+    },
+    {
+      "id": "chamfer",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "chamfer",
+              "radius": 20
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": []
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "percent",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded-percent",
+              "radius": 50,
+              "percent": true
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [],
+        "selectedIds": []
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    },
+    {
+      "id": "overlap",
+      "state": {
+        "frames": [
+          {
+            "id": "frame-1",
+            "title": "Slide 1",
+            "order": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          },
+          {
+            "id": "frame-2",
+            "title": "Slide 1",
+            "order": 1,
+            "rect": {
+              "x": 300,
+              "y": 100,
+              "w": 612,
+              "h": 792
+            },
+            "rotation_deg": 0,
+            "fill": [
+              255,
+              255,
+              255,
+              255
+            ],
+            "fill_authored": false,
+            "corner": {
+              "kind": "rounded",
+              "radius": 8
+            },
+            "stroke": {
+              "width": 0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ]
+            },
+            "tags": []
+          }
+        ],
+        "contents": [
+          {
+            "id": "content-1",
+            "rect": {
+              "x": 400,
+              "y": 300,
+              "w": 20,
+              "h": 20
+            }
+          }
+        ],
+        "selectedIds": [
+          "frame-1"
+        ]
+      },
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      },
+      "theme": "light"
+    }
+  ]
+}

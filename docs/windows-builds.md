@@ -86,6 +86,10 @@ a shared one returns stale test results across checkouts.
 
 ## Completion checks
 
+For release requests, use [release readiness and fixed candidates](dev-loop.md#release-readiness-and-fixed-candidates)
+to distinguish targeted review evidence from completed release gates and to record
+the candidate, build owner, remaining stages and valid evidence reuse.
+
 After audit blocks clear, require successful exit codes from the build and tests.
 For the release artifacts above, run `cargo test --locked --release --workspace`
 to reuse the same profile, then `scripts/install-shortcuts.ps1 -Configuration Release`.

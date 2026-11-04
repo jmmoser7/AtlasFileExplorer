@@ -1,0 +1,25 @@
+{
+  "pass": true,
+  "checks": [
+    "top toolbar",
+    "left inspector",
+    "responsive layout",
+    "inline leader",
+    "Enter",
+    "outside commit",
+    "Escape",
+    "invalid input"
+  ],
+  "layout": {
+    "top": 44,
+    "bottom": 93.890625,
+    "canvas": 94
+  },
+  "narrow": {
+    "bottom": 125.59375,
+    "canvas": 126,
+    "left": 8,
+    "overflow": 390,
+    "width": 390
+  }
+}

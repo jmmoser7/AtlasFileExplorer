@@ -1,0 +1,10 @@
+{
+  "result": "PASS",
+  "journey": "Native blank-canvas sweep then hosted-body drag of three Frames",
+  "delta": [
+    73.170746,
+    42.682922
+  ],
+  "nodesMoved": 9,
+  "groupsUnchanged": true
+}

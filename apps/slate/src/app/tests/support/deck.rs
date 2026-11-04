@@ -6,6 +6,7 @@ pub(crate) fn deck_frame(h: &mut Harness, rect: slate_doc::scene::WorldRect, ord
     let node = h.app.doc_mut().scene.build_node(
         rect,
         NodeKind::Frame(slate_doc::scene::FrameNode {
+            presentation_media: Default::default(),
             title: format!("S{order}"),
             order,
             fill: slate_doc::scene::Rgba::WHITE,

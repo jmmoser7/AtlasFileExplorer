@@ -19,6 +19,7 @@ fn smoke_full_feature_export() {
     let frame = doc.scene.build_node(
         WorldRect::new(0.0, 0.0, 960.0, 540.0),
         NodeKind::Frame(FrameNode {
+            presentation_media: Default::default(),
             title: "Intro".into(),
             order: 0,
             fill: Rgba::WHITE,

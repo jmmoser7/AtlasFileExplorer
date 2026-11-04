@@ -2176,7 +2176,7 @@ pub static SPECS: &[CommandSpec] = &[
         "present.navigate",
         "Presentation",
         "Navigate slides",
-        "← → / Space / PageUp / PageDown / Home / End; click sides",
+        "← ↑ / → ↓ / Space / PageUp / PageDown / Home / End; scroll or click sides",
         None,
         Repeat::Never,
         GLOBAL,

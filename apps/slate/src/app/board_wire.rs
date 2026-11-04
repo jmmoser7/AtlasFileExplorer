@@ -363,7 +363,10 @@ impl SlateApp {
             return None;
         }
         for n in self.doc().scene.nodes.iter().rev() {
-            if n.hidden || matches!(n.kind, NodeKind::Connector(_)) {
+            if n.hidden
+                || matches!(n.kind, NodeKind::Connector(_))
+                || self.board_selected_frame_owner(n.id).is_some()
+            {
                 continue;
             }
             if self.polygon_rotate_at(n, screen, xf).is_some() {

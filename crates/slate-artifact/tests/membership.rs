@@ -9,6 +9,7 @@ fn add_frame(doc: &mut SlateDoc, rect: WorldRect, title: &str, order: u32) -> No
     let node = doc.scene.build_node(
         rect,
         NodeKind::Frame(FrameNode {
+            presentation_media: Default::default(),
             title: title.into(),
             order,
             fill: Rgba::WHITE,

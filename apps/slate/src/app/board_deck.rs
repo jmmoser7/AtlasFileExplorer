@@ -255,88 +255,8 @@ enum Rewrite {
 /// Frames a polyline enters, in first-contact order. Hidden frames are
 /// skipped. Where two rects are entered together, the later scene index wins.
 pub(crate) fn frames_along(scene: &Scene, points: &[Pos2]) -> Vec<NodeId> {
-    let mut hit = Vec::new();
-    if points.is_empty() {
-        return hit;
-    }
-    let segs: Vec<(Pos2, Pos2)> = if points.len() == 1 {
-        vec![(points[0], points[0])]
-    } else {
-        points.windows(2).map(|w| (w[0], w[1])).collect()
-    };
-    for (a, b) in segs {
-        let mut cursor = 0.0_f32;
-        loop {
-            let mut best: Option<(f32, usize, NodeId)> = None;
-            for node in &scene.nodes {
-                if node.hidden || !node.is_frame() || hit.contains(&node.id) {
-                    continue;
-                }
-                let Some(t) = segment_entry(a, b, node.rect) else {
-                    continue;
-                };
-                if t + 1.0e-4 < cursor {
-                    continue;
-                }
-                let index = scene.index_of(node.id).unwrap_or(0);
-                let take = match best {
-                    None => true,
-                    Some((bt, bi, _)) => {
-                        t < bt - 1.0e-4 || ((t - bt).abs() <= 1.0e-4 && index > bi)
-                    }
-                };
-                if take {
-                    best = Some((t, index, node.id));
-                }
-            }
-            let Some((t, _, id)) = best else {
-                break;
-            };
-            hit.push(id);
-            cursor = t + 1.0e-3;
-            if cursor > 1.0 {
-                break;
-            }
-        }
-    }
-    hit
-}
-
-/// Parameter where the segment first meets the rect, or `None` if it misses.
-fn segment_entry(a: Pos2, b: Pos2, rect: slate_doc::scene::WorldRect) -> Option<f32> {
-    let dx = b.x - a.x;
-    let dy = b.y - a.y;
-    let mut t0 = 0.0_f32;
-    let mut t1 = 1.0_f32;
-    let p = [-dx, dx, -dy, dy];
-    let q = [
-        a.x - rect.x,
-        rect.x + rect.w - a.x,
-        a.y - rect.y,
-        rect.y + rect.h - a.y,
-    ];
-    for i in 0..4 {
-        if p[i].abs() < 1.0e-8 {
-            if q[i] < 0.0 {
-                return None;
-            }
-            continue;
-        }
-        let t = q[i] / p[i];
-        if p[i] < 0.0 {
-            if t > t1 {
-                return None;
-            }
-            if t > t0 {
-                t0 = t;
-            }
-        } else if t < t0 {
-            return None;
-        } else if t < t1 {
-            t1 = t;
-        }
-    }
-    (t0 <= t1).then_some(t0)
+    let points = points.iter().map(|p| [p.x, p.y]).collect::<Vec<_>>();
+    slate_doc::presentations::frames_along(scene, &points)
 }
 
 #[cfg(test)]
@@ -348,6 +268,7 @@ mod tests {
         let node = scene.build_node(
             rect,
             NodeKind::Frame(FrameNode {
+                presentation_media: Default::default(),
                 title: format!("S{order}"),
                 order,
                 fill: Rgba::WHITE,

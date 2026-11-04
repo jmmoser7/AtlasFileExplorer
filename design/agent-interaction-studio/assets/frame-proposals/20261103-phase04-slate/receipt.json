@@ -1,0 +1,84 @@
+{
+  "phase": "04",
+  "element": "frame",
+  "status": "local integration review",
+  "binary": "target/debug/slate.exe",
+  "binarySha256": "a60ab6883804ec47e41e789d4e3b760d02767c93301747f4f8b5fbf7e4d86aff",
+  "launchUTC": "2026-11-03T22:38:47.7854906Z",
+  "workbook": "target/frame-phase04/frames-100.slate",
+  "buildCommand": "cargo build --locked -p slate --bin slate --jobs 2 --timings",
+  "builds": [
+    {
+      "id": "frame-native-first",
+      "label": "First Slate build",
+      "category": "Build",
+      "status": "Built; drag check failed",
+      "start": "2026-11-03T22:03:18.637Z",
+      "end": "2026-11-03T22:19:23.6633228Z",
+      "seconds": 965,
+      "evidence": "http://127.0.0.1:8765/contract-viewer.html?document=contracts/frame-phase-04-receipt.md",
+      "result": "Five and 100 slides displayed. Cross-row drag did not persist.",
+      "timingHtml": "cargo-timing-20261103T220318637Z-067f4ff03e141d0b.html"
+    },
+    {
+      "id": "frame-native-rebuild",
+      "label": "Slate rebuild after pointer fix",
+      "category": "Build",
+      "status": "Built and launched",
+      "start": "2026-11-03T22:25:09.565Z",
+      "end": "2026-11-03T22:38:35.1966785Z",
+      "seconds": 805,
+      "evidence": "http://127.0.0.1:8765/contract-viewer.html?document=contracts/frame-phase-04-receipt.md",
+      "result": "Slide 47 moved to slot 11 and saved. Undo restored all 100 positions.",
+      "timingHtml": "cargo-timing-20261103T222509565Z-067f4ff03e141d0b.html"
+    }
+  ],
+  "captures": [
+    {
+      "id": "frame-phase04-slate-five",
+      "elementId": "frame",
+      "title": "Create Presentation · five slides · actual Slate",
+      "src": "assets/frame-proposals/20261103-phase04-slate/slate-five-live.jpg",
+      "download": "assets/frame-proposals/20261103-phase04-slate/slate-five-live.jpg",
+      "approval": "integrated-review-candidate",
+      "captureKind": "native-screenshot",
+      "sourcePhase": "04",
+      "caption": "The first integration build shows five inline slide thumbnails in the attached palette.",
+      "renderer": "Windows live window capture",
+      "fixture": "presentation-small",
+      "capturedAt": "2026-11-03T22:21:15.8396260Z",
+      "imageSize": {
+        "width": 1440,
+        "height": 900
+      },
+      "zoom": 0.8,
+      "theme": "light",
+      "sha256": "7c459be32af6339d748362b7bbaa7af55659642feb242868a40c8503b89a7a7f",
+      "binarySha256": "0c389a1de689a2299340c06b5d9fb6d9c9f153d35c6bd1aac102d3fedd910deb",
+      "receipt": "assets/frame-proposals/20261103-phase04-slate/receipt.json"
+    },
+    {
+      "id": "frame-phase04-slate-100",
+      "elementId": "frame",
+      "title": "Create Presentation · 100 slides · actual Slate",
+      "src": "assets/frame-proposals/20261103-phase04-slate/slate-100-live.jpg",
+      "download": "assets/frame-proposals/20261103-phase04-slate/slate-100-live.jpg",
+      "approval": "integrated-review-candidate",
+      "captureKind": "native-screenshot",
+      "sourcePhase": "04",
+      "caption": "The final review build shows all 100 slides in the attached grid. Cross-row drag was verified and undone.",
+      "renderer": "Windows live window capture",
+      "fixture": "presentation-large",
+      "capturedAt": "2026-11-03T22:45:50.4621767Z",
+      "imageSize": {
+        "width": 1620,
+        "height": 1032
+      },
+      "zoom": 0.8,
+      "theme": "light",
+      "sha256": "2029364dd6def699805bd0dedb7dbc73046df10d2275472e63a8e61b3000ed15",
+      "binarySha256": "a60ab6883804ec47e41e789d4e3b760d02767c93301747f4f8b5fbf7e4d86aff",
+      "receipt": "assets/frame-proposals/20261103-phase04-slate/receipt.json"
+    }
+  ]
+}

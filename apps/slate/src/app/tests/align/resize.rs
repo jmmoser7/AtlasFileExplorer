@@ -2,6 +2,84 @@
 
 use super::*;
 
+#[test]
+fn frame_edge_resize_keeps_the_grab_and_scales_press_time_members_in_one_undo() {
+    let mut h = align_board("frame_resize_members");
+    let frame = h.seed_frame(None);
+    let member = add_rect(&mut h.app, 40.0, 30.0);
+    let locked = add_rect(&mut h.app, 180.0, 20.0);
+    let outside = add_rect(&mut h.app, 360.0, 100.0);
+    let rect = WorldRect::new(0.0, 0.0, 320.0, 240.0);
+    h.app.patch_nodes(&[frame], |node| node.rect = rect);
+    h.app.patch_nodes(&[locked], |node| node.locked = true);
+    h.app.board_sel = [frame].into_iter().collect();
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+    let initial: Vec<_> = [frame, member, locked, outside]
+        .into_iter()
+        .map(|id| h.app.doc().scene.node(id).unwrap().clone())
+        .collect();
+    let depth = h.app.tab().journal.undo_depth();
+    let xf = h.app.board_xf();
+    // Off the authored edge, but still in its resize band.
+    let press = Pos2::new(322.0, 80.0);
+    h.app.board_drag = h
+        .app
+        .begin_gesture_for_test(xf.w2s(press), press, egui::Modifiers::NONE);
+    assert!(matches!(
+        h.app.board_drag,
+        Some(board::BoardDrag::Resize { id, handle: 3, .. }) if id == frame
+    ));
+    let mods = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    h.app.update_gesture_for_test(press, mods);
+    for node in &initial {
+        assert_eq!(h.app.doc().scene.node(node.id), Some(node));
+    }
+    let centered = egui::Modifiers { ctrl: true, ..mods };
+    h.app.update_gesture_for_test(press, centered);
+    assert_eq!(h.app.doc().scene.node(frame).unwrap().rect, rect);
+
+    let end = press + EVec2::new(160.0, 0.0);
+    h.app.update_gesture_for_test(end, mods);
+    assert_eq!(
+        h.app.doc().scene.node(frame).unwrap().rect,
+        WorldRect::new(0.0, 0.0, 480.0, 240.0)
+    );
+    assert_eq!(
+        h.app.doc().scene.node(member).unwrap().rect,
+        WorldRect::new(60.0, 30.0, 120.0, 60.0)
+    );
+    for node in &initial[2..] {
+        assert_eq!(h.app.doc().scene.node(node.id), Some(node));
+    }
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+    h.app.end_gesture_for_test(end, Some(xf.w2s(end)), mods);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+    h.app.board_undo();
+    for node in &initial {
+        assert_eq!(h.app.doc().scene.node(node.id), Some(node));
+    }
+
+    h.app.board_drag = h
+        .app
+        .begin_gesture_for_test(xf.w2s(press), press, egui::Modifiers::NONE);
+    h.app
+        .update_gesture_for_test(press + EVec2::new(32.0, 0.0), centered);
+    assert_eq!(
+        h.app.doc().scene.node(frame).unwrap().rect,
+        WorldRect::new(-32.0, 0.0, 384.0, 240.0)
+    );
+    assert_ne!(h.app.doc().scene.node(member), Some(&initial[1]));
+    assert!(h.app.cancel_node_drag());
+    for node in &initial {
+        assert_eq!(h.app.doc().scene.node(node.id), Some(node));
+    }
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+}
+
 /// Ctrl+Alt+Shift on a group edge: members keep size and only translate.
 #[test]
 fn group_reposition_keeps_member_size() {

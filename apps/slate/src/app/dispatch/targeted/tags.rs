@@ -197,6 +197,7 @@ mod tests {
         let group = doc.add_group("Layer");
         let tag = doc.add_tag(group, "Notes", [1, 2, 3]).unwrap();
         let frame = FrameNode {
+            presentation_media: Default::default(),
             title: "Notes".into(),
             order: 0,
             fill: Rgba::WHITE,

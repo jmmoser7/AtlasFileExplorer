@@ -28,6 +28,7 @@ pub fn rebase_linked_scene(scene: &mut scene::Scene, from: &Path, to: &Path) -> 
 /// The saved workbook's new base also applies to every undo/redo snapshot.
 pub(crate) fn rebase_linked_command(command: &mut SceneCmd, from: &Path, to: &Path) {
     match command {
+        SceneCmd::Presentations { .. } => {}
         SceneCmd::Add { node, .. }
         | SceneCmd::Remove { node, .. }
         | SceneCmd::LayerNodeAdd { node, .. }

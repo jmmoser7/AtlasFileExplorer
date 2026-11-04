@@ -1,0 +1,138 @@
+{
+  "schema": "slate-frame-source-datum/v1",
+  "date": "2026-10-31",
+  "status": "draft",
+  "normalization": "UTF-8 decoded text; CRLF replaced by LF",
+  "gitHead": "a75990653b5cf97484d03c2c36d34920f615a831",
+  "sourceIdentity": "current working tree; includes pre-existing uncommitted changes",
+  "sources": [
+    {
+      "path": "crates/slate-kit/builtin/core.slatekit",
+      "sha256": "323d72629e67f1dca2b1c394e641608aa151431df525bf1205e70da45d92adc8"
+    },
+    {
+      "path": "crates/slate-doc/src/scene.rs",
+      "sha256": "8f837a42c42206779a01fb33b05932bb30e40d6ace08e63f6ce307ef02e64a68"
+    },
+    {
+      "path": "crates/slate-doc/src/geom.rs",
+      "sha256": "b1713b23f107cf195e10917dcd6fd214d2a93755fe04d96c1ae740d53a6726f6"
+    },
+    {
+      "path": "crates/slate-doc/src/media.rs",
+      "sha256": "d64afd35750d290c4e0182c6b0698a9afcffea42d0baec8749adb5353b60df07"
+    },
+    {
+      "path": "crates/slate-doc/src/spatial.rs",
+      "sha256": "023ae794764eefbd972f269e74af1cd57e77926bd2810b1a3f9db599d1bb29b6"
+    },
+    {
+      "path": "crates/slate-doc/src/spatial/bounds.rs",
+      "sha256": "56980ae93821ec2ef7607fccf91c4e53bff82ca6a74f914b93f872b942dfbaa6"
+    },
+    {
+      "path": "crates/atlas-core/src/display.rs",
+      "sha256": "ac5976d76c86fa2229370f3028209fc38f632e0873b43f21972d91c034d6a4f9"
+    },
+    {
+      "path": "crates/atlas-shell/ui-tokens.toml",
+      "sha256": "9dd3aa88b27cfbd3a7069a8fc5f0776f8d9eb5e3dd293eaef925a3c356d44f43"
+    },
+    {
+      "path": "crates/atlas-shell/src/theme.rs",
+      "sha256": "f3db83c59ff37274cc30511f0bb2aece84a8b35c426151d9176f9153f62ca91b"
+    },
+    {
+      "path": "crates/atlas-shell/src/canvas_scale.rs",
+      "sha256": "50ef49916361c0e5df87b378479eaf4eda3c4e76ff75f2453d0dab458028cb58"
+    },
+    {
+      "path": "crates/atlas-shell/src/canvas_text.rs",
+      "sha256": "f30743709e16cfd6723190862241aafe199fdd1ba55a08bcf7dba8efd37c04d3"
+    },
+    {
+      "path": "crates/atlas-shell/src/selection_tools.rs",
+      "sha256": "47c7fde8430f5d83f15b7046dfa3881250b0fdba05e122987d81723a8c17aab2"
+    },
+    {
+      "path": "crates/atlas-shell/src/selection_tools/hit_regions.rs",
+      "sha256": "35113bd27b6665be98d0c1116aa32e25f75b53e250faa7b2f8756a8d780f248b"
+    },
+    {
+      "path": "crates/atlas-shell/src/selection_tools/dimensions.rs",
+      "sha256": "aa6182a613892bb04af3ead3ea9843bb8539e62eea14ac0fb6ea32f572819613"
+    },
+    {
+      "path": "crates/atlas-shell/assets/tool-icons.json",
+      "sha256": "55d087c51599d2799d2fe28a322184db79457d82bb5ec5a9fcebdfdb0e82f251"
+    },
+    {
+      "path": "apps/slate/assets/context-menus.json",
+      "sha256": "30c72157b22b0d973c8599bb8c12b6928e7624a90fdc4cb189dc91a0dabb8c6e"
+    },
+    {
+      "path": "apps/slate/src/app/board.rs",
+      "sha256": "0bdab98f2d11159c037cee9e5a2939b984d900b221355ffeaf271d2bfc42b937"
+    },
+    {
+      "path": "apps/slate/src/app/board/paint_node.rs",
+      "sha256": "1d1ea9a03d01624f12900b9d046617bf6be6ff6b7efa416526da81c39cb86d63"
+    },
+    {
+      "path": "apps/slate/src/app/board/board_tools.rs",
+      "sha256": "a051cad86940ce768934f9ec27e9a1cb2bb05c69ee835484cfa87bb44eded09d"
+    },
+    {
+      "path": "apps/slate/src/app/board/board_outline.rs",
+      "sha256": "1b54322abf6d723575be63904eb289acd5df71e0afc82f475d4b7a02142f8ae3"
+    },
+    {
+      "path": "apps/slate/src/app/board/board_history.rs",
+      "sha256": "32a1bf885bf1890b7032331aeaf18eb08b918067248665d91e14a222511e9274"
+    },
+    {
+      "path": "apps/slate/src/app/board/board_place_commit.rs",
+      "sha256": "99a084ffe136701b8bf0f545c375f708f08646f047a6be9955e1715919a324b3"
+    },
+    {
+      "path": "apps/slate/src/app/board_place.rs",
+      "sha256": "c383d9eba43b6cc0b2edfc6a39d343c88a9fde862f62ebf942f7bbcd8af75750"
+    },
+    {
+      "path": "apps/slate/src/app/board_snap.rs",
+      "sha256": "07186b282d0be24d8ba0ec0c7897629193768e9e5b8c25172f6ce9d9be813dad"
+    },
+    {
+      "path": "apps/slate/src/app/board_handles.rs",
+      "sha256": "105c106ef3753871271d4ad2c5ad98363c061b1e538a123d8ef6689af7d9f4f0"
+    },
+    {
+      "path": "apps/slate/src/app/board_handles/adaptive.rs",
+      "sha256": "ada8c11923fe70ffb5f81ff2435a9b37a735a0dc119c727ea0fcfdc3275e950b"
+    },
+    {
+      "path": "apps/slate/src/app/board_transform/drag.rs",
+      "sha256": "7b649524c22151a7f138197224f5364ea02fe5197aa69a9fa4acbd4669c48752"
+    },
+    {
+      "path": "apps/slate/src/app/board_transform/hover.rs",
+      "sha256": "f50feebe2ba7f659ab9ee16f5c7a6c5877b188b96acba8b35aa2a580aebf99fa"
+    },
+    {
+      "path": "apps/slate/src/app/board_properties/property_strip.rs",
+      "sha256": "c910b6cf5c0f833cb7afe5f03e6953908665830202091c3cf75cf73a24fb5aff"
+    },
+    {
+      "path": "apps/slate/src/app/board_deck.rs",
+      "sha256": "d3ff90e72cd8890e6be0bf12e65c6bbd5319f01847bea14e2207c61e6f0f541e"
+    },
+    {
+      "path": "apps/slate/src/app/present.rs",
+      "sha256": "34d717dbad66a7c7a9001d4f2d831df588252280adf684725675e3c80aa7a133"
+    }
+  ],
+  "font": {
+    "path": "design/agent-interaction-studio/chat-train/assets/Ubuntu-Light.ttf",
+    "sha256": "80307b8da7649aa4ee4d484b232140e3ce1ec0ca093073d3c53c8f5a5ced7a70"
+  }
+}

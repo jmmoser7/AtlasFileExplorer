@@ -37,6 +37,10 @@ impl SlateApp {
 
     /// Click with no modifiers. Plays from the panned frame, or pauses.
     pub(crate) fn video_click(&mut self, id: NodeId) {
+        self.video_click_with_loop(id, None);
+    }
+
+    pub(crate) fn video_click_with_loop(&mut self, id: NodeId, loop_override: Option<bool>) {
         let Some(vid) = self.ensure_video_source(id) else {
             return;
         };
@@ -76,7 +80,7 @@ impl SlateApp {
             start,
             end,
             started: Instant::now(),
-            looped: vid.opts.looped,
+            looped: loop_override.unwrap_or(vid.opts.looped),
         });
         self.ensure_strip(id);
         if self.video.strips.get(&id).is_some_and(|s| s.failed) {
@@ -91,8 +95,31 @@ impl SlateApp {
             vid.opts.start,
             vid.opts.end,
             from,
-            vid.opts.looped,
+            loop_override.unwrap_or(vid.opts.looped),
         );
+    }
+
+    pub(crate) fn presentation_video_enter(
+        &mut self,
+        members: &[NodeId],
+        start: Option<bool>,
+        repeat: Option<bool>,
+    ) {
+        self.stop_other_video(NodeId(0));
+        // Both automatic and click-to-start clips enter at the trim start.
+        for id in members {
+            self.video.paused.remove(id);
+        }
+        if let Some(id) = members.iter().copied().find(|id| {
+            self.video_at(*id)
+                .is_some_and(|video| start.unwrap_or(video.opts.autoplay))
+        }) {
+            self.video_click_with_loop(id, repeat);
+        }
+    }
+
+    pub(crate) fn presentation_video_leave(&mut self) {
+        self.stop_other_video(NodeId(0));
     }
 
     pub(crate) fn update_video_hover(&mut self, world: Option<Pos2>, live: bool) {

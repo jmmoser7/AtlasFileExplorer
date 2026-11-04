@@ -35,6 +35,7 @@ fn actual_svg_model_source_and_target_keep_path_resolved_endpoints_after_seriali
                 let frame = doc.scene.build_node(
                     WorldRect::new(0.0, 0.0, 4000.0, 2000.0),
                     NodeKind::Frame(FrameNode {
+                        presentation_media: Default::default(),
                         title: "Frame".into(),
                         order: 0,
                         fill: Rgba::WHITE,

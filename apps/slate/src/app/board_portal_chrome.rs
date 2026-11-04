@@ -350,9 +350,7 @@ impl SlateApp {
     /// must not steal that corner.
     pub(crate) fn pointer_on_portal_maximize(&self, p: Pos2, xf: &BoardXf) -> bool {
         let world = xf.s2w(p);
-        let Some(id) =
-            super::board_path::board_pick_node(&self.doc().scene, world.x, world.y, xf.z)
-        else {
+        let Some(id) = self.board_pick_node(world.x, world.y) else {
             return false;
         };
         let Some(node) = self.doc().scene.node(id) else {

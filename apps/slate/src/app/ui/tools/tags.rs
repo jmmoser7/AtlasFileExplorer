@@ -349,6 +349,7 @@ mod tests {
         let frame = h.app.doc_mut().scene.build_node(
             WorldRect::new(0.0, 0.0, 300.0, 300.0),
             NodeKind::Frame(FrameNode {
+                presentation_media: Default::default(),
                 title: "Tagged".into(),
                 order: 0,
                 fill: slate_doc::scene::Rgba([255, 255, 255, 255]),

@@ -50,10 +50,9 @@ pub enum Panel {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FrameAction {
-    Prev,
-    Next,
     Present,
     Deck,
+    Settings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -178,10 +177,9 @@ fn property_strip_items(nodes: &[Node]) -> Vec<StripItem> {
     }
     if nodes.len() == 1 && matches!(nodes[0].kind, NodeKind::Frame(_)) {
         items.extend([
-            StripItem::Frame(FrameAction::Prev),
-            StripItem::Frame(FrameAction::Next),
-            StripItem::Frame(FrameAction::Present),
             StripItem::Frame(FrameAction::Deck),
+            StripItem::Frame(FrameAction::Settings),
+            StripItem::Frame(FrameAction::Present),
         ]);
     }
     items
@@ -696,35 +694,9 @@ impl SlateApp {
             return;
         }
         match action {
-            FrameAction::Deck => {
-                let cmd = if self.board_tool == BoardTool::Deck {
-                    "board.tool.select"
-                } else {
-                    "board.tool.deck"
-                };
-                self.dispatch(ctx, CommandId(cmd), Some("frame-strip".into()));
-            }
+            FrameAction::Deck => self.toggle_frame_presentation(ctx, id, false),
+            FrameAction::Settings => self.toggle_frame_presentation(ctx, id, true),
             FrameAction::Present => self.start_present(Some(id)),
-            FrameAction::Prev | FrameAction::Next => {
-                let frames: Vec<NodeId> = self
-                    .doc()
-                    .scene
-                    .frames_in_order()
-                    .iter()
-                    .map(|n| n.id)
-                    .collect();
-                let Some(pos) = frames.iter().position(|f| *f == id) else {
-                    return;
-                };
-                let other = match action {
-                    FrameAction::Prev if pos > 0 => Some(frames[pos - 1]),
-                    FrameAction::Next if pos + 1 < frames.len() => Some(frames[pos + 1]),
-                    _ => None,
-                };
-                if let Some(other) = other {
-                    self.swap_frame_order(id, other);
-                }
-            }
         }
     }
 
@@ -1863,7 +1835,11 @@ mod tests {
                 let (bounds, dims) = dimensions(std::slice::from_ref(&node));
                 let bounds = bounds.unwrap();
                 let items = live_property_strip_items(&h.app, std::slice::from_ref(&node));
-                assert_eq!(items.len(), 7, "fill, stroke, corners, <, >, present, deck");
+                assert_eq!(
+                    items.len(),
+                    6,
+                    "fill, stroke, corners, deck, settings, present"
+                );
                 let strip = chrome::strip_rect(
                     Pos2::new(bounds.x + bounds.w * 0.5, bounds.y),
                     items.len(),
@@ -2119,6 +2095,7 @@ mod tests {
         let node = h.app.doc_mut().scene.build_node(
             rect,
             NodeKind::Frame(scene::FrameNode {
+                presentation_media: Default::default(),
                 title: "Slide".into(),
                 order: 0,
                 fill: Rgba([20, 30, 40, 255]),
@@ -3501,10 +3478,9 @@ mod tests {
                 StripItem::ModelScreenshot => "screenshot",
                 StripItem::ModelMaximize => "maximize",
                 StripItem::ApplicationConnector => "rhino",
-                StripItem::Frame(FrameAction::Prev) => "prev",
-                StripItem::Frame(FrameAction::Next) => "next",
                 StripItem::Frame(FrameAction::Present) => "present",
                 StripItem::Frame(FrameAction::Deck) => "deck",
+                StripItem::Frame(FrameAction::Settings) => "settings",
                 StripItem::Agent(true) => "unbundle",
                 StripItem::Agent(false) => "bundle",
             })
@@ -3532,7 +3508,7 @@ mod tests {
         let node = |id| h.app.doc().scene.node(id).unwrap().clone();
         assert_eq!(
             item_kinds(&property_strip_items(&[node(frame)])),
-            ["fill", "stroke", "corners", "prev", "next", "present", "deck"]
+            ["fill", "stroke", "corners", "deck", "settings", "present"]
         );
         assert_eq!(
             item_kinds(&property_strip_items(&[node(image)])),

@@ -485,7 +485,8 @@ pub fn valid_commands(scene: &Scene, commands: &[crate::scene::SceneCmd]) -> boo
         }
         SceneCmd::LayerNodeAdd { .. }
         | SceneCmd::LayerNodeRemove { .. }
-        | SceneCmd::LayerNodePatch { .. } => false,
+        | SceneCmd::LayerNodePatch { .. }
+        | SceneCmd::Presentations { .. } => false,
     });
     if !relevant {
         return true;
@@ -519,7 +520,8 @@ pub fn valid_commands(scene: &Scene, commands: &[crate::scene::SceneCmd]) -> boo
             }
             SceneCmd::LayerNodeAdd { .. }
             | SceneCmd::LayerNodeRemove { .. }
-            | SceneCmd::LayerNodePatch { .. } => {}
+            | SceneCmd::LayerNodePatch { .. }
+            | SceneCmd::Presentations { .. } => {}
         }
     }
     let mut checked = HashSet::new();

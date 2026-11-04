@@ -107,7 +107,7 @@ pub(super) fn rectangular_blister(app: &SlateApp, nodes: &[Node], count: usize) 
     {
         return false;
     }
-    matches!(nodes, [node] if (matches!(node.kind, NodeKind::Portal(_) | NodeKind::Image(_))
+    matches!(nodes, [node] if (matches!(node.kind, NodeKind::Portal(_) | NodeKind::Image(_) | NodeKind::Frame(_))
         || matches!(node.kind, NodeKind::Text(_)) && app.is_text_block(node.id))
         && !matches!(&node.kind, NodeKind::Portal(portal) if portal.kind == slate_doc::scene::PortalKind::Agent)
         && media_blister_fits(node,count))
@@ -345,19 +345,18 @@ impl SlateApp {
                         .iter()
                         .all(|n| n.bumper.is_some()),
             ),
-            StripItem::Frame(FrameAction::Prev) => {
-                ("Move earlier in the deck", Icon::ChevronLeft, false)
-            }
-            StripItem::Frame(FrameAction::Next) => {
-                ("Move later in the deck", Icon::ChevronRight, false)
-            }
             StripItem::Frame(FrameAction::Present) => {
                 ("Present from this slide", Icon::View, false)
             }
             StripItem::Frame(FrameAction::Deck) => (
-                "Order frames: click each one, or draw a stroke through them",
-                Icon::Deck,
-                self.board_tool == BoardTool::Deck,
+                "Create Presentation",
+                Icon::PresentationDeck,
+                self.frame_presentation.open(false),
+            ),
+            StripItem::Frame(FrameAction::Settings) => (
+                "Presentation media settings",
+                Icon::Sliders,
+                self.frame_presentation.open(true),
             ),
         }
     }

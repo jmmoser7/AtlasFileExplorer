@@ -53,6 +53,7 @@ use super::SlateApp;
 
 mod gpu;
 mod materials;
+mod nodes;
 mod posters;
 #[cfg(test)]
 use gpu::mask_palette;
@@ -1229,43 +1230,6 @@ pub struct ModelNodeInfo {
 }
 
 impl SlateApp {
-    /// Snapshot of the node when it's a placed 3D model.
-    pub fn model_node_info(&self, id: NodeId) -> Option<ModelNodeInfo> {
-        let node = self.doc().scene.node(id)?;
-        let NodeKind::Image(img) = &node.kind else {
-            return None;
-        };
-        let item = self.doc().item(img.item)?;
-        let recognized = slate_doc::media_kind(&item.path) == slate_doc::MediaKind::Model
-            || self.model3d.external.contains(&item.cache_key);
-        if !recognized || item.cache_key.is_empty() {
-            return None;
-        }
-        Some(ModelNodeInfo {
-            node: id,
-            cache_key: item.cache_key.clone(),
-            path: self.item_path(img.item)?,
-            cam: img.model,
-            rect: node.rect,
-        })
-    }
-
-    /// All placed model nodes in the active document.
-    pub fn model_nodes(&self) -> Vec<ModelNodeInfo> {
-        self.doc()
-            .scene
-            .nodes
-            .iter()
-            .filter_map(|n| self.model_node_info(n.id))
-            .collect()
-    }
-
-    /// The topmost node at a world point when it's an *unlocked* viewport.
-    pub fn live_model_at(&self, wx: f32, wy: f32) -> Option<NodeId> {
-        let id = self.doc().scene.node_at(wx, wy)?;
-        (self.model3d.live.contains_key(&id) && self.model_node_info(id).is_some()).then_some(id)
-    }
-
     /// Unlock a model node into a live viewport (parses + uploads lazily).
     pub fn unlock_model(&mut self, id: NodeId) {
         if self.application_connector_active(id) {
@@ -1403,6 +1367,23 @@ impl SlateApp {
         }
     }
 
+    /// Presentation navigation is session-only and never launches an external host.
+    pub(crate) fn open_presentation_model(&mut self, id: NodeId) -> bool {
+        if self.application_connector_active(id)
+            || self
+                .model_node_info(id)
+                .is_none_or(|info| self.model3d.external.contains(&info.cache_key))
+        {
+            return false;
+        }
+        self.unlock_model(id);
+        self.model3d.live.contains_key(&id)
+    }
+
+    pub(crate) fn close_presentation_model(&mut self, id: NodeId) {
+        self.model3d.live.remove(&id);
+    }
+
     /// Look at `.exe` items once. A hit becomes the same model card as any
     /// other 3D file, with copy that says to double-click. The sniff never
     /// starts the program. A dehydrated cloud file is left as a normal file
@@ -1520,7 +1501,7 @@ impl SlateApp {
             .model3d
             .live
             .iter()
-            .filter(|(_, v)| v.idle())
+            .filter(|(_, v)| self.presenting.is_none() && v.idle())
             .map(|(id, _)| *id)
             .collect();
         for id in idle {

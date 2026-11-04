@@ -32,6 +32,7 @@ fn a_resize_records_its_size_and_fit_to_text_forgets_it() {
     h.app.board_drag = Some(super::super::board::BoardDrag::Resize {
         id: root,
         before,
+        members: Vec::new(),
         handle: 0,
         grab_offset: egui::Vec2::ZERO,
         dup: false,

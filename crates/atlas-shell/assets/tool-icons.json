@@ -85,6 +85,11 @@
     "path": "M3 15H9V21H3ZM13 8H19V14H13ZM6 18C8 14 14 14 16 11",
     "filled": false
   },
+  "PresentationDeck": {
+    "path": "M9 5H21M9 12H21M9 19H21M3 4L4 3V7M3 10Q6 9 5 11L3 14H6M3 17H5L4 19Q7 19 6 21H3",
+    "filled": false,
+    "stroke_width": 1.5
+  },
   "Rect": {
     "path": "M5 5H19V19H5Z",
     "filled": false

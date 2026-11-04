@@ -1,0 +1,154 @@
+{
+  "capturedAt": "2026-11-03T19:00:19.298Z",
+  "browser": "156.0.4314.58",
+  "url": "http://localhost:8765/?phase=01&tab=frame&sample=1",
+  "viewport": {
+    "width": 960,
+    "height": 900
+  },
+  "theme": "light",
+  "captures": [
+    {
+      "file": "wide-stringers.png",
+      "fixture": "wide",
+      "camera": {
+        "x": 96,
+        "y": 173,
+        "zoom": 0.8
+      },
+      "sha256": "a55ad2723d0506e011e82133575938ce39206d613c8193f2e9b90c3b75765a57"
+    },
+    {
+      "file": "rotated-stringers.png",
+      "fixture": "rotated",
+      "camera": {
+        "x": 287.1008979927757,
+        "y": 139.3658679906508,
+        "zoom": 0.6303892222458312
+      },
+      "sha256": "c403f4df986f9b0a8efb3801354b97f914d0ba5e76183f5e8770d99b5ab21bd1"
+    }
+  ],
+  "checks": [
+    {
+      "fixture": "wide",
+      "gaps": [
+        {
+          "kind": "width",
+          "world": 24.000000953674313,
+          "pixels": 14.40000057220459,
+          "zoom": 0.6000000000000001,
+          "mode": "blister"
+        },
+        {
+          "kind": "height",
+          "world": 24.00000095367431,
+          "pixels": 14.400000572204588,
+          "zoom": 0.6000000000000001,
+          "mode": "blister"
+        }
+      ]
+    },
+    {
+      "fixture": "wide",
+      "gaps": [
+        {
+          "kind": "width",
+          "world": 24.00000035762787,
+          "pixels": 19.200000286102295,
+          "zoom": 0.8,
+          "mode": "blister"
+        },
+        {
+          "kind": "height",
+          "world": 24.00000035762787,
+          "pixels": 19.200000286102295,
+          "zoom": 0.8,
+          "mode": "blister"
+        }
+      ]
+    },
+    {
+      "fixture": "quarter-turn",
+      "gaps": [
+        {
+          "kind": "width",
+          "world": 24.000000953674316,
+          "pixels": 14.400000572204592,
+          "zoom": 0.6000000000000001,
+          "mode": "blister"
+        },
+        {
+          "kind": "height",
+          "world": 24.000000953674313,
+          "pixels": 14.40000057220459,
+          "zoom": 0.6000000000000001,
+          "mode": "blister"
+        }
+      ]
+    },
+    {
+      "fixture": "quarter-turn",
+      "gaps": [
+        {
+          "kind": "width",
+          "world": 24.00000035762787,
+          "pixels": 19.200000286102295,
+          "zoom": 0.8,
+          "mode": "blister"
+        },
+        {
+          "kind": "height",
+          "world": 24.00000035762787,
+          "pixels": 19.200000286102295,
+          "zoom": 0.8,
+          "mode": "blister"
+        }
+      ]
+    },
+    {
+      "fixture": "rotated",
+      "gaps": [
+        {
+          "kind": "width",
+          "world": 68.00000334964085,
+          "pixels": 32.149851918220506,
+          "zoom": 0.47279191668437337,
+          "mode": "squircles"
+        },
+        {
+          "kind": "height",
+          "world": 24.000001182226175,
+          "pixels": 11.34700655937194,
+          "zoom": 0.47279191668437337,
+          "mode": "squircles"
+        }
+      ]
+    },
+    {
+      "fixture": "rotated",
+      "gaps": [
+        {
+          "kind": "width",
+          "world": 67.99999263373276,
+          "pixels": 42.866462469101045,
+          "zoom": 0.6303892222458312,
+          "mode": "squircles"
+        },
+        {
+          "kind": "height",
+          "world": 23.999997400140774,
+          "pixels": 15.129339694976712,
+          "zoom": 0.6303892222458312,
+          "mode": "squircles"
+        }
+      ]
+    },
+    {
+      "inlineEditorAlignmentError": 0.00040795898439682787
+    },
+    {
+      "inlineEditorAlignmentError": 0.000032836913987921434
+    }
+  ]
+}

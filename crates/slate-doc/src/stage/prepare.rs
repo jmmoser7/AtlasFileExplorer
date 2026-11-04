@@ -85,6 +85,7 @@ pub(super) fn prepared_cmds(
                 original.clone()
             }
             SceneCmd::LayerNodeAdd { .. } => original.clone(),
+            SceneCmd::Presentations { .. } => original.clone(),
         };
         if !check.apply(&cmd) {
             return Err(StaleReason::CommandRejected);

@@ -205,6 +205,7 @@ mod tests {
         let node = scene.build_node(
             rect,
             NodeKind::Frame(FrameNode {
+                presentation_media: Default::default(),
                 title: format!("Slide {order}"),
                 order,
                 fill: Rgba::WHITE,

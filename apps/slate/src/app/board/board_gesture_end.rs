@@ -74,6 +74,7 @@ impl SlateApp {
             Some(BoardDrag::Resize {
                 id,
                 before,
+                members,
                 dup,
                 handle,
                 ..
@@ -98,11 +99,9 @@ impl SlateApp {
                                 *live = after.clone();
                             }
                         }
-                        self.tab_mut().journal.record(vec![SceneCmd::Patch {
-                            before: Box::new(before),
-                            after: Box::new(after),
-                        }]);
-                        self.tab_mut().dirty = true;
+                        let before: Vec<_> = std::iter::once(before).chain(members).collect();
+                        let ids: Vec<_> = before.iter().map(|node| node.id).collect();
+                        self.journal_resize_patches(&ids, before);
                     }
                 }
             }
@@ -304,7 +303,7 @@ impl SlateApp {
                         .scene
                         .nodes
                         .iter()
-                        .filter(|n| !n.is_frame() && !n.hidden && !n.locked)
+                        .filter(|n| !n.hidden && !n.locked)
                         .filter(|n| {
                             frame.is_none_or(|id| self.doc().scene.frame_of(n.id) == Some(id))
                         })
@@ -328,6 +327,7 @@ impl SlateApp {
                     }
                     // A member inside the rect selects its whole group.
                     self.expand_board_selection();
+                    self.collapse_frame_selection();
                 }
             }
             None => {}

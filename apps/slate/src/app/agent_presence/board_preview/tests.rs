@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 fn frame(title: &str) -> FrameNode {
     FrameNode {
+        presentation_media: Default::default(),
         title: title.into(),
         order: 1,
         fill: Rgba([28, 36, 48, 255]),

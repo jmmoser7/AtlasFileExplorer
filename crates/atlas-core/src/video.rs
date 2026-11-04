@@ -380,7 +380,11 @@ fn worker_main(
         let token_now = play_token.load(std::sync::atomic::Ordering::SeqCst);
         if token_now != 0 {
             match job_rx.recv_timeout(std::time::Duration::from_millis(30)) {
-                Ok(job @ Job::Play { token, .. }) if token == token_now => {
+                // A new slide can queue its play while this receive is blocked
+                // on the old token. Compare at dequeue, not before waiting.
+                Ok(job @ Job::Play { token, .. })
+                    if token == play_token.load(std::sync::atomic::Ordering::SeqCst) =>
+                {
                     mf::run_play(&job_rx, &ev_tx, &play_token, &mut reader, job);
                 }
                 Ok(Job::Play { .. }) => {}

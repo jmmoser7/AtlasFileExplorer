@@ -1,0 +1,51 @@
+{
+  "browser": "156.0.4314.58",
+  "captures": [
+    {
+      "file": "five-slides-joined.png",
+      "fixture": "presentation-small",
+      "sourceUrl": "http://127.0.0.1:8765/?phase=01&tab=frame&sample=1&fixture=presentation-small",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "deviceScaleFactor": 1,
+      "theme": "light",
+      "capturedAt": "2026-11-03T20:29:11.616Z",
+      "camera": {
+        "x": 90,
+        "y": 87.95951035781545,
+        "zoom": 0.5178907721280602
+      },
+      "sha256": "ce9b3155fd9ccb1c74f809f9bbdc4cb5c41963fb8d8c930b22ddb801f5f65423"
+    },
+    {
+      "file": "100-slides-joined.png",
+      "fixture": "presentation-large",
+      "sourceUrl": "http://127.0.0.1:8765/?phase=01&tab=frame&sample=1&fixture=presentation-large",
+      "viewport": {
+        "width": 780,
+        "height": 720
+      },
+      "deviceScaleFactor": 1,
+      "theme": "light",
+      "capturedAt": "2026-11-03T20:29:14.835Z",
+      "camera": {
+        "x": 134,
+        "y": -215.60000000000002,
+        "zoom": 0.8
+      },
+      "sha256": "dda67ba013c2daec686e174f5039ba5b212792ee581b6e928cf7606a4a78156c"
+    }
+  ],
+  "checks": [
+    "Canvas badges toggle membership, both context menus work, and Delete removes only the selected slide references.",
+    "Click adds a frame in pick order; Shift/Ctrl selection slides into place without an insertion marker and keeps relative order.",
+    "The palette follows the host on pan and zoom, reopens from different frames, and selects the member deck when needed.",
+    "Named deck hover map, independent membership, physical sort with carried content, and undo.",
+    "Presentation playback follows the active deck order.",
+    "100 complete tiles in ten rows fit a 780 × 720 viewport.",
+    "A multi-slide drag moves between grid rows without disturbing the remaining order.",
+    "Deck creation persists across reload without reopening the drawer."
+  ]
+}

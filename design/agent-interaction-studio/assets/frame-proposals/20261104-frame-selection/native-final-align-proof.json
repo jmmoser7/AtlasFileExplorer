@@ -1,0 +1,11 @@
+{
+  "result": "PASS",
+  "journey": "Final native SelectAll roots then AlignTop",
+  "frameDeltasY": [
+    0,
+    -70,
+    -10
+  ],
+  "hostedShapeAndTextDeltasMatch": true,
+  "groupsUnchanged": true
+}

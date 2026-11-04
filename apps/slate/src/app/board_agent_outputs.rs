@@ -288,6 +288,7 @@ fn frame_node(app: &mut SlateApp, rect: WorldRect, title: String) -> Node {
     app.doc_mut().scene.build_node(
         rect,
         NodeKind::Frame(FrameNode {
+            presentation_media: Default::default(),
             title,
             order,
             fill: Rgba::WHITE,

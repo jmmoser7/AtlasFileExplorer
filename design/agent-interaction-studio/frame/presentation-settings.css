@@ -1,0 +1,11 @@
+/* v04: one world-scaled, shallow white drawer below the Frame. */
+#frame-property-host.frame-media-settings{padding:0;background:var(--p-card);overflow:hidden;border-radius:0 0 40px 40px;box-shadow:none;border-top:0}
+#frame-property-host.frame-media-settings>*{position:static;box-sizing:border-box}
+.frame-media-drawer-content{height:136px;width:100%;display:flex;align-items:center;justify-content:center;padding:16px 24px;will-change:transform}
+.frame-media-grid{display:grid;grid-template-columns:84px minmax(0,1fr) minmax(0,1fr);gap:8px 12px;align-items:center;width:100%;max-width:640px;font:300 12px/1.4 FrameUbuntu,"Segoe UI",sans-serif;color:var(--p-ink)}
+.frame-media-category-label{font-weight:500;white-space:nowrap}
+#frame-property-host.frame-media-settings .frame-media-capsule{box-sizing:border-box;width:100%;height:28px;min-width:0;margin:0;border:.8px solid var(--p-border);border-radius:16px;background-color:var(--p-card);color:var(--p-ink);font:300 12px/1.4 FrameUbuntu,"Segoe UI",sans-serif;padding:3px 30px 3px 14px;text-align:left}
+#frame-property-host.frame-media-settings select.frame-media-capsule{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m2 2 4 4 4-4' fill='none' stroke='%235c6570' stroke-width='1'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;cursor:pointer}
+#frame-property-host.frame-media-settings .frame-media-save{padding-right:14px;cursor:pointer}#frame-property-host.frame-media-settings .frame-media-save:disabled{opacity:.4;cursor:default}
+.frame-media-interactive{display:flex;align-items:center;gap:9px}.frame-media-interactive input{margin:0;accent-color:#008f86}.frame-media-unused{height:28px}
+#frame-media-feedback{font:11px/1.5 "Segoe UI",sans-serif;color:var(--sub);padding:5px 9px;border-top:1px solid var(--studio-line);flex-basis:100%}#frame-media-feedback button{padding:3px 7px;margin-left:5px}#frame-media-feedback p{margin:3px 0}

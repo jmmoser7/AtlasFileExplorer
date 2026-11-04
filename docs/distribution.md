@@ -38,6 +38,25 @@ The public release feed needs no login, embedded tokens or separate server.
 Do not make the distribution repository private without providing an accessible
 replacement feed. GitHub Actions uses its scoped `GITHUB_TOKEN` to publish.
 
+## Artifact reuse and promotion
+
+[Release readiness](dev-loop.md#release-readiness-and-fixed-candidates) owns candidate
+identity, gate status and delivery estimates. Today PR preview, main preview and
+stable tag runs build separately. These rules do not implement artifact promotion
+or replace any currently required CI stage; plan for those existing builds.
+
+A future reuse/promotion optimization must preserve Windows and Linux checks plus
+install, upgrade and package verification. Before reuse, verify exact source and
+build configuration, version, channel, platform, signing state, digests and
+provenance, with test evidence valid for the claimed artifact. Caches are not test
+evidence, and identical source alone does not establish artifact equivalence.
+Never relabel old/preview binaries as a new stable version or retag a published
+release. Verify the actual downloadable package and feed after publication.
+
+Changes to CI, profiles, linkers or crate decomposition are separate, measured,
+scoped work. This policy mandates no DLL/profile change or fixed turnaround time;
+it does not authorize disabling gates or weakening tests to shorten a release.
+
 ## Package and dependencies
 
 `scripts/package-windows.ps1 -Version 0.1.0 -Channel stable` is the same packaging

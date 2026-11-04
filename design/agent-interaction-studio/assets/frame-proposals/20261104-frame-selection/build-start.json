@@ -1,0 +1,6 @@
+{
+  "StartedUtc": "2026-11-04T14:11:14.6007670Z",
+  "FreeGiB": 25.53,
+  "Target": "target/debug",
+  "Command": "cargo build --locked -p slate --bin slate --jobs 2 --timings"
+}

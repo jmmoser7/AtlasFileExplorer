@@ -1126,6 +1126,11 @@ pub struct NodeId(pub u64);
 /// `assignments` are tags auto-applied to any image dropped into the frame.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FrameNode {
+    #[serde(
+        default,
+        skip_serializing_if = "crate::presentations::MediaSettings::is_default"
+    )]
+    pub presentation_media: crate::presentations::MediaSettings,
     pub title: String,
     /// Slide sequence position (ascending; gaps allowed).
     pub order: u32,
@@ -2718,6 +2723,8 @@ impl Node {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Scene {
     pub nodes: Vec<Node>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) presentations: Vec<crate::presentations::Presentation>,
     next_node_id: u64,
     #[serde(default)]
     next_group_key: u64,
@@ -2752,6 +2759,7 @@ impl NodePositions {
 impl PartialEq for Scene {
     fn eq(&self, other: &Self) -> bool {
         self.nodes == other.nodes
+            && self.presentations == other.presentations
             && self.next_node_id == other.next_node_id
             && self.next_group_key == other.next_group_key
     }
@@ -3046,6 +3054,11 @@ impl Scene {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SceneCmd {
+    /// Journaled replacement of ordered presentation references. Never moves scene nodes.
+    Presentations {
+        before: Vec<crate::presentations::Presentation>,
+        after: Vec<crate::presentations::Presentation>,
+    },
     /// Insert `node` at `index` in the z-list.
     Add { index: usize, node: Node },
     /// Remove the node at `index` (kept whole for undo).
@@ -3080,6 +3093,10 @@ pub enum SceneCmd {
 impl SceneCmd {
     pub fn inverted(&self) -> SceneCmd {
         match self {
+            SceneCmd::Presentations { before, after } => SceneCmd::Presentations {
+                before: after.clone(),
+                after: before.clone(),
+            },
             SceneCmd::Add { index, node } => SceneCmd::Remove {
                 index: *index,
                 node: node.clone(),
@@ -3162,6 +3179,13 @@ impl Scene {
             idx.is_current(self.scene_gen) && idx.len() == self.nodes.len()
         };
         match cmd {
+            SceneCmd::Presentations { before, after } => {
+                if &self.presentations != before {
+                    return false;
+                }
+                self.presentations.clone_from(after);
+                true
+            }
             SceneCmd::Add { index, node } => {
                 if *index > self.nodes.len() || self.index_of(node.id).is_some() {
                     return false;
@@ -3917,6 +3941,7 @@ mod tests {
         let frame = scene.build_node(
             WorldRect::new(0.0, 0.0, 800.0, 450.0),
             NodeKind::Frame(FrameNode {
+                presentation_media: Default::default(),
                 title: "Slide 1".into(),
                 order: 0,
                 fill: Rgba::WHITE,
@@ -4174,6 +4199,7 @@ mod tests {
         let node = scene.build_node(
             rect,
             NodeKind::Frame(FrameNode {
+                presentation_media: Default::default(),
                 title: format!("Slide {order}"),
                 order,
                 fill: Rgba::WHITE,
@@ -4581,6 +4607,7 @@ mod tests {
             let node = scene.build_node(
                 WorldRect::new(0.0, 0.0, 100.0, 100.0),
                 NodeKind::Frame(FrameNode {
+                    presentation_media: Default::default(),
                     title: title.into(),
                     order,
                     fill: Rgba::WHITE,
@@ -6045,6 +6072,7 @@ mod corner_percentage_tests {
             kind,
         };
         let frame = node(NodeKind::Frame(FrameNode {
+            presentation_media: Default::default(),
             title: "Slide".into(),
             order: 0,
             fill: Rgba::WHITE,
@@ -6140,6 +6168,7 @@ mod corner_percentage_tests {
             clip: None,
             bumper: None,
             kind: NodeKind::Frame(FrameNode {
+                presentation_media: Default::default(),
                 title: "Slide".into(),
                 order: 0,
                 fill: Rgba::WHITE,
@@ -6220,6 +6249,7 @@ mod corner_percentage_tests {
             clip: None,
             bumper: None,
             kind: NodeKind::Frame(FrameNode {
+                presentation_media: Default::default(),
                 title: "S".into(),
                 order: 0,
                 fill: Rgba::WHITE,

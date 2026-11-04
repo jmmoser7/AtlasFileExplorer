@@ -79,6 +79,9 @@ impl SlateApp {
     /// With no pointer yet the portal keeps its widgets registered: a tap
     /// arrives in the same frame as its position.
     pub(crate) fn portal_owns_pointer(&self, ctx: &egui::Context, id: NodeId) -> bool {
+        if self.board_selected_frame_owner(id).is_some() {
+            return false;
+        }
         let at = ctx.input(|i| i.pointer.press_origin().or(i.pointer.latest_pos()));
         self.portal_is_maximized(id)
             || at.is_none_or(|p| self.node_is_topmost(id, Some(p), &self.board_xf()))
@@ -206,6 +209,9 @@ impl SlateApp {
     /// A chat card's own grips (output, stop, context, crosstalk port,
     /// chevron) own the pointer, so no frame resize starts under them.
     pub(crate) fn agent_grip_owns(&self, screen: Pos2, xf: &BoardXf) -> bool {
+        if self.board_selected_frame_at(screen, xf) {
+            return false;
+        }
         if self.pointer_in_chat_bottom_band(screen, xf) {
             return false;
         }

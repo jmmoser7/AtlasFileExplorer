@@ -87,11 +87,11 @@ impl SlateApp {
             (None, board_handles::BoardHitTarget::Resize(h)) => {
                 let gb = self.board_group_bounds()?;
                 let geom = board_handles::selection_geom(&xf, gb, 0.0);
-                let grab_offset = Self::control_grab_offset(&geom, h, screen, &xf);
+                let grab_offset = Self::control_grab_offset(&geom, h, screen, &xf, false);
                 let before: Vec<Node> = self
-                    .board_sel
-                    .iter()
-                    .filter_map(|i| self.doc().scene.node(*i).cloned())
+                    .expand_with_members(&self.board_selection_roots())
+                    .into_iter()
+                    .filter_map(|i| self.doc().scene.node(i).cloned())
                     .collect();
                 if self.alt_scale_copies() {
                     let (ids, before) = self.stage_unjournaled_duplicates(&before);
@@ -118,9 +118,9 @@ impl SlateApp {
             (None, board_handles::BoardHitTarget::Rotate(_)) => {
                 let gb = self.board_group_bounds()?;
                 let before: Vec<Node> = self
-                    .board_sel
-                    .iter()
-                    .filter_map(|i| self.doc().scene.node(*i).cloned())
+                    .expand_with_members(&self.board_selection_roots())
+                    .into_iter()
+                    .filter_map(|i| self.doc().scene.node(i).cloned())
                     .collect();
                 let ids: Vec<NodeId> = before.iter().map(|n| n.id).collect();
                 let (cx, cy) = gb.center();
@@ -141,7 +141,7 @@ impl SlateApp {
                 }
                 let n = self.doc().scene.node(id).cloned()?;
                 let geom = self.node_interaction_geom(&n, &xf);
-                let grab_offset = Self::control_grab_offset(&geom, h, screen, &xf);
+                let grab_offset = Self::control_grab_offset(&geom, h, screen, &xf, n.is_frame());
                 if !self.board_sel.contains(&id) {
                     self.board_sel.clear();
                     self.board_sel.insert(id);
@@ -152,14 +152,22 @@ impl SlateApp {
                     return Some(BoardDrag::Resize {
                         id,
                         before,
+                        members: Vec::new(),
                         handle: h as u8,
                         grab_offset,
                         dup: true,
                     });
                 }
+                let members = self
+                    .expand_with_members(&[id])
+                    .into_iter()
+                    .skip(1)
+                    .filter_map(|id| self.doc().scene.node(id).cloned())
+                    .collect();
                 Some(BoardDrag::Resize {
                     id,
                     before: n,
+                    members,
                     handle: h as u8,
                     grab_offset,
                     dup: false,
@@ -215,6 +223,7 @@ impl SlateApp {
         let Some(BoardDrag::Resize {
             id,
             before,
+            members,
             handle,
             grab_offset,
             ..
@@ -231,6 +240,17 @@ impl SlateApp {
             .min(before_rect.h)
             .max(f32::EPSILON);
         let rotation_deg = before.rotation_deg;
+        let primary = [node_id];
+        let moving: Vec<_>;
+        let excluded = if members.is_empty() {
+            &primary[..]
+        } else {
+            moving = primary
+                .into_iter()
+                .chain(members.iter().map(|node| node.id))
+                .collect();
+            &moving[..]
+        };
         // A picture dragged past its opposite edge mirrors instead of
         // clamping (P1.node.transform); other kinds keep the clamp.
         let mirrors = matches!(before.kind, NodeKind::Image(_))
@@ -279,11 +299,11 @@ impl SlateApp {
                         minimum,
                         lock_aspect,
                         from_center,
-                        &[node_id],
+                        excluded,
                     );
                     (r, crossed) = resize(pointer);
                 } else {
-                    let pointer = self.resolve_point_snap(world, &[node_id], None, false, false);
+                    let pointer = self.resolve_point_snap(world, excluded, None, false, false);
                     (r, crossed) = resize(pointer);
                 }
             } else if self.board_smart_guides {
@@ -297,7 +317,7 @@ impl SlateApp {
                 let edges = board_snap::ResizeSnapEdges::for_handle(moving);
                 let (snapped, guides) = board_snap::snap_resize_rect_scoped(
                     r,
-                    &[node_id],
+                    excluded,
                     &all,
                     self.snap_scope(),
                     edges,
@@ -307,11 +327,51 @@ impl SlateApp {
             }
         }
 
+        // Map the authored rectangle used by Scene::frame_of. Preserve the
+        // press-time membership even if another Frame overlaps during resize.
+        let members = match &self.board_drag {
+            Some(BoardDrag::Resize { members, .. }) => {
+                let sx = r.w / before_rect.w.max(f32::EPSILON);
+                let sy = r.h / before_rect.h.max(f32::EPSILON);
+                let anchor = (before_rect.x, before_rect.y);
+                let dx = r.x - before_rect.x;
+                let dy = r.y - before_rect.y;
+                members
+                    .iter()
+                    .map(|node| {
+                        let rect = if r == before_rect {
+                            node.rect
+                        } else {
+                            board_snap::remap_group_scale(node.rect, sx, sy, anchor)
+                                .translated(dx, dy)
+                        };
+                        let text_size = match &node.kind {
+                            NodeKind::Text(text) if sx != 1.0 || sy != 1.0 => {
+                                Some((text.size * (sx + sy) * 0.5).max(4.0))
+                            }
+                            NodeKind::Text(text) => Some(text.size),
+                            _ => None,
+                        };
+                        (node.id, rect, text_size)
+                    })
+                    .collect::<Vec<_>>()
+            }
+            _ => return,
+        };
         if mirrors {
             self.sync_resize_mirror(node_id, crossed);
         }
-        if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
+        let scene = &mut self.doc_mut().scene;
+        if let Some(n) = scene.node_mut(node_id) {
             n.rect = r;
+        }
+        for (id, rect, text_size) in members {
+            if let Some(node) = scene.node_mut(id) {
+                node.rect = rect;
+                if let (NodeKind::Text(text), Some(size)) = (&mut node.kind, text_size) {
+                    text.size = size;
+                }
+            }
         }
     }
 
@@ -320,8 +380,9 @@ impl SlateApp {
         handle: board_handles::ResizeHandle,
         screen: Pos2,
         xf: &BoardXf,
+        preserve_press_offset: bool,
     ) -> Vec2 {
-        if geom.corners == geom.control_corners {
+        if !preserve_press_offset && geom.corners == geom.control_corners {
             return Vec2::ZERO;
         }
         let i = handle as usize;

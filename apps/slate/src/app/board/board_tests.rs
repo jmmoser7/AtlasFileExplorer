@@ -120,6 +120,7 @@ fn frame(rect: WorldRect, rotation_deg: f32) -> Node {
     let mut node = slate_doc::scene::Scene::default().build_node(
         rect,
         NodeKind::Frame(slate_doc::scene::FrameNode {
+            presentation_media: Default::default(),
             title: "Slide 2".into(),
             order: 1,
             fill: Rgba::WHITE,

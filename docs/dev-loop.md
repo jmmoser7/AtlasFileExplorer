@@ -152,6 +152,64 @@ of productive activity. Local audit receipts and limits: `target/two-day-audit-2
 `model-activity/methodology.txt` beneath it, and
 `target/performance-recovery/20261031/weekend-ui-build-workflow.md`.
 
+## Release readiness and fixed candidates
+
+Apply this section to release requests and integration milestones. Normal focused
+edits and documentation-only changes retain the proportional checks in
+[request scale](../.cursor/rules/request-scale.mdc).
+
+Keep these evidence stages explicit:
+
+- **Studio/reference approval:** agreement on intended design and behavior.
+- **Native review build:** a named executable with targeted interaction evidence;
+  report its exercised scope and validation gaps.
+- **Release-ready fixed candidate:** all required checks for that candidate have
+  succeeded, with results tied to its source and build identity.
+- **Published release:** the exact downloadable version, source and artifacts
+  have been verified against public release metadata and package digests.
+
+Partial validation never promotes a candidate to a broader readiness stage.
+Before calling a release ready or estimating delivery, inspect the exact snapshot
+against `main`, its base and included/excluded dirty scope, existing gate results,
+and the actual required stages still to run. Give a remaining elapsed-time
+estimate with known cold-build/repair uncertainty. If material repair emerges,
+reclassify the work and report the changed scope and ETA promptly; continue
+already-authorized repairs without adding a permission checkpoint.
+
+Resolve the current remote `main` and published stable version before choosing
+the next version. A branch-limited fetch refspec can leave `origin/main` stale;
+use `git fetch origin refs/heads/main:refs/remotes/origin/main` when needed.
+Preserve fixes already shipped in that base when reconciling older local work.
+
+Assign one build owner and keep one candidate record in the existing task/evidence
+location: SHA or dirty-file manifest/hashes, base, toolchain, profile, features,
+root package set, lockfile identity, target directory, commands/results and hashes
+of the binaries actually tested. Freeze candidate inputs during its build;
+coordinate invalidation with that owner. Other agents must not start duplicate
+local build jobs. Independent necessary jobs may proceed with separate ownership
+and outputs. Reuse evidence only when the relevant source/dependency closure and
+configuration remain valid for the claimed scope; record any invalidation.
+
+Finish cheap checks, including type-checking the affected test configuration
+where supported, before expensive executable generation. Collect all available failures from the existing logs and
+batch repairs by root cause before the next expensive run. Preserve the actual
+interaction and assertion intent; do not disable gates, weaken assertions,
+raise timeouts or change global concurrency merely to get green.
+
+Budgets are reassessment checkpoints, not permission to omit mandatory checks or
+kill an active job solely because elapsed time exceeded an estimate. For a
+suspected environmental/flaky failure, inspect logs first. Allow one justified
+unchanged full-job retry while retaining failed evidence and the reason; an
+isolated diagnostic pass does not turn the failed full gate green. Repeated same
+failures require diagnosis and a justified correction rather than retry-until-green.
+This does not bypass [execution-audit retry requirements](windows-builds.md#managed-machine-audit-workflow).
+
+Use the existing [completion-event and bounded-handoff guidance](#bounded-work-and-continuous-handoffs)
+with one status source and a designated monitor when polling is necessary. Honor
+current communication requirements and report meaningful changes; multiple agents
+must not poll the same job. Artifact reuse and any future promotion follow
+[distribution's artifact rules](distribution.md#artifact-reuse-and-promotion).
+
 ## One-time setup
 
 On Windows, install Visual Studio Build Tools with the **Desktop development

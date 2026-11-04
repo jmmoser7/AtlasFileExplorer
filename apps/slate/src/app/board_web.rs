@@ -1660,6 +1660,40 @@ impl SlateApp {
         })
     }
 
+    /// Restore a previously saved view through the existing page host. Keep
+    /// the source and its permissions intact; the bookmark must be same-origin.
+    pub(crate) fn restore_presentation_web_view(&mut self, id: NodeId, target: &str) {
+        let source = self.doc().scene.node(id).and_then(|n| match &n.kind {
+            NodeKind::Portal(p) if p.kind == PortalKind::Web => {
+                p.source.as_ref().map(|s| s.locator.clone())
+            }
+            _ => None,
+        });
+        let Some((source, target)) = source
+            .and_then(|s| url::Url::parse(&s).ok())
+            .zip(url::Url::parse(target).ok())
+        else {
+            return;
+        };
+        if !matches!(target.scheme(), "http" | "https")
+            || source.origin() != target.origin()
+            || !target.username().is_empty()
+            || target.password().is_some()
+        {
+            return;
+        }
+        let target = target.to_string();
+        if self.web.host.current_url(id).as_deref() == Some(target.as_str()) {
+            return;
+        }
+        if let Some(view) = self.web.views.get_mut(&id) {
+            view.resume_url = Some(target.clone());
+        }
+        if self.web.is_live(id) {
+            self.web.host.navigate(id, &target);
+        }
+    }
+
     fn web_url_target(&self, id: Option<NodeId>) -> Option<NodeId> {
         id.or(self.portal_chrome.maximized)
             .or(self.web.focused)
@@ -2526,6 +2560,44 @@ impl SlateApp {
     /// tab and a border band stay Slate's, so a focused portal can always be
     /// grabbed by its edge and moved (D17). Right-click is Slate's too — it
     /// opens the portal menu rather than the page's.
+    pub(crate) fn presentation_web_dragging(&self) -> bool {
+        self.web.pointer_down != 0
+    }
+
+    pub(crate) fn presentation_web_input(
+        &mut self,
+        ui: &egui::Ui,
+        xf: &BoardXf,
+        hovered: Option<NodeId>,
+        pointer: Option<Pos2>,
+    ) {
+        let Some(id) = self.web.focused else {
+            return;
+        };
+        let Some(node) = self.doc().scene.node(id).cloned() else {
+            return;
+        };
+        let NodeKind::Portal(portal) = &node.kind else {
+            return;
+        };
+        let mut layout = layout_portal_chrome(
+            xf.rect_w2s(node.rect),
+            self.portal_chrome_collapsed(id),
+            false,
+            self.node_resolved_corner(&node),
+            xf.z,
+        );
+        layout.retract_when_idle(ui.ctx(), id, true);
+        self.web_input_page(
+            ui,
+            id,
+            &portal.web_ref(),
+            node.rect,
+            &layout,
+            (pointer, hovered == Some(id)),
+        );
+    }
+
     pub(crate) fn web_input_frame(
         &mut self,
         ui: &egui::Ui,
@@ -2640,7 +2712,8 @@ impl SlateApp {
         } else {
             node.rect
         };
-        self.web_input_page(ui, id, &web, css_rect, layout, pointer)
+        let owns_pointer = self.portal_owns_pointer(ui.ctx(), id);
+        self.web_input_page(ui, id, &web, css_rect, layout, (pointer, owns_pointer))
     }
 
     // -----------------------------------------------------------------------

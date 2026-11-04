@@ -84,6 +84,7 @@ mod enscape_host;
 mod external_drop;
 mod external_drop_classify;
 mod external_drop_image;
+mod frame_presentation;
 mod image_composite;
 #[cfg(test)]
 mod image_layer_tests;
@@ -373,6 +374,7 @@ pub struct SlateApp {
     pub board_tool: board::BoardTool,
     /// Frames explicitly ordered by the Deck tool, oldest arming included.
     pub deck: board_deck::DeckState,
+    pub(crate) frame_presentation: frame_presentation::State,
     pub board_frame_preset: board::FramePreset,
     pub board_frame_custom: Option<board::FrameCustomDraft>,
     pub board_drag: Option<board::BoardDrag>,
@@ -882,6 +884,7 @@ impl SlateApp {
             staged_dup_sel: None,
             board_tool: board::BoardTool::default(),
             deck: board_deck::DeckState::default(),
+            frame_presentation: frame_presentation::State::default(),
             board_frame_preset: board::FramePreset::default(),
             board_frame_custom: None,
             board_drag: None,
@@ -1984,7 +1987,9 @@ impl SlateApp {
             self.slate_pump(ctx);
         }
 
-        self.process_external_drops(ctx);
+        if self.presenting.is_none() {
+            self.process_external_drops(ctx);
+        }
 
         self.frame_input(ctx);
         self.link_health_frame(ctx);
@@ -1993,7 +1998,7 @@ impl SlateApp {
 
         // A maximized portal is the sole interface: skip Slate chrome so the
         // page fills the window at the screen's aspect (P1.portal.maximize).
-        if !portal_max {
+        if !portal_max && self.presenting.is_none() {
             // Register the unified top bar first so it is the outermost panel and
             // always spans the full viewport width. Side/bottom chrome is then
             // constrained to the workspace below it.
@@ -2025,6 +2030,9 @@ impl SlateApp {
             central = central.frame(egui::Frame::NONE);
         }
         central.show(ctx, |ui| {
+            if self.presenting.is_some() {
+                return;
+            }
             if portal_max {
                 let _span = atlas_core::session_log::span("slate.portal_max");
                 self.paint_maximized_portal(ui);

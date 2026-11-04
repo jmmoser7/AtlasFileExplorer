@@ -7,10 +7,8 @@ mod model_actions;
 mod state;
 pub(crate) use apron::EditorHost;
 pub(super) use state::LastChrome;
-
 #[cfg(test)]
 mod tests;
-
 impl SlateApp {
     /// Runs before board input. Layout is recomputed from the host transform every frame.
     pub(crate) fn shape_properties_ui(&mut self, ui: &mut egui::Ui, xf: &BoardXf) -> bool {
@@ -172,11 +170,12 @@ impl SlateApp {
         }
         let items = chrome_state.items;
         let blister = chrome_state.blister;
-        let presentation = if self.shape_properties.panel.is_some() {
-            chrome::BlisterPresentation::Overlay
-        } else {
-            chrome::BlisterPresentation::Collapsed
-        };
+        let presentation =
+            if self.shape_properties.panel.is_some() || self.frame_presentation.is_open() {
+                chrome::BlisterPresentation::Overlay
+            } else {
+                chrome::BlisterPresentation::Collapsed
+            };
         let media_layout = chrome::blister_layout(bounds, z, items.len(), presentation);
         let strip = if blister {
             self.prepare_media_blister(items.len(), presentation);
@@ -325,6 +324,8 @@ impl SlateApp {
             );
         }
         if let Some(panel) = requested_panel {
+            self.commit_frame_settings();
+            self.frame_presentation.dismiss();
             let was = self.shape_properties.panel;
             if was.is_some() {
                 if let Some(id) = self.shape_properties.ids.first().copied() {
@@ -376,7 +377,9 @@ impl SlateApp {
             self.board_sel = [id].into_iter().collect();
             self.dispatch(&ctx, CommandId("portal.agent.board_access"), None);
         }
-        captures |= self.paint_property_dimensions(ui, xf, live, enabled);
+        if !self.frame_presentation.is_open() {
+            captures |= self.paint_property_dimensions(ui, xf, live, enabled);
+        }
         if self.shape_properties.panel != Some(Panel::Filter) {
             self.shape_properties.filter_aim = None;
         }

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "date": "2026-11-03",
+  "elementId": "frame",
+  "id": "frame-presentations-20261103-v03-reorder",
+  "filename": "frame-presentation-v03-reorder-draft.png",
+  "originalFilename": "exec-45f058a3-833c-4c78-9034-af84e812b9c8.png",
+  "sourceImage": "assets/frame-proposals/20261103-presentation-v02/frame-presentation-v02-compact-draft.png",
+  "userFeedback": "ok but we will likly need to use the squircle icons to re order slides so all of them need to be visible in a tastful way simaltaniously",
+  "method": "built-in image_gen",
+  "status": "Image Studio draft",
+  "prompt": "Edit the Slate Frame Studio screenshot to show its expanded slide REORDER mode. Keep the same restrained Slate style, thin light-gray strokes, teal accents, cool canvas, white cards, and architectural slide contents. Reframe the canvas vertically to show the lower portion of the main Site plan frame and its existing six bottom toolbar glyphs in the upper third, two other frames on the right, and the complete attached white presentation drawer occupying the central/lower part of the screenshot. Use the same compact drawer header: closed “Project review” chevron, “Add frames” toggle, and a subtle active “Reorder” control followed by “100 slides”. Replace the five thumbnail carousel with a clean 10 by 10 contact sheet of slide thumbnails inside that drawer. Very important: EXACTLY TEN thumbnails per row and EXACTLY TEN rows, all one hundred fully visible at once with breathing room to the bottom of the screenshot. Each thumbnail is a small near-square squircle, consistently softly rounded, image-filled edge-to-edge, no heavy stroke. Alternate different architectural plans, building photos, landscape renderings, and minimal text-slide previews. All tiles have equal dimensions and gap, aligned on strict row and column datums. The order reads left to right and top to bottom. Use only a sparse first-column rail of muted row ranges, 1–10, 11–20, 21–30, 31–40, 41–50, 51–60, 61–70, 71–80, 81–90, 91–100, to make the grid legible without numbers scattered over 100 tiles. Give the eighth tile of the fifth row a thin teal selection ring and show a subtle vertical teal insertion caret in the adjacent gap to suggest drag reorder. Do not draw a duplicate floating thumbnail. The card is compact, orderly and elegant, roughly 620px wide with 34–42px tiles. Show all ten rows without clipping or scrolling, no pagination, no opened mini-map, no infographic callouts, no giant headings. Present one real-looking desktop UI state.",
+  "interactionNotes": [
+    "The expanded Reorder tray shows the complete presentation in a grid. For the 100-slide example, ten columns and ten rows are visible simultaneously.",
+    "Rows read left to right and top to bottom. The teal insertion caret previews the drop position.",
+    "The row ranges reduce the amount of text. The compact strip and the presentation-name hover map have separate review images."
+  ]
+}

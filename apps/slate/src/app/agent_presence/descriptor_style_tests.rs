@@ -18,6 +18,7 @@ fn participant_descriptors_include_slide_order_and_basic_authored_styles() {
     };
     h.app.join_presence(profile, None).unwrap();
     let frame = FrameNode {
+        presentation_media: Default::default(),
         title: "Slide 3".into(),
         order: 3,
         fill: Rgba([12, 24, 36, 200]),

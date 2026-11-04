@@ -24,6 +24,7 @@ pub mod locators;
 pub mod media;
 pub mod mirror;
 pub mod osnap;
+pub mod presentations;
 pub mod property;
 pub mod recovery;
 pub mod scene;

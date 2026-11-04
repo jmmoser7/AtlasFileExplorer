@@ -32,6 +32,12 @@ authorized work continues; do not invent and polish an unreviewed direction.
 Unresolved layout intent uses the shared rolling-24h mobile escalation limit
 in that workflow; routine reference-backed work does not consume an approval.
 
+Before Rust UI work, consult the [Studio phase guides](design/agent-interaction-studio/AGENTS.md#phase-workspaces)
+for the appropriate component, canvas and evidence workflow.
+
+Release requests follow [release readiness and fixed candidates](docs/dev-loop.md#release-readiness-and-fixed-candidates):
+name the evidence stage and remaining gates before calling a candidate ready.
+
 ## Governing documents
 
 For interface design iteration, use the [element Studio workflow](design/agent-interaction-studio/AGENTS.md) as the primary review method: one existing element per canvas tab, refine it with the owner, then lock a standalone contract. Consult the [locked Chat Train contract](design/agent-interaction-studio/contracts/chat-train.md) and shared Studio patterns for parity. Studio approval is a design agreement; native implementation must still use the production owners and contract registry.

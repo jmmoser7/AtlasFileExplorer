@@ -1,5 +1,4 @@
-﻿//! One verbatim workbook per historical on-disk format version, and the
-//! harness that proves each one still opens.
+//! Historical workbook fixtures and the harness proving each still opens.
 //! Convention: a card that bumps `SlateDoc::CURRENT` adds a fixture for the
 //! version it supersedes plus a `vN_fixture_upgrades_to_current` test; it never
 //! edits an existing fixture. The committed JSON is the source of truth —
@@ -504,6 +503,7 @@ fn v2_document() -> SlateDoc {
     let frame = scene.build_node(
         WorldRect::new(0.0, 0.0, 1280.0, 720.0),
         NodeKind::Frame(FrameNode {
+            presentation_media: Default::default(),
             title: "Cover".into(),
             order: 2,
             fill: Rgba::opaque(246, 246, 244),

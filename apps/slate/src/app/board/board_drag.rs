@@ -33,7 +33,12 @@ impl BoardDrag {
             BoardDrag::Move { before, dup, .. } | BoardDrag::GroupResize { before, dup, .. } => {
                 (before, dup)
             }
-            BoardDrag::Resize { before, dup, .. } => (vec![before], dup),
+            BoardDrag::Resize {
+                before,
+                members,
+                dup,
+                ..
+            } => (std::iter::once(before).chain(members).collect(), dup),
             BoardDrag::GroupRotate { before, .. } => (before, false),
             BoardDrag::CropEdge { before, peers, .. }
             | BoardDrag::FilletRadius { before, peers, .. } => {

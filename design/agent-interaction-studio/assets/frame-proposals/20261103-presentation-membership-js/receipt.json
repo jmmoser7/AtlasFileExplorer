@@ -1,0 +1,33 @@
+{
+  "browser": "156.0.4314.58",
+  "captures": [
+    {
+      "file": "five-slides.png",
+      "fixture": "presentation-small",
+      "sourceUrl": "http://127.0.0.1:8765/?phase=01&tab=frame&sample=1&fixture=presentation-small",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "deviceScaleFactor": 1,
+      "theme": "light",
+      "capturedAt": "2026-11-03T20:11:09.494Z",
+      "camera": {
+        "x": 90,
+        "y": 87.95951035781545,
+        "zoom": 0.5178907721280602
+      },
+      "sha256": "6d3d6aa1c121235e9927b1aa81fdbad6bc4197f0415b8959fa4d38c9dbac8a55"
+    }
+  ],
+  "checks": [
+    "Canvas badges toggle membership, both context menus work, and Delete removes only the selected slide references.",
+    "Click adds a frame in pick order; Shift/Ctrl select and drag inserts a group in relative order.",
+    "The palette follows the host on pan and zoom, reopens from different frames, and selects the member deck when needed.",
+    "Named deck hover map, independent membership, physical sort with carried content, and undo.",
+    "Presentation playback follows the active deck order.",
+    "100 complete tiles in ten rows fit a 780 × 720 viewport.",
+    "A multi-slide drag moves between grid rows without disturbing the remaining order.",
+    "Deck creation persists across reload without reopening the drawer."
+  ]
+}

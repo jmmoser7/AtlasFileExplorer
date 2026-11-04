@@ -64,3 +64,51 @@ This amendment supersedes earlier descriptions of Settings, Continue/Fork comman
 ## v0.4 — Output previews and linked answers
 
 The new generators use actual saved output thumbnails in the header and Images-style rounded-square preview strips on hover. Selecting a preview keeps the strip visible and does not open the toolbar. The 1500 ms rebound applies to the dismissed agent and its model/options menu. Dashboard's three-dot menu now contains only Preserve model history. Answered text selections link to their response and show a question/answer mini viewer on hover/focus. See validation/preview-links-v4.md and the v0.4 element contracts. Native code remains unchanged.
+
+## Current phase architecture — 3 November 2026
+
+Status: shell/navigation implementation for visual review; **not yet user-approved**.
+This additive note updates the Studio workspaces, not locked element decisions.
+
+| Phase | Scope | Instruction owner |
+|---|---|---|
+| 00 Image Generation | Per-element concept gallery with all variants and source/prompt provenance; no inference on opening. | [00 guide](../phases/00-images/AGENTS.md) |
+| 01 JS | Existing interactive HTML/JS/CSS specimens and their current contracts. | [01 guide](../phases/01-js/AGENTS.md) |
+| 02 Rust Component | Empty workspace scaffold until a real shared production component artifact is attached. | [02 guide](../phases/02-components/AGENTS.md) |
+| 03 Rust Canvas | Empty workspace scaffold until a real shared production canvas artifact is attached. | [03 guide](../phases/03-canvas/AGENTS.md) |
+| 04 Integration Time Report | Read-only summary of actual recorded integration work and its source/binary evidence. | [04 guide](../phases/04-integration/AGENTS.md) |
+| 05 Release Time Report | Read-only summary of actual recorded release work and verified publication evidence. | [05 guide](../phases/05-release/AGENTS.md) |
+
+All phases reuse one element-tab registry and IDs: Chat Train first, Studio last.
+The Studio tab holds the workflow image gallery and global time audit. Empty
+element/phase combinations stay empty until work is attached. Start anywhere,
+skip phases or return in any order; numbering creates no mechanical gate.
+
+The static home and browser shell start no native build or provider call.
+02/03 require separately authorized work using real shared production owners;
+their scaffolds do not establish an already-built native harness. 04/05 retain
+failed attempts, deduplicate overlapping time and show unknown durations as
+**not recorded**, never invented zero. Integration evidence is not publication.
+
+[Shared phase boundaries](../AGENTS.md#phase-workspaces), current contracts and
+the existing native acceptance/readiness rules retain their authority. This
+navigation note neither grants approval nor changes the decisions database.
+
+## Owner-requested compact chrome — 3 November 2026
+
+Home and the stage selector share a compact first row; secondary actions use one keyboard-accessible Studio options menu.
+Full element names occupy a separate wrapping tab row, with individual boundaries and a restrained selected-tab cue.
+The measured header height owns every canvas/notes offset; additional tab rows cannot cover element interactions.
+Notes remains owned by JS Chat Train only; stage routes, element state and existing action handlers are retained.
+The options menu closes on selection, outside interaction or Escape; Escape returns focus to its button.
+
+## Image baseline feedback — 3 November 2026
+
+Phase 00 adds current JS captures with per-image source/fixture, date, viewport,
+DPI/scale and source-hash provenance, retaining earlier variants. Browser captures
+remain prototype references, not native parity or newly approved contracts.
+Gallery and lightbox share a local per-image feedback draft. Host bridge support
+is detected: Send to chat awaits its callback; otherwise Copy request supplies
+image identity/context and typed text for pasting into chat. Failures retain text.
+Saving/copying is not delivery or processing; agents read image drafts only on
+explicit instruction and inspect the named baseline before authorized changes.

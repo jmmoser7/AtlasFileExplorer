@@ -1,21 +1,19 @@
 //! Command dispatch: the keyboard front-end of the registry.
 //!
-//! `hotkeys` builds [`atlas_commands::Chord`]s from egui key events, looks
-//! them up in the registry (respecting the pre-existing suppression gates:
-//! presenting, typing, text editing, board-only keys), and routes matches
-//! through [`SlateApp::dispatch`] — the same entry the canvas palette, the
-//! dock toggles, and the menu bar use, so every input modality drives one
-//! command surface (Constitution Art. VII/VIII). Every dispatched command
-//! pushes a [`HistoryEntry`] for F2 and Space/Enter repeat.
+//! `hotkeys` builds [`atlas_commands::Chord`]s, checks registry suppression
+//! gates (presenting, typing, text editing, board-only keys), and calls
+//! [`SlateApp::dispatch`]. Keyboard, canvas palette, dock and menu share that
+//! command surface (Constitution Art. VII/VIII). Each dispatch pushes a
+//! [`HistoryEntry`] for F2 and Space/Enter repeat.
 //!
 //! Specially handled (not chord table rows): Space-tap / Enter-idle repeat,
 //! the Esc cancel stack ([`atlas_commands::cancel_target`]), Tab cycling,
 //! arrows (nudge with a selection, pan without), and Board type-to-command
-//! (bare letter shortcuts hold ~700 ms so a second character can open the
-//! canvas palette instead).
+//! (bare letters wait ~700 ms for a second character to open the canvas palette).
 mod feedback;
 mod input_state;
 mod keys;
+mod select_all;
 pub use input_state::{BareLetterHold, SpaceTap};
 mod media;
 mod selection;
@@ -241,26 +239,7 @@ impl SlateApp {
                 self.board_redo();
                 true
             }
-            "app.select_all" => {
-                if board {
-                    // Hidden and locked nodes are never selectable
-                    // (scene-flags semantics matrix).
-                    self.board_sel = self
-                        .doc()
-                        .scene
-                        .nodes
-                        .iter()
-                        .filter(|n| !n.hidden && !n.locked)
-                        .map(|n| n.id)
-                        .collect();
-                    detail = detail.or(Some(format!("{} node(s)", self.board_sel.len())));
-                } else {
-                    let all: Vec<ItemId> = self.doc().items.iter().map(|it| it.id).collect();
-                    detail = detail.or(Some(format!("{} item(s)", all.len())));
-                    self.selection = all.into_iter().collect();
-                }
-                true
-            }
+            "app.select_all" => self.dispatch_select_all(board, &mut detail),
             "app.present" => {
                 self.start_present(None);
                 true
@@ -1000,6 +979,9 @@ impl SlateApp {
         let wants_kb = ctx.wants_keyboard_input() || tag_editor_open;
         let board = self.doc().view.active_view == ViewKind::Board;
         let editing = self.text_compose_active() || self.sheet_edit.is_some();
+        if board && self.frame_presentation_keys(ctx) {
+            return;
+        }
         // A focused web portal is a keyboard sink, like an inline editor: bare
         // letters, digits, Tab, and arrows belong to the page, so typing in a
         // form cannot switch tools (D22). Ctrl chords except clipboard stay

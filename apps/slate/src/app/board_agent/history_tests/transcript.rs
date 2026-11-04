@@ -225,6 +225,7 @@ fn full_action_fits_all_terminal_turns_and_preserves_width_through_edges_fold_an
         h.app.board_drag = Some(BoardDrag::Resize {
             id,
             before,
+            members: Vec::new(),
             handle: handle as u8,
             grab_offset: egui::Vec2::ZERO,
             dup: false,

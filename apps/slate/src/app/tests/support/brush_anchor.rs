@@ -72,6 +72,16 @@ pub(crate) fn release_before_the_anchor_lands(tag: &str, tiled: bool) {
         inp.modifiers = shift;
         inp.events = vec![button(to, false)];
     });
+    let after = h.app.board_xf();
+    assert_eq!(
+        after.z, xf.z,
+        "Shift without a wheel does not zoom the camera"
+    );
+    assert_eq!(
+        after.w2s(c),
+        xf.w2s(c),
+        "Shift must not turn the preceding zoom's smooth wheel remainder into a pan"
+    );
     let v = path_vertices(h.app.doc().scene.node(id).unwrap());
     assert!(
         near_px(*v.last().unwrap(), p(300.0, 100.0)),

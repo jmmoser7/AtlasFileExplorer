@@ -16,7 +16,13 @@
 <script src="generator-ui.js?v=6" defer></script>
 <script src="canvas-navigation.js?v=2" defer></script>
 <script src="chat-train/app.js?v=refine-8" defer></script>
-<script src="studio.js?v=image-1" defer></script>
+<script src="studio-model.js?v=portal-1" defer></script>
+<script src="studio-data.js?v=portal-1" defer></script>
+<script src="js-baselines.js?v=1" defer></script>
+<script src="frame-proposals.js?v=1" defer></script>
+<script src="image-feedback.js?v=1" defer></script>
+<script src="studio-portal.js?v=portal-1" defer></script>
+<script src="studio.js?v=portal-1" defer></script>
 <script src="image-generator/catalog.js?v=image-1" defer></script>
 <script src="image-generator/icons.js?v=browser-3" defer></script>
 <script src="image-generator/layout.js?v=browser-3" defer></script>
@@ -40,15 +46,29 @@
 <script src="elements/rhino-agent.js" defer></script>
 <script src="elements/runtime.js?v=11" defer></script>
 <link rel="stylesheet" href="generator-ui.css">
+<link rel="stylesheet" href="frame/style.css?v=panels-3">
+<script src="frame/baseline.js?v=1" defer></script>
+<script src="frame/presentation-settings.js?v=1" defer></script>
+<link rel="stylesheet" href="frame/presentation-settings.css?v=1">
+<script src="frame/render.js?v=panels-3" defer></script>
+<script src="frame/panels.js?v=2" defer></script>
+<script src="frame/deck.js?v=1" defer></script>
+<link rel="stylesheet" href="frame/presentation-drawer.css?v=1">
+<script src="frame/presentation-drawer.js?v=1" defer></script>
+<script src="frame/app.js?v=panels-3" defer></script>
+<link rel="stylesheet" href="studio-portal.css?v=portal-1">
+<link rel="stylesheet" href="image-feedback.css?v=1">
 </head>
 <body>
-<header class="studio-bar" aria-label="Studio controls"><span class="studio-label">Studio</span><nav id="studio-tabs" class="studio-tabs" role="tablist" aria-label="Elements under review"></nav><button id="new-element" class="studio-tab-add" aria-label="New element tab" title="Create a canvas tab for the next element">+</button><div class="studio-actions"><button id="debrief-button" title="Read the agreed behavior and design contract">Debrief</button><button id="reference-button">Native reference</button><button id="notes-button" aria-expanded="false" aria-controls="notes-panel">Notes</button><button id="theme-button" aria-label="Switch appearance">Dark</button></div></header>
-<main id="canvas" aria-label="Chat train canvas"><div id="world"><svg id="rails" aria-hidden="true"></svg><div id="cards"></div><svg id="gesture-preview" aria-hidden="true"></svg></div><div id="canvas-status" role="status" aria-live="polite"></div></main>
+<header class="studio-bar" aria-label="Studio controls"><div class="portal-route-bar"><button id="portal-home-button" class="portal-home-button" title="Build studio home">⌂ Home</button><span id="phase-breadcrumb" hidden>Build studio</span><select id="phase-switch" aria-label="Build stage" hidden></select></div><div id="studio-tab-row" class="studio-tab-row"><nav id="studio-tabs" class="studio-tabs" role="tablist" aria-label="Elements under review"></nav><button id="new-element" class="studio-tab-add" aria-label="New element tab" title="Create a canvas tab for the next element">+</button></div><div class="studio-options"><button id="studio-options-button" aria-label="Studio options" aria-haspopup="menu" aria-expanded="false" aria-controls="studio-options-menu">⋯</button><div id="studio-options-menu" class="studio-actions" role="menu" hidden><button id="phase-instructions" hidden>Instructions</button><button id="debrief-button" title="Read the agreed behavior and design contract">Debrief</button><button id="reference-button">Native reference</button><button id="notes-button" aria-expanded="false" aria-controls="notes-panel">Notes</button><button id="theme-button" aria-label="Switch appearance">Dark</button></div></div></header>
+<main id="portal-home" aria-label="Build studio home"></main>
+<main id="portal-phase" hidden aria-label="Phase workspace"></main>
+<main id="canvas" hidden aria-label="Chat train canvas"><div id="world"><svg id="rails" aria-hidden="true"></svg><div id="cards"></div><svg id="gesture-preview" aria-hidden="true"></svg></div><div id="canvas-status" role="status" aria-live="polite"></div></main>
 <main id="studio-empty" hidden aria-label="Element canvas"></main>
 <main id="image-generator-canvas" hidden aria-label="Image Generator canvas"><div id="image-world"><svg id="image-wires" aria-label="Image connections"></svg><div id="image-scenes"></div><div id="image-nodes"></div></div><div id="image-native-status" role="status" aria-live="polite">Loading native image controls…</div></main>
 <footer id="image-studio-bottom" class="studio-bottom" hidden><nav aria-label="Image examples"><button data-image-scene="small">Small</button><button data-image-scene="medium">Medium</button><button data-image-scene="large">Large</button><button data-image-scene="inputs">Inputs</button><button data-image-scene="series">Series</button></nav><div><button id="image-zoom-out" aria-label="Zoom image canvas out">−</button><button id="image-zoom-reset">100%</button><button id="image-zoom-in" aria-label="Zoom image canvas in">+</button><button id="image-fit">All examples</button></div></footer>
 <aside id="notes-panel" hidden aria-label="Baseline review notes"><h2>Chat train notes</h2><p>Capture differences from Slate before changing the design.</p><textarea id="notes" rows="9" placeholder="What differs from the native chat train?"></textarea><span id="note-status" role="status"></span><button id="export-notes">Save notes</button></aside>
-<footer class="studio-bottom"><span>Middle drag / Space + drag: pan · Wheel: zoom · Enter: send</span><div><button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-reset" aria-label="Reset to 100 percent">100%</button><button id="zoom-in" aria-label="Zoom in">+</button><button id="fit-view">Fit</button><button id="reset-example">Reset example</button></div></footer>
+<footer class="studio-bottom" hidden><span>Middle drag / Space + drag: pan · Wheel: zoom · Enter: send</span><div><button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-reset" aria-label="Reset to 100 percent">100%</button><button id="zoom-in" aria-label="Zoom in">+</button><button id="fit-view">Fit</button><button id="reset-example">Reset example</button></div></footer>
 <div id="menus"></div><div id="dialogs"></div><div id="hint" role="tooltip" hidden></div>
 </body>
 </html>

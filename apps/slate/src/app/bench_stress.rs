@@ -240,6 +240,7 @@ pub(super) fn seed(
                 rect.w = 195.0;
                 rect.h = 135.0;
                 NodeKind::Frame(FrameNode {
+                    presentation_media: Default::default(),
                     title: format!("Frame {i}"),
                     order: (i / 20) as u32,
                     fill: Rgba::WHITE,

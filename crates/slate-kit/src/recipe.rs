@@ -300,6 +300,7 @@ impl Recipe {
             NodeTarget::Frame => {
                 let frame_fill = s.frame.fill.resolve(ctx.accent);
                 NodeKind::Frame(FrameNode {
+                    presentation_media: Default::default(),
                     title: s
                         .frame
                         .title

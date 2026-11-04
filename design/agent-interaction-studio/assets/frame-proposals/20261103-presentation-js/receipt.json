@@ -1,0 +1,48 @@
+{
+  "browser": "156.0.4314.58",
+  "captures": [
+    {
+      "file": "five-slides.png",
+      "fixture": "presentation-small",
+      "sourceUrl": "http://127.0.0.1:8765/?phase=01&tab=frame&sample=1&fixture=presentation-small",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "deviceScaleFactor": 1,
+      "theme": "light",
+      "capturedAt": "2026-11-03T19:47:29.223Z",
+      "camera": {
+        "x": 90,
+        "y": 87.95951035781545,
+        "zoom": 0.5178907721280602
+      },
+      "sha256": "178b085945d5e663b24a55648f9441c1cf5712f2661915f9af1d9b21d3638964"
+    },
+    {
+      "file": "100-slides.png",
+      "fixture": "presentation-large",
+      "sourceUrl": "http://127.0.0.1:8765/?phase=01&tab=frame&sample=1&fixture=presentation-large",
+      "viewport": {
+        "width": 780,
+        "height": 720
+      },
+      "deviceScaleFactor": 1,
+      "theme": "light",
+      "capturedAt": "2026-11-03T19:47:31.069Z",
+      "camera": {
+        "x": 90,
+        "y": -78.41242937853107,
+        "zoom": 0.2824858757062147
+      },
+      "sha256": "49423a2e065ce0f69c59a58ed7ce9fb73a10ec48342ab3d4347a66f623778826"
+    }
+  ],
+  "checks": [
+    "Click adds a frame in pick order; Shift/Ctrl select and drag inserts a group in relative order.",
+    "Named deck hover map, independent membership, physical sort with carried content, and undo.",
+    "Presentation playback follows the active deck order.",
+    "100 complete tiles in ten rows fit a 780 × 720 viewport.",
+    "Deck creation persists across reload without reopening the drawer."
+  ]
+}

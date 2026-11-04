@@ -250,6 +250,7 @@ fn connector(a: ConnectorEnd, b: ConnectorEnd) -> NodeKind {
 
 fn frame() -> NodeKind {
     NodeKind::Frame(FrameNode {
+        presentation_media: Default::default(),
         title: "Slide".into(),
         order: 0,
         fill: Rgba::WHITE,

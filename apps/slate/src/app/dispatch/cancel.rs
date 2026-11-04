@@ -6,6 +6,9 @@ impl SlateApp {
     /// (`atlas_commands::cancel_target`). Text editing is *not* a
     /// layer here: the edit overlay owns Esc (commit) itself.
     pub(super) fn cancel_pop(&mut self) -> bool {
+        if self.doc().view.active_view == ViewKind::Board && self.frame_presentation.cancel() {
+            return true;
+        }
         // Capture is local chrome: Esc closes its menu before source focus.
         if self.portal_capture_launch_source().is_some() {
             self.shape_properties.panel = None;
