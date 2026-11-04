@@ -213,8 +213,8 @@ impl Specimen {
         if let Some(p) = pass {
             let [x, y] = self.camera.unproject(p);
             let hit = self.scene.frame_at(x, y);
-            if self.adding && hit.is_some() {
-                self.toggle(hit.unwrap());
+            if let Some(id) = hit.filter(|_| self.adding) {
+                self.toggle(id);
                 self.selector = false;
             } else {
                 self.dismiss();
@@ -399,9 +399,9 @@ impl Specimen {
                 }
             }
             if open && self.drawer {
-                let ring = if self.order.contains(&id) {
-                    theme.accent
-                } else if self.adding && pointer.is_some_and(|p| host.contains(p)) {
+                let ring = if self.order.contains(&id)
+                    || (self.adding && pointer.is_some_and(|p| host.contains(p)))
+                {
                     theme.accent
                 } else if self.adding {
                     theme.accent.gamma_multiply(0.5)

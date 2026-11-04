@@ -78,30 +78,6 @@ impl SlateApp {
         }
     }
 
-    pub(crate) fn swap_frame_order(&mut self, a: NodeId, b: NodeId) {
-        let get = |app: &Self, id: NodeId| -> Option<u32> {
-            match app.doc().scene.node(id).map(|n| &n.kind) {
-                Some(NodeKind::Frame(f)) => Some(f.order),
-                _ => None,
-            }
-        };
-        let (Some(oa), Some(ob)) = (get(self, a), get(self, b)) else {
-            return;
-        };
-        self.patch_nodes(&[a], |n| {
-            if let NodeKind::Frame(f) = &mut n.kind {
-                f.order = ob;
-            }
-        });
-        self.last_board_edit = None; // keep the two patches from coalescing
-        self.patch_nodes(&[b], |n| {
-            if let NodeKind::Frame(f) = &mut n.kind {
-                f.order = oa;
-            }
-        });
-        self.last_board_edit = None;
-    }
-
     pub(super) fn sheet_add_hit(&self, p: Pos2) -> Option<SheetHit> {
         self.sheet_hits
             .iter()

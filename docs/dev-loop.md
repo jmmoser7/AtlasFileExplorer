@@ -176,6 +176,11 @@ estimate with known cold-build/repair uncertainty. If material repair emerges,
 reclassify the work and report the changed scope and ETA promptly; continue
 already-authorized repairs without adding a permission checkpoint.
 
+Resolve the current remote `main` and published stable version before choosing
+the next version. A branch-limited fetch refspec can leave `origin/main` stale;
+use `git fetch origin refs/heads/main:refs/remotes/origin/main` when needed.
+Preserve fixes already shipped in that base when reconciling older local work.
+
 Assign one build owner and keep one candidate record in the existing task/evidence
 location: SHA or dirty-file manifest/hashes, base, toolchain, profile, features,
 root package set, lockfile identity, target directory, commands/results and hashes
