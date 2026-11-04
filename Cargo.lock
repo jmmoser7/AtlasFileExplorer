@@ -586,6 +586,7 @@ dependencies = [
  "roxmltree 0.21.1",
  "serde",
  "serde_json",
+ "slate-doc",
  "toml 0.8.23",
  "vector-ink",
  "windows 0.61.3",
