@@ -181,7 +181,10 @@ impl Catalog {
                     return None;
                 }
                 let descriptor = manifest.application.as_ref()?;
-                if !descriptor.supports_version(atlas_connector::V0_1) {
+                if ![atlas_connector::V0_1, atlas_connector::V0_2]
+                    .into_iter()
+                    .any(|version| descriptor.supports_version(version))
+                {
                     return None;
                 }
                 Some(crate::ApplicationOffer {

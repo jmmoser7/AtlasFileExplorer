@@ -226,7 +226,7 @@ impl SlateApp {
     }
     /// The shared source resolver owns path semantics; the session manifest owns
     /// the link directory, including after a global AI workspace change.
-    pub(super) fn agent_link_dir(
+    pub(crate) fn agent_link_dir(
         &self,
         portal: NodeId,
         workspace: &std::path::Path,
@@ -240,7 +240,7 @@ impl SlateApp {
         (!workspace.as_os_str().is_empty())
             .then(|| atlas_ai::agent::agent_dir(workspace, &agent.session))
     }
-    pub(super) fn agent_folder_for(&self, portal: NodeId) -> Option<PathBuf> {
+    pub(crate) fn agent_folder_for(&self, portal: NodeId) -> Option<PathBuf> {
         let node = self.doc().scene.node(portal)?;
         if let Some(artifact) = slate_doc::scene::artifact(node) {
             return artifact

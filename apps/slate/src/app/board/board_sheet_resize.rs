@@ -3,7 +3,51 @@
 use super::*;
 
 impl SlateApp {
+    pub(super) fn sheet_resize_input(&mut self, ui: &egui::Ui, pointer: Option<Pos2>) {
+        if ui.ctx().memory(|memory| memory.top_modal_layer().is_some()) {
+            return;
+        }
+        if self.sheet_resize.is_some() {
+            if let Some(p) = pointer {
+                self.update_sheet_resize(p);
+            }
+        }
+    }
+
+    pub(super) fn sheet_add_release_input(&mut self, ui: &egui::Ui, pointer: Option<Pos2>) -> bool {
+        if ui.ctx().memory(|memory| memory.top_modal_layer().is_some()) {
+            return false;
+        }
+        // A small movement turns egui's click into a drag. The + lives on
+        // that edge, so the release is what adds the column.
+        if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
+            if let Some(origin) = ui.input(|i| i.pointer.press_origin()) {
+                if let Some(hit) = self.sheet_add_hit(origin) {
+                    let moved = pointer.map(|p| origin.distance(p)).unwrap_or(0.0);
+                    if moved < 8.0 {
+                        self.add_sheet_column(hit);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    pub(super) fn sheet_resize_release_input(&mut self, ui: &egui::Ui) {
+        if ui.ctx().memory(|memory| memory.top_modal_layer().is_some()) {
+            return;
+        }
+        if ui.input(|i| i.pointer.primary_released()) && self.sheet_resize.is_some() {
+            self.finish_sheet_resize();
+        }
+    }
+
     pub(super) fn peel_sheet(&mut self, ui: &egui::Ui, xf: &BoardXf, pointer: Option<Pos2>) {
+        if ui.ctx().memory(|memory| memory.top_modal_layer().is_some()) {
+            return;
+        }
         let Some(id) = self.sheet_open else {
             return;
         };

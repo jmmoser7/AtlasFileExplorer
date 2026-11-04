@@ -164,3 +164,128 @@ fn shift_click_adds_rectangles_to_the_selection() {
     assert!(h.app.board_sel.contains(&a), "first rect stays");
     assert!(h.app.board_sel.contains(&b), "second rect is added");
 }
+
+fn alignment_frame(h: &mut Harness, rect: WorldRect) -> NodeId {
+    let id = h.seed_frame(None);
+    h.app.patch_nodes(&[id], |node| node.rect = rect);
+    id
+}
+
+#[test]
+fn align_frames_carries_members_once_and_deselect_restores_individual_alignment() {
+    let mut h = align_board("align_frame_groups");
+    let first = alignment_frame(&mut h, WorldRect::new(0.0, 0.0, 200.0, 200.0));
+    let second = alignment_frame(&mut h, WorldRect::new(400.0, 100.0, 200.0, 200.0));
+    // Its center is owned by the first Frame even though its edge extends out.
+    let first_member = add_rect(&mut h.app, -10.0, 130.0);
+    let second_member = add_rect(&mut h.app, 430.0, 130.0);
+    let locked = add_rect(&mut h.app, 450.0, 190.0);
+    let hidden = add_rect(&mut h.app, 500.0, 210.0);
+    let outside = add_rect(&mut h.app, 800.0, 300.0);
+    h.app.patch_nodes(&[locked], |node| node.locked = true);
+    h.app.patch_nodes(&[hidden], |node| node.hidden = true);
+    // A sweep can contain both Frames and content. Content must not establish
+    // an alignment datum or receive a second independent translation.
+    select_ids(
+        &mut h.app,
+        &[first, second, first_member, second_member, locked, hidden],
+    );
+    let before: Vec<_> = [
+        first,
+        second,
+        first_member,
+        second_member,
+        locked,
+        hidden,
+        outside,
+    ]
+    .into_iter()
+    .map(|id| h.app.doc().scene.node(id).unwrap().clone())
+    .collect();
+    let depth = h.app.tab().journal.undo_depth();
+    select_ids(&mut h.app, &[first, second]);
+    h.app.doc_mut().scene.node_mut(second).unwrap().locked = true;
+    assert!(!h.app.align_board_selection(board::BoardAlign::Left));
+    assert_eq!(h.app.doc().scene.node(second_member), Some(&before[3]));
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+    h.app.doc_mut().scene.node_mut(second).unwrap().locked = false;
+    select_ids(
+        &mut h.app,
+        &[first, second, first_member, second_member, locked, hidden],
+    );
+
+    assert!(h.app.align_board_selection(board::BoardAlign::Left));
+    assert_eq!(h.app.doc().scene.node(second).unwrap().rect.x, 0.0);
+    assert_eq!(
+        h.app.doc().scene.node(second_member).unwrap().rect,
+        before[3].rect.translated(-400.0, 0.0)
+    );
+    // Moving the second Frame over the first must not recapture its content.
+    for index in [0, 2, 4, 5, 6] {
+        let node = &before[index];
+        assert_eq!(h.app.doc().scene.node(node.id), Some(node));
+    }
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+    assert!(!h.app.align_board_selection(board::BoardAlign::Left));
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+    h.app.board_undo();
+    for node in &before {
+        assert_eq!(h.app.doc().scene.node(node.id), Some(node));
+    }
+
+    select_ids(&mut h.app, &[second_member, outside]);
+    assert!(h.app.align_board_selection(board::BoardAlign::Right));
+    assert_eq!(h.app.doc().scene.node(second_member).unwrap().rect.x, 800.0);
+    assert_eq!(h.app.doc().scene.node(second), Some(&before[1]));
+    assert_eq!(h.app.doc().scene.node(first_member), Some(&before[2]));
+}
+
+#[test]
+fn distribute_frames_counts_roots_and_carries_each_members_delta_in_one_undo() {
+    for axis in [
+        board::DistributeAxis::Horizontal,
+        board::DistributeAxis::Vertical,
+    ] {
+        let mut h = align_board("distribute_frame_groups");
+        let horizontal = axis == board::DistributeAxis::Horizontal;
+        let origins = if horizontal {
+            [(0.0, 0.0), (300.0, 250.0), (1000.0, 500.0)]
+        } else {
+            [(0.0, 0.0), (250.0, 300.0), (500.0, 1000.0)]
+        };
+        let frames: Vec<_> = origins
+            .iter()
+            .map(|(x, y)| alignment_frame(&mut h, WorldRect::new(*x, *y, 200.0, 160.0)))
+            .collect();
+        let contents: Vec<_> = origins
+            .iter()
+            .map(|(x, y)| add_rect(&mut h.app, x + 20.0, y + 30.0))
+            .collect();
+        let selected: Vec<_> = frames.iter().chain(&contents).copied().collect();
+        select_ids(&mut h.app, &selected);
+        let before: Vec<_> = selected
+            .iter()
+            .map(|id| h.app.doc().scene.node(*id).unwrap().clone())
+            .collect();
+        let depth = h.app.tab().journal.undo_depth();
+        assert!(h.app.distribute_board_selection(axis));
+        let delta = if horizontal {
+            (200.0, 0.0)
+        } else {
+            (0.0, 200.0)
+        };
+        for (index, node) in before.iter().enumerate() {
+            let expected = if index == 1 || index == 4 {
+                node.rect.translated(delta.0, delta.1)
+            } else {
+                node.rect
+            };
+            assert_eq!(h.app.doc().scene.node(node.id).unwrap().rect, expected);
+        }
+        assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+        h.app.board_undo();
+        for node in &before {
+            assert_eq!(h.app.doc().scene.node(node.id), Some(node));
+        }
+    }
+}

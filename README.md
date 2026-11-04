@@ -121,6 +121,10 @@ the canvas or triggers rescans.
 
 ## Architecture
 
+Explore Slate's connected Rust system in the [Slate Observatory](tools/slate-observatory/README.md):
+dependency maps, source treemaps, historical metrics, and source-linked interaction journeys.
+Generate a fresh local snapshot with `cargo xtask observatory`.
+
 - `src/scanner.rs` — parallel streaming directory walker (8 workers)
 - `src/index.rs` — SQLite persistence on a dedicated thread
 - `src/tree.rs` — folder hierarchy + tidy-tree layout (orientation, grid-pack,

@@ -1,21 +1,19 @@
 //! Command dispatch: the keyboard front-end of the registry.
 //!
-//! `hotkeys` builds [`atlas_commands::Chord`]s from egui key events, looks
-//! them up in the registry (respecting the pre-existing suppression gates:
-//! presenting, typing, text editing, board-only keys), and routes matches
-//! through [`SlateApp::dispatch`] — the same entry the canvas palette, the
-//! dock toggles, and the menu bar use, so every input modality drives one
-//! command surface (Constitution Art. VII/VIII). Every dispatched command
-//! pushes a [`HistoryEntry`] for F2 and Space/Enter repeat.
+//! `hotkeys` builds [`atlas_commands::Chord`]s, checks registry suppression
+//! gates (presenting, typing, text editing, board-only keys), and calls
+//! [`SlateApp::dispatch`]. Keyboard, canvas palette, dock and menu share that
+//! command surface (Constitution Art. VII/VIII). Each dispatch pushes a
+//! [`HistoryEntry`] for F2 and Space/Enter repeat.
 //!
 //! Specially handled (not chord table rows): Space-tap / Enter-idle repeat,
 //! the Esc cancel stack ([`atlas_commands::cancel_target`]), Tab cycling,
 //! arrows (nudge with a selection, pan without), and Board type-to-command
-//! (bare letter shortcuts hold ~700 ms so a second character can open the
-//! canvas palette instead).
+//! (bare letters wait ~700 ms for a second character to open the canvas palette).
 mod feedback;
 mod input_state;
 mod keys;
+mod select_all;
 pub use input_state::{BareLetterHold, SpaceTap};
 mod media;
 use super::{board, board_align, board_path, commands, SlateApp};
@@ -121,6 +119,7 @@ impl SlateApp {
                 return self.dispatch_targeted_human_with_context(ctx, id.0, detail.as_deref());
             }
             "portal.agent.run" => self.dispatch_image_generate(detail.as_deref()),
+            "portal.artifact.full_access" => self.dashboard_set_full_access(detail.as_deref()),
             command if command.starts_with("portal.artifact.") => {
                 self.dispatch_artifact(command, detail.as_deref())
             }
@@ -195,6 +194,13 @@ impl SlateApp {
             command if Self::image_action_command(command) => {
                 self.dispatch_image_result_action(ctx, command, detail.as_deref())
             }
+            "board.objects.link_media" => self.dispatch_link_media(detail.as_deref()),
+            command
+                if command.starts_with("board.model.connector.")
+                    || command.starts_with("board.model.headless.") =>
+            {
+                self.dispatch_application_connector(command, detail.as_deref())
+            }
             "board.model_display" => self.dispatch_model_display(detail.as_deref()),
             "board.model_materials" => self.dispatch_model_materials(detail.as_deref()),
             "board.model_measure" => self.dispatch_model_measure(detail.as_deref()),
@@ -232,26 +238,7 @@ impl SlateApp {
                 self.board_redo();
                 true
             }
-            "app.select_all" => {
-                if board {
-                    // Hidden and locked nodes are never selectable
-                    // (scene-flags semantics matrix).
-                    self.board_sel = self
-                        .doc()
-                        .scene
-                        .nodes
-                        .iter()
-                        .filter(|n| !n.hidden && !n.locked)
-                        .map(|n| n.id)
-                        .collect();
-                    detail = detail.or(Some(format!("{} node(s)", self.board_sel.len())));
-                } else {
-                    let all: Vec<ItemId> = self.doc().items.iter().map(|it| it.id).collect();
-                    detail = detail.or(Some(format!("{} item(s)", all.len())));
-                    self.selection = all.into_iter().collect();
-                }
-                true
-            }
+            "app.select_all" => self.dispatch_select_all(board, &mut detail),
             "app.present" => {
                 self.start_present(None);
                 true
@@ -527,8 +514,20 @@ impl SlateApp {
             "portal.agent.fork" => self.agent_fork_selected(detail.as_deref()),
             "portal.agent.collapse" => self.agent_fold(ctx, detail.as_deref()),
             "portal.agent.fit" => self.agent_fit_to_text(ctx),
+            "portal.agent.board_access" => self.open_chat_train_board_access(),
             "portal.agent.full_access" => self.agent_toggle_full_access(),
-            "portal.artifact.full_access" => self.dashboard_set_full_access(detail.as_deref()),
+            "portal.agent.model_output" => self.select_model_output(detail.as_deref()),
+            "portal.agent.text_output" => self.select_text_output(detail.as_deref()),
+            "portal.agent.text_review.apply" => {
+                self.dispatch_text_review_action(ctx, detail.as_deref(), true)
+            }
+            "portal.agent.text_review.dismiss" => {
+                self.dispatch_text_review_action(ctx, detail.as_deref(), false)
+            }
+            "portal.agent.generator_settings" => self.set_generator_settings(detail.as_deref()),
+            "board.input.graft" => self.set_input_grafted(detail.as_deref()),
+            "board.input.add" => self.add_graph_input_source(detail.as_deref()),
+            "board.image.history" => self.image_history_command(detail.as_deref()),
             "portal.agent.model_parameter" => self.generator_set_parameter(detail.as_deref()),
             "portal.agent.schedule" => self.agent_set_schedule(detail.as_deref()),
             "portal.agent.pocket" => self.agent_toggle_pocket(detail.as_deref()),
@@ -544,10 +543,12 @@ impl SlateApp {
             "portal.agent.crosstalk.more" => self.crosstalk_more(detail.as_deref()),
             "portal.agent.crosstalk.trust" => self.crosstalk_trust(detail.as_deref()),
             "portal.agent.identity" => {
-                self.agent_set_detail(slate_doc::agent_chat::Detail::Identity)
+                self.agent_set_detail(ctx, slate_doc::agent_chat::Detail::Identity)
             }
-            "portal.agent.summary" => self.agent_set_detail(slate_doc::agent_chat::Detail::Summary),
-            "portal.agent.full" => self.agent_set_detail(slate_doc::agent_chat::Detail::Full),
+            "portal.agent.summary" => {
+                self.agent_set_detail(ctx, slate_doc::agent_chat::Detail::Summary)
+            }
+            "portal.agent.full" => self.agent_set_detail(ctx, slate_doc::agent_chat::Detail::Full),
             "portal.agent.provider" => self.toggle_selected_agent_provider(),
             "portal.agent.reveal" => self.reveal_selected_agent_link(),
             "portal.agent.launch" => self.launch_selected_agent_provider(),
@@ -998,6 +999,9 @@ impl SlateApp {
         let wants_kb = ctx.wants_keyboard_input() || tag_editor_open;
         let board = self.doc().view.active_view == ViewKind::Board;
         let editing = self.text_compose_active() || self.sheet_edit.is_some();
+        if board && self.frame_presentation_keys(ctx) {
+            return;
+        }
         // A focused web portal is a keyboard sink, like an inline editor: bare
         // letters, digits, Tab, and arrows belong to the page, so typing in a
         // form cannot switch tools (D22). Ctrl chords except clipboard stay

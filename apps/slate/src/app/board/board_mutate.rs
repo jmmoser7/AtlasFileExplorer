@@ -146,6 +146,14 @@ impl SlateApp {
 
     /// Insert new nodes as one undo group. Returns their ids.
     pub fn add_nodes(&mut self, nodes: Vec<Node>) -> Vec<NodeId> {
+        self.add_nodes_as(nodes, slate_doc::scene::CmdAuthor::Human)
+    }
+
+    pub(crate) fn add_nodes_as(
+        &mut self,
+        nodes: Vec<Node>,
+        author: slate_doc::scene::CmdAuthor,
+    ) -> Vec<NodeId> {
         if self.refuse_read_only_edit() {
             return Vec::new();
         }
@@ -162,7 +170,7 @@ impl SlateApp {
                 node,
             })
             .collect();
-        if self.commit_scene(cmds) {
+        if self.commit_scene_as(cmds, author) {
             self.note_view_wires_added(&ids);
             ids
         } else {
@@ -179,6 +187,16 @@ impl SlateApp {
         let mut suck = Vec::new();
         let mut plain = Vec::new();
         for id in ids {
+            let memory_target = self.doc().scene.node(*id).and_then(|node| {
+                let NodeKind::Connector(conn) = &node.kind else {
+                    return None;
+                };
+                slate_doc::agent_inputs::generator_memory_target(&self.doc().scene, conn)
+            });
+            if memory_target.is_some_and(|target| !leaving.contains(&target)) {
+                plain.push(*id);
+                continue;
+            }
             let used = slate_doc::agent_inputs::consumed_by(&self.doc().scene, *id)
                 .iter()
                 .any(|(_, card)| !leaving.contains(card));
@@ -201,13 +219,52 @@ impl SlateApp {
         if self.refuse_read_only_edit() {
             return;
         }
-        let (cmds, removed, ended) = self.prepare_board_node_deletion(ids);
+        let leaving = slate_doc::agent_chat::subtree(&self.doc().scene, ids);
+        let targets: std::collections::BTreeSet<_> = ids
+            .iter()
+            .filter_map(|id| {
+                let NodeKind::Connector(conn) = &self.doc().scene.node(*id)?.kind else {
+                    return None;
+                };
+                slate_doc::agent_inputs::generator_memory_target(&self.doc().scene, conn)
+                    .filter(|target| !leaving.contains(target))
+            })
+            .collect();
+        let mut expanded = ids.to_vec();
+        let mut history_patches = Vec::new();
+        for target in &targets {
+            let cut = match self.prepare_generator_history_cut(*target) {
+                Ok(cut) => cut,
+                Err(error) => {
+                    self.toast(error);
+                    return;
+                }
+            };
+            for command in cut {
+                match command {
+                    SceneCmd::Remove { node, .. } => {
+                        if !expanded.contains(&node.id) {
+                            expanded.push(node.id);
+                        }
+                    }
+                    patch => history_patches.push(patch),
+                }
+            }
+        }
+        let (mut cmds, removed, ended) = self.prepare_board_node_deletion(&expanded);
+        cmds.extend(history_patches);
         if cmds.is_empty() {
             return;
+        }
+        for target in &targets {
+            self.cancel_generator_history_work(*target);
         }
         self.stop_pruned_agent_runs(&removed);
         self.agents.text_output.retire(&removed);
         if self.commit_scene(cmds) {
+            for target in targets {
+                self.finish_generator_history_cut(target);
+            }
             self.forget_deleted_agent_cards(&removed);
         }
         for id in removed.iter().chain(&ended) {

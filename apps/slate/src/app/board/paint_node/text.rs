@@ -34,6 +34,7 @@ impl SlateApp {
             }
         }
         stroke_outline(painter, outline_s, &t.stroke, z);
+        let source = self.paint_text_review(ui, painter, node.id, srect, z, chrome);
         if self
             .text_edit
             .as_ref()
@@ -65,7 +66,11 @@ impl SlateApp {
                 painter.ctx(),
                 shown,
                 styled_typeface_font(painter.ctx(), t.family, draw_size, t.style),
-                node.rect.w.max(0.0),
+                if source == srect {
+                    node.rect.w.max(0.0)
+                } else {
+                    (source.width() / z.max(1.0e-4)).max(0.0)
+                },
                 t.align,
                 fade(rgba32(t.color)),
                 z,
@@ -73,20 +78,41 @@ impl SlateApp {
             );
             // Match the editor's vertical centering of a sticky's cached galley.
             let dy = if sticky {
-                ((srect.height() - galley.rect.height()) * 0.5).max(0.0)
+                ((source.height() - galley.rect.height()) * 0.5).max(0.0)
             } else {
                 0.0
             };
-            let text_pos = srect.min + egui::vec2(0.0, dy);
+            let scroll = if self.text_review_visible(node.id) {
+                self.text_sheet_scroll(ui, node.id, source, galley.size().y, z, false, chrome)
+            } else {
+                0.0
+            };
+            let text_pos = source.min + egui::vec2(0.0, dy - scroll);
+            let source_painter = if source == srect {
+                painter.clone()
+            } else {
+                painter.with_clip_rect(source.intersect(painter.clip_rect()))
+            };
+            self.paint_text_answer_links(
+                ui,
+                &source_painter,
+                node,
+                text_pos,
+                srect.center(),
+                &galley,
+                shown,
+                z,
+                chrome,
+            );
             if let Some(clip) = &node.clip {
-                paint_clipped_galley(painter, xf, node, clip, text_pos, &galley);
+                paint_clipped_galley(&source_painter, xf, node, clip, text_pos, &galley);
             } else {
                 let pos = srect.center()
                     + egui::emath::Rot2::from_angle(node.rotation_deg.to_radians())
                         * (text_pos - srect.center());
                 let mut shape = egui::epaint::TextShape::new(pos, galley, Color32::WHITE);
                 shape.angle = node.rotation_deg.to_radians();
-                painter
+                source_painter
                     .with_clip_rect(Rect::from_points(outline_s).expand(2.0))
                     .add(shape);
             }

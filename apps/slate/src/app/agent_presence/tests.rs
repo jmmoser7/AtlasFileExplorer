@@ -29,6 +29,10 @@ mod approved_fences;
 mod crop;
 #[path = "descriptor_style_tests.rs"]
 mod descriptor_styles;
+#[path = "generator_command_tests.rs"]
+mod generator_commands;
+#[path = "image_history_tests.rs"]
+mod image_history;
 
 #[test]
 fn mentions_resolve_exact_names_and_disambiguate_by_identity() {
@@ -489,3 +493,6 @@ fn a_stale_targeted_read_releases_motion_but_keeps_the_task_binding() {
 
 #[path = "drawing_activity_tests.rs"]
 mod drawing_activity;
+
+#[path = "saved_artifact_tests.rs"]
+mod saved_artifacts;

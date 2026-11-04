@@ -2,6 +2,8 @@
 
 mod creation;
 mod drawing;
+mod history;
+mod human;
 mod invocation;
 mod portals;
 mod prepare;
@@ -36,6 +38,9 @@ pub(crate) struct PreparedBoardCommand {
     camera_zoom: f32,
     smooth: Option<super::super::board_smooth::SmoothGesture>,
     tag_commands: Vec<slate_doc::TagCommand>,
+    history_cut: Option<NodeId>,
+    history_action: Option<(NodeId, String)>,
+    history_endpoints: Vec<String>,
 }
 
 impl SlateApp {
@@ -86,10 +91,26 @@ impl SlateApp {
         if command == "board.objects.crop" && targets.len() != 1 {
             return Err("Crop requires exactly one stable image ID".into());
         }
+        if matches!(
+            command,
+            "portal.agent.generator_settings"
+                | "board.input.graft"
+                | "board.image.history"
+                | "portal.agent.text_output"
+                | "portal.agent.model_output"
+        ) && targets.len() != 1
+        {
+            return Err("This generator command requires exactly one stable target ID".into());
+        }
         let ids = prepare::target_ids(&self.doc().scene, targets)?;
         let mut smooth = None;
         let mut tag_commands = Vec::new();
-        let (cmds, targets, invocation, crop) = if command == "board.smooth.stroke" {
+        let mut history_cut = None;
+        let (cmds, targets, invocation, crop) = if command == "board.image.history" {
+            let (cmds, targets, cut) = history::prepare(self, &ids, arguments)?;
+            history_cut = cut;
+            (cmds, targets, None, None)
+        } else if command == "board.smooth.stroke" {
             let (cmds, targets, gesture) = smoothing::prepare(self, &ids, arguments)?;
             smooth = Some(gesture);
             (cmds, targets, None, None)
@@ -109,6 +130,10 @@ impl SlateApp {
         ) {
             let (cmds, targets) = text_style::prepare(self, ctx, command, &ids, arguments)?;
             (cmds, targets, None, None)
+        } else if let Some((cmds, targets, deferred)) =
+            invocation::prepare_artifact(self, command, &ids, arguments)?
+        {
+            (cmds, targets, Some(deferred), None)
         } else if command == "portal.agent.run" {
             let (cmds, targets, invocation) = invocation::prepare(self, &ids, arguments)?;
             (cmds, targets, Some(invocation), None)
@@ -135,6 +160,21 @@ impl SlateApp {
         }
         let linked_items = if command == "board.objects.place_images" {
             creation::linked_items(self.doc(), &cmds)
+        } else if matches!(
+            command,
+            "portal.agent.model_output" | "portal.agent.result.use" | "portal.agent.result.remove"
+        ) {
+            cmds.iter()
+                .filter_map(|cmd| match cmd {
+                    SceneCmd::Patch { after, .. } => match &after.kind {
+                        slate_doc::scene::NodeKind::Image(image) => {
+                            self.doc().item(image.item).cloned()
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect()
         } else {
             Vec::new()
         };
@@ -171,6 +211,11 @@ impl SlateApp {
         } else {
             None
         };
+        let history_endpoints = if command == "board.image.history" {
+            self.image_history_required_endpoints(ids[0], arguments["action"].as_str().unwrap())?
+        } else {
+            Vec::new()
+        };
         let prepared = PreparedBoardCommand {
             command: command.to_owned(),
             cmds,
@@ -189,6 +234,10 @@ impl SlateApp {
             camera_zoom: self.tab().cam.z,
             smooth,
             tag_commands,
+            history_cut,
+            history_action: (command == "board.image.history")
+                .then(|| (ids[0], arguments["action"].as_str().unwrap().to_owned())),
+            history_endpoints,
         };
         prepared.applicable(&self.doc().scene)?;
         Ok(prepared)
@@ -206,11 +255,15 @@ impl SlateApp {
         if author.trim().is_empty() || author.chars().count() > 128 || session.len() > 128 {
             return Err("A bounded participant identity and session are required".into());
         }
-        if let Some(invocation) = prepared.invocation.take() {
+        if let Some(invocation) = prepared
+            .invocation
+            .take()
+            .filter(|invocation| invocation.pending())
+        {
             if !autonomy {
                 return Err("Grant autonomous board edits before invoking provider jobs; otherwise use its human Run control".into());
             }
-            return self.finish_generator_invocation(
+            return self.finish_deferred_invocation(
                 invocation,
                 prepared.cmds,
                 slate_doc::scene::CmdAuthor::Agent(author.to_owned()),
@@ -256,6 +309,11 @@ impl SlateApp {
         let removed = prepare::removed_ids(&prepared.cmds);
         let added = prepare::added_wire_ids(&prepared.cmds);
         let erasures = (prepared.command == "board.eraser.stroke").then(|| prepared.cmds.clone());
+        let model_output = prepared.model_output_target(self);
+        let history_cut = prepared.history_cut;
+        if let Some(target) = history_cut {
+            self.cancel_generator_history_work(target);
+        }
         if !prepared.cmds.is_empty()
             && !self.commit_scene_as(
                 prepared.cmds,
@@ -268,6 +326,13 @@ impl SlateApp {
             return Err("The tag journal refused the prepared command".into());
         }
         self.finish_targeted_bookkeeping(&removed, &added);
+        self.finish_image_history_action(prepared.history_action.as_ref());
+        if let Some(target) = history_cut {
+            self.finish_generator_history_cut(target);
+        }
+        if let Some(node) = model_output {
+            self.finish_model_output_selection(node);
+        }
         if let Some(cmds) = erasures {
             self.queue_targeted_erase_cleanup(
                 &cmds,
@@ -302,6 +367,18 @@ impl SlateApp {
         if prepared.command == "board.objects.place_images" {
             creation::check_placement_tags(self, &prepared.cmds)?;
         }
+        if let Some((target, action)) = &prepared.history_action {
+            if self.image_history_dependencies(*target, action)? != prepared.targets {
+                return Err("Images history topology changed while the action was prepared".into());
+            }
+        }
+        if prepared.command == "portal.agent.generator_settings"
+            && prepared.targets.iter().any(|id| self.agent_is_running(*id))
+        {
+            return Err(
+                "Generator started while its settings were prepared; wait until it is idle".into(),
+            );
+        }
         prepared
             .applicable(&self.doc().scene)
             .and_then(|_| tags::preflight(self.doc(), &prepared.tag_commands))
@@ -318,6 +395,26 @@ impl SlateApp {
     }
 
     pub(crate) fn finish_targeted_proposal_bookkeeping(&mut self, cmds: &[SceneCmd]) {
+        for cmd in cmds {
+            if let SceneCmd::Patch { before, after } = cmd {
+                if slate_doc::agent_chat::agent(after)
+                    .is_some_and(|agent| agent.generator.shown_model.is_some())
+                    && (slate_doc::agent_chat::agent(before)
+                        .map(|agent| &agent.generator.shown_model)
+                        != slate_doc::agent_chat::agent(after)
+                            .map(|agent| &agent.generator.shown_model)
+                        || match (&before.kind, &after.kind) {
+                            (
+                                slate_doc::scene::NodeKind::Image(a),
+                                slate_doc::scene::NodeKind::Image(b),
+                            ) => a.item != b.item,
+                            _ => false,
+                        })
+                {
+                    self.finish_model_output_selection(after.id);
+                }
+            }
+        }
         if let Some(author) = self.tab().journal.last_author().cloned() {
             self.queue_targeted_erase_cleanup(cmds, author);
         }
@@ -325,81 +422,6 @@ impl SlateApp {
             &prepare::removed_ids(cmds),
             &prepare::added_wire_ids(cmds),
         );
-    }
-
-    pub(crate) fn dispatch_targeted_human(&mut self, command: &str, detail: Option<&str>) -> bool {
-        self.dispatch_targeted_human_context(None, command, detail)
-    }
-    pub(crate) fn dispatch_targeted_human_with_context(
-        &mut self,
-        ctx: &eframe::egui::Context,
-        command: &str,
-        detail: Option<&str>,
-    ) -> bool {
-        self.dispatch_targeted_human_context(Some(ctx), command, detail)
-    }
-    fn dispatch_targeted_human_context(
-        &mut self,
-        ctx: Option<&eframe::egui::Context>,
-        command: &str,
-        detail: Option<&str>,
-    ) -> bool {
-        let result = (|| {
-            let value: Value = serde_json::from_str(
-                detail.ok_or("This command requires explicit targets and arguments")?,
-            )
-            .map_err(|e| e.to_string())?;
-            let targets: Vec<String> = serde_json::from_value(
-                value
-                    .get("targets")
-                    .cloned()
-                    .unwrap_or_else(|| Value::Array(vec![])),
-            )
-            .map_err(|_| "Targets must be stable object ID strings")?;
-            let mut prepared = self.prepare_targeted_command_context(
-                ctx,
-                command,
-                &targets,
-                value.get("arguments").unwrap_or(&Value::Null),
-            )?;
-            self.check_targeted_command(&prepared)?;
-            for tag in &mut prepared.tag_commands {
-                tag.set_author(slate_doc::scene::CmdAuthor::Human);
-            }
-            if let Some(invocation) = prepared.invocation.take() {
-                return self
-                    .finish_generator_invocation(
-                        invocation,
-                        prepared.cmds,
-                        slate_doc::scene::CmdAuthor::Human,
-                    )
-                    .map(|_| ());
-            }
-            let id = super::super::commands::SPECS
-                .iter()
-                .find(|spec| spec.id.0 == command)
-                .map(|spec| spec.id)
-                .ok_or("Unknown board command")?;
-            let removed = prepare::removed_ids(&prepared.cmds);
-            let added = prepare::added_wire_ids(&prepared.cmds);
-            if !prepared.cmds.is_empty() && !self.commit_scene(prepared.cmds) {
-                return Err("The journal refused the command".into());
-            }
-            if !prepared.tag_commands.is_empty() && !self.commit_tag_commands(prepared.tag_commands)
-            {
-                return Err("The tag journal refused the command".into());
-            }
-            self.finish_targeted_bookkeeping(&removed, &added);
-            self.push_history(id, Some(format!("{} objects", prepared.targets.len())));
-            Ok::<(), String>(())
-        })();
-        match result {
-            Ok(()) => true,
-            Err(error) => {
-                self.toast(error);
-                false
-            }
-        }
     }
 
     fn commit_tag_commands(&mut self, commands: Vec<slate_doc::TagCommand>) -> bool {

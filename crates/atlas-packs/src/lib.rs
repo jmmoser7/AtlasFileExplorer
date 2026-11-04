@@ -28,4 +28,5 @@ const SHIPPED: &[&str] = &[
     include_str!("../packs/openai-image.json"),
     include_str!("../packs/pdfium.json"),
     include_str!("../packs/sam.json"),
+    include_str!("../packs/rhino-inside.json"),
 ];

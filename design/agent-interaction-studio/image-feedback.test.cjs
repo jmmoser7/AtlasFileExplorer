@@ -1,0 +1,35 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path'),os=require('node:os');
+const model={};vm.createContext(model);vm.runInContext(fs.readFileSync(__dirname+'/image-feedback.js','utf8'),model);const F=model.StudioImageFeedback;
+test('request context uses only supplied image metadata and keeps raw typed feedback',()=>{
+  const text='Keep this exact text\n<not markup>';
+  const request=F.request({id:'chat-train',name:'Chat Train'},{id:'baseline',title:'Current JS',src:'assets/a.png',jsSourceUrl:'http://localhost:8765/?phase=01&tab=chat-train',captureViewport:{width:1440,height:900}},text);
+  for(const value of [text,'assets/a.png','baseline','Chat Train','1440','900','http://localhost:8765/'])assert.ok(request.includes(value));
+  assert.ok(!F.request({id:'studio',name:'Studio'},{id:'ref',src:'ref.png'},'message').includes('captureViewport'));
+});
+test('draft namespaces isolate elements/images, and storage failures are explicit',()=>{
+  const data=new Map(),storage={getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v)},a=F.draftKey('one','image'),b=F.draftKey('two','image'),c=F.draftKey('one','other');
+  assert.equal(new Set([a,b,c]).size,3);F.saveDraft(storage,a,'first');F.saveDraft(storage,b,'second');assert.equal(F.readDraft(storage,a).text,'first');assert.equal(F.readDraft(storage,b).text,'second');
+  assert.equal(F.saveDraft({setItem(){throw Error('quota');}},a,'text').ok,false);assert.match(F.readDraft({getItem(){throw Error('denied');}},a).error,/denied/);
+});
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||path.join(os.homedir(),'.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright'));
+const base=process.env.STUDIO_TEST_URL||'http://localhost:8765/';
+test('per-image gallery/lightbox drafts, copy and feature-detected mocked host outcomes', {timeout:60000},async()=>{
+  const browser=await chromium.launch({channel:'msedge',headless:true});try{
+    const context=await browser.newContext({viewport:{width:640,height:900}}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+    await context.addInitScript(()=>{Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{if(window.failCopy)throw Error('clipboard denied');window.copied=text;}}});localStorage.setItem('feedback-unrelated-fixture','keep');});
+    await page.goto(base+'?phase=00&tab=studio');await page.locator('.portal-gallery .image-feedback').first().waitFor();
+    const first=page.locator('.portal-gallery .image-feedback').nth(0),second=page.locator('.portal-gallery .image-feedback').nth(1);
+    await first.locator('textarea').fill('Keep the image-linked feedback');await second.locator('textarea').fill('Independent second image');
+    await page.locator('.portal-image-open').first().click();const lightbox=page.locator('.portal-lightbox .image-feedback');assert.equal(await lightbox.locator('textarea').inputValue(),'Keep the image-linked feedback');await lightbox.locator('textarea').fill('Changed in lightbox');assert.equal(await first.locator('textarea').inputValue(),'Changed in lightbox');await page.locator('.portal-lightbox').getByRole('button',{name:'Close',exact:true}).click();
+    await page.reload();assert.equal(await first.locator('textarea').inputValue(),'Changed in lightbox');assert.equal(await second.locator('textarea').inputValue(),'Independent second image');
+    assert.equal(await first.locator('button').innerText(),'Copy request');await first.locator('textarea').press('Control+Enter');await first.getByText(/Request copied/).waitFor();assert.match(await page.evaluate(()=>window.copied),/Changed in lightbox/);assert.match(await page.evaluate(()=>window.copied),/IMAGE CONTEXT/);assert.equal(await first.locator('textarea').inputValue(),'Changed in lightbox');
+    await page.evaluate(()=>window.failCopy=true);await first.locator('button').click();await first.getByText(/Could not copy request/).waitFor();assert.equal(await first.locator('textarea').inputValue(),'Changed in lightbox');
+    await page.evaluate(()=>{window.sent=[];window.openai={sendFollowUpMessage:payload=>{window.sent.push(payload);return new Promise(resolve=>window.acceptMock=resolve);}};});
+    await second.locator('textarea').focus();await first.locator('textarea').focus();assert.equal(await first.locator('button').innerText(),'Send to chat');await first.locator('button').click();await first.getByText('Sending to chat…',{exact:true}).waitFor();assert.equal(await first.getByText(/Submitted to chat/).count(),0);assert.equal(await page.evaluate(()=>window.sent[0].scrollToBottom),true);await page.evaluate(()=>window.acceptMock());await first.getByText(/Submitted to chat/).waitFor();
+    await page.evaluate(()=>window.openai.sendFollowUpMessage=async()=>{throw Error('mock host rejected');});await first.locator('button').click();await first.getByText(/Could not send to chat.*mock host rejected/).waitFor();assert.equal(await first.locator('textarea').inputValue(),'Changed in lightbox');
+    const rect=await first.boundingBox();assert.ok(rect.x>=0&&rect.x+rect.width<=640);
+    await page.evaluate(()=>{delete window.openai;window.failCopy=false;StudioShell.navigate('00','chat-train');});const baseline=await page.evaluate(()=>StudioPortalData.images['chat-train'][0]);const baselineForm=page.locator('.portal-gallery .image-feedback').first();await baselineForm.locator('textarea').fill('Baseline linked request');await baselineForm.locator('button').click();await baselineForm.getByText(/Request copied/).waitFor();const linked=await page.evaluate(()=>window.copied);assert.ok(linked.includes(baseline.src));assert.ok(linked.includes(baseline.id));assert.ok(linked.includes(baseline.jsSourceUrl));assert.ok(linked.includes(String(baseline.captureViewport.width)));
+assert.equal(await page.evaluate(()=>localStorage.getItem('feedback-unrelated-fixture')),'keep');assert.deepEqual(errors,[]);await context.close();
+    const denied=await browser.newContext({viewport:{width:640,height:900}});await denied.addInitScript(()=>{Object.defineProperty(navigator,'clipboard',{value:{writeText:async()=>{}}});const original=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(key.startsWith('slate-studio-image-feedback-v1:'))throw Error('mock quota');return original.call(this,key,value);};});const p=await denied.newPage();await p.goto(base+'?phase=00&tab=studio');const form=p.locator('.portal-gallery .image-feedback').first();await form.locator('textarea').fill('Unsaved draft remains visible');await form.getByText(/Could not save this draft.*mock quota/).waitFor();assert.equal(await form.locator('textarea').inputValue(),'Unsaved draft remains visible');await form.locator('button').click();await form.getByText(/Request copied/).waitFor();await form.getByText(/Could not save this draft.*mock quota/).waitFor();await denied.close();
+  }finally{await browser.close();}
+});

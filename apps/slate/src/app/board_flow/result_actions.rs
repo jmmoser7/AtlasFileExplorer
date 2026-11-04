@@ -1,11 +1,15 @@
 //! One result selection and action controller for the strip and generator history.
 use super::*;
-use atlas_shell::result_actions::{ResultAction, ResultInteraction, ResultSelection};
+use atlas_shell::result_actions::{ProductResultAction, ResultInteraction, ResultSelection};
 use slate_doc::image_paint::ImageResultId;
 use slate_doc::scene::{ImageNode, Node};
 use std::path::PathBuf;
 
+mod export;
+mod mutations;
+mod outputs;
 mod save;
+mod strips;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ResultAddress {
@@ -13,6 +17,12 @@ pub(crate) struct ResultAddress {
     host: NodeId,
     binding: String,
     outputs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    references: Vec<slate_doc::scene::HiddenOutputRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    target: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    witness: Option<Box<Node>>,
 }
 
 struct ResultMenu {
@@ -39,155 +49,24 @@ impl SlateApp {
     pub(crate) fn result_popup_rect(&self) -> Option<Rect> {
         self.agents.flow.results.popup_rect
     }
-    fn result_binding(&self, host: NodeId) -> Option<String> {
-        let agent = self
-            .doc()
-            .scene
-            .node(host)
-            .and_then(slate_doc::agent_chat::agent)?;
-        serde_json::to_string(&(
-            &agent.provider,
-            &agent.session,
-            &agent.channel,
-            &agent.bundle,
-            agent.seed.as_ref().map(|seed| &seed.id),
-        ))
-        .ok()
-    }
-
-    pub(crate) fn result_selection(&self, host: NodeId) -> ResultSelection {
-        self.result_binding(host)
-            .and_then(|binding| {
-                self.agents
-                    .flow
-                    .results
-                    .selections
-                    .get(&(self.tab().id, host, binding))
-            })
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    /// Shell adds the canonical strip gap; the host remains the hover origin.
-    pub(crate) fn result_strip_placement(&self, host: NodeId, mut body: Rect) -> Rect {
-        if let Some((_, _, bottom)) = self
-            .shape_properties
-            .result_chrome_bottom
-            .filter(|(tab, owner, _)| *tab == self.tab().id && *owner == host)
-        {
-            body.max.y = body.bottom().max(bottom);
-        }
-        body
-    }
-
-    pub(crate) fn result_strip_state(
-        &self,
-        ctx: &egui::Context,
-        host: NodeId,
-        body: Rect,
-        zoom: f32,
-    ) -> Option<(bool, usize)> {
-        let node = self.doc().scene.node(host)?;
-        let agent = slate_doc::agent_chat::agent(node)?;
-        if node.hidden || agent.view == PortalView::Text || self.agent_picture_draw_mode(host) {
-            return None;
-        }
-        let selected = self.board_sel.len() == 1 && self.board_sel.contains(&host);
-        let flowing = selected
-            && self.image_wheel(host) == crate::app::board_agent::ImageWheel::Album
-            && atlas_shell::home::album_browsing(ctx, Id::new(("agent-picture", host.0))) > 0.001;
-        let focus = if flowing {
-            self.agent_album_focus(host)
-        } else {
-            self.agent_shown_index(host)
-        }
-        .unwrap_or(0);
-        let reveal = !flowing
-            && !self.agents.flow.hud_hidden(host)
-            && (ctx.pointer_latest_pos().is_some_and(|p| body.contains(p))
-                || selected
-                || self.flow_capsule_open(host)
-                || self.result_strip_hovered(ctx, host, body, zoom));
-        Some((reveal, focus))
-    }
-
-    /// Exact current thumbnail hits keep their editor open without taking input.
-    pub(crate) fn result_strip_contains(
-        &self,
-        ctx: &egui::Context,
-        host: NodeId,
-        body: Rect,
-        zoom: f32,
-    ) -> bool {
-        let Some(pointer) = ctx.pointer_latest_pos() else {
-            return false;
-        };
-        if !self.canvas_rect.contains(pointer) {
-            return false;
-        }
-        let images = self.agent_images(host);
-        let runs: Vec<&str> = images.iter().map(|image| image.request.as_str()).collect();
-        let Some((reveal, focus)) = self.result_strip_state(ctx, host, body, zoom) else {
-            return false;
-        };
-        atlas_shell::home::album_result_layout(
-            ctx,
-            Id::new(("agent-picture", host.0)),
-            self.result_strip_placement(host, body),
-            &runs,
-            images.len(),
-            focus,
-            reveal,
-            zoom,
-            2,
-        )
-        .is_some_and(|(_, squares)| squares.iter().any(|(_, square)| square.contains(pointer)))
-    }
-
-    pub(crate) fn remember_result_strip(
+    pub(crate) fn select_generator_result(
         &mut self,
         host: NodeId,
-        body: Rect,
-        rect: Rect,
-        zoom: f32,
+        ordered: &[String],
+        index: usize,
+        shift: bool,
     ) {
-        let key = (self.tab().id, host);
-        if !rect.is_positive() || zoom <= 0.0 {
-            self.agents.flow.results.strips.remove(&key);
+        let Some(binding) = self.result_binding(host) else {
             return;
-        }
-        let origin = body.center_bottom();
-        let min = (rect.min - origin) / zoom;
-        let max = (rect.max - origin) / zoom;
-        self.agents.flow.results.strips.insert(
-            key,
-            Rect::from_min_max(Pos2::new(min.x, 0.0), Pos2::new(max.x, max.y)),
-        );
-    }
-
-    /// Once revealed, the strip owns its row and the short gap from the image.
-    /// Requiring recorded visibility prevents invisible thumbnails from taking
-    /// input before the user has approached their host.
-    pub(crate) fn result_strip_hovered(
-        &self,
-        ctx: &egui::Context,
-        host: NodeId,
-        body: Rect,
-        zoom: f32,
-    ) -> bool {
-        if !self.doc().scene.node(host).is_some_and(|node| !node.hidden) {
-            return false;
-        }
-        let Some(corridor) = self.agents.flow.results.strips.get(&(self.tab().id, host)) else {
-            return false;
         };
-        let origin = body.center_bottom();
-        let lane = Rect::from_min_max(
-            origin + corridor.min.to_vec2() * zoom,
-            origin + corridor.max.to_vec2() * zoom,
-        );
-        ctx.pointer_latest_pos()
-            .is_some_and(|pointer| lane.contains(pointer))
+        let tab = self.tab().id;
+        self.agents
+            .flow
+            .results
+            .selections
+            .entry((tab, host, binding))
+            .or_default()
+            .select(ordered, index, shift, false);
     }
 
     pub(crate) fn handle_result_interaction(
@@ -196,45 +75,44 @@ impl SlateApp {
         host: NodeId,
         out: ResultInteraction,
         palette: Rect,
+        square: bool,
     ) {
         if out.menu.is_none() && out.clicked.is_none() && out.drag_started.is_none() {
             return;
         }
-        let images = self.agent_images(host);
-        if let Some((index, at)) = out.menu {
-            let Some(binding) = self.result_binding(host) else {
-                return;
-            };
-            let ordered: Vec<String> = images.iter().map(|image| image.id.clone()).collect();
-            let tab = self.tab().id;
-            let selection = self
-                .agents
-                .flow
-                .results
-                .selections
-                .entry((tab, host, binding.clone()))
-                .or_default();
-            selection.select(&ordered, index, out.shift, out.clicked.is_none());
-            let outputs = selection
-                .identities(&ordered)
-                .into_iter()
-                .map(str::to_owned)
-                .collect();
-            self.agents.flow.results.menu = Some(ResultMenu {
-                address: ResultAddress {
-                    tab,
-                    host,
-                    binding,
-                    outputs,
-                },
-                at,
-                opener: ui.layer_id(),
-            });
-            self.board_sel = std::iter::once(host).collect();
-            self.agents.flow.set_hud_hidden(host, false);
+        self.open_result_context(ui, host, out);
+        if self.is_artifact_node(host) {
+            if let Some(index) = out.clicked {
+                let revisions = self
+                    .result_outputs(host)
+                    .into_iter()
+                    .map(|output| output.id)
+                    .collect::<Vec<_>>();
+                self.select_generator_result(host, &revisions, index, out.shift);
+                if let Some(revision) = revisions.get(index) {
+                    self.dispatch(
+                        ui.ctx(),
+                        atlas_commands::CommandId("portal.artifact.revision"),
+                        Some(serde_json::json!({"node":host,"revision":revision}).to_string()),
+                    );
+                }
+                if square {
+                    self.select_square_result(host);
+                }
+            }
+            return;
         }
+        let images = self.agent_images(host);
         if let Some(index) = out.clicked {
+            let ordered = images
+                .iter()
+                .map(|image| image.id.clone())
+                .collect::<Vec<_>>();
+            self.select_generator_result(host, &ordered, index, out.shift);
             self.pick_agent_result(host, index);
+            if square {
+                self.select_square_result(host);
+            }
         }
         if let Some(image) = out.drag_started.and_then(|index| images.get(index)) {
             self.agents.flow.results.menu = None;
@@ -257,6 +135,26 @@ impl SlateApp {
         {
             return false;
         }
+        if address
+            .witness
+            .as_deref()
+            .is_some_and(|node| self.doc().scene.node(address.host) != Some(node))
+        {
+            return false;
+        }
+        if !address.references.is_empty() {
+            let available = self.result_outputs(address.host);
+            return address.references.len() == address.outputs.len()
+                && address
+                    .outputs
+                    .iter()
+                    .zip(&address.references)
+                    .all(|(id, reference)| {
+                        available
+                            .iter()
+                            .any(|output| &output.id == id && &output.reference == reference)
+                    });
+        }
         let images = self.agent_images(address.host);
         let available: std::collections::HashSet<&str> =
             images.iter().map(|image| image.id.as_str()).collect();
@@ -267,7 +165,7 @@ impl SlateApp {
     }
 
     /// Runs before board gestures: result chrome never clears the host selection.
-    pub(crate) fn result_controls_input(&mut self, ui: &egui::Ui, xf: &BoardXf) -> bool {
+    pub(crate) fn result_controls_input(&mut self, ui: &mut egui::Ui, xf: &BoardXf) -> bool {
         self.agents.flow.results.popup_rect = None;
         let saving = self.result_save_input(ui.ctx());
         if saving {
@@ -307,32 +205,31 @@ impl SlateApp {
         {
             return saving || strip_capture;
         }
-        let mut action = None;
         let popup_id = Id::new(("image-result-menu", menu.address.tab, menu.address.host.0));
-        let response = atlas_shell::selection_tools::popup_area(ui.ctx(), popup_id, menu.opener)
-            .fixed_pos(menu.at)
-            .show(ui.ctx(), |ui| {
-                atlas_shell::menu::frame(self.settings.dark_mode).show(ui, |ui| {
-                    action = atlas_shell::result_actions::menu(
-                        ui,
-                        menu.address.outputs.len(),
-                        self.settings.dark_mode,
-                    );
-                });
-            })
-            .response;
-        self.agents.flow.results.popup_rect = Some(response.rect);
-        let over = pointer.is_some_and(|p| response.rect.contains(p));
-        let dismiss =
-            ui.input(|i| i.key_pressed(egui::Key::Escape) || (i.pointer.any_pressed() && !over));
+        let mut open = true;
+        let reason = self.remove_result_reason(&menu.address);
+        let mut child = ui.new_child(egui::UiBuilder::new().layer_id(menu.opener));
+        let response = atlas_shell::result_actions::product_menu(
+            &mut child,
+            popup_id,
+            menu.at,
+            &mut open,
+            reason,
+            self.palette(),
+        );
+        self.agents.flow.results.popup_rect = response.popup;
+        let over = pointer.is_some_and(|p| response.popup.is_some_and(|rect| rect.contains(p)));
+        let action = response.action;
+        let dismiss = !open;
         if let Some(action) = action {
-            if action == ResultAction::SaveAs {
+            if action == ProductResultAction::SaveAs {
                 self.agents.flow.results.save.opener = Some(menu.opener);
             }
             let command = match action {
-                ResultAction::Copy => "portal.agent.result.copy",
-                ResultAction::SaveAs => "portal.agent.result.save_as",
-                ResultAction::CopyToCanvas => "portal.agent.result.copy_to_canvas",
+                ProductResultAction::Use => "portal.agent.result.use",
+                ProductResultAction::SaveAs => "portal.agent.result.save_as",
+                ProductResultAction::DuplicateActive => "portal.agent.result.duplicate",
+                ProductResultAction::Remove => "portal.agent.result.remove",
             };
             self.dispatch(
                 ui.ctx(),
@@ -342,7 +239,7 @@ impl SlateApp {
         } else if !dismiss {
             self.agents.flow.results.menu = Some(menu);
         }
-        saving || strip_capture || over
+        saving || strip_capture || over || response.dismissed_outside
     }
 
     pub(crate) fn dispatch_image_result_action(
@@ -358,21 +255,36 @@ impl SlateApp {
             .and_then(|s| serde_json::from_str::<ResultAddress>(s).ok())
             .or_else(|| {
                 let host = *self.board_sel.iter().next()?;
-                let ordered: Vec<String> = self
-                    .agent_images(host)
+                let available = self.result_outputs(host);
+                let ordered = available
                     .iter()
-                    .map(|image| image.id.clone())
-                    .collect();
-                let mut outputs: Vec<String> = self
+                    .map(|output| output.id.clone())
+                    .collect::<Vec<_>>();
+                let active = self.active_result_reference(host);
+                let target = available
+                    .iter()
+                    .find(|output| Some(&output.reference) == active.as_ref())
+                    .or_else(|| available.last())?
+                    .id
+                    .clone();
+                let mut outputs = self
                     .result_selection(host)
                     .identities(&ordered)
                     .into_iter()
                     .map(str::to_owned)
-                    .collect();
+                    .collect::<Vec<_>>();
                 if outputs.is_empty() {
-                    outputs.push(ordered.get(self.agent_shown_index(host)?)?.clone());
+                    outputs.push(target.clone());
                 }
+                let references = available
+                    .into_iter()
+                    .filter(|output| outputs.contains(&output.id))
+                    .map(|output| output.reference)
+                    .collect();
                 Some(ResultAddress {
+                    references,
+                    target: Some(target),
+                    witness: self.doc().scene.node(host).cloned().map(Box::new),
                     tab: self.tab().id,
                     host,
                     binding: self.result_binding(host)?,
@@ -383,6 +295,9 @@ impl SlateApp {
             return false;
         };
         match command {
+            "portal.agent.result.use" => self.apply_result_output_action(address, false),
+            "portal.agent.result.remove" => self.apply_result_output_action(address, true),
+            "portal.agent.result.duplicate" => self.duplicate_active_result(&address),
             "portal.agent.result.copy" => {
                 let (doc, payload) = self.result_payload(&address);
                 self.copy_image_result_payload(ctx, &payload, &doc) > 0
@@ -416,6 +331,11 @@ impl SlateApp {
 
     /// Snapshots retain each selected output's own layers without changing the pick.
     fn result_payload(&mut self, address: &ResultAddress) -> (slate_doc::SlateDoc, Vec<Node>) {
+        if address.references.first().is_some_and(|reference| {
+            !matches!(reference, slate_doc::scene::HiddenOutputRef::Image { .. })
+        }) {
+            return self.non_image_result_payload(address);
+        }
         let Some(host) = self.doc().scene.node(address.host).cloned() else {
             return (slate_doc::SlateDoc::new("results"), Vec::new());
         };
@@ -429,8 +349,9 @@ impl SlateApp {
                 let path =
                     slate_doc::scene::resolve_source(self.tab().path.as_deref(), &image.source);
                 let item = self.item_for_ready_path(&path, 0, 0);
-                let mut resolved: ImageNode =
-                    self.image_for_result_id(address.host, &ImageResultId::Output(output.clone()))?;
+                let mut resolved: ImageNode = self.image_for_result_id(address.host, &ImageResultId::Output(output.clone()))
+                    .or_else(|| matches!(&host.kind, NodeKind::Portal(portal) if portal.kind == slate_doc::scene::PortalKind::Agent)
+                        .then(|| ImageNode::new(item)))?;
                 resolved.item = item;
                 resolved.agent = None;
                 resolved.result_layers.clear();

@@ -63,6 +63,7 @@ pub(super) fn review(ui: &mut egui::Ui, theme: Palette) {
                 center,
                 inward,
                 radius: 6.0,
+                half_span: 0.0,
             })
             .collect();
         canvas_text::text(

@@ -12,6 +12,9 @@ pub struct ArtifactGeneratorRef {
     pub revisions: Vec<String>,
     /// Exclusive conversation checkpoint associated with the shown revision.
     pub checkpoint: usize,
+    /// Active model context is independent of the displayed content revision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_memory: Option<crate::agent_inputs::ArtifactMemoryPin>,
     pub workspace: Option<SourceUri>,
     /// Explicit packaged source authority. No private history or conversation is
     /// copied; the selected HTML must retain this exact hash and revision.
@@ -33,6 +36,7 @@ impl Default for ArtifactGeneratorRef {
             revision: None,
             revisions: Vec::new(),
             checkpoint: 0,
+            active_memory: None,
             workspace: None,
             packaged: None,
         }

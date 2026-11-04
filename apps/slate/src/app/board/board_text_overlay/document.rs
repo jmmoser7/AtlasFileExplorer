@@ -39,12 +39,23 @@ impl SlateApp {
             return;
         };
         edit.rect = layout.grow(ctx, edit.rect, &edit.buffer);
-        let inner = layout.inner(xf, edit.rect);
+        let body = xf.rect_w2s(edit.rect);
+        let source = self.text_source_viewport(ctx, edit.node, body, xf.z);
+        let full_inner = layout.inner(xf, edit.rect);
+        let inner = if self.text_review_visible(edit.node) && source != body {
+            source
+        } else {
+            full_inner
+        };
         if !editor_rect_ok(inner) {
             return;
         }
         let world_font = layout.growth.font.clone();
-        let world_wrap = layout.growth.wrap;
+        let world_wrap = if self.text_response_only(edit.node) {
+            inner.width() / xf.z.max(1.0e-4)
+        } else {
+            layout.growth.wrap
+        };
         let screen_font = FontId::new(
             canvas_scale::px(world_font.size, xf.z),
             world_font.family.clone(),
@@ -59,7 +70,14 @@ impl SlateApp {
             .show(ctx, |ui| {
                 ui.set_width(inner.width());
                 ui.set_height(inner.height());
-                ui.set_clip_rect(inner);
+                ui.set_clip_rect(if self.text_review_visible(edit.node) {
+                    self.text_source_editor_clip(ctx, edit.node, inner)
+                } else {
+                    inner
+                });
+                if self.text_review_visible(edit.node) {
+                    self.text_source_editor_hits(ctx, edit.node, ui.clip_rect(), ui.layer_id());
+                }
                 ui.visuals_mut().override_text_color = Some(ink);
                 ui.visuals_mut().text_cursor.stroke.color = ink;
                 ui.visuals_mut().text_cursor.blink = true;
@@ -74,15 +92,53 @@ impl SlateApp {
                         zoom,
                     )
                 };
-                let resp = ui.add(
+                let editor_id = ui.next_auto_id();
+                let show_editor = |ui: &mut egui::Ui| {
                     egui::TextEdit::multiline(&mut edit.buffer)
+                        .id(editor_id)
                         .desired_width(inner.width())
                         .desired_rows(1)
                         .frame(false)
                         .margin(egui::Margin::ZERO)
                         .font(screen_font)
-                        .layouter(&mut layouter),
-                );
+                        .layouter(&mut layouter)
+                        .show(ui)
+                };
+                let output = if self.text_review_visible(edit.node) {
+                    let scrolling = egui::ScrollArea::vertical()
+                        .animated(false)
+                        .id_salt(("text-source-editor", edit.node.0))
+                        .enable_scrolling(
+                            self.text_source_editor_wheel_enabled(ctx, edit.node, inner),
+                        )
+                        .max_height(inner.height())
+                        .auto_shrink([false, false])
+                        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                        .vertical_scroll_offset(self.text_source_offset(ctx, edit.node, zoom))
+                        .show(ui, show_editor);
+                    self.set_text_source_offset(ctx, edit.node, scrolling.state.offset.y, zoom);
+                    self.text_sheet_scroll(
+                        ui,
+                        edit.node,
+                        inner,
+                        scrolling.inner.galley.size().y,
+                        zoom,
+                        false,
+                        false,
+                    );
+                    scrolling.inner
+                } else {
+                    show_editor(ui)
+                };
+                if let Some(range) = output.cursor_range.as_ref() {
+                    self.capture_text_answer_selection(
+                        ui.ctx(),
+                        edit.node,
+                        &edit.buffer,
+                        range.as_sorted_char_range(),
+                    );
+                }
+                let resp = &output.response;
                 let keep_focus = ui.memory(|m| m.focused().is_none_or(|fid| fid == resp.id));
                 if keep_focus || edit.claim_focus {
                     resp.request_focus();

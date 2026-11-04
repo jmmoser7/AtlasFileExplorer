@@ -1,0 +1,97 @@
+{
+  "$defs": {
+    "CapabilityGroup": {
+      "description": "Capability groups are independent. Unknown optional offers are ignored;\nunknown required offers cause negotiation to fail.",
+      "enum": [
+        "lifecycle",
+        "sources",
+        "surfaces",
+        "commands",
+        "views",
+        "capture",
+        "publication"
+      ],
+      "type": "string"
+    },
+    "ConnectorIdentity": {
+      "properties": {
+        "application_id": {
+          "type": "string"
+        },
+        "application_version": {
+          "type": "string"
+        },
+        "connector_version": {
+          "type": "string"
+        },
+        "pack_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pack_id",
+        "application_id",
+        "application_version",
+        "connector_version"
+      ],
+      "type": "object"
+    },
+    "ProtocolVersion": {
+      "properties": {
+        "major": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minor": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "major",
+        "minor"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "capabilities": {
+      "items": {
+        "$ref": "#/$defs/CapabilityGroup"
+      },
+      "type": "array"
+    },
+    "generation": {
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "identity": {
+      "$ref": "#/$defs/ConnectorIdentity"
+    },
+    "protocol": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "version": {
+      "$ref": "#/$defs/ProtocolVersion"
+    }
+  },
+  "required": [
+    "protocol",
+    "version",
+    "identity",
+    "session_id",
+    "generation",
+    "capabilities"
+  ],
+  "title": "Welcome",
+  "type": "object"
+}

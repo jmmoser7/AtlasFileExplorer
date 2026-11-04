@@ -183,7 +183,7 @@ fn quads_are_triangulated_with_computed_normals() {
 }
 
 #[test]
-fn empty_file_reports_no_meshes() {
+fn curve_only_file_reports_no_meshes() {
     assert!(matches!(
         read_render_meshes(&fixture("empty.3dm")),
         Err(ReadError::NoMeshes)
@@ -231,4 +231,39 @@ fn bit_flips_never_panic() {
         mutated[i] ^= 0xA5;
         let _ = read_render_meshes_from(&mutated);
     }
+}
+
+#[test]
+fn empty_model_requires_a_complete_empty_object_table() {
+    fn archive(table: &[u8]) -> Vec<u8> {
+        let mut bytes = b"3D Geometry File Format       80".to_vec();
+        bytes.extend_from_slice(&0x1000_0013u32.to_le_bytes());
+        bytes.extend_from_slice(&(table.len() as i64).to_le_bytes());
+        bytes.extend_from_slice(table);
+        bytes
+    }
+    let mut terminator = 0xffff_ffffu32.to_le_bytes().to_vec();
+    terminator.extend_from_slice(&0i64.to_le_bytes());
+    assert!(matches!(
+        read_render_meshes_from(&archive(&terminator)),
+        Err(ReadError::EmptyModel)
+    ));
+    for table in [
+        vec![],
+        terminator[..8].to_vec(),
+        [terminator.clone(), vec![0]].concat(),
+    ] {
+        assert!(matches!(
+            read_render_meshes_from(&archive(&table)),
+            Err(ReadError::Malformed(_))
+        ));
+    }
+    // A framed but unsupported entry is not an empty model.
+    let mut unknown = 0x8000_1234u32.to_le_bytes().to_vec();
+    unknown.extend_from_slice(&0i64.to_le_bytes());
+    unknown.extend_from_slice(&terminator);
+    assert!(matches!(
+        read_render_meshes_from(&archive(&unknown)),
+        Err(ReadError::NoMeshes)
+    ));
 }

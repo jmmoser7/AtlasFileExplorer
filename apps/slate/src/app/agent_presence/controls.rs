@@ -303,6 +303,7 @@ impl SlateApp {
                 )?;
             }
             SetFullAccess { id, enabled } => {
+                let train = self.is_chat_train_identity(&id);
                 let (session, provider, primary) = self
                     .presence
                     .agents
@@ -310,7 +311,11 @@ impl SlateApp {
                     .find(|a| a.profile.id == id)
                     .map(|a| {
                         (
-                            a.binding.session_id.clone(),
+                            if train {
+                                id.clone()
+                            } else {
+                                a.binding.session_id.clone()
+                            },
                             a.profile.provider.clone(),
                             a.parent.is_none(),
                         )

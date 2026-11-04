@@ -32,6 +32,7 @@ fn a_resize_records_its_size_and_fit_to_text_forgets_it() {
     h.app.board_drag = Some(super::super::board::BoardDrag::Resize {
         id: root,
         before,
+        members: Vec::new(),
         handle: 0,
         grab_offset: egui::Vec2::ZERO,
         dup: false,
@@ -47,13 +48,24 @@ fn a_resize_records_its_size_and_fit_to_text_forgets_it() {
     let rect = h.app.doc().scene.node(root).unwrap().rect;
     assert_eq!((rect.w, rect.h), (520.0, 90.0), "fit keeps the size");
 
+    let fit_depth = h.app.tab().journal.undo_depth();
     assert!(h
         .app
         .dispatch(&h.ctx, atlas_commands::CommandId("portal.agent.fit"), None));
     h.frame();
     assert!(chat(&h, root).size.is_none());
+    assert!(chat(&h, root).fit_height);
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        fit_depth + 1,
+        "Fit is one undo step"
+    );
     assert_ne!(h.app.doc().scene.node(root).unwrap().rect.w, 520.0);
     h.app.board_undo();
+    assert_eq!(chat(&h, root).size, Some([520.0, 90.0]));
+    assert!(!chat(&h, root).fit_height);
+    let restored = h.app.doc().scene.node(root).unwrap().rect;
+    assert_eq!((restored.w, restored.h), (520.0, 90.0));
     h.app.board_undo();
     assert_eq!(h.app.doc().scene.node(root).unwrap().rect.w, fitted.w);
     assert!(chat(&h, root).collapsed, "undo restores the collapsed card");
@@ -285,7 +297,7 @@ fn menu_under_title(output: &egui::FullOutput) -> bool {
     let texts = painted_at(output);
     let (Some(title), Some(first)) = (
         texts.iter().find(|(t, _)| t == "Astra").map(|(_, r)| *r),
-        texts.iter().find(|(t, _)| t == "Default").map(|(_, r)| *r),
+        texts.iter().find(|(t, _)| t == "Provider").map(|(_, r)| *r),
     ) else {
         return false;
     };
@@ -359,13 +371,17 @@ fn a_large_model_list_fits_the_right_edge_and_selects_its_visible_row() {
         .expect("the visible Terra row")
         .1;
     assert!(
-        terra.height() > 40.0,
-        "model labels retain their natural zoom"
+        terra.height() < 40.0,
+        "configuration rows remain screen-sized"
     );
     press(&mut h, terra.center());
     let agent = slate_doc::agent_chat::agent(h.app.doc().scene.node(card).unwrap()).unwrap();
     assert_eq!(agent.model.as_deref(), Some("gpt-6-terra"));
-    assert_eq!(h.app.agents.model_menu, None);
+    assert_eq!(
+        h.app.agents.model_menu,
+        Some(card),
+        "choice returns to the shared root"
+    );
     assert_eq!(h.app.tab().cam.z, 8.0, "the row click does not zoom");
 }
 

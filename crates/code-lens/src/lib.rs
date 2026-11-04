@@ -8,6 +8,7 @@ pub mod beacon;
 pub mod extract;
 pub mod layout;
 pub mod model;
+pub mod observatory;
 pub mod overlay;
 
 pub use beacon::LensBeacon;

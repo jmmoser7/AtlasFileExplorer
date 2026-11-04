@@ -24,6 +24,7 @@ pub(super) fn render_hosted_shape_text_svg(
         (rel.h - 2.0 * inset).max(0.0),
     );
     let text = TextNode {
+        answers: Default::default(),
         text: block.body.clone(),
         family: block.family,
         style: block.style,

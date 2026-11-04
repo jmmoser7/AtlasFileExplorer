@@ -10,6 +10,7 @@ fn ready_generator(tag: &str, size: f32) -> (Harness, NodeId, NodeId) {
     let note = h.app.doc_mut().scene.build_node(
         WorldRect::new(-600.0, 0.0, 180.0, 120.0),
         NodeKind::Text(TextNode {
+            answers: Default::default(),
             text: "evening light".into(),
             style: Default::default(),
             family: slate_doc::scene::Typeface::Sans,

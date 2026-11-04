@@ -7,6 +7,13 @@ impl SlateApp {
             self.toast("An export is already running.");
             return;
         }
+        let agent_replies = match self.export_agent_replies() {
+            Ok(replies) => replies,
+            Err(error) => {
+                self.toast(error);
+                return;
+            }
+        };
         // Web portals: resolve local sources and capture whatever posters the
         // pool can give us, before anything is written.
         let (web_sources, web_posters) = self.export_web_maps();
@@ -25,7 +32,7 @@ impl SlateApp {
         let out = dir.join(format!("{}-slides", safe.trim_matches('-')));
         let mut opts = slate_artifact::ExportOptions {
             agent_images: self.export_agent_images(),
-            agent_replies: self.export_agent_replies(),
+            agent_replies,
             inline_assets: self.export_inline,
             thumbs: self.export_thumb_map(),
             model_posters: self.export_model_poster_map(),

@@ -2,6 +2,12 @@
 param([Parameter(Mandatory)][string]$AppDirectory, [Parameter(Mandatory)][string]$ReleaseDirectory,
     [Parameter(Mandatory)][string]$Channel, [Parameter(Mandatory)][string]$Version)
 $ErrorActionPreference = 'Stop'
+if (Test-Path -LiteralPath (Join-Path $AppDirectory 'HeadlessRhino.exe')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $AppDirectory 'HeadlessRhino-README.md'))) {throw 'Packaged Rhino bridge is missing its installation/runtime notes.'}
+}
+foreach ($commercial in @('RhinoCommon.dll','RhinoCore.dll','Rhino.exe')) {
+    if (Test-Path -LiteralPath (Join-Path $AppDirectory $commercial)) {throw "Commercial Rhino installation binary must not be redistributed: $commercial"}
+}
 foreach ($file in @('slate.exe', 'native-file-atlas.exe', 'pdfium.dll', 'runtime/node.exe', 'runtime/node_modules/npm/bin/npm-cli.js',
     'runtime/LICENSE', 'cursor-sidecar/index.mjs', 'cursor-sidecar/artifacts.mjs', 'cursor-sidecar/artifact-generation-v1.md', 'cursor-sidecar/board-link.mjs', 'cursor-sidecar/board-link-v1.md', 'cursor-sidecar/attachments.mjs', 'cursor-sidecar/models.mjs', 'cursor-sidecar/activity.mjs', 'cursor-sidecar/policy.mjs',
     'cursor-sidecar/install.mjs', 'cursor-sidecar/supervise.mjs', 'cursor-sidecar/package-lock.json', 'PDFium-LICENSE', 'DEJAVU-LICENSE.txt', 'install-shortcuts.ps1')) {

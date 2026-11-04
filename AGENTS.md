@@ -7,7 +7,40 @@ Before starting each request, apply
 moderate / difficult** classification and the corresponding implementation,
 delegation, and validation budget. This applies in local, cloud, and review work.
 
+## Intent before implementation and polish
+
+Before substantial implementation, name the user's concrete goal, primary
+entry-to-result journeys, approved visual/behavior reference and retained
+capabilities. For a small UI edit, one or two sentences and one production
+fixture suffice; use the existing task/acceptance record, not a new manifesto.
+Latest user feedback and the approved executable reference govern. Preserve
+approved menus, cards and nomenclature; match whole-flow structure before spacing.
+
+The implementation owner must show an early working slice using the actual
+production owner, paired with the applicable reference state, before adapting
+that owner across surfaces. Wrong direction means stop expanding that design
+and reassess. Green tests, source review, documentation or mock screenshots do
+not establish a working native journey. For agent UI, use the existing
+[acceptance gate](design/agent-interaction-studio/native-implementation/ACCEPTANCE.md)
+and its state ledger; native ordinary entry evidence remains mandatory.
+
+Follow [the intent-to-running-evidence loop](docs/dev-loop.md#intent-to-running-evidence)
+for milestones, builds, bounded delegation and continuous handoffs. This gate
+does not require another user approval: reuse approved references and existing
+authorization. Resolve genuine missing intent asynchronously while independent
+authorized work continues; do not invent and polish an unreviewed direction.
+Unresolved layout intent uses the shared rolling-24h mobile escalation limit
+in that workflow; routine reference-backed work does not consume an approval.
+
+Before Rust UI work, consult the [Studio phase guides](design/agent-interaction-studio/AGENTS.md#phase-workspaces)
+for the appropriate component, canvas and evidence workflow.
+
+Release requests follow [release readiness and fixed candidates](docs/dev-loop.md#release-readiness-and-fixed-candidates):
+name the evidence stage and remaining gates before calling a candidate ready.
+
 ## Governing documents
+
+For interface design iteration, use the [element Studio workflow](design/agent-interaction-studio/AGENTS.md) as the primary review method: one existing element per canvas tab, refine it with the owner, then lock a standalone contract. Consult the [locked Chat Train contract](design/agent-interaction-studio/contracts/chat-train.md) and shared Studio patterns for parity. Studio approval is a design agreement; native implementation must still use the production owners and contract registry.
 
 **`CONSTITUTION.md` (repo root) is the project's governing law** — read it
 before any change touching architecture, document models, geometry, the

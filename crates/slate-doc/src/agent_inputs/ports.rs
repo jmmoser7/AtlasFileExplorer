@@ -57,13 +57,18 @@ pub(super) fn model_view_target<'a>(
     item_path(img.item).is_some_and(image_model_view_port)
 }
 
-const MODEL_VIEW_PORTS: [InputPort; 1] = [InputPort {
-    slot: InputSlot::View,
-    t: MODEL_VIEW_PORT_T,
-    label: "View",
-}];
+const MODEL_VIEW_PORTS: [InputPort; 4] = [
+    GENERATOR_PORTS[0],
+    GENERATOR_PORTS[1],
+    GENERATOR_PORTS[2],
+    InputPort {
+        slot: InputSlot::View,
+        t: MODEL_VIEW_PORT_T,
+        label: "View",
+    },
+];
 
-pub(super) const TEXT_PORTS: [InputPort; 2] = [
+pub(super) const TEXT_PORTS: [InputPort; 3] = [
     InputPort {
         slot: InputSlot::Media,
         t: 1.0 / 3.0,
@@ -74,9 +79,14 @@ pub(super) const TEXT_PORTS: [InputPort; 2] = [
         t: 2.0 / 3.0,
         label: "Prompt",
     },
+    InputPort {
+        slot: InputSlot::Style,
+        t: 0.75,
+        label: "Style image",
+    },
 ];
 
-const ARTIFACT_PORTS: [InputPort; 2] = [
+const ARTIFACT_PORTS: [InputPort; 3] = [
     InputPort {
         slot: InputSlot::Media,
         t: 0.5,
@@ -87,16 +97,33 @@ const ARTIFACT_PORTS: [InputPort; 2] = [
         t: 0.75,
         label: "Prompt",
     },
+    InputPort {
+        slot: InputSlot::Style,
+        t: 0.9,
+        label: "Style image",
+    },
 ];
 
 /// The input ports a node draws and binds, top to bottom. Empty for every node
 /// that is not a generator or text block. `WireHost::ports` reads this table.
 pub fn input_ports_of(node: &Node, model_view_port: bool) -> &'static [InputPort] {
-    if artifact(node).is_some() {
+    if crate::agent_chat::agent(node).is_some_and(|a| a.generator.input_source_kind.is_some()) {
+        return &[];
+    }
+    if artifact(node).is_some()
+        || matches!(&node.kind, NodeKind::Portal(p) if p.kind == PortalKind::Web)
+    {
         return &ARTIFACT_PORTS;
     }
     if model_view_port {
         return &MODEL_VIEW_PORTS;
+    }
+    if matches!(&node.kind, NodeKind::Text(_)) {
+        return &TEXT_PORTS;
+    }
+    if matches!(&node.kind, NodeKind::Image(image) if image.agent.as_ref().is_some_and(|a| a.view == atlas_agent::PortalView::Chat))
+    {
+        return &GENERATOR_PORTS;
     }
     match flow_view(node) {
         Some(atlas_agent::PortalView::Images) => &GENERATOR_PORTS,
@@ -135,9 +162,18 @@ pub fn input_ports_for<'a>(
     node: &Node,
     item_path: &dyn Fn(crate::ids::ItemId) -> Option<&'a std::path::Path>,
 ) -> &'static [InputPort] {
+    if crate::agent_chat::agent(node).is_some_and(|a| a.generator.input_source_kind.is_some()) {
+        return &[];
+    }
     let model_view = matches!(&node.kind, NodeKind::Image(image)
         if item_path(image.item).is_some_and(image_model_view_port));
     if image_generation_target(node, item_path) {
+        &GENERATOR_PORTS
+    } else if matches!(&node.kind, NodeKind::Image(image) if item_path(image.item).is_some_and(|p| crate::media::media_kind(p) == crate::media::MediaKind::Text))
+    {
+        &TEXT_PORTS
+    } else if matches!(&node.kind, NodeKind::Image(image) if image.item == crate::ItemId::NONE && image.agent.is_none())
+    {
         &GENERATOR_PORTS
     } else {
         input_ports_of(node, model_view)

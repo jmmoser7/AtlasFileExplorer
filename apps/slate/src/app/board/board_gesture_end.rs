@@ -72,7 +72,12 @@ impl SlateApp {
                 }
             }
             Some(BoardDrag::Resize {
-                id, before, dup, ..
+                id,
+                before,
+                members,
+                dup,
+                handle,
+                ..
             }) => {
                 if dup {
                     self.journal_alt_copies(&[id], "1 node(s), Alt-scale".into());
@@ -80,17 +85,23 @@ impl SlateApp {
                     if after.rect != before.rect || after.rotation_deg != before.rotation_deg {
                         // The size lands in the same undo step as the rect.
                         if after.rect != before.rect
-                            && super::super::board_agent::record_agent_resize(&mut after)
+                            && super::super::board_agent::record_agent_resize(
+                                &mut after,
+                                mods.shift
+                                    || !matches!(
+                                        board_handles::ResizeHandle::from_u8(handle),
+                                        board_handles::ResizeHandle::E
+                                            | board_handles::ResizeHandle::W
+                                    ),
+                            )
                         {
                             if let Some(live) = self.doc_mut().scene.node_mut(id) {
                                 *live = after.clone();
                             }
                         }
-                        self.tab_mut().journal.record(vec![SceneCmd::Patch {
-                            before: Box::new(before),
-                            after: Box::new(after),
-                        }]);
-                        self.tab_mut().dirty = true;
+                        let before: Vec<_> = std::iter::once(before).chain(members).collect();
+                        let ids: Vec<_> = before.iter().map(|node| node.id).collect();
+                        self.journal_resize_patches(&ids, before);
                     }
                 }
             }
@@ -292,7 +303,7 @@ impl SlateApp {
                         .scene
                         .nodes
                         .iter()
-                        .filter(|n| !n.is_frame() && !n.hidden && !n.locked)
+                        .filter(|n| !n.hidden && !n.locked)
                         .filter(|n| {
                             frame.is_none_or(|id| self.doc().scene.frame_of(n.id) == Some(id))
                         })
@@ -316,6 +327,7 @@ impl SlateApp {
                     }
                     // A member inside the rect selects its whole group.
                     self.expand_board_selection();
+                    self.collapse_frame_selection();
                 }
             }
             None => {}

@@ -46,6 +46,9 @@ fn map_err(err: ReadError) -> LoadError {
         ReadError::UnsupportedVersion(v) => {
             LoadError::Malformed(format!("Rhino archive version {v} is older than Rhino 5."))
         }
+        ReadError::EmptyModel => {
+            LoadError::Empty("Empty model. Describe what to build with its agent.".into())
+        }
         ReadError::NoMeshes => LoadError::Empty(
             "No render meshes in this Rhino file. Save it from a shaded viewport.".into(),
         ),

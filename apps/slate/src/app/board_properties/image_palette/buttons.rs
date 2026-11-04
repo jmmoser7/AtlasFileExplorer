@@ -102,6 +102,18 @@ pub(super) fn panel_buttons(
                         .paint_icon(ui.painter(), index, panel_icon(panel), color, theme);
                     response
                 };
+                #[cfg(test)]
+                if panel == Panel::Agent {
+                    let transform = ctx
+                        .layer_transform_to_global(ui.layer_id())
+                        .unwrap_or_default();
+                    ctx.data_mut(|data| {
+                        data.insert_temp(
+                            Id::new(("painted-agent-tool-hit", image.0)),
+                            transform * response.rect,
+                        )
+                    });
+                }
                 if response.clicked() && enabled {
                     if app.shape_properties.panel == Some(panel) {
                         close_requested = true;

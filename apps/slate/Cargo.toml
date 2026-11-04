@@ -15,6 +15,7 @@ atlas-update = { workspace = true }
 atlas-shell = { workspace = true }
 atlas-commands = { workspace = true }
 atlas-connector-runtime = { workspace = true }
+atlas-connector = { workspace = true }
 atlas-session = { workspace = true }
 atlas-relay = { workspace = true }
 atlas-ai = { workspace = true }

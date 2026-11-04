@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 mod agent_presence;
 mod agent_text_output;
+mod application_connector;
 mod artifact_export;
 pub mod association;
 #[cfg(test)]
@@ -42,6 +43,7 @@ mod board_bumper;
 mod board_color;
 pub mod board_crop;
 mod board_deck;
+mod frame_presentation;
 mod board_direct;
 mod board_dock_embed;
 mod board_flags;
@@ -99,6 +101,7 @@ pub mod present;
 pub mod preview;
 #[cfg(all(test, windows))]
 mod probe_web;
+mod production;
 mod recovery;
 mod screenshot;
 pub mod session;
@@ -371,6 +374,7 @@ pub struct SlateApp {
     pub board_tool: board::BoardTool,
     /// Frames explicitly ordered by the Deck tool, oldest arming included.
     pub deck: board_deck::DeckState,
+    pub(crate) frame_presentation: frame_presentation::State,
     pub board_frame_preset: board::FramePreset,
     pub board_frame_custom: Option<board::FrameCustomDraft>,
     pub board_drag: Option<board::BoardDrag>,
@@ -451,6 +455,9 @@ pub struct SlateApp {
     frame_hwnd: isize,
     /// Interactive 3D model viewport state (see `model3d.rs`).
     pub model3d: model3d::ModelSpace,
+    connectors: application_connector::ConnectorRuntime,
+    production: production::ProductionRuntime,
+    media_links: items::MediaLinkJobs,
     model_shot_pending: Option<model_screenshot::PendingModelShot>,
     pending_view_drop: Option<model_screenshot::PendingViewDrop>,
     /// A saved view held over a model mid-drag. Derived; not journaled.
@@ -705,8 +712,10 @@ pub struct SlateApp {
 
 impl SlateApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial_doc: Option<PathBuf>) -> Self {
-        association::ensure_file_association();
         let mut app = Self::with_ctx(&cc.egui_ctx, initial_doc);
+        if app.screenshot.is_none() {
+            association::ensure_file_association();
+        }
         app.gl = cc.gl.clone();
         {
             let _attach = app.session_log.attach();
@@ -875,6 +884,7 @@ impl SlateApp {
             staged_dup_sel: None,
             board_tool: board::BoardTool::default(),
             deck: board_deck::DeckState::default(),
+            frame_presentation: frame_presentation::State::default(),
             board_frame_preset: board::FramePreset::default(),
             board_frame_custom: None,
             board_drag: None,
@@ -916,6 +926,9 @@ impl SlateApp {
             ctrl_down: false,
             gl: None,
             frame_hwnd: 0,
+            connectors: Default::default(),
+            production: production::ProductionRuntime::from_args(),
+            media_links: Default::default(),
             model3d: model3d::ModelSpace::default(),
             model_shot_pending: None,
             pending_view_drop: None,
@@ -1069,8 +1082,10 @@ impl SlateApp {
             .ensure_workers(atlas_core::display::THUMB_WORKERS_SLATE);
         #[cfg(not(test))]
         {
-            let paths = app.recents.entries.iter().map(|e| e.path.clone()).collect();
-            app.recent_prune_rx = Some(atlas_shell::recent::spawn_prune_missing(paths));
+            if app.screenshot.is_none() {
+                let paths = app.recents.entries.iter().map(|e| e.path.clone()).collect();
+                app.recent_prune_rx = Some(atlas_shell::recent::spawn_prune_missing(paths));
+            }
         }
         boot.phase("construct");
         // Tests and a workbook opened at launch wait out the font read so the
@@ -1119,6 +1134,10 @@ impl SlateApp {
     }
 
     fn record_recent_workbook(&mut self, path: &Path, doc: &slate_doc::SlateDoc) {
+        // Explicit review captures must not alter the user's recent shelf.
+        if self.screenshot.is_some() {
+            return;
+        }
         let title = path
             .file_stem()
             .map(|n| n.to_string_lossy().into_owned())
@@ -1198,6 +1217,9 @@ impl SlateApp {
     }
 
     fn poll_recent_prune(&mut self) {
+        if self.screenshot.is_some() {
+            return;
+        }
         if self.recents.apply_prune(&mut self.recent_prune_rx) {
             #[cfg(not(test))]
             self.recents.save("slate");
@@ -1965,7 +1987,9 @@ impl SlateApp {
             self.slate_pump(ctx);
         }
 
-        self.process_external_drops(ctx);
+        if self.presenting.is_none() {
+            self.process_external_drops(ctx);
+        }
 
         self.frame_input(ctx);
         self.link_health_frame(ctx);
@@ -1974,7 +1998,7 @@ impl SlateApp {
 
         // A maximized portal is the sole interface: skip Slate chrome so the
         // page fills the window at the screen's aspect (P1.portal.maximize).
-        if !portal_max {
+        if !portal_max && self.presenting.is_none() {
             // Register the unified top bar first so it is the outermost panel and
             // always spans the full viewport width. Side/bottom chrome is then
             // constrained to the workspace below it.
@@ -2006,6 +2030,9 @@ impl SlateApp {
             central = central.frame(egui::Frame::NONE);
         }
         central.show(ctx, |ui| {
+            if self.presenting.is_some() {
+                return;
+            }
             if portal_max {
                 let _span = atlas_core::session_log::span("slate.portal_max");
                 self.paint_maximized_portal(ui);
@@ -2119,8 +2146,11 @@ impl SlateApp {
         if let Some(cmd) = fb.command {
             self.dispatch(ctx, atlas_commands::CommandId(cmd), None);
         }
-        if let Some(shot) = &mut self.screenshot {
-            shot.frame(ctx, self.frame_no, self.recovery.capture_status());
+        if self.screenshot.is_some() {
+            let canvas_zoom = (!self.at_home && !self.tabs.is_empty()).then(|| self.tab().cam.z);
+            if let Some(shot) = &mut self.screenshot {
+                shot.frame(ctx, self.frame_no, self.recovery.capture_status(), canvas_zoom);
+            }
         }
     }
 
@@ -2176,6 +2206,10 @@ impl SlateApp {
     }
 
     pub(crate) fn ensure_home_cover_bakes(&mut self) {
+        // Covers for unrelated recent workbooks must not be opened by a capture.
+        if self.screenshot.is_some() {
+            return;
+        }
         #[cfg(not(test))]
         for e in self.recents.entries.clone() {
             let path = e.path.clone();

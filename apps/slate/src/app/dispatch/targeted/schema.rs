@@ -14,6 +14,46 @@ const STYLE_ARGUMENTS: &[(&str, &str)] = &[(
 
 pub(super) const DEFINITIONS: &[Definition] = &[
     Definition {
+        command: "board.image.history",
+        targets: "Exactly one unlocked Images host; actual source and history-wire dependencies must also be in scope with explicit conversation endpoint permission",
+        arguments: &[("action", "refresh | reconnect | downstream | cut"), ("x", "optional finite world coordinate, downstream only; requires y"), ("y", "optional finite world coordinate, downstream only; requires x")],
+    },
+    Definition {
+        command: "portal.agent.result.use",
+        targets: "Exactly one unlocked output host; selects an existing registered immutable output without restoring context",
+        arguments: &[("output", "Exact tagged HiddenOutputRef from the saved output: image(request,id), model(ticket), text(review_id,response), artifact(family,revision)")],
+    },
+    Definition {
+        command: "portal.agent.result.remove",
+        targets: "Exactly one unlocked output host; hides an immutable output entry, retaining source files and context",
+        arguments: &[("output", "Exact tagged HiddenOutputRef; empty legacy image request origins are refused")],
+    },
+    Definition {
+        command: "board.input.add",
+        targets: "none; create one plain authored input source",
+        arguments: &[("kind", "image | text | style"), ("x", "finite world coordinate"), ("y", "finite world coordinate")],
+    },
+    Definition {
+        command: "portal.agent.generator_settings",
+        targets: "Exactly one unlocked generator; Count requires idle. Preserve may change while a run is pending. Journaled context/next-run metadata only; never submits work, restores cut history or grants provider access.",
+        arguments: &[("count", "optional integer 1–8, applied per graft branch"), ("preserve_history", "optional boolean; future turns only, never restores cut history")],
+    },
+    Definition {
+        command: "board.input.graft",
+        targets: "Exactly one unlocked generator with the named supported typed input slot. View/shared control inputs are not graftable. Does not change wires or submit work.",
+        arguments: &[("slot", "required supported typed input slot: media, prompt or style where offered by this generator"), ("grafted", "required boolean; true splits branches, false retains a shared bundle")],
+    },
+    Definition {
+        command: "portal.agent.text_output",
+        targets: "Exactly one unlocked generator with loaded saved assistant checkpoints and an explicitly permitted conversation endpoint. Selects display state only; never rewinds provider memory or edits authored text.",
+        arguments: &[("through", "required positive integer checkpoint from the permitted text_outputs descriptor; must identify an existing assistant response"), ("review_id", "optional exact saved response identity; required when multiple response-only requests share the checkpoint")],
+    },
+    Definition {
+        command: "portal.agent.model_output",
+        targets: "Exactly one unlocked generator with a registered immutable model output and board-file-inputs grant. No arbitrary source, path, latest fallback or native-session activation.",
+        arguments: &[("output", "required exact saved model output ID from model_outputs; at most 256 characters")],
+    },
+    Definition {
         command: "board.tags.create",
         targets: "Exactly one existing linked image or semantic frame as the visible organizer target; creates one workbook facet/tag through the reversible tag journal.",
         arguments: &[("name", "nonempty tag name, up to 128 characters"), ("color", "three RGB bytes"), ("group_id", "optional existing facet id; omitted creates a one-tag facet")],
@@ -72,7 +112,7 @@ pub(super) const DEFINITIONS: &[Definition] = &[
         command: "board.objects.create_portal",
         targets: "Empty. Journaled placement using the existing Web/File Atlas portal constructors; requires explicit source-input permission. Does not grant new source, origin, filesystem-write or browser authority.",
         arguments: &[
-            ("kind", "atlas|web"),
+            ("kind", "atlas|web|application"),
             ("source", "explicit folder locator or web URL"),
             ("x", "finite world x"),
             ("y", "finite world y"),
@@ -153,6 +193,27 @@ pub(super) const DEFINITIONS: &[Definition] = &[
         arguments: &[
             ("key", "supported key name"),
             ("pressed", "boolean key state"),
+        ],
+    },
+    Definition {
+        command: "board.model.connector.inspect",
+        targets: "Exactly one existing Rhino model node with an already active native binding, a readable target and an explicit linked/wired source grant. Returns validated binding and advertised command information; never activates, launches or rebinds a model.",
+        arguments: &[(
+            "command_id",
+            "optional exact advertised native command ID for its descriptor and closed parameter schema; omitted inspects the binding and command catalogue",
+        )],
+    },
+    Definition {
+        command: "board.model.connector.capture",
+        targets: "Exactly one existing Rhino model node with an already active native binding, a readable target and an explicit linked/wired source grant. Captures the actual native view into a host-owned AI workspace PNG artifact; never activates or focuses a model. No output path or destination argument is accepted.",
+        arguments: &[],
+    },
+    Definition {
+        command: "board.model.connector.invoke",
+        targets: "Exactly one existing Rhino model node with an already active native binding and explicit linked/wired source grant. Use an advertised closed command only. Draft edits require a human-opened isolated Rhino copy, current workspace autonomy and an exact collaborator/document/command grant. No scripts, lifecycle changes or source write-back.",
+        arguments: &[
+            ("command_id", "required exact advertised native command ID obtained from inspect"),
+            ("parameters", "required object matching that command's closed parameter schema, including an empty object for parameterless commands"),
         ],
     },
     Definition {

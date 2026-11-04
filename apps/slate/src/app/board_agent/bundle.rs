@@ -169,8 +169,22 @@ impl SlateApp {
         }
         true
     }
-    pub(crate) fn agent_set_detail(&mut self, detail: slate_doc::agent_chat::Detail) -> bool {
+    pub(crate) fn agent_set_detail(
+        &mut self,
+        ctx: &egui::Context,
+        detail: slate_doc::agent_chat::Detail,
+    ) -> bool {
         let ids: Vec<_> = self.board_sel.iter().copied().collect();
+        if detail == slate_doc::agent_chat::Detail::Full {
+            return self.refit_agent_cards_by(ctx, &ids, |_, chat| {
+                // Expanding a pair reveals its complete text, not another presentation.
+                if chat.detail != slate_doc::agent_chat::Detail::Pair {
+                    chat.detail = detail;
+                }
+                write_fold(chat, train_ux::CardFold::Open);
+                chat.window_height = None;
+            });
+        }
         self.patch_nodes(&ids, |n| {
             if let NodeKind::Portal(p) = &mut n.kind {
                 if let Some(a) = &mut p.agent {
@@ -184,7 +198,7 @@ impl SlateApp {
                             slate_doc::agent_chat::CARD_HEIGHT
                         }
                         slate_doc::agent_chat::Detail::Pair => slate_doc::agent_chat::PAIR_HEIGHT,
-                        slate_doc::agent_chat::Detail::Full => 540.0,
+                        slate_doc::agent_chat::Detail::Full => n.rect.h,
                     };
                 }
             }

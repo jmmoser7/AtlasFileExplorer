@@ -62,14 +62,22 @@ pub(super) fn node_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem>
     if nodes.iter().any(|n| image_is_text(app, n)) {
         items.retain(|item| *item != StripItem::Panel(Panel::Filter));
     }
-    if nodes.len() == 1 && app.model_has_viewport(nodes[0].id) {
+    let native = nodes.len() == 1 && app.application_connector_active(nodes[0].id);
+    if native {
+        items.retain(|item| *item != StripItem::Panel(Panel::Filter));
+        items.extend([StripItem::ModelScreenshot, StripItem::ModelMaximize]);
+    } else if nodes.len() == 1 && app.model_has_viewport(nodes[0].id) {
         items.retain(|item| *item != StripItem::Panel(Panel::Filter));
         items.extend([
             StripItem::Panel(Panel::ModelDisplay),
             StripItem::ModelMeasure,
             StripItem::ModelScreenshot,
+            StripItem::ModelMaximize,
             StripItem::Panel(Panel::Filter),
         ]);
+    }
+    if nodes.len() == 1 && app.application_connector_eligible(nodes[0].id) {
+        items.push(StripItem::ApplicationConnector);
     }
     if nodes.len() == 1 && image_is_model(app, &nodes[0]) && !app.model_has_viewport(nodes[0].id) {
         items.retain(|item| *item != StripItem::Panel(Panel::Filter));
@@ -99,7 +107,7 @@ pub(super) fn rectangular_blister(app: &SlateApp, nodes: &[Node], count: usize) 
     {
         return false;
     }
-    matches!(nodes, [node] if (matches!(node.kind, NodeKind::Portal(_) | NodeKind::Image(_))
+    matches!(nodes, [node] if (matches!(node.kind, NodeKind::Portal(_) | NodeKind::Image(_) | NodeKind::Frame(_))
         || matches!(node.kind, NodeKind::Text(_)) && app.is_text_block(node.id))
         && !matches!(&node.kind, NodeKind::Portal(portal) if portal.kind == slate_doc::scene::PortalKind::Agent)
         && media_blister_fits(node,count))
@@ -172,7 +180,9 @@ pub(super) fn edits_picked_vertices(item: &StripItem) -> bool {
         | StripItem::Frame(_)
         | StripItem::Agent(_)
         | StripItem::ModelMeasure
-        | StripItem::ModelScreenshot => false,
+        | StripItem::ModelScreenshot
+        | StripItem::ModelMaximize
+        | StripItem::ApplicationConnector => false,
     }
 }
 
@@ -285,6 +295,22 @@ impl SlateApp {
                 Icon::Model,
                 self.shape_properties.panel == Some(Panel::ModelDisplay),
             ),
+            StripItem::ApplicationConnector => (
+                "Rhino.Inside: switch native / Slate 3D; right-click to open an isolated copy",
+                Icon::Rhino,
+                self.shape_properties
+                    .ids
+                    .first()
+                    .is_some_and(|id| self.application_connector_active(*id)),
+            ),
+            StripItem::ModelMaximize => (
+                "Maximize / restore model portal",
+                Icon::Fit,
+                self.shape_properties
+                    .ids
+                    .first()
+                    .is_some_and(|id| self.portal_is_maximized(*id)),
+            ),
             StripItem::ModelMeasure => (
                 "Measure: pick two points on the model",
                 Icon::Ruler,
@@ -318,19 +344,18 @@ impl SlateApp {
                         .iter()
                         .all(|n| n.bumper.is_some()),
             ),
-            StripItem::Frame(FrameAction::Prev) => {
-                ("Move earlier in the deck", Icon::ChevronLeft, false)
-            }
-            StripItem::Frame(FrameAction::Next) => {
-                ("Move later in the deck", Icon::ChevronRight, false)
-            }
             StripItem::Frame(FrameAction::Present) => {
                 ("Present from this slide", Icon::View, false)
             }
             StripItem::Frame(FrameAction::Deck) => (
-                "Order frames: click each one, or draw a stroke through them",
-                Icon::Deck,
-                self.board_tool == BoardTool::Deck,
+                "Create Presentation",
+                Icon::PresentationDeck,
+                self.frame_presentation.open(false),
+            ),
+            StripItem::Frame(FrameAction::Settings) => (
+                "Presentation media settings",
+                Icon::Sliders,
+                self.frame_presentation.open(true),
             ),
         }
     }

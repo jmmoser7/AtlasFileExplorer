@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "website"
 OUTPUT = ROOT / "target" / "slate-site"
 PUBLIC_FILES = (
-    "index.html", "styles.css", "documentation/index.html",
+    "index.html", "styles.css", "release.js", "documentation/index.html",
     "suggestions/index.html", "suggestions/suggestions.js",
 )
 

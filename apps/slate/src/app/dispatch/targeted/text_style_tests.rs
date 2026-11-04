@@ -16,6 +16,7 @@ fn text(h: &mut Harness, body: &str) -> NodeId {
     let node = h.app.doc_mut().scene.build_node(
         WorldRect::new(50.0, 80.0, 100.0, 20.0),
         NodeKind::Text(TextNode {
+            answers: Default::default(),
             text: body.into(),
             style: Default::default(),
             family: Default::default(),

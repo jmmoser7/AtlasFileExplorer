@@ -21,7 +21,7 @@ fn artifact_web_frames_keep_their_authored_size_when_agent_text_arrives() {
     assert_eq!(h.app.doc().scene.node(id).unwrap().rect, rect);
     let mut resized = h.app.doc().scene.node(id).unwrap().clone();
     resized.rect.w = 900.0;
-    assert!(!record_agent_resize(&mut resized));
+    assert!(!record_agent_resize(&mut resized, true));
     assert!(slate_doc::agent_chat::agent(&resized)
         .unwrap()
         .chat

@@ -76,8 +76,9 @@ use webview2_com::{
     AcceleratorKeyPressedEventHandler, CallDevToolsProtocolMethodCompletedHandler,
     CreateCoreWebView2CompositionControllerCompletedHandler,
     CreateCoreWebView2EnvironmentCompletedHandler, DownloadStartingEventHandler,
-    ExecuteScriptCompletedHandler, NavigationCompletedEventHandler, NewWindowRequestedEventHandler,
-    SourceChangedEventHandler, StateChangedEventHandler, WindowCloseRequestedEventHandler,
+    ExecuteScriptCompletedHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
+    NewWindowRequestedEventHandler, SourceChangedEventHandler, StateChangedEventHandler,
+    WindowCloseRequestedEventHandler,
 };
 
 use super::board_web::{
@@ -199,10 +200,30 @@ struct Pending {
     attached: bool,
     cancelled: bool,
     document_generation: u64,
+    navigation_id: Option<u64>,
+    navigating: bool,
     /// Latest dashboard wire script. Re-run after each navigation.
     link_script: String,
     /// The portal on screen, client physical pixels. Pop-ups centre on it.
     anchor: Option<PxRect>,
+}
+
+impl Pending {
+    fn begin_navigation(&mut self, id: Option<u64>) {
+        self.document_generation = self.document_generation.wrapping_add(1);
+        self.navigation_id = id;
+        self.navigating = true;
+        self.url = None;
+    }
+
+    fn finish_navigation(&mut self, id: Option<u64>, url: Option<String>, success: bool) -> bool {
+        if !self.navigating || id.is_none() || self.navigation_id != id || self.cancelled {
+            return false;
+        }
+        self.navigating = false;
+        self.url = success.then_some(url).flatten();
+        true
+    }
 }
 
 struct View {
@@ -249,6 +270,7 @@ pub struct Webview2Host {
     canvas_drops: Rc<RefCell<Vec<(NodeId, std::path::PathBuf)>>>,
     /// Page text read for an agent run, waiting to be taken.
     texts: Rc<RefCell<HashMap<NodeId, Result<String, String>>>>,
+    controls: Rc<RefCell<HashMap<NodeId, Option<Result<String, String>>>>>,
     /// Sign-in pop-up windows, by the portal whose page opened them.
     popups: Rc<RefCell<PopupBook<isize>>>,
     wake: egui::Context,
@@ -347,6 +369,7 @@ impl Webview2Host {
             escape: Rc::new(Cell::new(false)),
             canvas_drops: Rc::new(RefCell::new(Vec::new())),
             texts: Rc::new(RefCell::new(HashMap::new())),
+            controls: Rc::new(RefCell::new(HashMap::new())),
             popups: Rc::new(RefCell::new(PopupBook::default())),
             wake,
         })
@@ -617,6 +640,69 @@ impl Webview2Host {
 }
 
 impl WebHost for Webview2Host {
+    fn control_epoch(&self, id: NodeId) -> u64 {
+        self.views
+            .get(&id)
+            .map_or(0, |view| view.shared.borrow().document_generation)
+    }
+    fn request_controls(&mut self, id: NodeId) -> bool {
+        if self.controls.borrow().contains_key(&id) {
+            return false;
+        }
+        let Some(webview) = self.webview(id) else {
+            return false;
+        };
+        let shared = self.views.get(&id).unwrap().shared.clone();
+        let generation = shared.borrow().document_generation;
+        let controls = self.controls.clone();
+        let wake = self.wake.clone();
+        self.controls.borrow_mut().insert(id, None);
+        let script = wide(atlas_agent::control::POLL_SCRIPT);
+        let handler = ExecuteScriptCompletedHandler::create(Box::new(
+            move |result: windows::core::Result<()>, json: String| {
+                let value = result.map_err(|e| e.to_string()).and_then(|()| {
+                    if shared.borrow().document_generation != generation
+                        || shared.borrow().cancelled
+                    {
+                        Err("Control page changed while polling".into())
+                    } else {
+                        serde_json::from_str::<String>(&json)
+                            .map_err(|_| "Invalid control reply".into())
+                    }
+                });
+                // Evicted pages cannot repopulate the completion cache.
+                if controls.borrow().contains_key(&id) {
+                    controls.borrow_mut().insert(id, Some(value));
+                }
+                wake.request_repaint();
+                Ok(())
+            },
+        ));
+        if unsafe { webview.ExecuteScript(PCWSTR(script.as_ptr()), &handler) }.is_err() {
+            self.controls.borrow_mut().remove(&id);
+            return false;
+        }
+        true
+    }
+    fn take_controls(&mut self, id: NodeId) -> Option<Result<String, String>> {
+        if self.controls.borrow().get(&id).is_some_and(Option::is_some) {
+            self.controls.borrow_mut().remove(&id).flatten()
+        } else {
+            None
+        }
+    }
+    fn control_state(&mut self, id: NodeId, state: &serde_json::Value) {
+        let Some(webview) = self.webview(id) else {
+            return;
+        };
+        let script = wide(&format!("window.slateControl?.__accept({state});"));
+        let _ = unsafe {
+            webview.ExecuteScript(
+                PCWSTR(script.as_ptr()),
+                None::<&ICoreWebView2ExecuteScriptCompletedHandler>,
+            )
+        };
+    }
     fn request_text(&mut self, id: NodeId) -> bool {
         let Some(webview) = self
             .views
@@ -749,6 +835,7 @@ impl WebHost for Webview2Host {
     }
 
     fn evict(&mut self, id: NodeId) {
+        self.controls.borrow_mut().remove(&id);
         self.deferred.remove(&id);
         // A pop-up without its opener can only fail; close it with the portal.
         let orphans = self.popups.borrow_mut().evicted(id);
@@ -973,19 +1060,72 @@ fn attach(
     let webview = unsafe { controller.CoreWebView2() }?;
     apply_page_settings(&webview);
 
+    let starting_sink = Rc::downgrade(sink);
+    let starting_wake = hooks.wake.clone();
+    let starting = NavigationStartingEventHandler::create(Box::new(move |_, args| {
+        if let Some(pending) = starting_sink.upgrade() {
+            let id = args.and_then(|args| {
+                let mut id = 0;
+                unsafe { args.NavigationId(&mut id) }.ok().map(|()| id)
+            });
+            pending.borrow_mut().begin_navigation(id);
+            starting_wake.request_repaint();
+        }
+        Ok(())
+    }));
+    let mut starting_token = 0;
+    unsafe {
+        webview.add_NavigationStarting(&starting, &mut starting_token)?;
+    }
+
+    let source_sink = Rc::downgrade(sink);
+    let source_wake = hooks.wake.clone();
+    let source_changed = SourceChangedEventHandler::create(Box::new(move |sender, _| {
+        if let (Some(pending), Some(sender)) = (source_sink.upgrade(), sender) {
+            let mut pending = pending.borrow_mut();
+            if !pending.navigating {
+                let mut source = windows::core::PWSTR::null();
+                pending.url = if unsafe { sender.Source(&mut source) }.is_ok() {
+                    take_pwstr(source)
+                } else {
+                    None
+                };
+                pending.document_generation = pending.document_generation.wrapping_add(1);
+            }
+            source_wake.request_repaint();
+        }
+        Ok(())
+    }));
+    let mut source_token = 0;
+    unsafe {
+        webview.add_SourceChanged(&source_changed, &mut source_token)?;
+    }
+
     let errors = Rc::downgrade(sink);
+    let nav_wake = hooks.wake.clone();
     let nav = NavigationCompletedEventHandler::create(Box::new(move |sender, args| {
         let Some(errors) = errors.upgrade() else {
             return Ok(());
         };
         let mut succeeded = false;
         let mut link_script = String::new();
+        let mut source_url = None;
+        if let Some(sender) = &sender {
+            let mut source = windows::core::PWSTR::null();
+            if unsafe { sender.Source(&mut source) }.is_ok() {
+                source_url = take_pwstr(source);
+            }
+        }
         if let Some(args) = args {
+            let mut id = 0;
+            let navigation_id = unsafe { args.NavigationId(&mut id) }.ok().map(|()| id);
             let mut ok = windows::core::BOOL(0);
             let _ = unsafe { args.IsSuccess(&mut ok) };
             succeeded = ok.as_bool();
             let mut pending = errors.borrow_mut();
-            pending.document_generation = pending.document_generation.wrapping_add(1);
+            if !pending.finish_navigation(navigation_id, source_url, succeeded) {
+                return Ok(());
+            }
             link_script = pending.link_script.clone();
             pending.error = if succeeded {
                 None
@@ -998,12 +1138,6 @@ fn attach(
         // Following a link changes what the frame shows; saying so is what
         // keeps it honest about being a browser (Art. IV).
         if let Some(sender) = sender {
-            let mut source = windows::core::PWSTR::null();
-            if unsafe { sender.Source(&mut source) }.is_ok() && !source.is_null() {
-                let text = unsafe { source.to_string() }.ok();
-                unsafe { windows::Win32::System::Com::CoTaskMemFree(Some(source.0 as *const _)) };
-                errors.borrow_mut().url = text;
-            }
             if succeeded && !link_script.is_empty() {
                 let script = wide(&link_script);
                 let _ = unsafe {
@@ -1014,6 +1148,7 @@ fn attach(
                 };
             }
         }
+        nav_wake.request_repaint();
         Ok(())
     }));
     let mut token = 0i64;

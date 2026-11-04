@@ -1,6 +1,8 @@
 //! Save As changes locator spelling, never the linked source's identity.
 use super::*;
-use crate::scene::{Node, SceneCmd, WebRefusal, WebSourceKind};
+use crate::scene::{Node, NodeKind, SceneCmd, WebRefusal, WebSourceKind};
+#[cfg(test)]
+mod tests;
 
 /// Rebase only linked node sources. History stores and agent sessions remain
 /// external links; this function performs no I/O and never collects their bytes.
@@ -26,6 +28,7 @@ pub fn rebase_linked_scene(scene: &mut scene::Scene, from: &Path, to: &Path) -> 
 /// The saved workbook's new base also applies to every undo/redo snapshot.
 pub(crate) fn rebase_linked_command(command: &mut SceneCmd, from: &Path, to: &Path) {
     match command {
+        SceneCmd::Presentations { .. } => {}
         SceneCmd::Add { node, .. }
         | SceneCmd::Remove { node, .. }
         | SceneCmd::LayerNodeAdd { node, .. }
@@ -59,9 +62,14 @@ pub fn absolutize_document(doc: &mut SlateDoc, workbook: Option<&Path>) -> std::
 }
 
 fn rebase_node(node: &mut Node, from: &Path, to: Option<&Path>) {
+    visit_linked_sources(node, &mut |locator| rebase_locator(locator, from, to));
+}
+
+/// The one recursive owner of linked source strings (no filesystem reads).
+pub(super) fn visit_linked_sources(node: &mut Node, visit: &mut impl FnMut(&mut String)) {
     if let NodeKind::Portal(portal) = &mut node.kind {
         if let Some(source) = &mut portal.source {
-            rebase_locator(&mut source.locator, from, to);
+            visit(&mut source.locator);
         }
     }
     if let Some(artifact) = scene::artifact_mut(node) {
@@ -69,15 +77,39 @@ fn rebase_node(node: &mut Node, from: &Path, to: Option<&Path>) {
             .into_iter()
             .flatten()
         {
-            rebase_locator(&mut source.locator, from, to);
+            visit(&mut source.locator);
         }
     }
     if let Some(agent) = crate::agent_chat::agent_mut(node) {
         if let Some(bundle) = &mut agent.bundle {
-            rebase_locator(&mut bundle.locator, from, to);
+            visit(&mut bundle.locator);
         }
         if let Some(seed) = &mut agent.seed {
-            rebase_locator(&mut seed.source, from, to);
+            visit(&mut seed.source);
+        }
+        for source in &mut agent.generator.archived_history {
+            visit(&mut source.locator);
+        }
+        if let Some(text) = &mut agent.generator.shown_text {
+            visit(&mut text.source.locator);
+        }
+        for review in &mut agent.generator.text_reviews {
+            visit(&mut review.output.source.locator);
+        }
+        for output in &mut agent.generator.model_outputs {
+            visit(&mut output.source.locator);
+        }
+    }
+    let answers = match &mut node.kind {
+        NodeKind::Text(text) => Some(&mut text.answers),
+        NodeKind::Image(image) => Some(&mut image.answers),
+        _ => None,
+    };
+    if let Some(answers) = answers {
+        for answer in answers {
+            if let Some(origin) = &mut answer.origin {
+                visit(&mut origin.locator);
+            }
         }
     }
     if let NodeKind::Image(image) = &mut node.kind {
@@ -88,7 +120,7 @@ fn rebase_node(node: &mut Node, from: &Path, to: Option<&Path>) {
                 .flat_map(|result| &mut result.layers),
         ) {
             for child in &mut layer.nodes {
-                rebase_node(child, from, to);
+                visit_linked_sources(child, visit);
             }
         }
     }

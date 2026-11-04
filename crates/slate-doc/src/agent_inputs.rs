@@ -1,6 +1,15 @@
 //! The semantic layer of existing board wires. Geometry remains in `wire_host`.
 //! Resolves one immutable run input; adapters never interpret a scene.
 mod context;
+mod graft;
+pub use graft::{
+    grafted_prompt, plan_grafted_inputs, plan_grafted_inputs_with_shared, shared_generator_sources,
+    GraftedInputJob,
+};
+mod generator_history;
+pub use generator_history::*;
+mod control;
+pub use control::infer_control_binding;
 mod ports;
 use context::shape_brief;
 pub use context::{consumed_by, context_nodes, is_chat_card, pocket_holders, pocketed};
@@ -33,6 +42,8 @@ pub enum InputKind {
     Artifact,
     /// A conversation checkpoint; never part of a prompt's content snapshot.
     Memory,
+    /// A declared local dashboard input. Never implicit prompt context.
+    Control,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,16 +150,25 @@ fn directional_binding<'a>(
         return None;
     }
     let port = target_slot(scene, target_id, target, item_path);
-    if let Some(binding) = model_view_binding(scene, source, target, target_id, input_b, item_path)
-    {
-        return Some(binding);
+    if !matches!(
+        port,
+        Some(InputSlot::Media | InputSlot::Prompt | InputSlot::Style)
+    ) {
+        if let Some(binding) =
+            model_view_binding(scene, source, target, target_id, input_b, item_path)
+        {
+            return Some(binding);
+        }
     }
     let source = scene.node(endpoint_node(source)?)?;
     let target = scene.node(target_id)?;
     if let Some(binding) = table_link(source, target, input_b, item_path) {
         return Some(binding);
     }
-    if !crate::agent_chat::is_agent_node(target) && !image_generation_target(target, item_path) {
+    if !crate::agent_chat::is_agent_node(target)
+        && !image_generation_target(target, item_path)
+        && !flow
+    {
         return None;
     }
     let mut kind = source_kind(source, item_path)?;
@@ -426,6 +446,11 @@ pub fn rebind_with<'a>(
         return before.binding.clone();
     }
     if let Some(old) = &before.binding {
+        if old.kind == InputKind::Control {
+            return (endpoint_node(old.source_end(before)) == endpoint_node(old.source_end(after))
+                && endpoint_node(old.target_end(before)) == endpoint_node(old.target_end(after)))
+            .then(|| old.clone());
+        }
         if old.kind == InputKind::Memory {
             return artifact::rebind_memory(scene, before, after, old);
         }
@@ -459,7 +484,7 @@ pub fn rebind_with<'a>(
 }
 
 mod snapshot;
-pub use snapshot::{snapshot, snapshot_with_source_check};
+pub use snapshot::{snapshot, snapshot_with_source_check, snapshot_with_value_source};
 
 #[cfg(test)]
 mod tests;

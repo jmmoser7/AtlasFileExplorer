@@ -50,15 +50,17 @@ impl SlateApp {
         self.agents.bindings.insert(portal, session.clone());
         // Cursor fixes authority when its process starts. Resolve and retire an
         // old idle process before request.json can expose the next turn to it.
-        let policy = atlas_ai::sidecar::SidecarPolicy::for_request(&session, &request);
+        let policy = self.admit_agent_access(&session, &request);
+        #[cfg(not(test))]
+        let access_snapshot = self.agents.access_snapshot.clone();
         if provider == "cursor" {
             let changed = self.agents.sidecar_policies.get(&session) != Some(&policy);
             let restart = self.agents.sidecar_restart.remove(&session);
             if changed || restart {
                 self.detach_cursor_sidecar(&session);
             }
-            self.agents.sidecar_policies.insert(session.clone(), policy);
         }
+        self.agents.sidecar_policies.insert(session.clone(), policy);
         let needs_start = provider == "cursor"
             && !self.agents.sidecar_spawned.contains(&session)
             && !self.agents.sidecar_booting.contains(&session);
@@ -88,9 +90,17 @@ impl SlateApp {
                     .unwrap_or_else(|| workspace.to_path_buf());
                 let workbook = self.tab().path.clone();
                 let runtime = self.agents.codex.entry(session.clone()).or_insert_with(|| {
-                    atlas_ai::runtime::CodexLink::start_beside(dir, cwd, provider.clone(), workbook)
+                    atlas_ai::runtime::CodexLink::start_beside(
+                        dir,
+                        cwd,
+                        provider.clone(),
+                        workbook,
+                        Some(workspace.to_path_buf()),
+                    )
                 });
-                if let Err(error) = runtime.send(request) {
+                if let Err(error) =
+                    runtime.send_with_access_snapshot(request, Some(access_snapshot))
+                {
                     self.fail_agent_await(portal, error);
                     return false;
                 }

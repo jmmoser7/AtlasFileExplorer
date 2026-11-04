@@ -166,6 +166,7 @@ fn old_image_without_layers_field_defaults_empty() {
 fn layer_node_kind_allows_drawing_tools_and_layer_images() {
     use crate::scene::{FrameNode, Rgba, TextNode};
     assert!(layer_node_kind_allowed(&NodeKind::Text(TextNode {
+        answers: Default::default(),
         text: String::new(),
         style: Default::default(),
         family: Default::default(),
@@ -190,6 +191,7 @@ fn layer_node_kind_allows_drawing_tools_and_layer_images() {
         crate::ItemId(1)
     ))));
     assert!(!layer_node_kind_allowed(&NodeKind::Frame(FrameNode {
+        presentation_media: Default::default(),
         title: String::new(),
         order: 0,
         fill: Rgba([255, 255, 255, 255]),

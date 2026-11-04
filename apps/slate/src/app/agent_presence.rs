@@ -38,12 +38,16 @@ mod lifecycle_tests;
 mod messaging;
 mod surface;
 pub(crate) use messaging::message_text_changed;
+mod artifact_actions;
+mod chat_train;
 mod creation_conflicts;
 #[cfg(test)]
 mod live_codex_tests;
 mod own_chats;
 mod portal_ops;
 mod preview;
+mod production;
+pub(crate) use artifact_actions::ArtifactResultLease;
 mod proposals;
 mod read_descriptors;
 mod reads;
@@ -82,6 +86,14 @@ pub(crate) const BOARD_COMMANDS: &[&str] = &[
     "board.shape.edit",
     "board.wire.edit",
     "portal.agent.run",
+    "portal.agent.generator_settings",
+    "board.input.graft",
+    "board.input.add",
+    "board.image.history",
+    "portal.agent.text_output",
+    "portal.agent.model_output",
+    "portal.agent.result.use",
+    "portal.agent.result.remove",
     "app.save",
     "app.feedback.report",
     "board.paths.draw",
@@ -100,6 +112,9 @@ pub(crate) const BOARD_COMMANDS: &[&str] = &[
     "portal.web.type",
     "portal.web.key",
     "portal.web.focus",
+    "board.model.connector.inspect",
+    "board.model.connector.capture",
+    "board.model.connector.invoke",
 ];
 
 /// Identity preferences only. Joining, grants, jobs and positions are never saved.
@@ -120,6 +135,7 @@ pub(crate) struct Collaborator {
     binding: BoardLinkSession,
     grant: Option<CollaboratorGrant>,
     dir: PathBuf,
+    workspace: PathBuf,
     request: String,
     sequences: HashSet<u64>,
     calls: usize,
@@ -179,6 +195,9 @@ impl Collaborator {
 
 #[derive(Default)]
 pub struct PresenceRuntime {
+    chat_trains: HashMap<String, chat_train::TrainBinding>,
+    production_actors: HashMap<String, production::ProductionActor>,
+    production_witnesses: HashMap<String, production::ProductionWitness>,
     proposals: HashMap<String, proposals::ProposalContext>,
     roster: PresenceRoster,
     agents: Vec<Collaborator>,

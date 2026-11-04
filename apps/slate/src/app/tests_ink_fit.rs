@@ -42,6 +42,7 @@ fn seed_frame(h: &mut Harness) {
     let node = h.app.doc_mut().scene.build_node(
         slate_doc::scene::WorldRect::new(0.0, 0.0, 800.0, 450.0),
         NodeKind::Frame(slate_doc::scene::FrameNode {
+            presentation_media: Default::default(),
             title: "Slide 1".into(),
             order: 0,
             fill: slate_doc::scene::Rgba::WHITE,

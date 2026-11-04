@@ -24,6 +24,35 @@ fn frame(color: u8) -> VideoFrame {
     }
 }
 
+#[test]
+fn video_body_hover_and_click_reach_the_player() {
+    let mut h = Harness::new("video_body_input");
+    let id = clip(&mut h, "movie.mp4");
+    h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    h.app.zoom_to_rect(rect);
+    h.frame();
+    h.app.video_probe_for_test(id, 10.0);
+    let at = h.app.board_xf().rect_w2s(rect).center();
+    for _ in 0..3 {
+        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(at)));
+    }
+    let (hovered, fraction) = h.app.video.hover.expect("body hover must scrub");
+    assert_eq!(hovered, id);
+    assert!((fraction - 0.5).abs() < 1e-4);
+    for pressed in [true, false] {
+        h.frame_with(|input| {
+            input.events.push(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        });
+    }
+    assert!(h.app.video_playing_for_test(id), "body click must play");
+}
+
 fn seed(harness: &mut Harness, id: NodeId, color: u8) -> u64 {
     harness.app.video_probe_for_test(id, 10.0);
     let token = harness.app.video.strips[&id].token;

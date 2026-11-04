@@ -44,10 +44,8 @@ pub(in crate::app::agent_presence) fn begin_command(
             arguments,
         },
     };
-    assert!(
-        h.app.presence_call(&mut a, &call).is_none(),
-        "real call admitted"
-    );
+    let reply = h.app.presence_call(&mut a, &call);
+    assert!(reply.is_none(), "real call admitted: {reply:?}");
     h.app.presence.agents.insert(index, a);
     call
 }

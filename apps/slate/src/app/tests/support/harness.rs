@@ -135,6 +135,7 @@ impl Harness {
         let node = self.app.doc_mut().scene.build_node(
             WorldRect::new(0.0, 0.0, 800.0, 450.0),
             NodeKind::Frame(FrameNode {
+                presentation_media: Default::default(),
                 title: "Slide 1".into(),
                 order: 0,
                 fill: Rgba::WHITE,

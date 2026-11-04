@@ -8,21 +8,36 @@ use crate::chunk::{
     TCODE_OBJECT_RECORD_END, TCODE_OBJECT_RECORD_TYPE, TCODE_OPENNURBS_CLASS,
 };
 use crate::mesh::RawMesh;
-use crate::{brep, mesh, UUID_ON_BREP, UUID_ON_EXTRUSION, UUID_ON_MESH, UUID_TL_BREP};
+use crate::{brep, mesh, ReadError, UUID_ON_BREP, UUID_ON_EXTRUSION, UUID_ON_MESH, UUID_TL_BREP};
 
 pub fn read_table(
     table: &[u8],
     out: &mut Vec<(RawMesh, ObjectAttributes)>,
     skipped: &mut BTreeMap<String, usize>,
-) {
+) -> Result<usize, ReadError> {
     let mut cur = Cursor::new(table);
-    while let Some(record) = cur.chunk() {
-        match record.typecode {
-            TCODE_ENDOFTABLE => return,
-            TCODE_OBJECT_RECORD => read_record(record.content, out, skipped),
-            _ => {}
+    let mut count = 0;
+    while !cur.is_empty() {
+        let record = cur.chunk().ok_or_else(|| {
+            ReadError::Malformed("truncated or corrupt object-table chunk".into())
+        })?;
+        if record.typecode == TCODE_ENDOFTABLE {
+            return if cur.is_empty() {
+                Ok(count)
+            } else {
+                Err(ReadError::Malformed(
+                    "data after object-table terminator".into(),
+                ))
+            };
+        }
+        // Count every framed entry, even unsupported geometry or an unknown
+        // record type. Unextractable content must never appear to be empty.
+        count += 1;
+        if record.typecode == TCODE_OBJECT_RECORD {
+            read_record(record.content, out, skipped);
         }
     }
+    Err(ReadError::Malformed("unterminated object table".into()))
 }
 
 fn read_record(

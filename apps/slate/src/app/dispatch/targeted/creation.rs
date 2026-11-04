@@ -8,6 +8,7 @@ pub(super) fn recognizes(command: &str) -> bool {
     matches!(
         command,
         "board.objects.create_train"
+            | "board.input.add"
             | "board.objects.create_generator"
             | "board.objects.place_images"
     )
@@ -19,6 +20,18 @@ pub(super) fn commands(
     ids: &[NodeId],
     args: &Value,
 ) -> Result<(Vec<SceneCmd>, Vec<NodeId>), String> {
+    if command == "board.input.add" {
+        if !ids.is_empty() {
+            return Err("Create a plain input without existing targets".into());
+        }
+        return Ok((
+            app.prepare_graph_input_source(
+                args["kind"].as_str().ok_or("An input kind is required")?,
+                [prepare::number(args, "x")?, prepare::number(args, "y")?],
+            )?,
+            Vec::new(),
+        ));
+    }
     if command == "board.objects.place_images" {
         return place_images(app, ids, args);
     }

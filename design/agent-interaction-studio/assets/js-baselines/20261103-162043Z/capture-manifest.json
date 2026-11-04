@@ -1,0 +1,2392 @@
+{
+  "version": 1,
+  "createdAt": "2026-11-03T16:20:58.788Z",
+  "base": "http://127.0.0.1:8765/",
+  "scope": "Current JS fixtures only; isolated browser contexts; no user profiles, runtime services or native claims.",
+  "entries": [
+    {
+      "id": "js-baseline-20261103T162043Z-chat-train",
+      "elementId": "chat-train",
+      "title": "JS baseline · Chat Train",
+      "src": "assets/js-baselines/20261103-162043Z/chat-train-js-baseline.png",
+      "download": "assets/js-baselines/20261103-162043Z/chat-train-js-baseline.png",
+      "caption": "Actual current JavaScript Studio fixture. Simulated providers; no Rust/native parity or automatic approval.",
+      "approval": "baseline-capture",
+      "sourcePhase": "01",
+      "sourceUrl": "http://127.0.0.1:8765/?phase=01&tab=chat-train&sample=1",
+      "jsSourceUrl": "http://127.0.0.1:8765/?phase=01&tab=chat-train&sample=1",
+      "viewport": {
+        "width": 960,
+        "height": 900
+      },
+      "captureViewport": {
+        "width": 960,
+        "height": 900
+      },
+      "capture": {
+        "url": "http://127.0.0.1:8765/?phase=01&tab=chat-train&sample=1",
+        "viewport": {
+          "width": 960,
+          "height": 900
+        }
+      },
+      "theme": "light",
+      "capturedAt": "2026-11-03T16:20:45.263Z",
+      "captureKind": "browser-screenshot",
+      "browser": {
+        "name": "Microsoft Edge",
+        "version": "156.0.4314.58",
+        "headless": true
+      },
+      "dpi": 96,
+      "devicePixelRatio": 1,
+      "browserZoom": 1,
+      "fixture": "Default long conversation, existing pairs mode, unmodified sample=1",
+      "actions": [],
+      "observed": {
+        "theme": "light",
+        "devicePixelRatio": 1,
+        "browserZoom": 1,
+        "canvas": {
+          "x": 0,
+          "y": 82,
+          "width": 960,
+          "height": 785,
+          "top": 82,
+          "right": 960,
+          "bottom": 867,
+          "left": 0
+        },
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 960,
+          "height": 81.796875,
+          "top": 0,
+          "right": 960,
+          "bottom": 81.796875,
+          "left": 0
+        },
+        "tabLabels": [
+          {
+            "text": "Chat Train",
+            "width": 78,
+            "scrollWidth": 78
+          },
+          {
+            "text": "Images",
+            "width": 62,
+            "scrollWidth": 62
+          },
+          {
+            "text": "Dashboard Builder",
+            "width": 123,
+            "scrollWidth": 123
+          },
+          {
+            "text": "Text Agent",
+            "width": 83,
+            "scrollWidth": 83
+          },
+          {
+            "text": "Rhino 3D",
+            "width": 73,
+            "scrollWidth": 73
+          },
+          {
+            "text": "Frames",
+            "width": 63,
+            "scrollWidth": 63
+          },
+          {
+            "text": "Studio",
+            "width": 59,
+            "scrollWidth": 59
+          }
+        ],
+        "canvasTransform": null,
+        "chat": {
+          "presentation": "pairs",
+          "camera": {
+            "x": 12,
+            "y": 0,
+            "zoom": 1
+          }
+        },
+        "frame": null,
+        "openMenus": 0
+      },
+      "relevantSourceHashes": {
+        "canvas-navigation.js": "30d0152fa0f372574de5edce1da41edeba5ca6316eed6a595ba90f68a0869d8f",
+        "chat-train/agent-catalog.js": "fed23ea7560198e99e3c598ebccb3a117509d2f4af42471302a71d07b889d421",
+        "chat-train/agent-picker.js": "dc5b6a39d085ce495e014375ffbf041d43ee88a9ab2d99ad7b8a7f67202cdabe",
+        "chat-train/app.js": "cae0f0f68bcc5520b7a1810aba6c2b6b78a4cc6e0db121c27fdf6d0c435f30a3",
+        "chat-train/conversation-fixture.js": "2932dfbcfbfe416e73748034cc2326791104287cabfca779a696cad019e542d9",
+        "chat-train/model.js": "f7a91844cff59b5e60bceb9a90831d79b5cb6cf9b44b40f5ce04c6125f6b2827",
+        "chat-train/reference.js": "703c4d5f67fb64f290dcb210bf621558291f5680283cb45282d8186119995313",
+        "chat-train/style.css": "9fdd40b08e854cd7cc4de089fd0f70e90fa7801e0c13cbcd52b36f503bcfe52c",
+        "elements/dashboard-builder.css": "550588d2b45c066d9de6979402b0a6c2b38f246b15fd16764df7df7afd2a00cf",
+        "elements/dashboard-builder.js": "ee0848561cb9480ff5e10ddda5e3dd1a5772c9e4d54762720f4586c10a6bac6d",
+        "elements/native-icons.js": "dd3c7b544683953e5e776e71447a3059aa583e8ee2beaa41e72a087312dac7c9",
+        "elements/result-previews.js": "d2ed600bb69fccfafbc30a28f8adcc0d342bc26d751a4adb7f5effd798bba855",
+        "elements/rhino-agent.css": "102dd15c75cc383f727599743c2dac5f01c638c9e6006c2e78697c9893c3af03",
+        "elements/rhino-agent.js": "2ca12884879f5dc5e7ce9329e8c45642af4880d8d95d1773b4658db1c0c5c138",
+        "elements/runtime.css": "038093bfeec2b5e853a78623f0f36ab26fd87ce17622f774e14dd99b74e63cdc",
+        "elements/runtime.js": "cf01ccce12c4cb2a6f3cad3e3c8fe5177f06b30b6de6a4e3f94fdfa145617bf7",
+        "elements/session-model.js": "600ef528b022df8bbcb6a86bd7e84d75e5a77c3a52dd21fb77c82b8b42647623",
+        "elements/text-agent.css": "987bb083fbcb777812d849192d077bbddaf0863485b58a8e5a405eac6265f7be",
+        "elements/text-agent.js": "794f62563c8f34ab7bfbfd4b3a811cec22256e0e94542450a6e72e8d6ef1f6f2",
+        "elements/text-links.js": "1561265a2ba4320149085c00efaf446d81d9c9fef2f3af4f212eb13eee8f80c0",
+        "frame/app.js": "11a698e54575293a715db1c2a4395b82a55a57bb89815733392a02e3057488ed",
+        "frame/baseline.js": "ffd03a722d65f3774887b8383558ea131e625a625abd340ad1e686880715ef84",
+        "frame/deck.js": "368faa795265dfcbd27f8db13bd770a16e42870c89bad31972b7cccfc332a79f",
+        "frame/panels.js": "7cb09e2f2c7f81a55a5947cce69f0d917e9561aa3ca936cb285117e4db93f192",
+        "frame/render.js": "66cb1a31d37fd7b78d5a38cb801a4062564d83160f7b861f221313306aba03ba",
+        "frame/style.css": "76172682ad29dbaaca13872cc29034891f0e6a8e4ed47e039819495d1b38967c",
+        "generator-ui.css": "f883afe1bd4ac69287370e1597015464f5260c3622530e9b86fb8d279c7b6b01",
+        "generator-ui.js": "7263c81bd56746fd48b6f5c4df087f4d8bf43a25468be5e74cd1674d0f6ce5c1",
+        "image-feedback.css": "fed9df80193795004bac62a09d534a2c7dd9c65b006ecc4881c7353bd8f26b0d",
+        "image-feedback.js": "3f59cd9c512805ed1ebc0b700d5af1b523dfca8086c341197efce719b61d8b6d",
+        "image-generator/app.js": "6342c9b325e85cf848f7d67b3e1af7db362a4d8df148a17a94b94d28c339ae85",
+        "image-generator/catalog.js": "0519fe6113809814f837fcabc7370b01654a9e6141a06833e876d071ca0801a6",
+        "image-generator/context-recipe.js": "4f95e3a06c941866123ac76b9a55a7845971b3db564c87d1b1826bfaa5ae2caf",
+        "image-generator/graft.js": "707ca5af349e3de8ebee481e62bc2c2b97fc41eff2b1337bb868e20eb3c44f8a",
+        "image-generator/history.js": "661940414e0df38731f327a05f5193c79514c2d9b260b39b2b1f9c80eb76f044",
+        "image-generator/icons.js": "4dfa88cc7ab03c89c1e4cd350316dae0a8525940dafb987f4b194a23bf3cb6ca",
+        "image-generator/layout.js": "61c853e03a3fa4d1dee74f38734aadb140517093e5fd43fb44a87d28974d04cf",
+        "image-generator/menu-studio.css": "37ce59cb0d7e73b5e86863e0d003d0afb17d588712856db1008ef7ef7d6f7213",
+        "image-generator/menu-studio.js": "927bdaf9ef032d49d9a666b6b287433b7e8af3d5fda115a91d24d8226ec0e7a8",
+        "image-generator/menus.js": "0e6bfba18509d09e5483ec4233d8a46416eb290338cc3b3e46b68c4db9c194b5",
+        "image-generator/style.css": "b777f09f0a1559e4f416952f9efb9a3fa8d4f4f9a7ee9ff3f421bb99c1e07ac0",
+        "image-generator/view.js": "5347058d76ca6be7de0ee44547b3b61f8050325e8aabe769caddd8b79f59ca8f",
+        "index.html": "d1b2377b61567d2d8d2da23d0d0299bc62d9d13dda99038ca341d16b252246bd",
+        "scroll-overlay.js": "7277dc8730425a9299f38fe84376628fb3ce32b1f9928fcbecb2f42459fbbe48",
+        "studio-data.js": "d690f365a01b07268b8721dad79786bef826ede20952712be6f03cc77c721a83",
+        "studio-model.js": "9178d66c8b542f27338bd5285fe22d0927a55235049e3b5b22651536497ca431",
+        "studio-portal.css": "246bf479f0a6b6b200233073d692a1a425a8bcd312547aa78407799339a99b64",
+        "studio-portal.js": "013f656eafbee95b5c391da86f86f10066365417375017fe81d9f09e6ea65736",
+        "studio.css": "713e8a9ef0a5e0e478a479897c10c1c6bf9219098b810bb9964c146ddb6756d4",
+        "studio.js": "5d7be0797055ca4ceee4aad19a7f5d52d1bde157d791a7472ca5f3412d52bde8"
+      },
+      "screenshotSHA256": "53e4d45cf9fb0aa120867c3cf1a57057b7ab75dc8c1a29480cdbbc355b18e8f2"
+    },
+    {
+      "id": "js-baseline-20261103T162043Z-image-generator-small",
+      "elementId": "image-generator",
+      "title": "JS baseline · Images · small",
+      "src": "assets/js-baselines/20261103-162043Z/image-generator-small-js-baseline.png",
+      "download": "assets/js-baselines/20261103-162043Z/image-generator-small-js-baseline.png",
+      "caption": "Actual current JavaScript Studio fixture (small). Simulated providers; no Rust/native parity or automatic approval.",
+      "approval": "baseline-capture",
+      "sourcePhase": "01",
+      "sourceUrl": "http://127.0.0.1:8765/?phase=01&tab=image-generator&sample=1",
+      "jsSourceUrl": "http://127.0.0.1:8765/?phase=01&tab=image-generator&sample=1",
+      "viewport": {
+        "width": 960,
+        "height": 900
+      },
+      "captureViewport": {
+        "width": 960,
+        "height": 900
+      },
+      "capture": {
+        "url": "http://127.0.0.1:8765/?phase=01&tab=image-generator&sample=1",
+        "viewport": {
+          "width": 960,
+          "height": 900
+        }
+      },
+      "theme": "light",
+      "capturedAt": "2026-11-03T16:20:46.645Z",
+      "captureKind": "browser-screenshot",
+      "browser": {
+        "name": "Microsoft Edge",
+        "version": "156.0.4314.58",
+        "headless": true
+      },
+      "dpi": 96,
+      "devicePixelRatio": 1,
+      "browserZoom": 1,
+      "fixture": "Existing small footer example",
+      "actions": [
+        "Clicked existing small image-example footer button"
+      ],
+      "observed": {
+        "theme": "light",
+        "devicePixelRatio": 1,
+        "browserZoom": 1,
+        "canvas": {
+          "x": 0,
+          "y": 82,
+          "width": 960,
+          "height": 785,
+          "top": 82,
+          "right": 960,
+          "bottom": 867,
+          "left": 0
+        },
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 960,
+          "height": 81.796875,
+          "top": 0,
+          "right": 960,
+          "bottom": 81.796875,
+          "left": 0
+        },
+        "tabLabels": [
+          {
+            "text": "Chat Train",
+            "width": 78,
+            "scrollWidth": 78
+          },
+          {
+            "text": "Images",
+            "width": 62,
+            "scrollWidth": 62
+          },
+          {
+            "text": "Dashboard Builder",
+            "width": 123,
+            "scrollWidth": 123
+          },
+          {
+            "text": "Text Agent",
+            "width": 83,
+            "scrollWidth": 83
+          },
+          {
+            "text": "Rhino 3D",
+            "width": 73,
+            "scrollWidth": 73
+          },
+          {
+            "text": "Frames",
+            "width": 63,
+            "scrollWidth": 63
+          },
+          {
+            "text": "Studio",
+            "width": 59,
+            "scrollWidth": 59
+          }
+        ],
+        "canvasTransform": "matrix(1, 0, 0, 1, 254, 141)",
+        "chat": null,
+        "frame": null,
+        "openMenus": 0
+      },
+      "relevantSourceHashes": {
+        "canvas-navigation.js": "30d0152fa0f372574de5edce1da41edeba5ca6316eed6a595ba90f68a0869d8f",
+        "chat-train/agent-catalog.js": "fed23ea7560198e99e3c598ebccb3a117509d2f4af42471302a71d07b889d421",
+        "chat-train/agent-picker.js": "dc5b6a39d085ce495e014375ffbf041d43ee88a9ab2d99ad7b8a7f67202cdabe",
+        "chat-train/app.js": "cae0f0f68bcc5520b7a1810aba6c2b6b78a4cc6e0db121c27fdf6d0c435f30a3",
+        "chat-train/conversation-fixture.js": "2932dfbcfbfe416e73748034cc2326791104287cabfca779a696cad019e542d9",
+        "chat-train/model.js": "f7a91844cff59b5e60bceb9a90831d79b5cb6cf9b44b40f5ce04c6125f6b2827",
+        "chat-train/reference.js": "703c4d5f67fb64f290dcb210bf621558291f5680283cb45282d8186119995313",
+        "chat-train/style.css": "9fdd40b08e854cd7cc4de089fd0f70e90fa7801e0c13cbcd52b36f503bcfe52c",
+        "elements/dashboard-builder.css": "550588d2b45c066d9de6979402b0a6c2b38f246b15fd16764df7df7afd2a00cf",
+        "elements/dashboard-builder.js": "ee0848561cb9480ff5e10ddda5e3dd1a5772c9e4d54762720f4586c10a6bac6d",
+        "elements/native-icons.js": "dd3c7b544683953e5e776e71447a3059aa583e8ee2beaa41e72a087312dac7c9",
+        "elements/result-previews.js": "d2ed600bb69fccfafbc30a28f8adcc0d342bc26d751a4adb7f5effd798bba855",
+        "elements/rhino-agent.css": "102dd15c75cc383f727599743c2dac5f01c638c9e6006c2e78697c9893c3af03",
+        "elements/rhino-agent.js": "2ca12884879f5dc5e7ce9329e8c45642af4880d8d95d1773b4658db1c0c5c138",
+        "elements/runtime.css": "038093bfeec2b5e853a78623f0f36ab26fd87ce17622f774e14dd99b74e63cdc",
+        "elements/runtime.js": "cf01ccce12c4cb2a6f3cad3e3c8fe5177f06b30b6de6a4e3f94fdfa145617bf7",
+        "elements/session-model.js": "600ef528b022df8bbcb6a86bd7e84d75e5a77c3a52dd21fb77c82b8b42647623",
+        "elements/text-agent.css": "987bb083fbcb777812d849192d077bbddaf0863485b58a8e5a405eac6265f7be",
+        "elements/text-agent.js": "794f62563c8f34ab7bfbfd4b3a811cec22256e0e94542450a6e72e8d6ef1f6f2",
+        "elements/text-links.js": "1561265a2ba4320149085c00efaf446d81d9c9fef2f3af4f212eb13eee8f80c0",
+        "frame/app.js": "11a698e54575293a715db1c2a4395b82a55a57bb89815733392a02e3057488ed",
+        "frame/baseline.js": "ffd03a722d65f3774887b8383558ea131e625a625abd340ad1e686880715ef84",
+        "frame/deck.js": "368faa795265dfcbd27f8db13bd770a16e42870c89bad31972b7cccfc332a79f",
+        "frame/panels.js": "7cb09e2f2c7f81a55a5947cce69f0d917e9561aa3ca936cb285117e4db93f192",
+        "frame/render.js": "66cb1a31d37fd7b78d5a38cb801a4062564d83160f7b861f221313306aba03ba",
+        "frame/style.css": "76172682ad29dbaaca13872cc29034891f0e6a8e4ed47e039819495d1b38967c",
+        "generator-ui.css": "f883afe1bd4ac69287370e1597015464f5260c3622530e9b86fb8d279c7b6b01",
+        "generator-ui.js": "7263c81bd56746fd48b6f5c4df087f4d8bf43a25468be5e74cd1674d0f6ce5c1",
+        "image-feedback.css": "fed9df80193795004bac62a09d534a2c7dd9c65b006ecc4881c7353bd8f26b0d",
+        "image-feedback.js": "3f59cd9c512805ed1ebc0b700d5af1b523dfca8086c341197efce719b61d8b6d",
+        "image-generator/app.js": "6342c9b325e85cf848f7d67b3e1af7db362a4d8df148a17a94b94d28c339ae85",
+        "image-generator/catalog.js": "0519fe6113809814f837fcabc7370b01654a9e6141a06833e876d071ca0801a6",
+        "image-generator/context-recipe.js": "4f95e3a06c941866123ac76b9a55a7845971b3db564c87d1b1826bfaa5ae2caf",
+        "image-generator/graft.js": "707ca5af349e3de8ebee481e62bc2c2b97fc41eff2b1337bb868e20eb3c44f8a",
+        "image-generator/history.js": "661940414e0df38731f327a05f5193c79514c2d9b260b39b2b1f9c80eb76f044",
+        "image-generator/icons.js": "4dfa88cc7ab03c89c1e4cd350316dae0a8525940dafb987f4b194a23bf3cb6ca",
+        "image-generator/layout.js": "61c853e03a3fa4d1dee74f38734aadb140517093e5fd43fb44a87d28974d04cf",
+        "image-generator/menu-studio.css": "37ce59cb0d7e73b5e86863e0d003d0afb17d588712856db1008ef7ef7d6f7213",
+        "image-generator/menu-studio.js": "927bdaf9ef032d49d9a666b6b287433b7e8af3d5fda115a91d24d8226ec0e7a8",
+        "image-generator/menus.js": "0e6bfba18509d09e5483ec4233d8a46416eb290338cc3b3e46b68c4db9c194b5",
+        "image-generator/style.css": "b777f09f0a1559e4f416952f9efb9a3fa8d4f4f9a7ee9ff3f421bb99c1e07ac0",
+        "image-generator/view.js": "5347058d76ca6be7de0ee44547b3b61f8050325e8aabe769caddd8b79f59ca8f",
+        "index.html": "d1b2377b61567d2d8d2da23d0d0299bc62d9d13dda99038ca341d16b252246bd",
+        "scroll-overlay.js": "7277dc8730425a9299f38fe84376628fb3ce32b1f9928fcbecb2f42459fbbe48",
+        "studio-data.js": "d690f365a01b07268b8721dad79786bef826ede20952712be6f03cc77c721a83",
+        "studio-model.js": "9178d66c8b542f27338bd5285fe22d0927a55235049e3b5b22651536497ca431",
+        "studio-portal.css": "246bf479f0a6b6b200233073d692a1a425a8bcd312547aa78407799339a99b64",
+        "studio-portal.js": "013f656eafbee95b5c391da86f86f10066365417375017fe81d9f09e6ea65736",
+        "studio.css": "713e8a9ef0a5e0e478a479897c10c1c6bf9219098b810bb9964c146ddb6756d4",
+        "studio.js": "5d7be0797055ca4ceee4aad19a7f5d52d1bde157d791a7472ca5f3412d52bde8"
+      },
+      "screenshotSHA256": "94c164499178538ed917bdbbba705d7b88c90a831732667b5eeb80e11c8b3218"
+    },
+    {
+      "id": "js-baseline-20261103T162043Z-image-generator-medium",
+      "elementId": "image-generator",
+      "title": "JS baseline · Images · medium",
+      "src": "assets/js-baselines/20261103-162043Z/image-generator-medium-js-baseline.png",
+      "download": "assets/js-baselines/20261103-162043Z/image-generator-medium-js-baseline.png",
+      "caption": "Actual current JavaScript Studio fixture (medium). Simulated providers; no Rust/native parity or automatic approval.",
+      "approval": "baseline-capture",
+      "sourcePhase": "01",
+      "sourceUrl": "http://127.0.0.1:8765/?phase=01&tab=image-generator&sample=1",
+      "jsSourceUrl": "http://127.0.0.1:8765/?phase=01&tab=image-generator&sample=1",
+      "viewport": {
+        "width": 960,
+        "height": 900
+      },
+      "captureViewport": {
+        "width": 960,
+        "height": 900
+      },
+      "capture": {
+        "url": "http://127.0.0.1:8765/?phase=01&tab=image-generator&sample=1",
+        "viewport": {
+          "width": 960,
+          "height": 900
+        }
+      },
+      "theme": "light",
+      "capturedAt": "2026-11-03T16:20:47.993Z",
+      "captureKind": "browser-screenshot",
+      "browser": {
+        "name": "Microsoft Edge",
+        "version": "156.0.4314.58",
+        "headless": true
+      },
+      "dpi": 96,
+      "devicePixelRatio": 1,
+      "browserZoom": 1,
+      "fixture": "Existing medium footer example",
+      "actions": [
+        "Clicked existing medium image-example footer button"
+      ],
+      "observed": {
+        "theme": "light",
+        "devicePixelRatio": 1,
+        "browserZoom": 1,
+        "canvas": {
+          "x": 0,
+          "y": 82,
+          "width": 960,
+          "height": 785,
+          "top": 82,
+          "right": 960,
+          "bottom": 867,
+          "left": 0
+        },
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 960,
+          "height": 81.796875,
+          "top": 0,
+          "right": 960,
+          "bottom": 81.796875,
+          "left": 0
+        },
+        "tabLabels": [
+          {
+            "text": "Chat Train",
+            "width": 78,
+            "scrollWidth": 78
+          },
+          {
+            "text": "Images",
+            "width": 62,
+            "scrollWidth": 62
+          },
+          {
+            "text": "Dashboard Builder",
+            "width": 123,
+            "scrollWidth": 123
+          },
+          {
+            "text": "Text Agent",
+            "width": 83,
+            "scrollWidth": 83
+          },
+          {
+            "text": "Rhino 3D",
+            "width": 73,
+            "scrollWidth": 73
+          },
+          {
+            "text": "Frames",
+            "width": 63,
+            "scrollWidth": 63
+          },
+          {
+            "text": "Studio",
+            "width": 59,
+            "scrollWidth": 59
+          }
+        ],
+        "canvasTransform": "matrix(1, 0, 0, 1, -706, 91)",
+        "chat": null,
+        "frame": null,
+        "openMenus": 0
+      },
+      "relevantSourceHashes": {
+        "canvas-navigation.js": "30d0152fa0f372574de5edce1da41edeba5ca6316eed6a595ba90f68a0869d8f",
+        "chat-train/agent-catalog.js": "fed23ea7560198e99e3c598ebccb3a117509d2f4af42471302a71d07b889d421",
+        "chat-train/agent-picker.js": "dc5b6a39d085ce495e014375ffbf041d43ee88a9ab2d99ad7b8a7f67202cdabe",
+        "chat-train/app.js": "cae0f0f68bcc5520b7a1810aba6c2b6b78a4cc6e0db121c27fdf6d0c435f30a3",
+        "chat-train/conversation-fixture.js": "2932dfbcfbfe416e73748034cc2326791104287cabfca779a696cad019e542d9",
+        "chat-train/model.js": "f7a91844cff59b5e60bceb9a90831d79b5cb6cf9b44b40f5ce04c6125f6b2827",
+        "chat-train/reference.js": "703c4d5f67fb64f290dcb210bf621558291f5680283cb45282d8186119995313",
+        "chat-train/style.css": "9fdd40b08e854cd7cc4de089fd0f70e90fa7801e0c13cbcd52b36f503bcfe52c",
+        "elements/dashboard-builder.css": "550588d2b45c066d9de6979402b0a6c2b38f246b15fd16764df7df7afd2a00cf",
+        "elements/dashboard-builder.js": "ee0848561cb9480ff5e10ddda5e3dd1a5772c9e4d54762720f4586c10a6bac6d",
+        "elements/native-icons.js": "dd3c7b544683953e5e776e71447a3059aa583e8ee2beaa41e72a087312dac7c9",
+        "elements/result-previews.js": "d2ed600bb69fccfafbc30a28f8adcc0d342bc26d751a4adb7f5effd798bba855",
+        "elements/rhino-agent.css": "102dd15c75cc383f727599743c2dac5f01c638c9e6006c2e78697c9893c3af03",
+        "elements/rhino-agent.js": "2ca12884879f5dc5e7ce9329e8c45642af4880d8d95d1773b4658db1c0c5c138",
+        "elements/runtime.css": "038093bfeec2b5e853a78623f0f36ab26fd87ce17622f774e14dd99b74e63cdc",
+        "elements/runtime.js": "cf01ccce12c4cb2a6f3cad3e3c8fe5177f06b30b6de6a4e3f94fdfa145617bf7",
+        "elements/session-model.js": "600ef528b022df8bbcb6a86bd7e84d75e5a77c3a52dd21fb77c82b8b42647623",
+        "elements/text-agent.css": "987bb083fbcb777812d849192d077bbddaf0863485b58a8e5a405eac6265f7be",
+        "elements/text-agent.js": "794f62563c8f34ab7bfbfd4b3a811cec22256e0e94542450a6e72e8d6ef1f6f2",
+        "elements/text-links.js": "1561265a2ba4320149085c00efaf446d81d9c9fef2f3af4f212eb13eee8f80c0",
+        "frame/app.js": "11a698e54575293a715db1c2a4395b82a55a57bb89815733392a02e3057488ed",
+        "frame/baseline.js": "ffd03a722d65f3774887b8383558ea131e625a625abd340ad1e686880715ef84",
+        "frame/deck.js": "368faa795265dfcbd27f8db13bd770a16e42870c89bad31972b7cccfc332a79f",
+        "frame/panels.js": "7cb09e2f2c7f81a55a5947cce69f0d917e9561aa3ca936cb285117e4db93f192",
+        "frame/render.js": "66cb1a31d37fd7b78d5a38cb801a4062564d83160f7b861f221313306aba03ba",
+        "frame/style.css": "76172682ad29dbaaca13872cc29034891f0e6a8e4ed47e039819495d1b38967c",
+        "generator-ui.css": "f883afe1bd4ac69287370e1597015464f5260c3622530e9b86fb8d279c7b6b01",
+        "generator-ui.js": "7263c81bd56746fd48b6f5c4df087f4d8bf43a25468be5e74cd1674d0f6ce5c1",
+        "image-feedback.css": "fed9df80193795004bac62a09d534a2c7dd9c65b006ecc4881c7353bd8f26b0d",
+        "image-feedback.js": "3f59cd9c512805ed1ebc0b700d5af1b523dfca8086c341197efce719b61d8b6d",
+        "image-generator/app.js": "6342c9b325e85cf848f7d67b3e1af7db362a4d8df148a17a94b94d28c339ae85",
+        "image-generator/catalog.js": "0519fe6113809814f837fcabc7370b01654a9e6141a06833e876d071ca0801a6",
+        "image-generator/context-recipe.js": "4f95e3a06c941866123ac76b9a55a7845971b3db564c87d1b1826bfaa5ae2caf",
+        "image-generator/graft.js": "707ca5af349e3de8ebee481e62bc2c2b97fc41eff2b1337bb868e20eb3c44f8a",
+        "image-generator/history.js": "661940414e0df38731f327a05f5193c79514c2d9b260b39b2b1f9c80eb76f044",
+        "image-generator/icons.js": "4dfa88cc7ab03c89c1e4cd350316dae0a8525940dafb987f4b194a23bf3cb6ca",
+        "image-generator/layout.js": "61c853e03a3fa4d1dee74f38734aadb140517093e5fd43fb44a87d28974d04cf",
+        "image-generator/menu-studio.css": "37ce59cb0d7e73b5e86863e0d003d0afb17d588712856db1008ef7ef7d6f7213",
+        "image-generator/menu-studio.js": "927bdaf9ef032d49d9a666b6b287433b7e8af3d5fda115a91d24d8226ec0e7a8",
+        "image-generator/menus.js": "0e6bfba18509d09e5483ec4233d8a46416eb290338cc3b3e46b68c4db9c194b5",
+        "image-generator/style.css": "b777f09f0a1559e4f416952f9efb9a3fa8d4f4f9a7ee9ff3f421bb99c1e07ac0",
+        "image-generator/view.js": "5347058d76ca6be7de0ee44547b3b61f8050325e8aabe769caddd8b79f59ca8f",
+        "index.html": "d1b2377b61567d2d8d2da23d0d0299bc62d9d13dda99038ca341d16b252246bd",
+        "scroll-overlay.js": "7277dc8730425a9299f38fe84376628fb3ce32b1f9928fcbecb2f42459fbbe48",
+        "studio-data.js": "d690f365a01b07268b8721dad79786bef826ede20952712be6f03cc77c721a83",
+        "studio-model.js": "9178d66c8b542f27338bd5285fe22d0927a55235049e3b5b22651536497ca431",
+        "studio-portal.css": "246bf479f0a6b6b200233073d692a1a425a8bcd312547aa78407799339a99b64",
+        "studio-portal.js": "013f656eafbee95b5c391da86f86f10066365417375017fe81d9f09e6ea65736",
+        "studio.css": "713e8a9ef0a5e0e478a479897c10c1c6bf9219098b810bb9964c146ddb6756d4",
+        "studio.js": "5d7be0797055ca4ceee4aad19a7f5d52d1bde157d791a7472ca5f3412d52bde8"
+      },
+      "screenshotSHA256": "588db0ff35b0d85899dfdc8bf66875a2ed71a807ecae97e09c081e02d2d477af"
+    },
+    {
+      "id": "js-baseline-20261103T162043Z-image-generator-large",
+      "elementId": "image-generator",
+      "title": "JS baseline · Images · large",
+      "src": "assets/js-baselines/20261103-162043Z/image-generator-large-js-baseline.png",
+      "download": "assets/js-baselines/20261103-162043Z/image-generator-large-js-baseline.png",
+      "caption": "Actual current JavaScript Studio fixture (large). Simulated providers; no Rust/native parity or automatic approval.",
+      "approval": "baseline-capture",
+      "sourcePhase": "01",
+      "sourceUrl": "http://127.0.0.1:8765/?phase=01&tab=image-generator&sample=1",
+      "jsSourceUrl": "http://127.0.0.1:8765/?phase=01&tab=image-generator&sample=1",
+      "viewport": {
+        "width": 960,
+        "height": 900
+      },
+      "captureViewport": {
+        "width": 960,
+        "height": 900
+      },
+      "capture": {
+        "url": "http://127.0.0.1:8765/?phase=01&tab=image-generator&sample=1",
+        "viewport": {
+          "width": 960,
+          "height": 900
+        }
+      },
+      "theme": "light",
+      "capturedAt": "2026-11-03T16:20:49.345Z",
+      "captureKind": "browser-screenshot",
+      "browser": {
+        "name": "Microsoft Edge",
+        "version": "156.0.4314.58",
+        "headless": true
+      },
+      "dpi": 96,
+      "devicePixelRatio": 1,
+      "browserZoom": 1,
+      "fixture": "Existing large footer example",
+      "actions": [
+        "Clicked existing large image-example footer button"
+      ],
+      "observed": {
+        "theme": "light",
+        "devicePixelRatio": 1,
+        "browserZoom": 1,
+        "canvas": {
+          "x": 0,
+          "y": 82,
+          "width": 960,
+          "height": 785,
+          "top": 82,
+          "right": 960,
+          "bottom": 867,
+          "left": 0
+        },
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 960,
+          "height": 81.796875,
+          "top": 0,
+          "right": 960,
+          "bottom": 81.796875,
+          "left": 0
+        },
+        "tabLabels": [
+          {
+            "text": "Chat Train",
+            "width": 78,
+            "scrollWidth": 78
+          },
+          {
+            "text": "Images",
+            "width": 62,
+            "scrollWidth": 62
+          },
+          {
+            "text": "Dashboard Builder",
+            "width": 123,
+            "scrollWidth": 123
+          },
+          {
+            "text": "Text Agent",
+            "width": 83,
+            "scrollWidth": 83
+          },
+          {
+            "text": "Rhino 3D",
+            "width": 73,
+            "scrollWidth": 73
+          },
+          {
+            "text": "Frames",
+            "width": 63,
+            "scrollWidth": 63
+          },
+          {
+            "text": "Studio",
+            "width": 59,
+            "scrollWidth": 59
+          }
+        ],
+        "canvasTransform": "matrix(1, 0, 0, 1, -1710, 121)",
+        "chat": null,
+        "frame": null,
+        "openMenus": 0
+      },
+      "relevantSourceHashes": {
+        "canvas-navigation.js": "30d0152fa0f372574de5edce1da41edeba5ca6316eed6a595ba90f68a0869d8f",
+        "chat-train/agent-catalog.js": "fed23ea7560198e99e3c598ebccb3a117509d2f4af42471302a71d07b889d421",
+        "chat-train/agent-picker.js": "dc5b6a39d085ce495e014375ffbf041d43ee88a9ab2d99ad7b8a7f67202cdabe",
+        "chat-train/app.js": "cae0f0f68bcc5520b7a1810aba6c2b6b78a4cc6e0db121c27fdf6d0c435f30a3",
+        "chat-train/conversation-fixture.js": "2932dfbcfbfe416e73748034cc2326791104287cabfca779a696cad019e542d9",
+        "chat-train/model.js": "f7a91844cff59b5e60bceb9a90831d79b5cb6cf9b44b40f5ce04c6125f6b2827",
+        "chat-train/reference.js": "703c4d5f67fb64f290dcb210bf621558291f5680283cb45282d8186119995313",
+        "chat-train/style.css": "9fdd40b08e854cd7cc4de089fd0f70e90fa7801e0c13cbcd52b36f503bcfe52c",
+        "elements/dashboard-builder.css": "550588d2b45c066d9de6979402b0a6c2b38f246b15fd16764df7df7afd2a00cf",
+        "elements/dashboard-builder.js": "ee0848561cb9480ff5e10ddda5e3dd1a5772c9e4d54762720f4586c10a6bac6d",
+        "elements/native-icons.js": "dd3c7b544683953e5e776e71447a3059aa583e8ee2beaa41e72a087312dac7c9",
+        "elements/result-previews.js": "d2ed600bb69fccfafbc30a28f8adcc0d342bc26d751a4adb7f5effd798bba855",
+        "elements/rhino-agent.css": "102dd15c75cc383f727599743c2dac5f01c638c9e6006c2e78697c9893c3af03",
+        "elements/rhino-agent.js": "2ca12884879f5dc5e7ce9329e8c45642af4880d8d95d1773b4658db1c0c5c138",
+        "elements/runtime.css": "038093bfeec2b5e853a78623f0f36ab26fd87ce17622f774e14dd99b74e63cdc",
+        "elements/runtime.js": "cf01ccce12c4cb2a6f3cad3e3c8fe5177f06b30b6de6a4e3f94fdfa145617bf7",
+        "elements/session-model.js": "600ef528b022df8bbcb6a86bd7e84d75e5a77c3a52dd21fb77c82b8b42647623",
+        "elements/text-agent.css": "987bb083fbcb777812d849192d077bbddaf0863485b58a8e5a405eac6265f7be",
+        "elements/text-agent.js": "794f62563c8f34ab7bfbfd4b3a811cec22256e0e94542450a6e72e8d6ef1f6f2",
+        "elements/text-links.js": "1561265a2ba4320149085c00efaf446d81d9c9fef2f3af4f212eb13eee8f80c0",
+        "frame/app.js": "11a698e54575293a715db1c2a4395b82a55a57bb89815733392a02e3057488ed",
+        "frame/baseline.js": "ffd03a722d65f3774887b8383558ea131e625a625abd340ad1e686880715ef84",
+        "frame/deck.js": "368faa795265dfcbd27f8db13bd770a16e42870c89bad31972b7cccfc332a79f",
+        "frame/panels.js": "7cb09e2f2c7f81a55a5947cce69f0d917e9561aa3ca936cb285117e4db93f192",
+        "frame/render.js": "66cb1a31d37fd7b78d5a38cb801a4062564d83160f7b861f221313306aba03ba",
+        "frame/style.css": "76172682ad29dbaaca13872cc29034891f0e6a8e4ed47e039819495d1b38967c",
+        "generator-ui.css": "f883afe1bd4ac69287370e1597015464f5260c3622530e9b86fb8d279c7b6b01",
+        "generator-ui.js": "7263c81bd56746fd48b6f5c4df087f4d8bf43a25468be5e74cd1674d0f6ce5c1",
+        "image-feedback.css": "fed9df80193795004bac62a09d534a2c7dd9c65b006ecc4881c7353bd8f26b0d",
+        "image-feedback.js": "3f59cd9c512805ed1ebc0b700d5af1b523dfca8086c341197efce719b61d8b6d",
+        "image-generator/app.js": "6342c9b325e85cf848f7d67b3e1af7db362a4d8df148a17a94b94d28c339ae85",
+        "image-generator/catalog.js": "0519fe6113809814f837fcabc7370b01654a9e6141a06833e876d071ca0801a6",
+        "image-generator/context-recipe.js": "4f95e3a06c941866123ac76b9a55a7845971b3db564c87d1b1826bfaa5ae2caf",
+        "image-generator/graft.js": "707ca5af349e3de8ebee481e62bc2c2b97fc41eff2b1337bb868e20eb3c44f8a",
+        "image-generator/history.js": "661940414e0df38731f327a05f5193c79514c2d9b260b39b2b1f9c80eb76f044",
+        "image-generator/icons.js": "4dfa88cc7ab03c89c1e4cd350316dae0a8525940dafb987f4b194a23bf3cb6ca",
+        "image-generator/layout.js": "61c853e03a3fa4d1dee74f38734aadb140517093e5fd43fb44a87d28974d04cf",
+        "image-generator/menu-studio.css": "37ce59cb0d7e73b5e86863e0d003d0afb17d588712856db1008ef7ef7d6f7213",
+        "image-generator/menu-studio.js": "927bdaf9ef032d49d9a666b6b287433b7e8af3d5fda115a91d24d8226ec0e7a8",
+        "image-generator/menus.js": "0e6bfba18509d09e5483ec4233d8a46416eb290338cc3b3e46b68c4db9c194b5",
+        "image-generator/style.css": "b777f09f0a1559e4f416952f9efb9a3fa8d4f4f9a7ee9ff3f421bb99c1e07ac0",
+        "image-generator/view.js": "5347058d76ca6be7de0ee44547b3b61f8050325e8aabe769caddd8b79f59ca8f",
+        "index.html": "d1b2377b61567d2d8d2da23d0d0299bc62d9d13dda99038ca341d16b252246bd",
+        "scroll-overlay.js": "7277dc8730425a9299f38fe84376628fb3ce32b1f9928fcbecb2f42459fbbe48",
+        "studio-data.js": "d690f365a01b07268b8721dad79786bef826ede20952712be6f03cc77c721a83",
+        "studio-model.js": "9178d66c8b542f27338bd5285fe22d0927a55235049e3b5b22651536497ca431",
+        "studio-portal.css": "246bf479f0a6b6b200233073d692a1a425a8bcd312547aa78407799339a99b64",
+        "studio-portal.js": "013f656eafbee95b5c391da86f86f10066365417375017fe81d9f09e6ea65736",
+        "studio.css": "713e8a9ef0a5e0e478a479897c10c1c6bf9219098b810bb9964c146ddb6756d4",
+        "studio.js": "5d7be0797055ca4ceee4aad19a7f5d52d1bde157d791a7472ca5f3412d52bde8"
+      },
+      "screenshotSHA256": "3f99ccb427cbee78c64e1e829adebeb3b38b7d84293d090604869a6674bf17fc"
+    },
+    {
+      "id": "js-baseline-20261103T162043Z-image-generator-inputs",
+      "elementId": "image-generator",
+      "title": "JS baseline · Images · inputs",
+      "src": "assets/js-baselines/20261103-162043Z/image-generator-inputs-js-baseline.png",
+      "download": "assets/js-baselines/20261103-162043Z/image-generator-inputs-js-baseline.png",
+      "caption": "Actual current JavaScript Studio fixture (inputs). Simulated providers; no Rust/native parity or automatic approval.",
+      "approval": "baseline-capture",
+      "sourcePhase": "01",
+      "sourceUrl": "http://127.0.0.1:8765/?phase=01&tab=image-generator&sample=1",
+      "jsSourceUrl": "http://127.0.0.1:8765/?phase=01&tab=image-generator&sample=1",
+      "viewport": {
+        "width": 960,
+        "height": 900
+      },
+      "captureViewport": {
+        "width": 960,
+        "height": 900
+      },
+      "capture": {
+        "url": "http://127.0.0.1:8765/?phase=01&tab=image-generator&sample=1",
+        "viewport": {
+          "width": 960,
+          "height": 900
+        }
+      },
+      "theme": "light",
+      "capturedAt": "2026-11-03T16:20:50.744Z",
+      "captureKind": "browser-screenshot",
+      "browser": {
+        "name": "Microsoft Edge",
+        "version": "156.0.4314.58",
+        "headless": true
+      },
+      "dpi": 96,
+      "devicePixelRatio": 1,
+      "browserZoom": 1,
+      "fixture": "Existing inputs footer example",
+      "actions": [
+        "Clicked existing inputs image-example footer button"
+      ],
+      "observed": {
+        "theme": "light",
+        "devicePixelRatio": 1,
+        "browserZoom": 1,
+        "canvas": {
+          "x": 0,
+          "y": 82,
+          "width": 960,
+          "height": 785,
+          "top": 82,
+          "right": 960,
+          "bottom": 867,
+          "left": 0
+        },
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 960,
+          "height": 81.796875,
+          "top": 0,
+          "right": 960,
+          "bottom": 81.796875,
+          "left": 0
+        },
+        "tabLabels": [
+          {
+            "text": "Chat Train",
+            "width": 78,
+            "scrollWidth": 78
+          },
+          {
+            "text": "Images",
+            "width": 62,
+            "scrollWidth": 62
+          },
+          {
+            "text": "Dashboard Builder",
+            "width": 123,
+            "scrollWidth": 123
+          },
+          {
+            "text": "Text Agent",
+            "width": 83,
+            "scrollWidth": 83
+          },
+          {
+            "text": "Rhino 3D",
+            "width": 73,
+            "scrollWidth": 73
+          },
+          {
+            "text": "Frames",
+            "width": 63,
+            "scrollWidth": 63
+          },
+          {
+            "text": "Studio",
+            "width": 59,
+            "scrollWidth": 59
+          }
+        ],
+        "canvasTransform": "matrix(0.553125, 0, 0, 0.553125, 70.6875, -896.281)",
+        "chat": null,
+        "frame": null,
+        "openMenus": 0
+      },
+      "relevantSourceHashes": {
+        "canvas-navigation.js": "30d0152fa0f372574de5edce1da41edeba5ca6316eed6a595ba90f68a0869d8f",
+        "chat-train/agent-catalog.js": "fed23ea7560198e99e3c598ebccb3a117509d2f4af42471302a71d07b889d421",
+        "chat-train/agent-picker.js": "dc5b6a39d085ce495e014375ffbf041d43ee88a9ab2d99ad7b8a7f67202cdabe",
+        "chat-train/app.js": "cae0f0f68bcc5520b7a1810aba6c2b6b78a4cc6e0db121c27fdf6d0c435f30a3",
+        "chat-train/conversation-fixture.js": "2932dfbcfbfe416e73748034cc2326791104287cabfca779a696cad019e542d9",
+        "chat-train/model.js": "f7a91844cff59b5e60bceb9a90831d79b5cb6cf9b44b40f5ce04c6125f6b2827",
+        "chat-train/reference.js": "703c4d5f67fb64f290dcb210bf621558291f5680283cb45282d8186119995313",
+        "chat-train/style.css": "9fdd40b08e854cd7cc4de089fd0f70e90fa7801e0c13cbcd52b36f503bcfe52c",
+        "elements/dashboard-builder.css": "550588d2b45c066d9de6979402b0a6c2b38f246b15fd16764df7df7afd2a00cf",
+        "elements/dashboard-builder.js": "ee0848561cb9480ff5e10ddda5e3dd1a5772c9e4d54762720f4586c10a6bac6d",
+        "elements/native-icons.js": "dd3c7b544683953e5e776e71447a3059aa583e8ee2beaa41e72a087312dac7c9",
+        "elements/result-previews.js": "d2ed600bb69fccfafbc30a28f8adcc0d342bc26d751a4adb7f5effd798bba855",
+        "elements/rhino-agent.css": "102dd15c75cc383f727599743c2dac5f01c638c9e6006c2e78697c9893c3af03",
+        "elements/rhino-agent.js": "2ca12884879f5dc5e7ce9329e8c45642af4880d8d95d1773b4658db1c0c5c138",
+        "elements/runtime.css": "038093bfeec2b5e853a78623f0f36ab26fd87ce17622f774e14dd99b74e63cdc",
+        "elements/runtime.js": "cf01ccce12c4cb2a6f3cad3e3c8fe5177f06b30b6de6a4e3f94fdfa145617bf7",
+        "elements/session-model.js": "600ef528b022df8bbcb6a86bd7e84d75e5a77c3a52dd21fb77c82b8b42647623",
+        "elements/text-agent.css": "987bb083fbcb777812d849192d077bbddaf0863485b58a8e5a405eac6265f7be",
+        "elements/text-agent.js": "794f62563c8f34ab7bfbfd4b3a811cec22256e0e94542450a6e72e8d6ef1f6f2",
+        "elements/text-links.js": "1561265a2ba4320149085c00efaf446d81d9c9fef2f3af4f212eb13eee8f80c0",
+        "frame/app.js": "11a698e54575293a715db1c2a4395b82a55a57bb89815733392a02e3057488ed",
+        "frame/baseline.js": "ffd03a722d65f3774887b8383558ea131e625a625abd340ad1e686880715ef84",
+        "frame/deck.js": "368faa795265dfcbd27f8db13bd770a16e42870c89bad31972b7cccfc332a79f",
+        "frame/panels.js": "7cb09e2f2c7f81a55a5947cce69f0d917e9561aa3ca936cb285117e4db93f192",
+        "frame/render.js": "66cb1a31d37fd7b78d5a38cb801a4062564d83160f7b861f221313306aba03ba",
+        "frame/style.css": "76172682ad29dbaaca13872cc29034891f0e6a8e4ed47e039819495d1b38967c",
+        "generator-ui.css": "f883afe1bd4ac69287370e1597015464f5260c3622530e9b86fb8d279c7b6b01",
+        "generator-ui.js": "7263c81bd56746fd48b6f5c4df087f4d8bf43a25468be5e74cd1674d0f6ce5c1",
+        "image-feedback.css": "fed9df80193795004bac62a09d534a2c7dd9c65b006ecc4881c7353bd8f26b0d",
+        "image-feedback.js": "3f59cd9c512805ed1ebc0b700d5af1b523dfca8086c341197efce719b61d8b6d",
+        "image-generator/app.js": "6342c9b325e85cf848f7d67b3e1af7db362a4d8df148a17a94b94d28c339ae85",
+        "image-generator/catalog.js": "0519fe6113809814f837fcabc7370b01654a9e6141a06833e876d071ca0801a6",
+        "image-generator/context-recipe.js": "4f95e3a06c941866123ac76b9a55a7845971b3db564c87d1b1826bfaa5ae2caf",
+        "image-generator/graft.js": "707ca5af349e3de8ebee481e62bc2c2b97fc41eff2b1337bb868e20eb3c44f8a",
+        "image-generator/history.js": "661940414e0df38731f327a05f5193c79514c2d9b260b39b2b1f9c80eb76f044",
+        "image-generator/icons.js": "4dfa88cc7ab03c89c1e4cd350316dae0a8525940dafb987f4b194a23bf3cb6ca",
+        "image-generator/layout.js": "61c853e03a3fa4d1dee74f38734aadb140517093e5fd43fb44a87d28974d04cf",
+        "image-generator/menu-studio.css": "37ce59cb0d7e73b5e86863e0d003d0afb17d588712856db1008ef7ef7d6f7213",
+        "image-generator/menu-studio.js": "927bdaf9ef032d49d9a666b6b287433b7e8af3d5fda115a91d24d8226ec0e7a8",
+        "image-generator/menus.js": "0e6bfba18509d09e5483ec4233d8a46416eb290338cc3b3e46b68c4db9c194b5",
+        "image-generator/style.css": "b777f09f0a1559e4f416952f9efb9a3fa8d4f4f9a7ee9ff3f421bb99c1e07ac0",
+        "image-generator/view.js": "5347058d76ca6be7de0ee44547b3b61f8050325e8aabe769caddd8b79f59ca8f",
+        "index.html": "d1b2377b61567d2d8d2da23d0d0299bc62d9d13dda99038ca341d16b252246bd",
+        "scroll-overlay.js": "7277dc8730425a9299f38fe84376628fb3ce32b1f9928fcbecb2f42459fbbe48",
+        "studio-data.js": "d690f365a01b07268b8721dad79786bef826ede20952712be6f03cc77c721a83",
+        "studio-model.js": "9178d66c8b542f27338bd5285fe22d0927a55235049e3b5b22651536497ca431",
+        "studio-portal.css": "246bf479f0a6b6b200233073d692a1a425a8bcd312547aa78407799339a99b64",
+        "studio-portal.js": "013f656eafbee95b5c391da86f86f10066365417375017fe81d9f09e6ea65736",
+        "studio.css": "713e8a9ef0a5e0e478a479897c10c1c6bf9219098b810bb9964c146ddb6756d4",
+        "studio.js": "5d7be0797055ca4ceee4aad19a7f5d52d1bde157d791a7472ca5f3412d52bde8"
+      },
+      "screenshotSHA256": "783115a139bb0237c0c082840761e116c4d4c717be808d3dee6c4f82208a455e"
+    },
+    {
+      "id": "js-baseline-20261103T162043Z-image-generator-series",
+      "elementId": "image-generator",
+      "title": "JS baseline · Images · series",
+      "src": "assets/js-baselines/20261103-162043Z/image-generator-series-js-baseline.png",
+      "download": "assets/js-baselines/20261103-162043Z/image-generator-series-js-baseline.png",
+      "caption": "Actual current JavaScript Studio fixture (series). Simulated providers; no Rust/native parity or automatic approval.",
+      "approval": "baseline-capture",
+      "sourcePhase": "01",
+      "sourceUrl": "http://127.0.0.1:8765/?phase=01&tab=image-generator&sample=1",
+      "jsSourceUrl": "http://127.0.0.1:8765/?phase=01&tab=image-generator&sample=1",
+      "viewport": {
+        "width": 960,
+        "height": 900
+      },
+      "captureViewport": {
+        "width": 960,
+        "height": 900
+      },
+      "capture": {
+        "url": "http://127.0.0.1:8765/?phase=01&tab=image-generator&sample=1",
+        "viewport": {
+          "width": 960,
+          "height": 900
+        }
+      },
+      "theme": "light",
+      "capturedAt": "2026-11-03T16:20:52.112Z",
+      "captureKind": "browser-screenshot",
+      "browser": {
+        "name": "Microsoft Edge",
+        "version": "156.0.4314.58",
+        "headless": true
+      },
+      "dpi": 96,
+      "devicePixelRatio": 1,
+      "browserZoom": 1,
+      "fixture": "Existing series footer example",
+      "actions": [
+        "Clicked existing series image-example footer button"
+      ],
+      "observed": {
+        "theme": "light",
+        "devicePixelRatio": 1,
+        "browserZoom": 1,
+        "canvas": {
+          "x": 0,
+          "y": 82,
+          "width": 960,
+          "height": 785,
+          "top": 82,
+          "right": 960,
+          "bottom": 867,
+          "left": 0
+        },
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 960,
+          "height": 81.796875,
+          "top": 0,
+          "right": 960,
+          "bottom": 81.796875,
+          "left": 0
+        },
+        "tabLabels": [
+          {
+            "text": "Chat Train",
+            "width": 78,
+            "scrollWidth": 78
+          },
+          {
+            "text": "Images",
+            "width": 62,
+            "scrollWidth": 62
+          },
+          {
+            "text": "Dashboard Builder",
+            "width": 123,
+            "scrollWidth": 123
+          },
+          {
+            "text": "Text Agent",
+            "width": 83,
+            "scrollWidth": 83
+          },
+          {
+            "text": "Rhino 3D",
+            "width": 73,
+            "scrollWidth": 73
+          },
+          {
+            "text": "Frames",
+            "width": 63,
+            "scrollWidth": 63
+          },
+          {
+            "text": "Studio",
+            "width": 59,
+            "scrollWidth": 59
+          }
+        ],
+        "canvasTransform": "matrix(0.327778, 0, 0, 0.327778, 53.8889, -1067.75)",
+        "chat": null,
+        "frame": null,
+        "openMenus": 0
+      },
+      "relevantSourceHashes": {
+        "canvas-navigation.js": "30d0152fa0f372574de5edce1da41edeba5ca6316eed6a595ba90f68a0869d8f",
+        "chat-train/agent-catalog.js": "fed23ea7560198e99e3c598ebccb3a117509d2f4af42471302a71d07b889d421",
+        "chat-train/agent-picker.js": "dc5b6a39d085ce495e014375ffbf041d43ee88a9ab2d99ad7b8a7f67202cdabe",
+        "chat-train/app.js": "cae0f0f68bcc5520b7a1810aba6c2b6b78a4cc6e0db121c27fdf6d0c435f30a3",
+        "chat-train/conversation-fixture.js": "2932dfbcfbfe416e73748034cc2326791104287cabfca779a696cad019e542d9",
+        "chat-train/model.js": "f7a91844cff59b5e60bceb9a90831d79b5cb6cf9b44b40f5ce04c6125f6b2827",
+        "chat-train/reference.js": "703c4d5f67fb64f290dcb210bf621558291f5680283cb45282d8186119995313",
+        "chat-train/style.css": "9fdd40b08e854cd7cc4de089fd0f70e90fa7801e0c13cbcd52b36f503bcfe52c",
+        "elements/dashboard-builder.css": "550588d2b45c066d9de6979402b0a6c2b38f246b15fd16764df7df7afd2a00cf",
+        "elements/dashboard-builder.js": "ee0848561cb9480ff5e10ddda5e3dd1a5772c9e4d54762720f4586c10a6bac6d",
+        "elements/native-icons.js": "dd3c7b544683953e5e776e71447a3059aa583e8ee2beaa41e72a087312dac7c9",
+        "elements/result-previews.js": "d2ed600bb69fccfafbc30a28f8adcc0d342bc26d751a4adb7f5effd798bba855",
+        "elements/rhino-agent.css": "102dd15c75cc383f727599743c2dac5f01c638c9e6006c2e78697c9893c3af03",
+        "elements/rhino-agent.js": "2ca12884879f5dc5e7ce9329e8c45642af4880d8d95d1773b4658db1c0c5c138",
+        "elements/runtime.css": "038093bfeec2b5e853a78623f0f36ab26fd87ce17622f774e14dd99b74e63cdc",
+        "elements/runtime.js": "cf01ccce12c4cb2a6f3cad3e3c8fe5177f06b30b6de6a4e3f94fdfa145617bf7",
+        "elements/session-model.js": "600ef528b022df8bbcb6a86bd7e84d75e5a77c3a52dd21fb77c82b8b42647623",
+        "elements/text-agent.css": "987bb083fbcb777812d849192d077bbddaf0863485b58a8e5a405eac6265f7be",
+        "elements/text-agent.js": "794f62563c8f34ab7bfbfd4b3a811cec22256e0e94542450a6e72e8d6ef1f6f2",
+        "elements/text-links.js": "1561265a2ba4320149085c00efaf446d81d9c9fef2f3af4f212eb13eee8f80c0",
+        "frame/app.js": "11a698e54575293a715db1c2a4395b82a55a57bb89815733392a02e3057488ed",
+        "frame/baseline.js": "ffd03a722d65f3774887b8383558ea131e625a625abd340ad1e686880715ef84",
+        "frame/deck.js": "368faa795265dfcbd27f8db13bd770a16e42870c89bad31972b7cccfc332a79f",
+        "frame/panels.js": "7cb09e2f2c7f81a55a5947cce69f0d917e9561aa3ca936cb285117e4db93f192",
+        "frame/render.js": "66cb1a31d37fd7b78d5a38cb801a4062564d83160f7b861f221313306aba03ba",
+        "frame/style.css": "76172682ad29dbaaca13872cc29034891f0e6a8e4ed47e039819495d1b38967c",
+        "generator-ui.css": "f883afe1bd4ac69287370e1597015464f5260c3622530e9b86fb8d279c7b6b01",
+        "generator-ui.js": "7263c81bd56746fd48b6f5c4df087f4d8bf43a25468be5e74cd1674d0f6ce5c1",
+        "image-feedback.css": "fed9df80193795004bac62a09d534a2c7dd9c65b006ecc4881c7353bd8f26b0d",
+        "image-feedback.js": "3f59cd9c512805ed1ebc0b700d5af1b523dfca8086c341197efce719b61d8b6d",
+        "image-generator/app.js": "6342c9b325e85cf848f7d67b3e1af7db362a4d8df148a17a94b94d28c339ae85",
+        "image-generator/catalog.js": "0519fe6113809814f837fcabc7370b01654a9e6141a06833e876d071ca0801a6",
+        "image-generator/context-recipe.js": "4f95e3a06c941866123ac76b9a55a7845971b3db564c87d1b1826bfaa5ae2caf",
+        "image-generator/graft.js": "707ca5af349e3de8ebee481e62bc2c2b97fc41eff2b1337bb868e20eb3c44f8a",
+        "image-generator/history.js": "661940414e0df38731f327a05f5193c79514c2d9b260b39b2b1f9c80eb76f044",
+        "image-generator/icons.js": "4dfa88cc7ab03c89c1e4cd350316dae0a8525940dafb987f4b194a23bf3cb6ca",
+        "image-generator/layout.js": "61c853e03a3fa4d1dee74f38734aadb140517093e5fd43fb44a87d28974d04cf",
+        "image-generator/menu-studio.css": "37ce59cb0d7e73b5e86863e0d003d0afb17d588712856db1008ef7ef7d6f7213",
+        "image-generator/menu-studio.js": "927bdaf9ef032d49d9a666b6b287433b7e8af3d5fda115a91d24d8226ec0e7a8",
+        "image-generator/menus.js": "0e6bfba18509d09e5483ec4233d8a46416eb290338cc3b3e46b68c4db9c194b5",
+        "image-generator/style.css": "b777f09f0a1559e4f416952f9efb9a3fa8d4f4f9a7ee9ff3f421bb99c1e07ac0",
+        "image-generator/view.js": "5347058d76ca6be7de0ee44547b3b61f8050325e8aabe769caddd8b79f59ca8f",
+        "index.html": "d1b2377b61567d2d8d2da23d0d0299bc62d9d13dda99038ca341d16b252246bd",
+        "scroll-overlay.js": "7277dc8730425a9299f38fe84376628fb3ce32b1f9928fcbecb2f42459fbbe48",
+        "studio-data.js": "d690f365a01b07268b8721dad79786bef826ede20952712be6f03cc77c721a83",
+        "studio-model.js": "9178d66c8b542f27338bd5285fe22d0927a55235049e3b5b22651536497ca431",
+        "studio-portal.css": "246bf479f0a6b6b200233073d692a1a425a8bcd312547aa78407799339a99b64",
+        "studio-portal.js": "013f656eafbee95b5c391da86f86f10066365417375017fe81d9f09e6ea65736",
+        "studio.css": "713e8a9ef0a5e0e478a479897c10c1c6bf9219098b810bb9964c146ddb6756d4",
+        "studio.js": "5d7be0797055ca4ceee4aad19a7f5d52d1bde157d791a7472ca5f3412d52bde8"
+      },
+      "screenshotSHA256": "7175875f254771f6ef342f78bca0895271ff0bb465feee7807f2a4fcdf47a0af"
+    },
+    {
+      "id": "js-baseline-20261103T162043Z-dashboard-builder",
+      "elementId": "dashboard-builder",
+      "title": "JS baseline · Dashboard Builder",
+      "src": "assets/js-baselines/20261103-162043Z/dashboard-builder-js-baseline.png",
+      "download": "assets/js-baselines/20261103-162043Z/dashboard-builder-js-baseline.png",
+      "caption": "Actual current JavaScript Studio fixture. Simulated providers; no Rust/native parity or automatic approval.",
+      "approval": "baseline-capture",
+      "sourcePhase": "01",
+      "sourceUrl": "http://127.0.0.1:8765/?phase=01&tab=dashboard-builder&sample=1",
+      "jsSourceUrl": "http://127.0.0.1:8765/?phase=01&tab=dashboard-builder&sample=1",
+      "viewport": {
+        "width": 960,
+        "height": 900
+      },
+      "captureViewport": {
+        "width": 960,
+        "height": 900
+      },
+      "capture": {
+        "url": "http://127.0.0.1:8765/?phase=01&tab=dashboard-builder&sample=1",
+        "viewport": {
+          "width": 960,
+          "height": 900
+        }
+      },
+      "theme": "light",
+      "capturedAt": "2026-11-03T16:20:53.461Z",
+      "captureKind": "browser-screenshot",
+      "browser": {
+        "name": "Microsoft Edge",
+        "version": "156.0.4314.58",
+        "headless": true
+      },
+      "dpi": 96,
+      "devicePixelRatio": 1,
+      "browserZoom": 1,
+      "fixture": "Current default sample fixture",
+      "actions": [
+        "Clicked existing element Fit control"
+      ],
+      "observed": {
+        "theme": "light",
+        "devicePixelRatio": 1,
+        "browserZoom": 1,
+        "canvas": {
+          "x": 0,
+          "y": 82,
+          "width": 960,
+          "height": 785,
+          "top": 82,
+          "right": 960,
+          "bottom": 867,
+          "left": 0
+        },
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 960,
+          "height": 81.796875,
+          "top": 0,
+          "right": 960,
+          "bottom": 81.796875,
+          "left": 0
+        },
+        "tabLabels": [
+          {
+            "text": "Chat Train",
+            "width": 78,
+            "scrollWidth": 78
+          },
+          {
+            "text": "Images",
+            "width": 62,
+            "scrollWidth": 62
+          },
+          {
+            "text": "Dashboard Builder",
+            "width": 123,
+            "scrollWidth": 123
+          },
+          {
+            "text": "Text Agent",
+            "width": 83,
+            "scrollWidth": 83
+          },
+          {
+            "text": "Rhino 3D",
+            "width": 73,
+            "scrollWidth": 73
+          },
+          {
+            "text": "Frames",
+            "width": 63,
+            "scrollWidth": 63
+          },
+          {
+            "text": "Studio",
+            "width": 59,
+            "scrollWidth": 59
+          }
+        ],
+        "canvasTransform": "matrix(1, 0, 0, 1, 50, -15)",
+        "chat": null,
+        "frame": null,
+        "openMenus": 0
+      },
+      "relevantSourceHashes": {
+        "canvas-navigation.js": "30d0152fa0f372574de5edce1da41edeba5ca6316eed6a595ba90f68a0869d8f",
+        "chat-train/agent-catalog.js": "fed23ea7560198e99e3c598ebccb3a117509d2f4af42471302a71d07b889d421",
+        "chat-train/agent-picker.js": "dc5b6a39d085ce495e014375ffbf041d43ee88a9ab2d99ad7b8a7f67202cdabe",
+        "chat-train/app.js": "cae0f0f68bcc5520b7a1810aba6c2b6b78a4cc6e0db121c27fdf6d0c435f30a3",
+        "chat-train/conversation-fixture.js": "2932dfbcfbfe416e73748034cc2326791104287cabfca779a696cad019e542d9",
+        "chat-train/model.js": "f7a91844cff59b5e60bceb9a90831d79b5cb6cf9b44b40f5ce04c6125f6b2827",
+        "chat-train/reference.js": "703c4d5f67fb64f290dcb210bf621558291f5680283cb45282d8186119995313",
+        "chat-train/style.css": "9fdd40b08e854cd7cc4de089fd0f70e90fa7801e0c13cbcd52b36f503bcfe52c",
+        "elements/dashboard-builder.css": "550588d2b45c066d9de6979402b0a6c2b38f246b15fd16764df7df7afd2a00cf",
+        "elements/dashboard-builder.js": "ee0848561cb9480ff5e10ddda5e3dd1a5772c9e4d54762720f4586c10a6bac6d",
+        "elements/native-icons.js": "dd3c7b544683953e5e776e71447a3059aa583e8ee2beaa41e72a087312dac7c9",
+        "elements/result-previews.js": "d2ed600bb69fccfafbc30a28f8adcc0d342bc26d751a4adb7f5effd798bba855",
+        "elements/rhino-agent.css": "102dd15c75cc383f727599743c2dac5f01c638c9e6006c2e78697c9893c3af03",
+        "elements/rhino-agent.js": "2ca12884879f5dc5e7ce9329e8c45642af4880d8d95d1773b4658db1c0c5c138",
+        "elements/runtime.css": "038093bfeec2b5e853a78623f0f36ab26fd87ce17622f774e14dd99b74e63cdc",
+        "elements/runtime.js": "cf01ccce12c4cb2a6f3cad3e3c8fe5177f06b30b6de6a4e3f94fdfa145617bf7",
+        "elements/session-model.js": "600ef528b022df8bbcb6a86bd7e84d75e5a77c3a52dd21fb77c82b8b42647623",
+        "elements/text-agent.css": "987bb083fbcb777812d849192d077bbddaf0863485b58a8e5a405eac6265f7be",
+        "elements/text-agent.js": "794f62563c8f34ab7bfbfd4b3a811cec22256e0e94542450a6e72e8d6ef1f6f2",
+        "elements/text-links.js": "1561265a2ba4320149085c00efaf446d81d9c9fef2f3af4f212eb13eee8f80c0",
+        "frame/app.js": "11a698e54575293a715db1c2a4395b82a55a57bb89815733392a02e3057488ed",
+        "frame/baseline.js": "ffd03a722d65f3774887b8383558ea131e625a625abd340ad1e686880715ef84",
+        "frame/deck.js": "368faa795265dfcbd27f8db13bd770a16e42870c89bad31972b7cccfc332a79f",
+        "frame/panels.js": "7cb09e2f2c7f81a55a5947cce69f0d917e9561aa3ca936cb285117e4db93f192",
+        "frame/render.js": "66cb1a31d37fd7b78d5a38cb801a4062564d83160f7b861f221313306aba03ba",
+        "frame/style.css": "76172682ad29dbaaca13872cc29034891f0e6a8e4ed47e039819495d1b38967c",
+        "generator-ui.css": "f883afe1bd4ac69287370e1597015464f5260c3622530e9b86fb8d279c7b6b01",
+        "generator-ui.js": "7263c81bd56746fd48b6f5c4df087f4d8bf43a25468be5e74cd1674d0f6ce5c1",
+        "image-feedback.css": "fed9df80193795004bac62a09d534a2c7dd9c65b006ecc4881c7353bd8f26b0d",
+        "image-feedback.js": "3f59cd9c512805ed1ebc0b700d5af1b523dfca8086c341197efce719b61d8b6d",
+        "image-generator/app.js": "6342c9b325e85cf848f7d67b3e1af7db362a4d8df148a17a94b94d28c339ae85",
+        "image-generator/catalog.js": "0519fe6113809814f837fcabc7370b01654a9e6141a06833e876d071ca0801a6",
+        "image-generator/context-recipe.js": "4f95e3a06c941866123ac76b9a55a7845971b3db564c87d1b1826bfaa5ae2caf",
+        "image-generator/graft.js": "707ca5af349e3de8ebee481e62bc2c2b97fc41eff2b1337bb868e20eb3c44f8a",
+        "image-generator/history.js": "661940414e0df38731f327a05f5193c79514c2d9b260b39b2b1f9c80eb76f044",
+        "image-generator/icons.js": "4dfa88cc7ab03c89c1e4cd350316dae0a8525940dafb987f4b194a23bf3cb6ca",
+        "image-generator/layout.js": "61c853e03a3fa4d1dee74f38734aadb140517093e5fd43fb44a87d28974d04cf",
+        "image-generator/menu-studio.css": "37ce59cb0d7e73b5e86863e0d003d0afb17d588712856db1008ef7ef7d6f7213",
+        "image-generator/menu-studio.js": "927bdaf9ef032d49d9a666b6b287433b7e8af3d5fda115a91d24d8226ec0e7a8",
+        "image-generator/menus.js": "0e6bfba18509d09e5483ec4233d8a46416eb290338cc3b3e46b68c4db9c194b5",
+        "image-generator/style.css": "b777f09f0a1559e4f416952f9efb9a3fa8d4f4f9a7ee9ff3f421bb99c1e07ac0",
+        "image-generator/view.js": "5347058d76ca6be7de0ee44547b3b61f8050325e8aabe769caddd8b79f59ca8f",
+        "index.html": "d1b2377b61567d2d8d2da23d0d0299bc62d9d13dda99038ca341d16b252246bd",
+        "scroll-overlay.js": "7277dc8730425a9299f38fe84376628fb3ce32b1f9928fcbecb2f42459fbbe48",
+        "studio-data.js": "d690f365a01b07268b8721dad79786bef826ede20952712be6f03cc77c721a83",
+        "studio-model.js": "9178d66c8b542f27338bd5285fe22d0927a55235049e3b5b22651536497ca431",
+        "studio-portal.css": "246bf479f0a6b6b200233073d692a1a425a8bcd312547aa78407799339a99b64",
+        "studio-portal.js": "013f656eafbee95b5c391da86f86f10066365417375017fe81d9f09e6ea65736",
+        "studio.css": "713e8a9ef0a5e0e478a479897c10c1c6bf9219098b810bb9964c146ddb6756d4",
+        "studio.js": "5d7be0797055ca4ceee4aad19a7f5d52d1bde157d791a7472ca5f3412d52bde8"
+      },
+      "screenshotSHA256": "8536b77f92d225c5f67a4ea693aeb9055e7f468a73ea373a1b1ec593cc1d406c"
+    },
+    {
+      "id": "js-baseline-20261103T162043Z-text-agent",
+      "elementId": "text-agent",
+      "title": "JS baseline · Text Agent",
+      "src": "assets/js-baselines/20261103-162043Z/text-agent-js-baseline.png",
+      "download": "assets/js-baselines/20261103-162043Z/text-agent-js-baseline.png",
+      "caption": "Actual current JavaScript Studio fixture. Simulated providers; no Rust/native parity or automatic approval.",
+      "approval": "baseline-capture",
+      "sourcePhase": "01",
+      "sourceUrl": "http://127.0.0.1:8765/?phase=01&tab=text-agent&sample=1",
+      "jsSourceUrl": "http://127.0.0.1:8765/?phase=01&tab=text-agent&sample=1",
+      "viewport": {
+        "width": 960,
+        "height": 900
+      },
+      "captureViewport": {
+        "width": 960,
+        "height": 900
+      },
+      "capture": {
+        "url": "http://127.0.0.1:8765/?phase=01&tab=text-agent&sample=1",
+        "viewport": {
+          "width": 960,
+          "height": 900
+        }
+      },
+      "theme": "light",
+      "capturedAt": "2026-11-03T16:20:54.794Z",
+      "captureKind": "browser-screenshot",
+      "browser": {
+        "name": "Microsoft Edge",
+        "version": "156.0.4314.58",
+        "headless": true
+      },
+      "dpi": 96,
+      "devicePixelRatio": 1,
+      "browserZoom": 1,
+      "fixture": "Current default sample fixture",
+      "actions": [
+        "Clicked existing element Fit control"
+      ],
+      "observed": {
+        "theme": "light",
+        "devicePixelRatio": 1,
+        "browserZoom": 1,
+        "canvas": {
+          "x": 0,
+          "y": 82,
+          "width": 960,
+          "height": 785,
+          "top": 82,
+          "right": 960,
+          "bottom": 867,
+          "left": 0
+        },
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 960,
+          "height": 81.796875,
+          "top": 0,
+          "right": 960,
+          "bottom": 81.796875,
+          "left": 0
+        },
+        "tabLabels": [
+          {
+            "text": "Chat Train",
+            "width": 78,
+            "scrollWidth": 78
+          },
+          {
+            "text": "Images",
+            "width": 62,
+            "scrollWidth": 62
+          },
+          {
+            "text": "Dashboard Builder",
+            "width": 123,
+            "scrollWidth": 123
+          },
+          {
+            "text": "Text Agent",
+            "width": 83,
+            "scrollWidth": 83
+          },
+          {
+            "text": "Rhino 3D",
+            "width": 73,
+            "scrollWidth": 73
+          },
+          {
+            "text": "Frames",
+            "width": 63,
+            "scrollWidth": 63
+          },
+          {
+            "text": "Studio",
+            "width": 59,
+            "scrollWidth": 59
+          }
+        ],
+        "canvasTransform": "matrix(1, 0, 0, 1, 150, -15)",
+        "chat": null,
+        "frame": null,
+        "openMenus": 0
+      },
+      "relevantSourceHashes": {
+        "canvas-navigation.js": "30d0152fa0f372574de5edce1da41edeba5ca6316eed6a595ba90f68a0869d8f",
+        "chat-train/agent-catalog.js": "fed23ea7560198e99e3c598ebccb3a117509d2f4af42471302a71d07b889d421",
+        "chat-train/agent-picker.js": "dc5b6a39d085ce495e014375ffbf041d43ee88a9ab2d99ad7b8a7f67202cdabe",
+        "chat-train/app.js": "cae0f0f68bcc5520b7a1810aba6c2b6b78a4cc6e0db121c27fdf6d0c435f30a3",
+        "chat-train/conversation-fixture.js": "2932dfbcfbfe416e73748034cc2326791104287cabfca779a696cad019e542d9",
+        "chat-train/model.js": "f7a91844cff59b5e60bceb9a90831d79b5cb6cf9b44b40f5ce04c6125f6b2827",
+        "chat-train/reference.js": "703c4d5f67fb64f290dcb210bf621558291f5680283cb45282d8186119995313",
+        "chat-train/style.css": "9fdd40b08e854cd7cc4de089fd0f70e90fa7801e0c13cbcd52b36f503bcfe52c",
+        "elements/dashboard-builder.css": "550588d2b45c066d9de6979402b0a6c2b38f246b15fd16764df7df7afd2a00cf",
+        "elements/dashboard-builder.js": "ee0848561cb9480ff5e10ddda5e3dd1a5772c9e4d54762720f4586c10a6bac6d",
+        "elements/native-icons.js": "dd3c7b544683953e5e776e71447a3059aa583e8ee2beaa41e72a087312dac7c9",
+        "elements/result-previews.js": "d2ed600bb69fccfafbc30a28f8adcc0d342bc26d751a4adb7f5effd798bba855",
+        "elements/rhino-agent.css": "102dd15c75cc383f727599743c2dac5f01c638c9e6006c2e78697c9893c3af03",
+        "elements/rhino-agent.js": "2ca12884879f5dc5e7ce9329e8c45642af4880d8d95d1773b4658db1c0c5c138",
+        "elements/runtime.css": "038093bfeec2b5e853a78623f0f36ab26fd87ce17622f774e14dd99b74e63cdc",
+        "elements/runtime.js": "cf01ccce12c4cb2a6f3cad3e3c8fe5177f06b30b6de6a4e3f94fdfa145617bf7",
+        "elements/session-model.js": "600ef528b022df8bbcb6a86bd7e84d75e5a77c3a52dd21fb77c82b8b42647623",
+        "elements/text-agent.css": "987bb083fbcb777812d849192d077bbddaf0863485b58a8e5a405eac6265f7be",
+        "elements/text-agent.js": "794f62563c8f34ab7bfbfd4b3a811cec22256e0e94542450a6e72e8d6ef1f6f2",
+        "elements/text-links.js": "1561265a2ba4320149085c00efaf446d81d9c9fef2f3af4f212eb13eee8f80c0",
+        "frame/app.js": "11a698e54575293a715db1c2a4395b82a55a57bb89815733392a02e3057488ed",
+        "frame/baseline.js": "ffd03a722d65f3774887b8383558ea131e625a625abd340ad1e686880715ef84",
+        "frame/deck.js": "368faa795265dfcbd27f8db13bd770a16e42870c89bad31972b7cccfc332a79f",
+        "frame/panels.js": "7cb09e2f2c7f81a55a5947cce69f0d917e9561aa3ca936cb285117e4db93f192",
+        "frame/render.js": "66cb1a31d37fd7b78d5a38cb801a4062564d83160f7b861f221313306aba03ba",
+        "frame/style.css": "76172682ad29dbaaca13872cc29034891f0e6a8e4ed47e039819495d1b38967c",
+        "generator-ui.css": "f883afe1bd4ac69287370e1597015464f5260c3622530e9b86fb8d279c7b6b01",
+        "generator-ui.js": "7263c81bd56746fd48b6f5c4df087f4d8bf43a25468be5e74cd1674d0f6ce5c1",
+        "image-feedback.css": "fed9df80193795004bac62a09d534a2c7dd9c65b006ecc4881c7353bd8f26b0d",
+        "image-feedback.js": "3f59cd9c512805ed1ebc0b700d5af1b523dfca8086c341197efce719b61d8b6d",
+        "image-generator/app.js": "6342c9b325e85cf848f7d67b3e1af7db362a4d8df148a17a94b94d28c339ae85",
+        "image-generator/catalog.js": "0519fe6113809814f837fcabc7370b01654a9e6141a06833e876d071ca0801a6",
+        "image-generator/context-recipe.js": "4f95e3a06c941866123ac76b9a55a7845971b3db564c87d1b1826bfaa5ae2caf",
+        "image-generator/graft.js": "707ca5af349e3de8ebee481e62bc2c2b97fc41eff2b1337bb868e20eb3c44f8a",
+        "image-generator/history.js": "661940414e0df38731f327a05f5193c79514c2d9b260b39b2b1f9c80eb76f044",
+        "image-generator/icons.js": "4dfa88cc7ab03c89c1e4cd350316dae0a8525940dafb987f4b194a23bf3cb6ca",
+        "image-generator/layout.js": "61c853e03a3fa4d1dee74f38734aadb140517093e5fd43fb44a87d28974d04cf",
+        "image-generator/menu-studio.css": "37ce59cb0d7e73b5e86863e0d003d0afb17d588712856db1008ef7ef7d6f7213",
+        "image-generator/menu-studio.js": "927bdaf9ef032d49d9a666b6b287433b7e8af3d5fda115a91d24d8226ec0e7a8",
+        "image-generator/menus.js": "0e6bfba18509d09e5483ec4233d8a46416eb290338cc3b3e46b68c4db9c194b5",
+        "image-generator/style.css": "b777f09f0a1559e4f416952f9efb9a3fa8d4f4f9a7ee9ff3f421bb99c1e07ac0",
+        "image-generator/view.js": "5347058d76ca6be7de0ee44547b3b61f8050325e8aabe769caddd8b79f59ca8f",
+        "index.html": "d1b2377b61567d2d8d2da23d0d0299bc62d9d13dda99038ca341d16b252246bd",
+        "scroll-overlay.js": "7277dc8730425a9299f38fe84376628fb3ce32b1f9928fcbecb2f42459fbbe48",
+        "studio-data.js": "d690f365a01b07268b8721dad79786bef826ede20952712be6f03cc77c721a83",
+        "studio-model.js": "9178d66c8b542f27338bd5285fe22d0927a55235049e3b5b22651536497ca431",
+        "studio-portal.css": "246bf479f0a6b6b200233073d692a1a425a8bcd312547aa78407799339a99b64",
+        "studio-portal.js": "013f656eafbee95b5c391da86f86f10066365417375017fe81d9f09e6ea65736",
+        "studio.css": "713e8a9ef0a5e0e478a479897c10c1c6bf9219098b810bb9964c146ddb6756d4",
+        "studio.js": "5d7be0797055ca4ceee4aad19a7f5d52d1bde157d791a7472ca5f3412d52bde8"
+      },
+      "screenshotSHA256": "7da1e9cf61d154bee7feadbe5d9dddb84a3ef80e14a6becc3b47d39c92d7e6a8"
+    },
+    {
+      "id": "js-baseline-20261103T162043Z-rhino-agent",
+      "elementId": "rhino-agent",
+      "title": "JS baseline · Rhino 3D",
+      "src": "assets/js-baselines/20261103-162043Z/rhino-agent-js-baseline.png",
+      "download": "assets/js-baselines/20261103-162043Z/rhino-agent-js-baseline.png",
+      "caption": "Actual current JavaScript Studio fixture. Simulated providers; no Rust/native parity or automatic approval.",
+      "approval": "baseline-capture",
+      "sourcePhase": "01",
+      "sourceUrl": "http://127.0.0.1:8765/?phase=01&tab=rhino-agent&sample=1",
+      "jsSourceUrl": "http://127.0.0.1:8765/?phase=01&tab=rhino-agent&sample=1",
+      "viewport": {
+        "width": 960,
+        "height": 900
+      },
+      "captureViewport": {
+        "width": 960,
+        "height": 900
+      },
+      "capture": {
+        "url": "http://127.0.0.1:8765/?phase=01&tab=rhino-agent&sample=1",
+        "viewport": {
+          "width": 960,
+          "height": 900
+        }
+      },
+      "theme": "light",
+      "capturedAt": "2026-11-03T16:20:56.111Z",
+      "captureKind": "browser-screenshot",
+      "browser": {
+        "name": "Microsoft Edge",
+        "version": "156.0.4314.58",
+        "headless": true
+      },
+      "dpi": 96,
+      "devicePixelRatio": 1,
+      "browserZoom": 1,
+      "fixture": "Current default sample fixture",
+      "actions": [
+        "Clicked existing element Fit control"
+      ],
+      "observed": {
+        "theme": "light",
+        "devicePixelRatio": 1,
+        "browserZoom": 1,
+        "canvas": {
+          "x": 0,
+          "y": 82,
+          "width": 960,
+          "height": 785,
+          "top": 82,
+          "right": 960,
+          "bottom": 867,
+          "left": 0
+        },
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 960,
+          "height": 81.796875,
+          "top": 0,
+          "right": 960,
+          "bottom": 81.796875,
+          "left": 0
+        },
+        "tabLabels": [
+          {
+            "text": "Chat Train",
+            "width": 78,
+            "scrollWidth": 78
+          },
+          {
+            "text": "Images",
+            "width": 62,
+            "scrollWidth": 62
+          },
+          {
+            "text": "Dashboard Builder",
+            "width": 123,
+            "scrollWidth": 123
+          },
+          {
+            "text": "Text Agent",
+            "width": 83,
+            "scrollWidth": 83
+          },
+          {
+            "text": "Rhino 3D",
+            "width": 73,
+            "scrollWidth": 73
+          },
+          {
+            "text": "Frames",
+            "width": 63,
+            "scrollWidth": 63
+          },
+          {
+            "text": "Studio",
+            "width": 59,
+            "scrollWidth": 59
+          }
+        ],
+        "canvasTransform": "matrix(1, 0, 0, 1, 50, -15)",
+        "chat": null,
+        "frame": null,
+        "openMenus": 0
+      },
+      "relevantSourceHashes": {
+        "canvas-navigation.js": "30d0152fa0f372574de5edce1da41edeba5ca6316eed6a595ba90f68a0869d8f",
+        "chat-train/agent-catalog.js": "fed23ea7560198e99e3c598ebccb3a117509d2f4af42471302a71d07b889d421",
+        "chat-train/agent-picker.js": "dc5b6a39d085ce495e014375ffbf041d43ee88a9ab2d99ad7b8a7f67202cdabe",
+        "chat-train/app.js": "cae0f0f68bcc5520b7a1810aba6c2b6b78a4cc6e0db121c27fdf6d0c435f30a3",
+        "chat-train/conversation-fixture.js": "2932dfbcfbfe416e73748034cc2326791104287cabfca779a696cad019e542d9",
+        "chat-train/model.js": "f7a91844cff59b5e60bceb9a90831d79b5cb6cf9b44b40f5ce04c6125f6b2827",
+        "chat-train/reference.js": "703c4d5f67fb64f290dcb210bf621558291f5680283cb45282d8186119995313",
+        "chat-train/style.css": "9fdd40b08e854cd7cc4de089fd0f70e90fa7801e0c13cbcd52b36f503bcfe52c",
+        "elements/dashboard-builder.css": "550588d2b45c066d9de6979402b0a6c2b38f246b15fd16764df7df7afd2a00cf",
+        "elements/dashboard-builder.js": "ee0848561cb9480ff5e10ddda5e3dd1a5772c9e4d54762720f4586c10a6bac6d",
+        "elements/native-icons.js": "dd3c7b544683953e5e776e71447a3059aa583e8ee2beaa41e72a087312dac7c9",
+        "elements/result-previews.js": "d2ed600bb69fccfafbc30a28f8adcc0d342bc26d751a4adb7f5effd798bba855",
+        "elements/rhino-agent.css": "102dd15c75cc383f727599743c2dac5f01c638c9e6006c2e78697c9893c3af03",
+        "elements/rhino-agent.js": "2ca12884879f5dc5e7ce9329e8c45642af4880d8d95d1773b4658db1c0c5c138",
+        "elements/runtime.css": "038093bfeec2b5e853a78623f0f36ab26fd87ce17622f774e14dd99b74e63cdc",
+        "elements/runtime.js": "cf01ccce12c4cb2a6f3cad3e3c8fe5177f06b30b6de6a4e3f94fdfa145617bf7",
+        "elements/session-model.js": "600ef528b022df8bbcb6a86bd7e84d75e5a77c3a52dd21fb77c82b8b42647623",
+        "elements/text-agent.css": "987bb083fbcb777812d849192d077bbddaf0863485b58a8e5a405eac6265f7be",
+        "elements/text-agent.js": "794f62563c8f34ab7bfbfd4b3a811cec22256e0e94542450a6e72e8d6ef1f6f2",
+        "elements/text-links.js": "1561265a2ba4320149085c00efaf446d81d9c9fef2f3af4f212eb13eee8f80c0",
+        "frame/app.js": "11a698e54575293a715db1c2a4395b82a55a57bb89815733392a02e3057488ed",
+        "frame/baseline.js": "ffd03a722d65f3774887b8383558ea131e625a625abd340ad1e686880715ef84",
+        "frame/deck.js": "368faa795265dfcbd27f8db13bd770a16e42870c89bad31972b7cccfc332a79f",
+        "frame/panels.js": "7cb09e2f2c7f81a55a5947cce69f0d917e9561aa3ca936cb285117e4db93f192",
+        "frame/render.js": "66cb1a31d37fd7b78d5a38cb801a4062564d83160f7b861f221313306aba03ba",
+        "frame/style.css": "76172682ad29dbaaca13872cc29034891f0e6a8e4ed47e039819495d1b38967c",
+        "generator-ui.css": "f883afe1bd4ac69287370e1597015464f5260c3622530e9b86fb8d279c7b6b01",
+        "generator-ui.js": "7263c81bd56746fd48b6f5c4df087f4d8bf43a25468be5e74cd1674d0f6ce5c1",
+        "image-feedback.css": "fed9df80193795004bac62a09d534a2c7dd9c65b006ecc4881c7353bd8f26b0d",
+        "image-feedback.js": "3f59cd9c512805ed1ebc0b700d5af1b523dfca8086c341197efce719b61d8b6d",
+        "image-generator/app.js": "6342c9b325e85cf848f7d67b3e1af7db362a4d8df148a17a94b94d28c339ae85",
+        "image-generator/catalog.js": "0519fe6113809814f837fcabc7370b01654a9e6141a06833e876d071ca0801a6",
+        "image-generator/context-recipe.js": "4f95e3a06c941866123ac76b9a55a7845971b3db564c87d1b1826bfaa5ae2caf",
+        "image-generator/graft.js": "707ca5af349e3de8ebee481e62bc2c2b97fc41eff2b1337bb868e20eb3c44f8a",
+        "image-generator/history.js": "661940414e0df38731f327a05f5193c79514c2d9b260b39b2b1f9c80eb76f044",
+        "image-generator/icons.js": "4dfa88cc7ab03c89c1e4cd350316dae0a8525940dafb987f4b194a23bf3cb6ca",
+        "image-generator/layout.js": "61c853e03a3fa4d1dee74f38734aadb140517093e5fd43fb44a87d28974d04cf",
+        "image-generator/menu-studio.css": "37ce59cb0d7e73b5e86863e0d003d0afb17d588712856db1008ef7ef7d6f7213",
+        "image-generator/menu-studio.js": "927bdaf9ef032d49d9a666b6b287433b7e8af3d5fda115a91d24d8226ec0e7a8",
+        "image-generator/menus.js": "0e6bfba18509d09e5483ec4233d8a46416eb290338cc3b3e46b68c4db9c194b5",
+        "image-generator/style.css": "b777f09f0a1559e4f416952f9efb9a3fa8d4f4f9a7ee9ff3f421bb99c1e07ac0",
+        "image-generator/view.js": "5347058d76ca6be7de0ee44547b3b61f8050325e8aabe769caddd8b79f59ca8f",
+        "index.html": "d1b2377b61567d2d8d2da23d0d0299bc62d9d13dda99038ca341d16b252246bd",
+        "scroll-overlay.js": "7277dc8730425a9299f38fe84376628fb3ce32b1f9928fcbecb2f42459fbbe48",
+        "studio-data.js": "d690f365a01b07268b8721dad79786bef826ede20952712be6f03cc77c721a83",
+        "studio-model.js": "9178d66c8b542f27338bd5285fe22d0927a55235049e3b5b22651536497ca431",
+        "studio-portal.css": "246bf479f0a6b6b200233073d692a1a425a8bcd312547aa78407799339a99b64",
+        "studio-portal.js": "013f656eafbee95b5c391da86f86f10066365417375017fe81d9f09e6ea65736",
+        "studio.css": "713e8a9ef0a5e0e478a479897c10c1c6bf9219098b810bb9964c146ddb6756d4",
+        "studio.js": "5d7be0797055ca4ceee4aad19a7f5d52d1bde157d791a7472ca5f3412d52bde8"
+      },
+      "screenshotSHA256": "dc90b14155e01716899ef3909c7ec16381e2ff25f282061f36cd72fd88213c57"
+    },
+    {
+      "id": "js-baseline-20261103T162043Z-frame",
+      "elementId": "frame",
+      "title": "JS baseline · Frames",
+      "src": "assets/js-baselines/20261103-162043Z/frame-js-baseline.png",
+      "download": "assets/js-baselines/20261103-162043Z/frame-js-baseline.png",
+      "caption": "Actual current JavaScript Studio fixture. Simulated providers; no Rust/native parity or automatic approval.",
+      "approval": "baseline-capture",
+      "sourcePhase": "01",
+      "sourceUrl": "http://127.0.0.1:8765/?phase=01&tab=frame&sample=1",
+      "jsSourceUrl": "http://127.0.0.1:8765/?phase=01&tab=frame&sample=1",
+      "viewport": {
+        "width": 960,
+        "height": 900
+      },
+      "captureViewport": {
+        "width": 960,
+        "height": 900
+      },
+      "capture": {
+        "url": "http://127.0.0.1:8765/?phase=01&tab=frame&sample=1",
+        "viewport": {
+          "width": 960,
+          "height": 900
+        }
+      },
+      "theme": "light",
+      "capturedAt": "2026-11-03T16:20:57.435Z",
+      "captureKind": "browser-screenshot",
+      "browser": {
+        "name": "Microsoft Edge",
+        "version": "156.0.4314.58",
+        "headless": true
+      },
+      "dpi": 96,
+      "devicePixelRatio": 1,
+      "browserZoom": 1,
+      "fixture": "Current default sample fixture",
+      "actions": [
+        "Clicked existing Frame Fit control"
+      ],
+      "observed": {
+        "theme": "light",
+        "devicePixelRatio": 1,
+        "browserZoom": 1,
+        "canvas": {
+          "x": 0,
+          "y": 130,
+          "width": 960,
+          "height": 770,
+          "top": 130,
+          "right": 960,
+          "bottom": 900,
+          "left": 0
+        },
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 960,
+          "height": 81.796875,
+          "top": 0,
+          "right": 960,
+          "bottom": 81.796875,
+          "left": 0
+        },
+        "tabLabels": [
+          {
+            "text": "Chat Train",
+            "width": 78,
+            "scrollWidth": 78
+          },
+          {
+            "text": "Images",
+            "width": 62,
+            "scrollWidth": 62
+          },
+          {
+            "text": "Dashboard Builder",
+            "width": 123,
+            "scrollWidth": 123
+          },
+          {
+            "text": "Text Agent",
+            "width": 83,
+            "scrollWidth": 83
+          },
+          {
+            "text": "Rhino 3D",
+            "width": 73,
+            "scrollWidth": 73
+          },
+          {
+            "text": "Frames",
+            "width": 63,
+            "scrollWidth": 63
+          },
+          {
+            "text": "Studio",
+            "width": 59,
+            "scrollWidth": 59
+          }
+        ],
+        "canvasTransform": null,
+        "chat": null,
+        "frame": {
+          "schema": "slate-frame-studio-measurements/v1",
+          "fixture": "baseline",
+          "revision": 1,
+          "theme": "light",
+          "camera": {
+            "x": 240.45454545454544,
+            "y": 79,
+            "zoom": 0.7828282828282829
+          },
+          "viewport": {
+            "width": 960,
+            "height": 770,
+            "dpr": 1
+          },
+          "nativePixelParity": "unverified",
+          "interaction": {
+            "schema": "slate-frame-interaction-metrics/v1",
+            "selectedIds": [],
+            "undoDepth": 0,
+            "redoDepth": 0,
+            "deck": {
+              "active": false,
+              "prefix": [],
+              "order": [
+                "frame-1"
+              ]
+            },
+            "presentationId": null,
+            "panel": null,
+            "propertyTokens": {
+              "button": 30,
+              "gap": 7,
+              "objectGap": 14,
+              "panelWidth": 420,
+              "fillHeight": 174,
+              "strokeHeight": 190,
+              "cornersHeight": 22.1,
+              "colorField": [
+                5,
+                5,
+                396,
+                70
+              ],
+              "rails": {
+                "x": 12,
+                "y": 96,
+                "pitch": 16,
+                "width": 396,
+                "height": 7
+              },
+              "popupGap": 8,
+              "popupMargin": 8,
+              "blister": {
+                "height": 40,
+                "shoulder": 84,
+                "closedWidth": 504,
+                "openWidth": 432,
+                "inset": 42,
+                "icon": 31.2
+              },
+              "transitionSeconds": 0.12,
+              "duplicateOffset": [
+                24,
+                24
+              ]
+            }
+          },
+          "canonical": {
+            "schema": "slate-frame-metrics/v1",
+            "units": "world-units-and-screen-pixels",
+            "theme": "light",
+            "camera": {
+              "x": 240.45454545454544,
+              "y": 79,
+              "zoom": 0.7828282828282829
+            },
+            "tokens": {
+              "frame": {
+                "radius": 8,
+                "strokeWidth": 0,
+                "titleSize": 12,
+                "tagSize": 10.5,
+                "labelInset": 2,
+                "labelLift": 6,
+                "shadow": false,
+                "minDraw": 8,
+                "creationDragThreshold": 4,
+                "selectionDragThreshold": 6,
+                "presets": {
+                  "Letter": {
+                    "w": 612,
+                    "h": 792
+                  },
+                  "Tabloid": {
+                    "w": 1224,
+                    "h": 792
+                  },
+                  "Wide169": {
+                    "w": 960,
+                    "h": 540
+                  }
+                }
+              },
+              "selection": {
+                "lineWeight": 1.5,
+                "opacity": 1,
+                "fillOpacity": 0.16,
+                "hoverLineWeight": 1.25,
+                "hoverOpacity": 0.55,
+                "highlightIn": 0.12,
+                "highlightOut": 0.22,
+                "lockedOpacity": 0.45,
+                "filletHalfSize": 1.6,
+                "filletMinInset": 10
+              },
+              "strip": {
+                "buttonSize": 30,
+                "buttonGap": 7,
+                "objectGap": 14,
+                "stringerGap": 24,
+                "bottomStringerGap": 68,
+                "fadeSeconds": 0.12
+              },
+              "hit": {
+                "cornerReach": 7,
+                "edgeReach": 6,
+                "rotateReach": 9,
+                "rotateOffset": 18,
+                "filletReach": 9,
+                "wireReach": 8,
+                "minimumReach": 2,
+                "moveSize": 18,
+                "compactFrame": 72,
+                "cursorRange": 42,
+                "cursorGain": 0.65,
+                "resizeRange": [
+                  12,
+                  48
+                ],
+                "rotateRange": [
+                  3,
+                  16
+                ],
+                "wireRange": [
+                  36,
+                  88
+                ]
+              },
+              "navigation": {
+                "minZoom": 0.0078125,
+                "maxZoom": 128,
+                "defaultZoom": 0.8,
+                "wheelCoefficient": 0.0015
+              },
+              "snap": {
+                "rotationStep": 45,
+                "rotationTolerance": 4,
+                "smartGuideReach": 9,
+                "grid": 20
+              },
+              "text": {
+                "minimumRenderPx": 4,
+                "fontFamily": "FrameUbuntu",
+                "fontWeight": 300,
+                "fontAsset": "../chat-train/assets/Ubuntu-Light.ttf",
+                "fontSha256": "80307b8da7649aa4ee4d484b232140e3ce1ec0ca093073d3c53c8f5a5ced7a70"
+              },
+              "themes": {
+                "light": {
+                  "bg": "#f6f7f8",
+                  "grid": "#dfe3e7",
+                  "card": "#ffffff",
+                  "ink": "#1b1e22",
+                  "sub": "#878e96",
+                  "select": "#1f6fb2",
+                  "accent": "#0f766e",
+                  "border": "#dfe3e8"
+                },
+                "dark": {
+                  "bg": "#0e1013",
+                  "grid": "#23272d",
+                  "card": "#1c2026",
+                  "ink": "#dde2e8",
+                  "sub": "#878e96",
+                  "select": "#6fb7ff",
+                  "accent": "#2dd4bf",
+                  "border": "#333941"
+                }
+              }
+            },
+            "frames": [
+              {
+                "id": "frame-1",
+                "rect": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 612,
+                  "h": 792
+                },
+                "rotation_deg": 0,
+                "order": 0,
+                "title": "Slide 1",
+                "corners": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    612,
+                    0
+                  ],
+                  [
+                    612,
+                    792
+                  ],
+                  [
+                    0,
+                    792
+                  ]
+                ],
+                "upperEdge": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    612,
+                    0
+                  ]
+                ],
+                "titleAngle": 0,
+                "titleSizeScreen": 9.393939393939394,
+                "titleVisible": true,
+                "fill": [
+                  255,
+                  255,
+                  255,
+                  255
+                ],
+                "cornerKind": "rounded",
+                "cornerRadius": 8,
+                "silhouette": [
+                  [
+                    604,
+                    0
+                  ],
+                  [
+                    608,
+                    1.0717967697244717
+                  ],
+                  [
+                    610.9282032302755,
+                    4
+                  ],
+                  [
+                    612,
+                    8
+                  ],
+                  [
+                    612,
+                    784
+                  ],
+                  [
+                    610.9282032302755,
+                    788
+                  ],
+                  [
+                    608,
+                    790.9282032302755
+                  ],
+                  [
+                    604,
+                    792
+                  ],
+                  [
+                    8,
+                    792
+                  ],
+                  [
+                    4,
+                    790.9282032302755
+                  ],
+                  [
+                    1.0717967697244717,
+                    788
+                  ],
+                  [
+                    0,
+                    784
+                  ],
+                  [
+                    0,
+                    8
+                  ],
+                  [
+                    1.0717967697244717,
+                    4
+                  ],
+                  [
+                    4,
+                    1.0717967697244717
+                  ],
+                  [
+                    8,
+                    0
+                  ]
+                ],
+                "labelProbe": {
+                  "center": [
+                    47,
+                    -16
+                  ],
+                  "angle": 0
+                },
+                "strokeWidth": 0,
+                "shadow": false,
+                "selected": false,
+                "members": [],
+                "selection": {
+                  "corners": [
+                    [
+                      0,
+                      0
+                    ],
+                    [
+                      479.0909090909091,
+                      0
+                    ],
+                    [
+                      479.0909090909091,
+                      620
+                    ],
+                    [
+                      0,
+                      620
+                    ]
+                  ],
+                  "controlCorners": [
+                    [
+                      0,
+                      0
+                    ],
+                    [
+                      479.0909090909091,
+                      0
+                    ],
+                    [
+                      479.0909090909091,
+                      620
+                    ],
+                    [
+                      0,
+                      620
+                    ]
+                  ],
+                  "projectedShortest": 479.0909090909091,
+                  "prominence": {
+                    "wire": 1,
+                    "resize": 1,
+                    "rotate": 1
+                  },
+                  "padding": 0,
+                  "rotationRadius": 18,
+                  "rotatePoints": [
+                    [
+                      -11.006055019363778,
+                      -14.243130025059004
+                    ],
+                    [
+                      490.0969641102729,
+                      -14.243130025059004
+                    ],
+                    [
+                      490.0969641102729,
+                      634.243130025059
+                    ],
+                    [
+                      -11.006055019363778,
+                      634.243130025059
+                    ]
+                  ]
+                }
+              }
+            ],
+            "deckOrder": [
+              "frame-1"
+            ]
+          },
+          "frames": [
+            {
+              "id": "frame-1",
+              "title": "Slide 1",
+              "order": 0,
+              "tags": [],
+              "locked": false,
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 612,
+                "h": 792
+              },
+              "rotation_deg": 0,
+              "corner": {
+                "kind": "rounded",
+                "radius": 8
+              },
+              "fill": [
+                255,
+                255,
+                255,
+                255
+              ],
+              "fill_authored": false,
+              "stroke": {
+                "width": 0,
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ]
+              },
+              "corners": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  612,
+                  0
+                ],
+                [
+                  612,
+                  792
+                ],
+                [
+                  0,
+                  792
+                ]
+              ],
+              "upperEdge": {
+                "a": [
+                  0,
+                  0
+                ],
+                "b": [
+                  612,
+                  0
+                ],
+                "index": 0,
+                "center": [
+                  306,
+                  0
+                ],
+                "tangent": [
+                  1,
+                  0
+                ],
+                "outward": [
+                  0,
+                  -1
+                ],
+                "angle": 0
+              },
+              "geometry": {
+                "corners": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    479.0909090909091,
+                    0
+                  ],
+                  [
+                    479.0909090909091,
+                    620
+                  ],
+                  [
+                    0,
+                    620
+                  ]
+                ],
+                "controlCorners": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    479.0909090909091,
+                    0
+                  ],
+                  [
+                    479.0909090909091,
+                    620
+                  ],
+                  [
+                    0,
+                    620
+                  ]
+                ],
+                "projectedShortest": 479.0909090909091,
+                "prominence": {
+                  "wire": 1,
+                  "resize": 1,
+                  "rotate": 1
+                },
+                "padding": 0,
+                "rotationRadius": 18,
+                "rotatePoints": [
+                  [
+                    -11.006055019363778,
+                    -14.243130025059004
+                  ],
+                  [
+                    490.0969641102729,
+                    -14.243130025059004
+                  ],
+                  [
+                    490.0969641102729,
+                    634.243130025059
+                  ],
+                  [
+                    -11.006055019363778,
+                    634.243130025059
+                  ]
+                ]
+              },
+              "members": []
+            }
+          ],
+          "tokens": {
+            "frame": {
+              "radius": 8,
+              "strokeWidth": 0,
+              "titleSize": 12,
+              "tagSize": 10.5,
+              "labelInset": 2,
+              "labelLift": 6,
+              "shadow": false,
+              "minDraw": 8,
+              "creationDragThreshold": 4,
+              "selectionDragThreshold": 6,
+              "presets": {
+                "Letter": {
+                  "w": 612,
+                  "h": 792
+                },
+                "Tabloid": {
+                  "w": 1224,
+                  "h": 792
+                },
+                "Wide169": {
+                  "w": 960,
+                  "h": 540
+                }
+              }
+            },
+            "selection": {
+              "lineWeight": 1.5,
+              "opacity": 1,
+              "fillOpacity": 0.16,
+              "hoverLineWeight": 1.25,
+              "hoverOpacity": 0.55,
+              "highlightIn": 0.12,
+              "highlightOut": 0.22,
+              "lockedOpacity": 0.45,
+              "filletHalfSize": 1.6,
+              "filletMinInset": 10
+            },
+            "strip": {
+              "buttonSize": 30,
+              "buttonGap": 7,
+              "objectGap": 14,
+              "stringerGap": 24,
+              "bottomStringerGap": 68,
+              "fadeSeconds": 0.12
+            },
+            "hit": {
+              "cornerReach": 7,
+              "edgeReach": 6,
+              "rotateReach": 9,
+              "rotateOffset": 18,
+              "filletReach": 9,
+              "wireReach": 8,
+              "minimumReach": 2,
+              "moveSize": 18,
+              "compactFrame": 72,
+              "cursorRange": 42,
+              "cursorGain": 0.65,
+              "resizeRange": [
+                12,
+                48
+              ],
+              "rotateRange": [
+                3,
+                16
+              ],
+              "wireRange": [
+                36,
+                88
+              ]
+            },
+            "navigation": {
+              "minZoom": 0.0078125,
+              "maxZoom": 128,
+              "defaultZoom": 0.8,
+              "wheelCoefficient": 0.0015
+            },
+            "snap": {
+              "rotationStep": 45,
+              "rotationTolerance": 4,
+              "smartGuideReach": 9,
+              "grid": 20
+            },
+            "text": {
+              "minimumRenderPx": 4,
+              "fontFamily": "FrameUbuntu",
+              "fontWeight": 300,
+              "fontAsset": "../chat-train/assets/Ubuntu-Light.ttf",
+              "fontSha256": "80307b8da7649aa4ee4d484b232140e3ce1ec0ca093073d3c53c8f5a5ced7a70"
+            },
+            "themes": {
+              "light": {
+                "bg": "#f6f7f8",
+                "grid": "#dfe3e7",
+                "card": "#ffffff",
+                "ink": "#1b1e22",
+                "sub": "#878e96",
+                "select": "#1f6fb2",
+                "accent": "#0f766e",
+                "border": "#dfe3e8"
+              },
+              "dark": {
+                "bg": "#0e1013",
+                "grid": "#23272d",
+                "card": "#1c2026",
+                "ink": "#dde2e8",
+                "sub": "#878e96",
+                "select": "#6fb7ff",
+                "accent": "#2dd4bf",
+                "border": "#333941"
+              }
+            }
+          }
+        },
+        "openMenus": 0
+      },
+      "relevantSourceHashes": {
+        "canvas-navigation.js": "30d0152fa0f372574de5edce1da41edeba5ca6316eed6a595ba90f68a0869d8f",
+        "chat-train/agent-catalog.js": "fed23ea7560198e99e3c598ebccb3a117509d2f4af42471302a71d07b889d421",
+        "chat-train/agent-picker.js": "dc5b6a39d085ce495e014375ffbf041d43ee88a9ab2d99ad7b8a7f67202cdabe",
+        "chat-train/app.js": "cae0f0f68bcc5520b7a1810aba6c2b6b78a4cc6e0db121c27fdf6d0c435f30a3",
+        "chat-train/conversation-fixture.js": "2932dfbcfbfe416e73748034cc2326791104287cabfca779a696cad019e542d9",
+        "chat-train/model.js": "f7a91844cff59b5e60bceb9a90831d79b5cb6cf9b44b40f5ce04c6125f6b2827",
+        "chat-train/reference.js": "703c4d5f67fb64f290dcb210bf621558291f5680283cb45282d8186119995313",
+        "chat-train/style.css": "9fdd40b08e854cd7cc4de089fd0f70e90fa7801e0c13cbcd52b36f503bcfe52c",
+        "elements/dashboard-builder.css": "550588d2b45c066d9de6979402b0a6c2b38f246b15fd16764df7df7afd2a00cf",
+        "elements/dashboard-builder.js": "ee0848561cb9480ff5e10ddda5e3dd1a5772c9e4d54762720f4586c10a6bac6d",
+        "elements/native-icons.js": "dd3c7b544683953e5e776e71447a3059aa583e8ee2beaa41e72a087312dac7c9",
+        "elements/result-previews.js": "d2ed600bb69fccfafbc30a28f8adcc0d342bc26d751a4adb7f5effd798bba855",
+        "elements/rhino-agent.css": "102dd15c75cc383f727599743c2dac5f01c638c9e6006c2e78697c9893c3af03",
+        "elements/rhino-agent.js": "2ca12884879f5dc5e7ce9329e8c45642af4880d8d95d1773b4658db1c0c5c138",
+        "elements/runtime.css": "038093bfeec2b5e853a78623f0f36ab26fd87ce17622f774e14dd99b74e63cdc",
+        "elements/runtime.js": "cf01ccce12c4cb2a6f3cad3e3c8fe5177f06b30b6de6a4e3f94fdfa145617bf7",
+        "elements/session-model.js": "600ef528b022df8bbcb6a86bd7e84d75e5a77c3a52dd21fb77c82b8b42647623",
+        "elements/text-agent.css": "987bb083fbcb777812d849192d077bbddaf0863485b58a8e5a405eac6265f7be",
+        "elements/text-agent.js": "794f62563c8f34ab7bfbfd4b3a811cec22256e0e94542450a6e72e8d6ef1f6f2",
+        "elements/text-links.js": "1561265a2ba4320149085c00efaf446d81d9c9fef2f3af4f212eb13eee8f80c0",
+        "frame/app.js": "11a698e54575293a715db1c2a4395b82a55a57bb89815733392a02e3057488ed",
+        "frame/baseline.js": "ffd03a722d65f3774887b8383558ea131e625a625abd340ad1e686880715ef84",
+        "frame/deck.js": "368faa795265dfcbd27f8db13bd770a16e42870c89bad31972b7cccfc332a79f",
+        "frame/panels.js": "7cb09e2f2c7f81a55a5947cce69f0d917e9561aa3ca936cb285117e4db93f192",
+        "frame/render.js": "66cb1a31d37fd7b78d5a38cb801a4062564d83160f7b861f221313306aba03ba",
+        "frame/style.css": "76172682ad29dbaaca13872cc29034891f0e6a8e4ed47e039819495d1b38967c",
+        "generator-ui.css": "f883afe1bd4ac69287370e1597015464f5260c3622530e9b86fb8d279c7b6b01",
+        "generator-ui.js": "7263c81bd56746fd48b6f5c4df087f4d8bf43a25468be5e74cd1674d0f6ce5c1",
+        "image-feedback.css": "fed9df80193795004bac62a09d534a2c7dd9c65b006ecc4881c7353bd8f26b0d",
+        "image-feedback.js": "3f59cd9c512805ed1ebc0b700d5af1b523dfca8086c341197efce719b61d8b6d",
+        "image-generator/app.js": "6342c9b325e85cf848f7d67b3e1af7db362a4d8df148a17a94b94d28c339ae85",
+        "image-generator/catalog.js": "0519fe6113809814f837fcabc7370b01654a9e6141a06833e876d071ca0801a6",
+        "image-generator/context-recipe.js": "4f95e3a06c941866123ac76b9a55a7845971b3db564c87d1b1826bfaa5ae2caf",
+        "image-generator/graft.js": "707ca5af349e3de8ebee481e62bc2c2b97fc41eff2b1337bb868e20eb3c44f8a",
+        "image-generator/history.js": "661940414e0df38731f327a05f5193c79514c2d9b260b39b2b1f9c80eb76f044",
+        "image-generator/icons.js": "4dfa88cc7ab03c89c1e4cd350316dae0a8525940dafb987f4b194a23bf3cb6ca",
+        "image-generator/layout.js": "61c853e03a3fa4d1dee74f38734aadb140517093e5fd43fb44a87d28974d04cf",
+        "image-generator/menu-studio.css": "37ce59cb0d7e73b5e86863e0d003d0afb17d588712856db1008ef7ef7d6f7213",
+        "image-generator/menu-studio.js": "927bdaf9ef032d49d9a666b6b287433b7e8af3d5fda115a91d24d8226ec0e7a8",
+        "image-generator/menus.js": "0e6bfba18509d09e5483ec4233d8a46416eb290338cc3b3e46b68c4db9c194b5",
+        "image-generator/style.css": "b777f09f0a1559e4f416952f9efb9a3fa8d4f4f9a7ee9ff3f421bb99c1e07ac0",
+        "image-generator/view.js": "5347058d76ca6be7de0ee44547b3b61f8050325e8aabe769caddd8b79f59ca8f",
+        "index.html": "d1b2377b61567d2d8d2da23d0d0299bc62d9d13dda99038ca341d16b252246bd",
+        "scroll-overlay.js": "7277dc8730425a9299f38fe84376628fb3ce32b1f9928fcbecb2f42459fbbe48",
+        "studio-data.js": "d690f365a01b07268b8721dad79786bef826ede20952712be6f03cc77c721a83",
+        "studio-model.js": "9178d66c8b542f27338bd5285fe22d0927a55235049e3b5b22651536497ca431",
+        "studio-portal.css": "246bf479f0a6b6b200233073d692a1a425a8bcd312547aa78407799339a99b64",
+        "studio-portal.js": "013f656eafbee95b5c391da86f86f10066365417375017fe81d9f09e6ea65736",
+        "studio.css": "713e8a9ef0a5e0e478a479897c10c1c6bf9219098b810bb9964c146ddb6756d4",
+        "studio.js": "5d7be0797055ca4ceee4aad19a7f5d52d1bde157d791a7472ca5f3412d52bde8"
+      },
+      "screenshotSHA256": "2b0b43dd41ea549ecf2486613f67a9439c7bcb609f64109705790c65a12303c4"
+    },
+    {
+      "id": "js-baseline-20261103T162043Z-studio",
+      "elementId": "studio",
+      "title": "JS baseline · Studio home",
+      "src": "assets/js-baselines/20261103-162043Z/studio-js-baseline.png",
+      "download": "assets/js-baselines/20261103-162043Z/studio-js-baseline.png",
+      "caption": "Actual current JavaScript Studio fixture. Simulated providers; no Rust/native parity or automatic approval.",
+      "approval": "baseline-capture",
+      "sourcePhase": "01",
+      "sourceUrl": "http://127.0.0.1:8765/?sample=1",
+      "jsSourceUrl": "http://127.0.0.1:8765/?sample=1",
+      "viewport": {
+        "width": 960,
+        "height": 900
+      },
+      "captureViewport": {
+        "width": 960,
+        "height": 900
+      },
+      "capture": {
+        "url": "http://127.0.0.1:8765/?sample=1",
+        "viewport": {
+          "width": 960,
+          "height": 900
+        }
+      },
+      "theme": "light",
+      "capturedAt": "2026-11-03T16:20:58.694Z",
+      "captureKind": "browser-screenshot",
+      "browser": {
+        "name": "Microsoft Edge",
+        "version": "156.0.4314.58",
+        "headless": true
+      },
+      "dpi": 96,
+      "devicePixelRatio": 1,
+      "browserZoom": 1,
+      "fixture": "Actual Studio home, not recursive gallery",
+      "actions": [],
+      "observed": {
+        "theme": "light",
+        "devicePixelRatio": 1,
+        "browserZoom": 1,
+        "canvas": {
+          "x": 0,
+          "y": 44,
+          "width": 960,
+          "height": 856,
+          "top": 44,
+          "right": 960,
+          "bottom": 900,
+          "left": 0
+        },
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 960,
+          "height": 44,
+          "top": 0,
+          "right": 960,
+          "bottom": 44,
+          "left": 0
+        },
+        "tabLabels": [],
+        "canvasTransform": null,
+        "chat": null,
+        "frame": null,
+        "openMenus": 0
+      },
+      "relevantSourceHashes": {
+        "canvas-navigation.js": "30d0152fa0f372574de5edce1da41edeba5ca6316eed6a595ba90f68a0869d8f",
+        "chat-train/agent-catalog.js": "fed23ea7560198e99e3c598ebccb3a117509d2f4af42471302a71d07b889d421",
+        "chat-train/agent-picker.js": "dc5b6a39d085ce495e014375ffbf041d43ee88a9ab2d99ad7b8a7f67202cdabe",
+        "chat-train/app.js": "cae0f0f68bcc5520b7a1810aba6c2b6b78a4cc6e0db121c27fdf6d0c435f30a3",
+        "chat-train/conversation-fixture.js": "2932dfbcfbfe416e73748034cc2326791104287cabfca779a696cad019e542d9",
+        "chat-train/model.js": "f7a91844cff59b5e60bceb9a90831d79b5cb6cf9b44b40f5ce04c6125f6b2827",
+        "chat-train/reference.js": "703c4d5f67fb64f290dcb210bf621558291f5680283cb45282d8186119995313",
+        "chat-train/style.css": "9fdd40b08e854cd7cc4de089fd0f70e90fa7801e0c13cbcd52b36f503bcfe52c",
+        "elements/dashboard-builder.css": "550588d2b45c066d9de6979402b0a6c2b38f246b15fd16764df7df7afd2a00cf",
+        "elements/dashboard-builder.js": "ee0848561cb9480ff5e10ddda5e3dd1a5772c9e4d54762720f4586c10a6bac6d",
+        "elements/native-icons.js": "dd3c7b544683953e5e776e71447a3059aa583e8ee2beaa41e72a087312dac7c9",
+        "elements/result-previews.js": "d2ed600bb69fccfafbc30a28f8adcc0d342bc26d751a4adb7f5effd798bba855",
+        "elements/rhino-agent.css": "102dd15c75cc383f727599743c2dac5f01c638c9e6006c2e78697c9893c3af03",
+        "elements/rhino-agent.js": "2ca12884879f5dc5e7ce9329e8c45642af4880d8d95d1773b4658db1c0c5c138",
+        "elements/runtime.css": "038093bfeec2b5e853a78623f0f36ab26fd87ce17622f774e14dd99b74e63cdc",
+        "elements/runtime.js": "cf01ccce12c4cb2a6f3cad3e3c8fe5177f06b30b6de6a4e3f94fdfa145617bf7",
+        "elements/session-model.js": "600ef528b022df8bbcb6a86bd7e84d75e5a77c3a52dd21fb77c82b8b42647623",
+        "elements/text-agent.css": "987bb083fbcb777812d849192d077bbddaf0863485b58a8e5a405eac6265f7be",
+        "elements/text-agent.js": "794f62563c8f34ab7bfbfd4b3a811cec22256e0e94542450a6e72e8d6ef1f6f2",
+        "elements/text-links.js": "1561265a2ba4320149085c00efaf446d81d9c9fef2f3af4f212eb13eee8f80c0",
+        "frame/app.js": "11a698e54575293a715db1c2a4395b82a55a57bb89815733392a02e3057488ed",
+        "frame/baseline.js": "ffd03a722d65f3774887b8383558ea131e625a625abd340ad1e686880715ef84",
+        "frame/deck.js": "368faa795265dfcbd27f8db13bd770a16e42870c89bad31972b7cccfc332a79f",
+        "frame/panels.js": "7cb09e2f2c7f81a55a5947cce69f0d917e9561aa3ca936cb285117e4db93f192",
+        "frame/render.js": "66cb1a31d37fd7b78d5a38cb801a4062564d83160f7b861f221313306aba03ba",
+        "frame/style.css": "76172682ad29dbaaca13872cc29034891f0e6a8e4ed47e039819495d1b38967c",
+        "generator-ui.css": "f883afe1bd4ac69287370e1597015464f5260c3622530e9b86fb8d279c7b6b01",
+        "generator-ui.js": "7263c81bd56746fd48b6f5c4df087f4d8bf43a25468be5e74cd1674d0f6ce5c1",
+        "image-feedback.css": "fed9df80193795004bac62a09d534a2c7dd9c65b006ecc4881c7353bd8f26b0d",
+        "image-feedback.js": "3f59cd9c512805ed1ebc0b700d5af1b523dfca8086c341197efce719b61d8b6d",
+        "image-generator/app.js": "6342c9b325e85cf848f7d67b3e1af7db362a4d8df148a17a94b94d28c339ae85",
+        "image-generator/catalog.js": "0519fe6113809814f837fcabc7370b01654a9e6141a06833e876d071ca0801a6",
+        "image-generator/context-recipe.js": "4f95e3a06c941866123ac76b9a55a7845971b3db564c87d1b1826bfaa5ae2caf",
+        "image-generator/graft.js": "707ca5af349e3de8ebee481e62bc2c2b97fc41eff2b1337bb868e20eb3c44f8a",
+        "image-generator/history.js": "661940414e0df38731f327a05f5193c79514c2d9b260b39b2b1f9c80eb76f044",
+        "image-generator/icons.js": "4dfa88cc7ab03c89c1e4cd350316dae0a8525940dafb987f4b194a23bf3cb6ca",
+        "image-generator/layout.js": "61c853e03a3fa4d1dee74f38734aadb140517093e5fd43fb44a87d28974d04cf",
+        "image-generator/menu-studio.css": "37ce59cb0d7e73b5e86863e0d003d0afb17d588712856db1008ef7ef7d6f7213",
+        "image-generator/menu-studio.js": "927bdaf9ef032d49d9a666b6b287433b7e8af3d5fda115a91d24d8226ec0e7a8",
+        "image-generator/menus.js": "0e6bfba18509d09e5483ec4233d8a46416eb290338cc3b3e46b68c4db9c194b5",
+        "image-generator/style.css": "b777f09f0a1559e4f416952f9efb9a3fa8d4f4f9a7ee9ff3f421bb99c1e07ac0",
+        "image-generator/view.js": "5347058d76ca6be7de0ee44547b3b61f8050325e8aabe769caddd8b79f59ca8f",
+        "index.html": "d1b2377b61567d2d8d2da23d0d0299bc62d9d13dda99038ca341d16b252246bd",
+        "scroll-overlay.js": "7277dc8730425a9299f38fe84376628fb3ce32b1f9928fcbecb2f42459fbbe48",
+        "studio-data.js": "d690f365a01b07268b8721dad79786bef826ede20952712be6f03cc77c721a83",
+        "studio-model.js": "9178d66c8b542f27338bd5285fe22d0927a55235049e3b5b22651536497ca431",
+        "studio-portal.css": "246bf479f0a6b6b200233073d692a1a425a8bcd312547aa78407799339a99b64",
+        "studio-portal.js": "013f656eafbee95b5c391da86f86f10066365417375017fe81d9f09e6ea65736",
+        "studio.css": "713e8a9ef0a5e0e478a479897c10c1c6bf9219098b810bb9964c146ddb6756d4",
+        "studio.js": "5d7be0797055ca4ceee4aad19a7f5d52d1bde157d791a7472ca5f3412d52bde8"
+      },
+      "screenshotSHA256": "1d1da08d8d160cec3d3ec6002aafb891ef0c0417554c55684891eee01142394a"
+    }
+  ]
+}

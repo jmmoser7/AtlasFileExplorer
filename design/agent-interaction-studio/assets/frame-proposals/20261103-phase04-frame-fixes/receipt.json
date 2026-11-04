@@ -1,0 +1,23 @@
+{
+  "phase": "04",
+  "element": "frame",
+  "status": "local integration review",
+  "capture": {
+    "file": "blister-native.jpg",
+    "fixture": "presentation-large",
+    "zoom": 0.8,
+    "theme": "light",
+    "viewport": [1620, 1032],
+    "capturedAt": "2026-11-03T23:59:40.8085262Z",
+    "sha256": "eed2ff7fbff569514f5be05d4177a56b92dac982a705ed706bd722a9d8b68ce8",
+    "binarySha256": "a01ff9d1307dcda884b91368dd36bd20c24ad9eabcd484c48793e3144ced0897"
+  },
+  "finalCandidate": {
+    "binary": "target/debug/slate.exe",
+    "workbook": "target/frame-followup/media-review.slate",
+    "sha256": "d66dc587772f05e3621bb1fe3da42a02df9870a5672c3057fcbd8c09faae41ef",
+    "launchUTC": "2026-11-04T00:29:54.1217008Z",
+    "timingHtml": "cargo-timing-20261104T000533976Z-067f4ff03e141d0b.html"
+  },
+  "report": "contracts/frame-phase-04-receipt.md"
+}

@@ -76,6 +76,13 @@ pub(super) fn open_model_menu(h: &mut super::super::tests::Harness, card: NodeId
         .map(|(_, r)| r.center())
         .unwrap_or_else(|| panic!("the tail shows its model name: {texts:?}"));
     press(h, at);
+    let root = h.frame_output(|_| {});
+    let model = painted_at(&root)
+        .into_iter()
+        .find(|(text, _)| text == "Model")
+        .expect("shared model submenu")
+        .1;
+    press(h, model.center());
     assert!(
         menu_items_painted(&h.frame_output(|_| {})),
         "the click opened the model list"

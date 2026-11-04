@@ -85,6 +85,7 @@ pub(super) fn prepared_cmds(
                 original.clone()
             }
             SceneCmd::LayerNodeAdd { .. } => original.clone(),
+            SceneCmd::Presentations { .. } => original.clone(),
         };
         if !check.apply(&cmd) {
             return Err(StaleReason::CommandRejected);
@@ -121,4 +122,94 @@ fn layer_node_matches(
         return false;
     };
     actual.id == layer && actual.nodes.get(index) == Some(expected)
+}
+/// The same stage preflight, for owners that must stop old work immediately
+/// before the accepted journal mutation changes its execution identity.
+pub fn preflight_record(
+    proposal: &Proposal,
+    workbook: Option<&Path>,
+    scene: &Scene,
+    ai_workspace: &Path,
+) -> Result<(), String> {
+    if super::read_result(ai_workspace, &proposal.id)
+        .map_err(|e| e.to_string())?
+        .is_some()
+    {
+        return Err("A stage decision already exists".into());
+    }
+    prepared_cmds(proposal, workbook, scene)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod history_preflight_tests {
+    use super::*;
+    use crate::scene::{Corner, Rgba, SceneJournal, ShapeKind, ShapeNode, Stroke, WorldRect};
+    #[test]
+    fn shared_stage_preflight_rejects_stale_decisions_and_failed_applying_keeps_document() {
+        let workspace = std::env::temp_dir().join(crate::scene::new_agent_session_id());
+        std::fs::create_dir_all(&workspace).unwrap();
+        let workbook = workspace.join("test.slate");
+        let mut scene = Scene::default();
+        let node = scene.build_node(
+            WorldRect::new(0.0, 0.0, 100.0, 80.0),
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Rect,
+                fill: Some(Rgba([30, 40, 50, 255])),
+                stroke: Stroke::none(),
+                corner: Corner::default(),
+                sides: crate::scene::default_regular_sides(),
+                phase_deg: 0.0,
+                flip: false,
+                path: None,
+                text: None,
+            }),
+        );
+        scene.nodes.push(node.clone());
+        let mut after = node.clone();
+        after.rect.x = 20.0;
+        let proposal = Proposal {
+            id: "history-preflight".into(),
+            author: "agent".into(),
+            title: "board.image.history".into(),
+            created_at: 1,
+            target: super::super::ProposalTarget {
+                workbook: Some(workbook.clone()),
+                format_version: SlateDoc::CURRENT,
+            },
+            cmds: vec![SceneCmd::Patch {
+                before: Box::new(node),
+                after: Box::new(after),
+            }],
+            session: Some("scope".into()),
+            status: ProposalStatus::Pending,
+        };
+        let before = scene.clone();
+        let mut journal = SceneJournal::default();
+        assert!(preflight_record(&proposal, Some(&workbook), &scene, &workspace).is_ok());
+        let error = super::super::accept_and_record_with_writer(
+            &proposal,
+            Some(&workbook),
+            &mut scene,
+            &mut journal,
+            &workspace,
+            |_| Err(std::io::Error::other("Applying write failed")),
+        )
+        .unwrap_err();
+        assert!(!error.applied);
+        assert_eq!(scene, before);
+        assert_eq!(journal.undo_depth(), 0);
+        super::super::write_result(
+            &workspace,
+            &proposal.id,
+            &super::super::ProposalResult::Rejected,
+        )
+        .unwrap();
+        assert!(preflight_record(&proposal, Some(&workbook), &scene, &workspace).is_err());
+        std::fs::remove_file(super::super::result_path(&workspace, &proposal.id)).unwrap();
+        scene.nodes[0].locked = true;
+        assert!(preflight_record(&proposal, Some(&workbook), &scene, &workspace).is_err());
+        std::fs::remove_dir_all(workspace).unwrap();
+    }
 }

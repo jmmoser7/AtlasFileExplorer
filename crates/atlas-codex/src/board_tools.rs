@@ -4,6 +4,7 @@ use super::*;
 use atlas_agent::collaborator::{BoardCall, BoardOperation, BoardReply, MAX_BOARD_MESSAGE_BYTES};
 
 mod image_transport;
+mod thread_binding;
 
 pub(super) fn tools() -> Value {
     json!([
@@ -41,7 +42,8 @@ impl Client {
             return Ok(());
         }
         // Dynamic tools belong to thread/start, not turn/start or thread/resume.
-        // A fresh membership cannot inherit an old job or an ordinary chat's context.
+        // A fresh membership receives fresh permissions and tools. The caller
+        // replays only this chat's visible checkpoint into its replacement thread.
         let mut params = thread_params(&self.cwd, None);
         if request.collaborator.is_some() {
             params["dynamicTools"] = tools();
@@ -54,7 +56,9 @@ impl Client {
             .into();
         self.permissions = TurnPermissions::default();
         self.permissions.own = Permissions::from_thread_response(&response);
+        thread_binding::persist(self.approval_dir.as_deref(), &self.thread)?;
         self.board_session = request.collaborator.clone();
+        self.replay_visible_history |= request.collaborator.is_some();
         Ok(())
     }
 }
@@ -253,7 +257,7 @@ fn tool_reply(
     reply: BoardReply,
 ) -> Result<(), String> {
     let items = match image_transport::content_items(
-        &client.cwd,
+        client.board_image_workspace.as_deref(),
         client.board_cloud_guard,
         operation,
         reply.success,

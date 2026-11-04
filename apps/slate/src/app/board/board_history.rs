@@ -1,6 +1,7 @@
 //! Undo, redo, duplicate, and placing items into frames.
 
 use super::*;
+mod frame_selection;
 mod metadata;
 
 impl SlateApp {
@@ -39,7 +40,7 @@ impl SlateApp {
             super::super::board_color::committed_colors(cmds.iter().filter_map(|c| match c {
                 SceneCmd::Add { node, .. } => Some((None, node)),
                 SceneCmd::Patch { before, after } => Some((Some(before.as_ref()), after.as_ref())),
-                SceneCmd::Remove { .. } => None,
+                SceneCmd::Remove { .. } | SceneCmd::Presentations { .. } => None,
                 SceneCmd::LayerNodeAdd { node, .. } | SceneCmd::LayerNodeRemove { node, .. } => {
                     Some((None, node))
                 }
@@ -47,7 +48,8 @@ impl SlateApp {
                     Some((Some(before.as_ref()), after.as_ref()))
                 }
             }));
-        self.brush_tiles.note_ids(cmds.iter().map(cmd_node_id));
+        self.brush_tiles
+            .note_ids(cmds.iter().filter_map(cmd_node_id));
         let mentions: Vec<_> = if matches!(&author, slate_doc::scene::CmdAuthor::Human)
             && !self.presence.agents_empty()
         {
@@ -105,7 +107,7 @@ impl SlateApp {
         if !self.can_amend_scene_step() {
             return false;
         }
-        let ids: Vec<NodeId> = cmds.iter().map(cmd_node_id).collect();
+        let ids: Vec<NodeId> = cmds.iter().filter_map(cmd_node_id).collect();
         let tab = self.tab_mut();
         let doc = &mut tab.doc;
         if !tab.journal.amend_top(&mut doc.scene, token, &author, cmds) {

@@ -1,6 +1,5 @@
 //! Selected-image palette adapter. Geometry and paint belong to atlas-shell;
 //! the app routes its gestures through existing property and tool owners.
-
 use super::{BoardXf, Panel, SlateApp};
 use atlas_shell::{icons::Icon, selection_tools as chrome};
 use eframe::egui::{self, Id, Rect, Sense};
@@ -93,26 +92,12 @@ impl SlateApp {
         }
         let mut shadow = painter.clone();
         shadow.multiply_opacity(fade);
-        if let Some(surface) = self.media_host_surface(painter.ctx(), xf, node) {
-            if let Some(outline) = surface.outline.first() {
-                let world = outline.iter().map(|p| xf.s2w(*p)).collect::<Vec<_>>();
-                chrome::paint_outline_interaction_shadow(
-                    &shadow,
-                    Id::new(("media_host_shadow", self.tab().id, node.id.0)),
-                    &world,
-                    egui::emath::TSTransform::new(xf.center.to_vec2() - xf.offset * xf.z, xf.z),
-                    self.palette(),
-                );
-                return;
-            }
-        }
-        chrome::paint_image_interaction_shadow(
+        let world = self.media_shadow_outline(painter.ctx(), xf, node);
+        chrome::paint_outline_interaction_shadow(
             &shadow,
-            Id::new(("image_active_shadow_mesh", node.id.0)),
-            xf.rect_w2s(node.rect),
-            slate_doc::scene::resolved_corner_radius(node, None) * xf.z,
-            node.rotation_deg,
-            xf.z,
+            Id::new(("media_host_shadow", self.tab().id, node.id.0)),
+            &world,
+            egui::emath::TSTransform::new(xf.center.to_vec2() - xf.offset * xf.z, xf.z),
             self.palette(),
         );
     }
@@ -124,9 +109,10 @@ impl SlateApp {
         let NodeKind::Image(image) = &node.kind else {
             return false;
         };
-        self.doc()
-            .item(image.item)
-            .is_some_and(|item| slate_doc::media_kind(&item.path) == slate_doc::MediaKind::Image)
+        image.item == slate_doc::ItemId::NONE && image.agent.is_none()
+            || self.doc().item(image.item).is_some_and(|item| {
+                slate_doc::media_kind(&item.path) == slate_doc::MediaKind::Image
+            })
             || slate_doc::agent_chat::agent(node)
                 .is_some_and(|agent| agent.view == atlas_agent::PortalView::Images)
     }
@@ -226,6 +212,7 @@ pub(super) fn show(
         layout.blister = chrome::blister_layout(image_rect, z, count, presentation);
     }
     let mut captures = false;
+    let mut popup_dismissal_captures = false;
     let mut sample = None;
     let mut popup_hits = 0..0;
     if showing_panel {
@@ -282,6 +269,8 @@ pub(super) fn show(
                 paint_panel_body(app, ui, &layout, id, body_panel, z, theme, body_enabled)
             })
             .inner;
+        popup_dismissal_captures =
+            panel == Some(Panel::Agent) && app.generator_menu_dismissal_owns_press(&ctx, id);
         popup_hits = body_popups;
         if panel.is_some() {
             captures |= body_captures;
@@ -316,6 +305,7 @@ pub(super) fn show(
                     ui.layer_id(),
                     &layout,
                     true,
+                    panel.or(closing_panel) == Some(Panel::Agent),
                     &mut paint,
                 )
             })
@@ -404,6 +394,10 @@ pub(super) fn show(
         slate_doc::geom::point_in_node_outline(&host, point.x, point.y, 0.0)
     });
     let on_results = app.result_strip_contains(&ctx, id, xf.rect_w2s(host.rect), z);
+    // The shared popup already closed on this press. Like Studio's
+    // studioDismissedMenu event, that dismissal owns the press before the
+    // parent can deselect the source and save a quick-return menu snapshot.
+    captures |= popup_dismissal_captures;
     // Only an editor or hosted tool owns outside dismissal; collapsed Select
     // controls leave that press available for the next object's body drag.
     if !captures {

@@ -18,6 +18,7 @@ use vector_ink::kurbo::Shape;
 
 mod commands;
 mod image_palette;
+mod modal_input;
 mod model_display;
 mod palette_ui;
 pub(crate) use palette_ui::EditorHost;
@@ -49,10 +50,9 @@ pub enum Panel {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FrameAction {
-    Prev,
-    Next,
     Present,
     Deck,
+    Settings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,6 +64,8 @@ enum StripItem {
     ModelMeasure,
     /// Shared portal still/video capture editor.
     ModelScreenshot,
+    ModelMaximize,
+    ApplicationConnector,
 }
 
 use slate_doc::property::picked_corners;
@@ -175,10 +177,9 @@ fn property_strip_items(nodes: &[Node]) -> Vec<StripItem> {
     }
     if nodes.len() == 1 && matches!(nodes[0].kind, NodeKind::Frame(_)) {
         items.extend([
-            StripItem::Frame(FrameAction::Prev),
-            StripItem::Frame(FrameAction::Next),
-            StripItem::Frame(FrameAction::Present),
             StripItem::Frame(FrameAction::Deck),
+            StripItem::Frame(FrameAction::Settings),
+            StripItem::Frame(FrameAction::Present),
         ]);
     }
     items
@@ -682,31 +683,6 @@ impl SlateApp {
         captures
     }
 
-    /// This frame's press that commits an open panel's preview (D11), if
-    /// any: `Some(true)` for a primary press on a crop handle, a cropping
-    /// image, or a painted curve grip, which is that gesture rather than a
-    /// click-away. Crop keeps the Corners panel up (D09) and the selection
-    /// whole; a grip press is the grip's drag (P1.curve.grips). Neither is
-    /// eaten. Right-drag and middle-drag are the
-    /// canvas pan, so only a secondary or middle click without a drag counts.
-    fn property_dismiss_press(&self, ctx: &egui::Context) -> Option<bool> {
-        let (primary, click) = ctx.input(|i| {
-            (
-                i.pointer
-                    .button_pressed(egui::PointerButton::Primary)
-                    .then(|| i.pointer.press_origin()),
-                i.pointer.button_clicked(egui::PointerButton::Secondary)
-                    || i.pointer.button_clicked(egui::PointerButton::Middle),
-            )
-        });
-        match primary {
-            Some(origin) => Some(
-                origin.is_some_and(|p| self.crop_owns_pointer(p) || self.property_grip_under(p)),
-            ),
-            None => click.then_some(false),
-        }
-    }
-
     fn run_frame_strip_action(&mut self, ctx: &egui::Context, action: FrameAction) {
         let Some(id) = self.shape_properties.ids.first().copied() else {
             return;
@@ -718,35 +694,9 @@ impl SlateApp {
             return;
         }
         match action {
-            FrameAction::Deck => {
-                let cmd = if self.board_tool == BoardTool::Deck {
-                    "board.tool.select"
-                } else {
-                    "board.tool.deck"
-                };
-                self.dispatch(ctx, CommandId(cmd), Some("frame-strip".into()));
-            }
+            FrameAction::Deck => self.toggle_frame_presentation(ctx, id, false),
+            FrameAction::Settings => self.toggle_frame_presentation(ctx, id, true),
             FrameAction::Present => self.start_present(Some(id)),
-            FrameAction::Prev | FrameAction::Next => {
-                let frames: Vec<NodeId> = self
-                    .doc()
-                    .scene
-                    .frames_in_order()
-                    .iter()
-                    .map(|n| n.id)
-                    .collect();
-                let Some(pos) = frames.iter().position(|f| *f == id) else {
-                    return;
-                };
-                let other = match action {
-                    FrameAction::Prev if pos > 0 => Some(frames[pos - 1]),
-                    FrameAction::Next if pos + 1 < frames.len() => Some(frames[pos + 1]),
-                    _ => None,
-                };
-                if let Some(other) = other {
-                    self.swap_frame_order(id, other);
-                }
-            }
         }
     }
 
@@ -2141,6 +2091,7 @@ mod tests {
         let node = h.app.doc_mut().scene.build_node(
             rect,
             NodeKind::Frame(scene::FrameNode {
+                presentation_media: Default::default(),
                 title: "Slide".into(),
                 order: 0,
                 fill: Rgba([20, 30, 40, 255]),
@@ -2159,6 +2110,7 @@ mod tests {
         let node = h.app.doc_mut().scene.build_node(
             rect,
             NodeKind::Text(scene::TextNode {
+                answers: Default::default(),
                 text: "Note".into(),
                 style: Default::default(),
                 family: Default::default(),
@@ -3520,10 +3472,11 @@ mod tests {
                 StripItem::Panel(Panel::Capture) => "capture",
                 StripItem::ModelMeasure => "measure",
                 StripItem::ModelScreenshot => "screenshot",
-                StripItem::Frame(FrameAction::Prev) => "prev",
-                StripItem::Frame(FrameAction::Next) => "next",
+                StripItem::ModelMaximize => "maximize",
+                StripItem::ApplicationConnector => "rhino",
                 StripItem::Frame(FrameAction::Present) => "present",
                 StripItem::Frame(FrameAction::Deck) => "deck",
+                StripItem::Frame(FrameAction::Settings) => "settings",
                 StripItem::Agent(true) => "unbundle",
                 StripItem::Agent(false) => "bundle",
             })
@@ -3551,7 +3504,7 @@ mod tests {
         let node = |id| h.app.doc().scene.node(id).unwrap().clone();
         assert_eq!(
             item_kinds(&property_strip_items(&[node(frame)])),
-            ["fill", "stroke", "corners", "prev", "next", "present", "deck"]
+            ["fill", "stroke", "corners", "deck", "settings", "present"]
         );
         assert_eq!(
             item_kinds(&property_strip_items(&[node(image)])),
@@ -3646,65 +3599,7 @@ mod tests {
         h.app.add_nodes(vec![node])[0]
     }
 
-    #[test]
-    fn model_viewports_offer_display_measure_screenshot_then_filters() {
-        let mut h = board();
-        let rect = WorldRect::new(0.0, 0.0, 240.0, 180.0);
-        let tower = model_node(&mut h, "tower.3dm", rect);
-        let blend = model_node(&mut h, "scene.blend", rect);
-        let node = |h: &Harness, id| h.app.doc().scene.node(id).unwrap().clone();
-        assert_eq!(
-            item_kinds(&live_property_strip_items(&h.app, &[node(&h, tower)])),
-            [
-                "stroke",
-                "corners",
-                "display",
-                "measure",
-                "screenshot",
-                "filter",
-                "agent"
-            ]
-        );
-        // A recognized format with no reader has no viewport to drive.
-        let kinds = item_kinds(&live_property_strip_items(&h.app, &[node(&h, blend)]));
-        assert!(!kinds.contains(&"display") && !kinds.contains(&"measure"));
-        // Two models share no single viewport.
-        let two = model_node(&mut h, "tower-b.3dm", rect);
-        let kinds = item_kinds(&live_property_strip_items(
-            &h.app,
-            &[node(&h, tower), node(&h, two)],
-        ));
-        assert!(!kinds.contains(&"display") && !kinds.contains(&"measure"));
-
-        // A frozen viewport takes a display pass as one undo step.
-        let display = |h: &Harness| h.app.model_node_info(tower).unwrap().cam.display;
-        assert!(h.app.dispatch(
-            &h.ctx,
-            CommandId("board.model_display"),
-            Some(format!("{}:depth", tower.0)),
-        ));
-        assert_eq!(display(&h), scene::ModelDisplay::Depth);
-        assert!(
-            !h.app.dispatch(
-                &h.ctx,
-                CommandId("board.model_display"),
-                Some(format!("{}:depth", tower.0)),
-            ),
-            "re-picking the shown pass is not an edit"
-        );
-        h.app.board_undo();
-        assert_eq!(display(&h), scene::ModelDisplay::Shaded);
-        // From the palette, the bare command cycles the selected model.
-        h.app.board_sel = [tower].into_iter().collect();
-        assert!(h
-            .app
-            .dispatch(&h.ctx, CommandId("board.model_display"), None));
-        assert_eq!(display(&h), scene::ModelDisplay::Arctic);
-        assert!(h
-            .app
-            .dispatch(&h.ctx, CommandId("board.model_display"), None));
-        assert_eq!(display(&h), scene::ModelDisplay::HiddenLine);
-    }
+    mod model_viewport;
 
     #[test]
     fn model_viewport_filter_commits_and_undoes() {

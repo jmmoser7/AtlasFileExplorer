@@ -269,6 +269,7 @@ fn text_node(app: &mut SlateApp, rect: WorldRect, text: String) -> Node {
         rect,
         NodeKind::Text(slate_doc::scene::TextNode {
             text,
+            answers: Default::default(),
             style: Default::default(),
             family: slate_doc::scene::Typeface::Sans,
             size: 12.0,
@@ -287,6 +288,7 @@ fn frame_node(app: &mut SlateApp, rect: WorldRect, title: String) -> Node {
     app.doc_mut().scene.build_node(
         rect,
         NodeKind::Frame(FrameNode {
+            presentation_media: Default::default(),
             title,
             order,
             fill: Rgba::WHITE,

@@ -110,6 +110,7 @@ impl SlateApp {
             (
                 a.chat.collapsed,
                 a.chat.partial,
+                a.chat.fit_height,
                 self.agents.stream_open.contains(&node.id),
                 a.chat.size.map(|s| [s[0].to_bits(), s[1].to_bits()]),
                 self.agent_has_child(node.id),
@@ -263,7 +264,10 @@ impl SlateApp {
                 let prompt_h =
                     composer_text_height(ctx, &prompt, composer_wrap(after.rect.w), 14.0);
                 after.rect.h = hugging_composer_card(prompt_h);
-            } else if a.chat.collapsed || a.chat.partial || a.chat.size.is_some() {
+            } else if a.chat.collapsed
+                || a.chat.partial
+                || (a.chat.size.is_some() && !a.chat.fit_height)
+            {
                 // Collapse owns the height; a partial open is twice that capsule;
                 // a person's size owns the rest.
                 let partial = matches!(
@@ -304,9 +308,14 @@ impl SlateApp {
                     .map(|t| t.text.as_str())
                     .collect::<Vec<_>>()
                     .join("\n\n");
-                after.rect.w = title_w
-                    .max(measure(text.clone(), f32::INFINITY, 13.0).x + 24.0)
-                    .min(CARD_WIDTH.max(title_w));
+                after.rect.w = a.chat.size.filter(|_| a.chat.fit_height).map_or_else(
+                    || {
+                        title_w
+                            .max(measure(text.clone(), f32::INFINITY, 13.0).x + 24.0)
+                            .min(CARD_WIDTH.max(title_w))
+                    },
+                    |size| size[0].max(MIN_CARD_WIDTH),
+                );
                 let tail = !self.agent_has_child(node.id);
                 // Sent Summary cards use the summary painter; `paint_agent_bound`
                 // draws every other train card, composer only on the tail.
@@ -344,7 +353,11 @@ impl SlateApp {
                     (COMPOSER_TOP + text_h + CARD_TEXT_PAD).max(DRAFT_HEIGHT)
                 };
             } else {
-                after.rect.w = node.rect.w.max(title_w);
+                after.rect.w = a
+                    .chat
+                    .size
+                    .filter(|_| a.chat.fit_height)
+                    .map_or(node.rect.w.max(title_w), |size| size[0].max(MIN_CARD_WIDTH));
                 let cap = a
                     .chat
                     .window_height
@@ -352,20 +365,26 @@ impl SlateApp {
                     .max(112);
                 let text_h: f32 = turns
                     .iter()
-                    .map(|t| measure(t.text.clone(), text_column(after.rect.w).2, 14.0).y + 12.0)
+                    .map(|t| {
+                        let indent = atlas_shell::selection_tools::generator::activity::transcript_user_indent(t.role == "user");
+                        measure(t.text.clone(), (text_column(after.rect.w).2 - indent).max(1.0), 14.0).y + 12.0
+                    })
                     .sum();
                 let prompt_h =
                     composer_text_height(ctx, &prompt, composer_wrap(after.rect.w), 14.0);
-                after.rect.h = conversation_card_height(text_h, prompt_h)
-                    .min(cap as f32)
-                    .max(112.0);
+                let fitted = conversation_card_height(text_h, prompt_h).max(112.0);
+                after.rect.h = if a.chat.fit_height {
+                    fitted
+                } else {
+                    fitted.min(cap as f32)
+                };
                 if let NodeKind::Portal(p) = &mut after.kind {
                     p.agent.as_mut().unwrap().chat.window_height = Some(cap);
                 }
             }
             if self.agents.key_entry == Some(node.id)
                 && !a.chat.collapsed
-                && a.chat.size.is_none()
+                && (a.chat.size.is_none() || a.chat.fit_height)
                 && (a.chat.draft
                     || !a.chat.train
                     || a.chat.detail == slate_doc::agent_chat::Detail::Full

@@ -38,6 +38,9 @@ impl SlateApp {
             return false;
         };
         let host_id = result.host;
+        if self.board_selected_frame_owner(host_id).is_some() {
+            return false;
+        }
         let valid = if let Some(pinned) = pinned {
             pinned.tab == self.tab().id
         } else {

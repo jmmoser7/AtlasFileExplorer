@@ -3,6 +3,118 @@
 use super::*;
 use atlas_core::display::SLATE_BOARD;
 impl SlateApp {
+    /// One current-provider catalog/default list for chat cards and attached media.
+    pub(crate) fn chat_model_options(
+        &self,
+        agent: &slate_doc::scene::AgentPortalRef,
+    ) -> Vec<(String, String)> {
+        let mut choices = vec![(String::new(), model_default(agent).to_owned())];
+        choices.extend(
+            self.agents
+                .catalog(atlas_ai::agent::model_catalog(&agent.provider))
+                .iter()
+                .map(|model| {
+                    (
+                        model.id.clone(),
+                        atlas_ai::agent::model_label(&model.name).to_owned(),
+                    )
+                }),
+        );
+        choices
+    }
+
+    /// Ordinary and artifact-spawned chats use the generator's capability picker.
+    pub(super) fn paint_chat_model_picker(
+        &mut self,
+        ui: &egui::Ui,
+        id: NodeId,
+        agent: Option<&slate_doc::scene::AgentPortalRef>,
+        rect: Rect,
+        z: f32,
+    ) {
+        use atlas_shell::selection_tools::generator as chrome;
+        let pending = self.pending_generator_host(id).is_some();
+        let choices = if pending {
+            self.prepare_pending_chat_choice(id);
+            let provider = self
+                .pending_generator_choice(id)
+                .map(|(p, _, _)| p.to_owned())
+                .unwrap_or_default();
+            self.source_model_options(id, &provider)
+                .into_iter()
+                .map(|(_, id, label)| (id, label))
+                .collect()
+        } else {
+            agent
+                .map(|a| self.chat_model_options(a))
+                .unwrap_or_default()
+        };
+        let labels = choices
+            .iter()
+            .map(|(_, label)| label.as_str())
+            .collect::<Vec<_>>();
+        let selected = choices
+            .iter()
+            .position(|(choice_id, _)| {
+                (if pending {
+                    self.pending_generator_choice(id).map(|(_, m, _)| m)
+                } else {
+                    agent.and_then(|a| a.model.as_deref())
+                })
+                .unwrap_or("")
+                    == choice_id
+            })
+            .unwrap_or(0);
+        let mut open = self.agents.model_menu == Some(id);
+        let mut presentation = self.generator_presentation(id);
+        let data = self.generator_chrome_data(id);
+        let mut child = egui::Ui::new(
+            ui.ctx().clone(),
+            Id::new(("chat-model-picker", id.0)),
+            egui::UiBuilder::new()
+                .layer_id(ui.layer_id())
+                .max_rect(rect),
+        );
+        child.set_clip_rect(ui.clip_rect());
+        let out = chrome::model_picker(
+            &mut child,
+            rect,
+            &labels,
+            selected,
+            &mut open,
+            Id::new(("agent-model-menu", id.0)),
+            presentation.picker_page,
+            &data,
+            None,
+            self.generator_source_kind(id) == Some(super::super::board_flow::PendingHost::Chat),
+            z,
+            self.palette(),
+        );
+        let model = out
+            .model
+            .and_then(|index| choices.get(index).map(|(id, _)| id.clone()));
+        presentation.picker_page = out.page;
+        self.restore_generator_presentation(id, presentation);
+        self.agents.model_menu = open.then_some(id);
+        self.agents.model_menu_rect = out.popup();
+        self.dispatch_generator_chrome(ui.ctx(), id, out.parameter, None);
+        self.dispatch_generator_provider(id, out.provider, out.edit_key);
+        if let Some(model) = model {
+            if pending {
+                if self.tab().read_only || self.doc().scene.node(id).is_none_or(|n| n.locked) {
+                    return;
+                }
+                self.set_pending_generator_model(id, &model);
+                return;
+            }
+            self.board_sel = std::iter::once(id).collect();
+            self.dispatch(
+                ui.ctx(),
+                atlas_commands::CommandId("portal.agent.model"),
+                Some(model),
+            );
+        }
+    }
     #[allow(clippy::too_many_arguments)] // Existing portal paint adapter.
     pub(super) fn paint_agent_pick_list(
         &mut self,

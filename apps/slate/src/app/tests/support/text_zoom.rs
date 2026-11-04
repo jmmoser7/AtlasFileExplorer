@@ -40,6 +40,7 @@ pub(crate) fn text_zoom_board(h: &mut Harness) -> TextZoomBoard {
     let text = h.app.doc_mut().scene.build_node(
         WorldRect::new(0.0, 1200.0, 300.0, 160.0),
         NodeKind::Text(TextNode {
+            answers: Default::default(),
             text: TEXT_BODY.into(),
             style: Default::default(),
             family: Typeface::Sans,

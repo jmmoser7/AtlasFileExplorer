@@ -134,6 +134,14 @@ impl SlateApp {
             self.toast("Select an agent portal first.");
             return false;
         };
+        match self.prepare_headless_model_send(id) {
+            Ok(true) => return true,
+            Ok(false) => {}
+            Err(error) => {
+                self.toast(error);
+                return false;
+            }
+        }
         self.send_agent_prompt(id);
         true
     }

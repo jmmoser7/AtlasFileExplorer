@@ -1,0 +1,649 @@
+{
+  "schema": "slate-frame-studio-measurements/v1",
+  "fixture": "baseline",
+  "revision": 27,
+  "theme": "dark",
+  "camera": {
+    "x": 475.2,
+    "y": 140.2,
+    "zoom": 0.8
+  },
+  "viewport": {
+    "width": 1440,
+    "height": 906,
+    "dpr": 1
+  },
+  "nativePixelParity": "unverified",
+  "interaction": {
+    "schema": "slate-frame-interaction-metrics/v1",
+    "selectedIds": [
+      "frame-1"
+    ],
+    "undoDepth": 0,
+    "redoDepth": 0,
+    "deck": {
+      "active": false,
+      "prefix": [],
+      "order": [
+        "frame-1"
+      ]
+    },
+    "presentationId": null,
+    "panel": null,
+    "propertyTokens": {
+      "button": 30,
+      "gap": 7,
+      "objectGap": 14,
+      "panelWidth": 420,
+      "fillHeight": 174,
+      "strokeHeight": 190,
+      "cornersHeight": 22.1,
+      "colorField": [
+        5,
+        5,
+        396,
+        70
+      ],
+      "rails": {
+        "x": 12,
+        "y": 96,
+        "pitch": 16,
+        "width": 396,
+        "height": 7
+      },
+      "popupGap": 8,
+      "popupMargin": 8,
+      "blister": {
+        "height": 40,
+        "shoulder": 84,
+        "closedWidth": 504,
+        "openWidth": 432,
+        "inset": 42,
+        "icon": 31.2
+      },
+      "transitionSeconds": 0.12,
+      "duplicateOffset": [
+        24,
+        24
+      ]
+    }
+  },
+  "canonical": {
+    "schema": "slate-frame-metrics/v1",
+    "units": "world-units-and-screen-pixels",
+    "theme": "dark",
+    "camera": {
+      "x": 475.2,
+      "y": 140.2,
+      "zoom": 0.8
+    },
+    "tokens": {
+      "frame": {
+        "radius": 8,
+        "strokeWidth": 0,
+        "titleSize": 12,
+        "tagSize": 10.5,
+        "labelInset": 2,
+        "labelLift": 6,
+        "shadow": false,
+        "minDraw": 8,
+        "creationDragThreshold": 4,
+        "selectionDragThreshold": 6,
+        "presets": {
+          "Letter": {
+            "w": 612,
+            "h": 792
+          },
+          "Tabloid": {
+            "w": 1224,
+            "h": 792
+          },
+          "Wide169": {
+            "w": 960,
+            "h": 540
+          }
+        }
+      },
+      "selection": {
+        "lineWeight": 1.5,
+        "opacity": 1,
+        "fillOpacity": 0.16,
+        "hoverLineWeight": 1.25,
+        "hoverOpacity": 0.55,
+        "highlightIn": 0.12,
+        "highlightOut": 0.22,
+        "lockedOpacity": 0.45,
+        "filletHalfSize": 1.6,
+        "filletMinInset": 10
+      },
+      "strip": {
+        "buttonSize": 30,
+        "buttonGap": 7,
+        "objectGap": 14,
+        "stringerGap": 24,
+        "bottomStringerGap": 68,
+        "fadeSeconds": 0.12
+      },
+      "hit": {
+        "cornerReach": 7,
+        "edgeReach": 6,
+        "rotateReach": 9,
+        "rotateOffset": 18,
+        "filletReach": 9,
+        "wireReach": 8,
+        "minimumReach": 2,
+        "moveSize": 18,
+        "compactFrame": 72,
+        "cursorRange": 42,
+        "cursorGain": 0.65,
+        "resizeRange": [
+          12,
+          48
+        ],
+        "rotateRange": [
+          3,
+          16
+        ],
+        "wireRange": [
+          36,
+          88
+        ]
+      },
+      "navigation": {
+        "minZoom": 0.0078125,
+        "maxZoom": 128,
+        "defaultZoom": 0.8,
+        "wheelCoefficient": 0.0015
+      },
+      "snap": {
+        "rotationStep": 45,
+        "rotationTolerance": 4,
+        "smartGuideReach": 9,
+        "grid": 20
+      },
+      "text": {
+        "minimumRenderPx": 4,
+        "fontFamily": "FrameUbuntu",
+        "fontWeight": 300,
+        "fontAsset": "../chat-train/assets/Ubuntu-Light.ttf",
+        "fontSha256": "80307b8da7649aa4ee4d484b232140e3ce1ec0ca093073d3c53c8f5a5ced7a70"
+      },
+      "themes": {
+        "light": {
+          "bg": "#f6f7f8",
+          "grid": "#dfe3e7",
+          "card": "#ffffff",
+          "ink": "#1b1e22",
+          "sub": "#878e96",
+          "select": "#1f6fb2",
+          "accent": "#0f766e",
+          "border": "#dfe3e8"
+        },
+        "dark": {
+          "bg": "#0e1013",
+          "grid": "#23272d",
+          "card": "#1c2026",
+          "ink": "#dde2e8",
+          "sub": "#878e96",
+          "select": "#6fb7ff",
+          "accent": "#2dd4bf",
+          "border": "#333941"
+        }
+      }
+    },
+    "frames": [
+      {
+        "id": "frame-1",
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "w": 612,
+          "h": 792
+        },
+        "rotation_deg": 0,
+        "order": 0,
+        "title": "Slide 1",
+        "corners": [
+          [
+            0,
+            0
+          ],
+          [
+            612,
+            0
+          ],
+          [
+            612,
+            792
+          ],
+          [
+            0,
+            792
+          ]
+        ],
+        "upperEdge": [
+          [
+            0,
+            0
+          ],
+          [
+            612,
+            0
+          ]
+        ],
+        "titleAngle": 0,
+        "titleSizeScreen": 9.600000000000001,
+        "titleVisible": true,
+        "fill": [
+          28,
+          32,
+          38,
+          255
+        ],
+        "cornerKind": "rounded",
+        "cornerRadius": 8,
+        "silhouette": [
+          [
+            604,
+            0
+          ],
+          [
+            608,
+            1.0717967697244717
+          ],
+          [
+            610.9282032302755,
+            4
+          ],
+          [
+            612,
+            8
+          ],
+          [
+            612,
+            784
+          ],
+          [
+            610.9282032302755,
+            788
+          ],
+          [
+            608,
+            790.9282032302755
+          ],
+          [
+            604,
+            792
+          ],
+          [
+            8,
+            792
+          ],
+          [
+            4,
+            790.9282032302755
+          ],
+          [
+            1.0717967697244717,
+            788
+          ],
+          [
+            0,
+            784
+          ],
+          [
+            0,
+            8
+          ],
+          [
+            1.0717967697244717,
+            4
+          ],
+          [
+            4,
+            1.0717967697244717
+          ],
+          [
+            8,
+            0
+          ]
+        ],
+        "labelProbe": {
+          "center": [
+            47,
+            -16
+          ],
+          "angle": 0
+        },
+        "strokeWidth": 0,
+        "shadow": false,
+        "selected": true,
+        "members": [],
+        "selection": {
+          "corners": [
+            [
+              0,
+              0
+            ],
+            [
+              489.6,
+              0
+            ],
+            [
+              489.6,
+              633.6
+            ],
+            [
+              0,
+              633.6
+            ]
+          ],
+          "controlCorners": [
+            [
+              0,
+              0
+            ],
+            [
+              489.6,
+              0
+            ],
+            [
+              489.6,
+              633.6
+            ],
+            [
+              0,
+              633.6
+            ]
+          ],
+          "projectedShortest": 489.6,
+          "prominence": {
+            "wire": 1,
+            "resize": 1,
+            "rotate": 1
+          },
+          "padding": 0,
+          "rotationRadius": 18,
+          "rotatePoints": [
+            [
+              -11.006055019363778,
+              -14.243130025059006
+            ],
+            [
+              500.6060550193638,
+              -14.243130025059006
+            ],
+            [
+              500.6060550193638,
+              647.843130025059
+            ],
+            [
+              -11.006055019363778,
+              647.843130025059
+            ]
+          ]
+        }
+      }
+    ],
+    "deckOrder": [
+      "frame-1"
+    ]
+  },
+  "frames": [
+    {
+      "id": "frame-1",
+      "title": "Slide 1",
+      "order": 0,
+      "tags": [],
+      "locked": false,
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "w": 612,
+        "h": 792
+      },
+      "rotation_deg": 0,
+      "corner": {
+        "kind": "rounded",
+        "radius": 8
+      },
+      "fill": [
+        255,
+        255,
+        255,
+        255
+      ],
+      "fill_authored": false,
+      "stroke": {
+        "width": 0,
+        "color": [
+          0,
+          0,
+          0,
+          255
+        ]
+      },
+      "corners": [
+        [
+          0,
+          0
+        ],
+        [
+          612,
+          0
+        ],
+        [
+          612,
+          792
+        ],
+        [
+          0,
+          792
+        ]
+      ],
+      "upperEdge": {
+        "a": [
+          0,
+          0
+        ],
+        "b": [
+          612,
+          0
+        ],
+        "index": 0,
+        "center": [
+          306,
+          0
+        ],
+        "tangent": [
+          1,
+          0
+        ],
+        "outward": [
+          0,
+          -1
+        ],
+        "angle": 0
+      },
+      "geometry": {
+        "corners": [
+          [
+            0,
+            0
+          ],
+          [
+            489.6,
+            0
+          ],
+          [
+            489.6,
+            633.6
+          ],
+          [
+            0,
+            633.6
+          ]
+        ],
+        "controlCorners": [
+          [
+            0,
+            0
+          ],
+          [
+            489.6,
+            0
+          ],
+          [
+            489.6,
+            633.6
+          ],
+          [
+            0,
+            633.6
+          ]
+        ],
+        "projectedShortest": 489.6,
+        "prominence": {
+          "wire": 1,
+          "resize": 1,
+          "rotate": 1
+        },
+        "padding": 0,
+        "rotationRadius": 18,
+        "rotatePoints": [
+          [
+            -11.006055019363778,
+            -14.243130025059006
+          ],
+          [
+            500.6060550193638,
+            -14.243130025059006
+          ],
+          [
+            500.6060550193638,
+            647.843130025059
+          ],
+          [
+            -11.006055019363778,
+            647.843130025059
+          ]
+        ]
+      },
+      "members": []
+    }
+  ],
+  "tokens": {
+    "frame": {
+      "radius": 8,
+      "strokeWidth": 0,
+      "titleSize": 12,
+      "tagSize": 10.5,
+      "labelInset": 2,
+      "labelLift": 6,
+      "shadow": false,
+      "minDraw": 8,
+      "creationDragThreshold": 4,
+      "selectionDragThreshold": 6,
+      "presets": {
+        "Letter": {
+          "w": 612,
+          "h": 792
+        },
+        "Tabloid": {
+          "w": 1224,
+          "h": 792
+        },
+        "Wide169": {
+          "w": 960,
+          "h": 540
+        }
+      }
+    },
+    "selection": {
+      "lineWeight": 1.5,
+      "opacity": 1,
+      "fillOpacity": 0.16,
+      "hoverLineWeight": 1.25,
+      "hoverOpacity": 0.55,
+      "highlightIn": 0.12,
+      "highlightOut": 0.22,
+      "lockedOpacity": 0.45,
+      "filletHalfSize": 1.6,
+      "filletMinInset": 10
+    },
+    "strip": {
+      "buttonSize": 30,
+      "buttonGap": 7,
+      "objectGap": 14,
+      "stringerGap": 24,
+      "bottomStringerGap": 68,
+      "fadeSeconds": 0.12
+    },
+    "hit": {
+      "cornerReach": 7,
+      "edgeReach": 6,
+      "rotateReach": 9,
+      "rotateOffset": 18,
+      "filletReach": 9,
+      "wireReach": 8,
+      "minimumReach": 2,
+      "moveSize": 18,
+      "compactFrame": 72,
+      "cursorRange": 42,
+      "cursorGain": 0.65,
+      "resizeRange": [
+        12,
+        48
+      ],
+      "rotateRange": [
+        3,
+        16
+      ],
+      "wireRange": [
+        36,
+        88
+      ]
+    },
+    "navigation": {
+      "minZoom": 0.0078125,
+      "maxZoom": 128,
+      "defaultZoom": 0.8,
+      "wheelCoefficient": 0.0015
+    },
+    "snap": {
+      "rotationStep": 45,
+      "rotationTolerance": 4,
+      "smartGuideReach": 9,
+      "grid": 20
+    },
+    "text": {
+      "minimumRenderPx": 4,
+      "fontFamily": "FrameUbuntu",
+      "fontWeight": 300,
+      "fontAsset": "../chat-train/assets/Ubuntu-Light.ttf",
+      "fontSha256": "80307b8da7649aa4ee4d484b232140e3ce1ec0ca093073d3c53c8f5a5ced7a70"
+    },
+    "themes": {
+      "light": {
+        "bg": "#f6f7f8",
+        "grid": "#dfe3e7",
+        "card": "#ffffff",
+        "ink": "#1b1e22",
+        "sub": "#878e96",
+        "select": "#1f6fb2",
+        "accent": "#0f766e",
+        "border": "#dfe3e8"
+      },
+      "dark": {
+        "bg": "#0e1013",
+        "grid": "#23272d",
+        "card": "#1c2026",
+        "ink": "#dde2e8",
+        "sub": "#878e96",
+        "select": "#6fb7ff",
+        "accent": "#2dd4bf",
+        "border": "#333941"
+      }
+    }
+  }
+}

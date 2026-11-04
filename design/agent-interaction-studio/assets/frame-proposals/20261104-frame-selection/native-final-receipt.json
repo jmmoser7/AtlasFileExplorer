@@ -1,0 +1,23 @@
+{
+  "result": "PASS",
+  "launch": {
+    "LaunchedUtc": "2026-11-04T14:20:30.3693911Z",
+    "ProcessId": 49328,
+    "Executable": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\debug\\slate.exe",
+    "Workbook": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\frame-selection\\frame-selection.slate",
+    "Sha256": "2200CC4495AA96EEC7892670928072EAF9BDBD17724A39C6A2FE5A7CF90A8C97"
+  },
+  "journeys": [
+    "Global Window sweep selects three Frames, not hosted children",
+    "Select All normalizes to Frame roots",
+    "Dragging over hosted shape moves all three Frames and all six hosted nodes by equal delta",
+    "Align Top carries shape and text per Frame delta",
+    "One Undo restores every Frame, shape and text rectangle",
+    "Blank click releases Frame ownership and hosted shape is individually selectable again",
+    "F5 then Right reaches slide2 directly; flight interpolation removed"
+  ],
+  "geometryRestored": true,
+  "groupsUnchanged": true,
+  "screenshot": "native-selected-frames.png",
+  "scope": "Actual production Slate window13240064; targeted review, not a full workspace regression suite"
+}

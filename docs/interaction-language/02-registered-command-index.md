@@ -574,7 +574,7 @@ This file is derived reference material. Change the application registry to chan
 
 - **Present frames as slides** (`app.present`): F5, or View → Present [Repeat: Repeatable; source line 2232.]
 
-- **Navigate slides** (`present.navigate`): ← → / Space / PageUp / PageDown / Home / End; click sides [Repeat: Never; source line 2242.]
+- **Navigate slides** (`present.navigate`): ← ↑ / → ↓ / Space / PageUp / PageDown / Home / End; scroll or click sides [Repeat: Never; source line 2242.]
 
 - **Exit presentation** (`present.exit`): Escape [Repeat: Never; source line 2252.]
 

@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "elementId": "frame",
+  "imageId": "frame-presentations-20261103-v01-add-frames",
+  "method": "built-in image_gen",
+  "kind": "AI-generated draft proposal",
+  "date": "2026-11-03",
+  "sourceReferences": [
+    {
+      "path": "target/frame-blister-visual-validation-20261103/after-open.png",
+      "role": "Existing Frame toolbar and attached drawer"
+    },
+    {
+      "path": "assets/js-baselines/20261103-162043Z/image-generator-large-js-baseline.png",
+      "role": "Image Generator toolbar and circular result thumbnail styling"
+    }
+  ],
+  "userFeedback": "order frames will be the new dashboard for create presentation. key one frame can belong to multiple presentations. dashboard should have toggle for add frame-s clicking this will hylight all eligable framesuser can then go around the canvas and select the frames they want auto order by order of selection add circle icon to toolbar for each aditional frame. look to the immage generator toolbar. change the order frames icon to look les dumb start with immage generation",
+  "prompt": "Create ONE high-fidelity landscape UI mock screenshot for Slate's Frames Studio, for review in Image Studio. This is the first design concept for turning the existing Order Frames control into the Create Presentation dashboard. Reference image 1 is the actual Frame toolbar and clean attached white drawer; reference image 2 supplies ONLY the Image Generator's compact toolbar row and borderless circular image thumbnails. This is a canvas interaction, not a web dashboard or an annotated diagram.\n\nUse the existing understated Slate style: very light neutral canvas, white frames, thin strokes, restrained teal, consistent left/right alignment, small dark line icons, sparse text. Show three frames on the same canvas. The main, wide frame is left of center and has a simple site-plan drawing. The smaller frame at upper right has an unmistakable architectural photo. The smaller frame at lower right has a few neutral text lines. The order for the current presentation is intentionally different from canvas positions: the photo frame is titled \"1 · Opening\", the wide plan frame is titled \"2 · Site plan\", the unpicked frame is titled \"Next steps\". Use a thin teal highlight around each eligible frame while picking, with a subtler teal treatment on the unpicked frame. No large badges or arrows.\n\nMain Frame's toolbar is embedded at its bottom edge, as in reference 1, with six bare glyphs in the same order: Fill, Stroke, Corners, Order Frames, Settings, Present eye. Replace ONLY the old two-linked-squares Order Frames icon with a very clear thin ORDERED LIST icon (three small numbers 1, 2, 3 beside three short lines). This fourth icon is teal because the presentation palette is open. Keep the eye at the end. No extra icons on the frame's toolbar.\n\nThe presentation dashboard is a single shallow, wide white palette sliding out flush beneath this main frame, with the clean rounded lower corners of reference 1. In ONE compact horizontal datum: a dropdown showing \"Project review\" and a small down chevron; a short \"Add frames\" pill with its teal ON toggle; and TWO small circular slide thumbnails, in order, in the style of reference 2. First thumbnail uses the Opening photo, second uses the Site plan drawing; tiny unobtrusive order numerals make the 1, 2 sequence clear. Image fills each circle edge to edge, with no heavy stroke. The unpicked Next steps frame does NOT have a thumbnail yet. The user can click it next to append frame 3. Keep this drawer slim, aligned and uncluttered. Do not add a second eye, a duplicate toolbar or any chart/metrics UI.\n\nShow the presentation dropdown open in one compact flyout directly beneath its own control, clear of the Add frames toggle and the thumbnails. Exactly three short rows: \"Project review\" with a check, \"Client walkthrough\", \"+ New presentation\". No explanations in the menu. Separate presentations reference the same reusable canvas frames and maintain independent click-order sequences; do not draw duplicate frame nodes. Do not add membership badges, instructional paragraphs, mock browser chrome, giant headings, branding or extraneous decorative marks. The visual should let the user judge the dashboard, the new icon, the eligible-frame highlight and the two ordered circular previews at a glance.",
+  "generatedOriginal": "C:/Users/jeffr/.codex/generated_images/01a18db8-665d-7c41-84c6-b9abc131796e/exec-620046a4-4979-4313-91b9-fb0a1391b352.png",
+  "interactionIntent": [
+    "Order Frames opens a compact Create Presentation palette, using a numbered-list glyph.",
+    "Each presentation stores its own ordered references to existing canvas frames; the same frame can appear in more than one presentation without being copied.",
+    "Add frames is a toggle for canvas picking. Keep the presentation palette open while navigating and selecting eligible frames.",
+    "Clicking an eligible frame appends it in pick order and adds one circular thumbnail to the active presentation toolbar. Leaving pick mode preserves that order."
+  ],
+  "status": "draft; image proposal only; no JS or native implementation claim"
+}

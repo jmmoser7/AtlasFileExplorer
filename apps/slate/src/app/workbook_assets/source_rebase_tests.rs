@@ -41,6 +41,50 @@ fn fixture(tag: &str) -> (Harness, NodeId, PathBuf, PathBuf) {
     portal.agent.as_mut().unwrap().bundle = Some(SourceUri {
         locator: "private-agent/session.json".into(),
     });
+    let settings = &mut portal.agent.as_mut().unwrap().generator;
+    settings.archived_history = vec![SourceUri {
+        locator: "private-agent/archive.json".into(),
+    }];
+    settings.shown_text = Some(slate_doc::text_answers::TextOutputRef {
+        review_id: None,
+        source: SourceUri {
+            locator: "private-agent/answers.json".into(),
+        },
+        response: slate_doc::text_answers::TextAnswerRef {
+            session: "fixture".into(),
+            through: 1,
+        },
+    });
+    settings
+        .text_reviews
+        .push(slate_doc::text_answers::TextReview {
+            id: "actual-request-output".into(),
+            group: "actual-request".into(),
+            source: "Private captured source".into(),
+            source_revision: Some("captured-revision".into()),
+            selection: None,
+            question: "Private question".into(),
+            text: "Private proposed response".into(),
+            edit: true,
+            output: slate_doc::text_answers::TextOutputRef {
+                review_id: Some("actual-request-output".into()),
+                source: SourceUri {
+                    locator: "private-agent/review-session.json".into(),
+                },
+                response: slate_doc::text_answers::TextAnswerRef {
+                    session: "real-provider-session".into(),
+                    through: 2,
+                },
+            },
+        });
+    settings.model_outputs = vec![slate_doc::scene::ModelOutputRef {
+        id: "r1".into(),
+        source: SourceUri {
+            locator: "models/r1.3dm".into(),
+        },
+        size: 1,
+        mtime: 0,
+    }];
     let node = h.app.doc_mut().scene.build_node(
         WorldRect::new(0.0, 0.0, 960.0, 540.0),
         NodeKind::Portal(portal),
@@ -66,11 +110,20 @@ fn targets(doc: &slate_doc::SlateDoc, id: NodeId, workbook: &Path) -> Vec<PathBu
         panic!()
     };
     let generation = artifact(node).unwrap();
+    let agent = portal.agent.as_ref().unwrap();
     [
         portal.source.as_ref(),
         generation.history_root.as_ref(),
         generation.workspace.as_ref(),
         portal.agent.as_ref().unwrap().bundle.as_ref(),
+        agent.generator.archived_history.first(),
+        agent.generator.shown_text.as_ref().map(|t| &t.source),
+        agent.generator.model_outputs.first().map(|m| &m.source),
+        agent
+            .generator
+            .text_reviews
+            .first()
+            .map(|r| &r.output.source),
     ]
     .into_iter()
     .flatten()
@@ -81,6 +134,12 @@ fn targets(doc: &slate_doc::SlateDoc, id: NodeId, workbook: &Path) -> Vec<PathBu
 #[test]
 fn save_as_and_reopen_preserve_artifact_targets_without_collecting_history_or_sessions() {
     let (mut h, id, old, destination) = fixture("artifact-save-as");
+    std::fs::create_dir_all(destination.parent().unwrap().join("models")).unwrap();
+    std::fs::write(
+        destination.parent().unwrap().join("models/r1.3dm"),
+        b"wrong destination decoy",
+    )
+    .unwrap();
     h.app.board_undo();
     let expected = targets(h.app.doc(), id, &old);
     let depth = h.app.tab().journal.undo_depth();
@@ -91,6 +150,16 @@ fn save_as_and_reopen_preserve_artifact_targets_without_collecting_history_or_se
     assert_eq!(targets(h.app.doc(), id, &destination), expected);
     let reopened = slate_doc::SlateDoc::load_from(&destination).unwrap();
     assert_eq!(targets(&reopened, id, &destination), expected);
+    let review = &slate_doc::agent_chat::agent(reopened.scene.node(id).unwrap())
+        .unwrap()
+        .generator
+        .text_reviews[0];
+    assert_eq!(review.id, "actual-request-output");
+    assert_eq!(review.source, "Private captured source");
+    assert_eq!(
+        review.output.review_id.as_deref(),
+        Some("actual-request-output")
+    );
     assert_eq!(
         artifact(reopened.scene.node(id).unwrap())
             .unwrap()

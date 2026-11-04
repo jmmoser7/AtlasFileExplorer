@@ -2044,6 +2044,7 @@ mod tests {
             .add_tag(group, "Frame", [10, 20, 30])
             .unwrap();
         let frame = slate_doc::scene::FrameNode {
+            presentation_media: Default::default(),
             title: "Drop".into(),
             order: 0,
             fill: slate_doc::scene::Rgba::opaque(240, 240, 240),

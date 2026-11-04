@@ -6,6 +6,9 @@ impl SlateApp {
     /// (`atlas_commands::cancel_target`). Text editing is *not* a
     /// layer here: the edit overlay owns Esc (commit) itself.
     pub(super) fn cancel_pop(&mut self) -> bool {
+        if self.doc().view.active_view == ViewKind::Board && self.frame_presentation.cancel() {
+            return true;
+        }
         // Capture is local chrome: Esc closes its menu before source focus.
         if self.portal_capture_launch_source().is_some() {
             self.shape_properties.panel = None;
@@ -20,6 +23,16 @@ impl SlateApp {
                 || self.cancel_image_layer_drag())
         {
             return true;
+        }
+        // An idle embedded editor relays Escape through the parent input owner.
+        // Its contents focus peels before maximize; native active commands keep
+        // their own cancellation inside the cooperating application.
+        if self.doc().view.active_view == ViewKind::Board
+            && self
+                .contents_focused()
+                .is_some_and(|id| self.application_connector_active(id))
+        {
+            return self.contents_blur();
         }
         // Maximize peels first: Esc returns the portal to the board without
         // dropping page focus (P1.portal.maximize / P0.1).

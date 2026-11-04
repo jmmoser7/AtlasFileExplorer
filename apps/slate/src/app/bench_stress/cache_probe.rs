@@ -62,6 +62,9 @@ fn phase(h: &mut Harness, rows: &mut Vec<ResultRow>, name: &str, frames: usize) 
 #[test]
 #[ignore = "bounded native-pen mesh-cache diagnosis; CPU only, no GPU"]
 fn bench_native_pen_cache_probe() {
+    super::super::board_path::legacy_mesh_colors_for_test(
+        std::env::var_os("SLATE_MESH_LEGACY_COLORS").is_some(),
+    );
     let fixture: Fixture =
         serde_json::from_str(include_str!("fixtures/native-pen-750.json")).unwrap();
     assert_eq!(fixture.nodes.len(), 750);

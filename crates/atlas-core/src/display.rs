@@ -58,7 +58,7 @@ pub const SLATE_BOARD: ZoomProfile = ZoomProfile {
     min: 1.0 / 128.0,
     max: 128.0,
     default_z: SLATE_CANVAS.default_z,
-    wheel: WheelPolicy::Exp { k: 0.0015 },
+    wheel: WheelPolicy::Exp { k: 0.002625 },
 };
 
 /// GPU texture upload / residency budget for a canvas.
@@ -126,6 +126,7 @@ mod tests {
         assert_eq!(SLATE_BOARD.clamp(0.0001), 1.0 / 128.0);
         assert_eq!(SLATE_CANVAS.max, 3.5);
         let one = SLATE_BOARD.wheel_factor(80.0);
+        assert!((one.ln() - 80.0 * 0.0015 * 1.75).abs() < 1e-6);
         let split = SLATE_BOARD.wheel_factor(20.0).powi(4);
         assert!((one - split).abs() < 1e-6);
         assert!((one * SLATE_BOARD.wheel_factor(-80.0) - 1.0).abs() < 1e-6);

@@ -15,6 +15,16 @@ impl SlateApp {
         portal: NodeId,
         relay: Option<(&str, &str)>,
     ) -> Option<NodeId> {
+        if self.pending_generator_host(portal) == Some(super::super::board_flow::PendingHost::Chat)
+            && (self
+                .agents
+                .prompt(portal)
+                .is_none_or(|p| p.trim().is_empty())
+                || !self.bind_pending_chat(portal))
+        {
+            return None;
+        }
+        self.refresh_agent_access();
         if self
             .doc()
             .scene
@@ -370,6 +380,9 @@ impl SlateApp {
         let key = self.agents.key_draft.trim().to_string();
         match atlas_ai::cursor_key::save(&key) {
             Ok(()) => {
+                self.ai
+                    .packs
+                    .credential_saved("cursor", self.ai.config.workspace_dir.clone());
                 self.agents.key_draft.clear();
                 self.agents.key_entry = None;
                 self.agents.key_focus = None;

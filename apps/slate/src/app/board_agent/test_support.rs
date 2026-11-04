@@ -6,6 +6,12 @@ pub(super) use super::paint_probe::*;
 pub(super) use super::train_setup::*;
 
 impl SlateApp {
+    pub(crate) fn history_request_cancelled_for_test(&self, id: NodeId, request: &str) -> bool {
+        self.agents
+            .cancelled_generations
+            .get(&id)
+            .is_some_and(|value| value == request)
+    }
     pub(crate) fn fitted_agent_image_for_test(&self, id: NodeId) -> Option<&str> {
         self.agents.fitted_image.get(&id).map(String::as_str)
     }
@@ -40,6 +46,7 @@ pub(super) fn generator_with_note(
     let sticky = h.app.doc_mut().scene.build_node(
         slate_doc::WorldRect::new(-400.0, 0.0, 220.0, 220.0),
         NodeKind::Text(slate_doc::scene::TextNode {
+            answers: Default::default(),
             text: note.into(),
             style: Default::default(),
             family: slate_doc::scene::Typeface::Sans,
@@ -108,6 +115,7 @@ pub(super) fn note(h: &mut super::super::tests::Harness, at: Pos2, text: &str) -
     let node = h.app.doc_mut().scene.build_node(
         slate_doc::WorldRect::new(at.x, at.y, 180.0, 120.0),
         NodeKind::Text(slate_doc::scene::TextNode {
+            answers: Default::default(),
             text: text.into(),
             style: Default::default(),
             family: slate_doc::scene::Typeface::Sans,

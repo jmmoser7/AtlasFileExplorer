@@ -717,6 +717,7 @@ fn round8(v: u32) -> u32 {
 /// A graph of core ComfyUI nodes only. The result is a preview, so ComfyUI's
 /// output folder never fills with copies of what Slate already stores.
 pub fn workflow(plan: &Plan, prompt: &str, seed: u64, up: &Uploaded) -> Result<Value, String> {
+    up.aspect.validate_comfy(plan.task != Task::Generate)?;
     let preset = preset(&plan.checkpoint, plan.family);
     let mut g = Graph {
         nodes: serde_json::Map::new(),
@@ -853,6 +854,81 @@ pub fn workflow(plan: &Plan, prompt: &str, seed: u64, up: &Uploaded) -> Result<V
     );
     g.add("PreviewImage", json!({"images": out(&decode, 0)}));
     Ok(Value::Object(g.nodes))
+}
+
+fn image_prompt(request: &AgentRequest) -> String {
+    request.prompt_with_history().trim().to_owned()
+}
+
+#[cfg(test)]
+#[test]
+fn actual_image_prompt_builder_quotes_explicit_history_once_in_graph_payload() {
+    let plan = Plan {
+        task: Task::Generate,
+        checkpoint: "test.safetensors".into(),
+        family: None,
+        depth_control: None,
+        edge_control: None,
+        style: None,
+    };
+    let mut request = AgentRequest {
+        prompt: "Current image question".into(),
+        history: vec![atlas_agent::AgentTurn {
+            role: "user".into(),
+            text: "ADMITTED_IMAGE_HISTORY".into(),
+            at: 0,
+        }],
+        ..Default::default()
+    };
+    let graph = workflow(&plan, &image_prompt(&request), 42, &Uploaded::default()).unwrap();
+    assert_eq!(
+        serde_json::to_string(&graph)
+            .unwrap()
+            .matches("ADMITTED_IMAGE_HISTORY")
+            .count(),
+        1
+    );
+    request.history.clear();
+    let graph = workflow(&plan, &image_prompt(&request), 42, &Uploaded::default()).unwrap();
+    assert!(!serde_json::to_string(&graph)
+        .unwrap()
+        .contains("ADMITTED_IMAGE_HISTORY"));
+    assert_eq!(request.prompt, "Current image question");
+}
+
+#[cfg(test)]
+#[test]
+fn custom_generation_payload_uses_ratio_and_rejects_source_coercion() {
+    let mut plan = Plan {
+        task: Task::Generate,
+        checkpoint: "test.safetensors".into(),
+        family: None,
+        depth_control: None,
+        edge_control: None,
+        style: None,
+    };
+    let up = Uploaded {
+        aspect: atlas_agent::Aspect::Custom {
+            width: 4,
+            height: 3,
+        },
+        ..Default::default()
+    };
+    let graph = workflow(&plan, "test", 42, &up).unwrap();
+    let latent = graph
+        .as_object()
+        .unwrap()
+        .values()
+        .find(|value| value["class_type"] == "EmptyLatentImage")
+        .unwrap();
+    let width = latent["inputs"]["width"].as_u64().unwrap();
+    let height = latent["inputs"]["height"].as_u64().unwrap();
+    assert_eq!((width % 8, height % 8), (0, 0));
+    assert!((width as f64 / height as f64 - 4.0 / 3.0).abs() < 0.03);
+    plan.task = Task::Vary;
+    assert!(workflow(&plan, "test", 42, &up)
+        .unwrap_err()
+        .contains("source transformations"));
 }
 
 fn seed_from(id: &str) -> u64 {
@@ -1154,11 +1230,18 @@ impl Client {
         if self.output_dir.as_os_str().is_empty() {
             return Err("This image portal has no output folder.".into());
         }
-        let prompt = request.prompt.trim();
+        let prompt = image_prompt(request);
+        let prompt = prompt.as_str();
         if prompt.is_empty() {
             return Err("Connect a note with a prompt, or type one.".into());
         }
         let sources = sources(request)?;
+        request
+            .image
+            .as_ref()
+            .map(|params| params.aspect)
+            .unwrap_or_default()
+            .validate_comfy(sources.image.is_some() || sources.depth.is_some())?;
         let catalog = self.catalog()?;
         let plan = plan(&catalog, request.model.as_deref(), &sources)?;
         let mut up = Uploaded::default();

@@ -9,6 +9,7 @@ fn add_frame(doc: &mut SlateDoc, rect: WorldRect, title: &str, order: u32) -> No
     let node = doc.scene.build_node(
         rect,
         NodeKind::Frame(FrameNode {
+            presentation_media: Default::default(),
             title: title.into(),
             order,
             fill: Rgba::WHITE,
@@ -41,6 +42,7 @@ fn overlapping_frames_do_not_duplicate_a_slide_member() {
     let text = doc.scene.build_node(
         WorldRect::new(600.0, 210.0, 200.0, 120.0),
         NodeKind::Text(TextNode {
+            answers: Default::default(),
             text: MARKER.into(),
             style: Default::default(),
             family: Typeface::Sans,

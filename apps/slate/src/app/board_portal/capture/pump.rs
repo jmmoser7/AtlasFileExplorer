@@ -249,6 +249,23 @@ impl SlateApp {
         size: [u32; 2],
         result: Result<ReadyFile, String>,
     ) {
+        self.complete_portal_capture_as(
+            source,
+            canvas,
+            size,
+            result,
+            slate_doc::scene::CmdAuthor::Human,
+        );
+    }
+
+    pub(super) fn complete_portal_capture_as(
+        &mut self,
+        source: Source,
+        canvas: bool,
+        size: [u32; 2],
+        result: Result<ReadyFile, String>,
+        author: slate_doc::scene::CmdAuthor,
+    ) {
         match result {
             Ok(file) if canvas => {
                 if !self.portal_capture_matches(&source) || self.tab().read_only {
@@ -261,7 +278,9 @@ impl SlateApp {
                     );
                 } else {
                     let item = self.item_for_ready_path(&file.path, file.size, file.mtime);
-                    if let Some(id) = self.place_capture_pixels_beside(source.node, item, size) {
+                    if let Some(id) =
+                        self.place_capture_pixels_beside_as(source.node, item, size, author)
+                    {
                         self.board_sel.clear();
                         self.board_sel.insert(id);
                         self.toast("Capture added to Canvas");

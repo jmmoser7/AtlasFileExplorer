@@ -36,12 +36,14 @@ fn wheel_event_modifiers_zoom_once_without_a_frame_modifier_snapshot() {
 }
 
 #[test]
-fn a_settled_wheel_notch_is_applied_once_and_its_inverse_restores_zoom() {
+fn an_unmodified_wheel_notch_applies_in_its_arrival_frame_without_a_tail() {
     let mut h = grip_board("regions_wheel_one_stream");
     let point = h.app.canvas_rect.center() + EVec2::new(80.0, -40.0);
     let world = h.app.screen_to_world(point);
     let mut time = h.ctx.input(|i| i.time);
     let mut notch = |h: &mut Harness, delta: f32| {
+        let start = h.app.tab().cam.z;
+        let expected = start * atlas_core::display::SLATE_BOARD.wheel_factor(delta);
         for frame in 0..28 {
             time += 1.0 / 60.0;
             h.frame_with(|input| {
@@ -55,12 +57,16 @@ fn a_settled_wheel_notch_is_applied_once_and_its_inverse_restores_zoom() {
                     });
                 }
             });
+            assert!(
+                (h.app.tab().cam.z - expected).abs() < 0.00001,
+                "camera must reach the requested zoom on frame one and stay there on frame {}",
+                frame + 1,
+            );
         }
         assert_eq!(h.ctx.input(|i| i.smooth_scroll_delta), EVec2::ZERO);
         assert!(h.app.screen_to_world(point).distance(world) < 0.001);
     };
     notch(&mut h, 120.0);
-    assert!((h.app.tab().cam.z - 1.197_217_3).abs() < 0.0001);
     notch(&mut h, -120.0);
     assert!((h.app.tab().cam.z - 1.0).abs() < 0.0001);
 }
@@ -95,12 +101,8 @@ fn board_wheel_reaches_point_detail_and_wide_overview_while_anchoring_the_pointe
         (h.app.tab().cam.z - 128.0).abs() < 0.001,
         "actual board wheel input must reach the approved point-detail zoom"
     );
-    // Repeated large negative notches also overcome any positive smooth-wheel
-    // backlog, rather than assuming one frame consumes an arbitrary delta.
-    for _ in 0..4 {
-        wheel(&mut h, -10_000.0);
-        assert!(h.app.screen_to_world(pointer).distance(anchor) < 0.01);
-    }
+    wheel(&mut h, -10_000.0);
+    assert!(h.app.screen_to_world(pointer).distance(anchor) < 0.01);
     assert!((h.app.tab().cam.z - 1.0 / 128.0).abs() < 0.000001);
 }
 

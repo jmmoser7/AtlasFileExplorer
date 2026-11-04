@@ -1,0 +1,122 @@
+{
+  "scope": "Frame Phase 03 Rust Canvas specimen",
+  "gitHead": "a75990653b5cf97484d03c2c36d34920f615a831",
+  "sourceIdentity": "Working-tree snapshot; primary files hashed below",
+  "sourceHashes": {
+    "crates/atlas-shell/src/frame_presentation.rs": "0c597d7ea3ea21cb9c845bbb1e4633098a2708825d02ecfd02f68f655604dcfc",
+    "crates/atlas-shell/examples/frame_canvas.rs": "b7da36e48effe6f38aa496da850cc8958530aab996ecb32b3a6c627e0d1c3306",
+    "crates/atlas-shell/examples/frame_canvas/media.rs": "5468df42a6b82879c1aa1e821d661ebeaeff3584e13cef92523712e5d70ec802",
+    "crates/atlas-shell/examples/frame_canvas/verify.rs": "609fb3778b5f41c8a1f48ff76cf051f79b5bdc07cb7e66674d094ff6fbeb54d2",
+    "crates/slate-doc/src/presentations.rs": "34470c98511a767339e3021aeff6883b9653ec8954c8a94c8f54ae1fd7996ef5",
+    "crates/slate-doc/src/scene.rs": "cbec477d46e66b03e5384330e6fb36c9e4b87f36425de7ed1809a0d859acd4c1",
+    "crates/atlas-shell/assets/tool-icons.json": "f13808eebed684cb1dd69d8085dbbe39350b599d962d286f63de0af79a0876e8",
+    "Cargo.lock": "19f6ac11e9f16f067bfc010bf7a087b20224020376ef3d135dcb2a53667d826a"
+  },
+  "binary": {
+    "bytes": 11302400,
+    "sha256": "3505d18f6ced66837cc3652cb3b136efe449ca77bf7b8c6b75494ea813ce9fb0",
+    "path": "target/debug/examples/frame_canvas.exe"
+  },
+  "toolchain": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+  "profile": "dev",
+  "target": "x86_64-pc-windows-msvc",
+  "check": {
+    "seconds": 3.8,
+    "command": "cargo check --locked -p atlas-shell --example frame_canvas",
+    "exitCode": 0
+  },
+  "build": {
+    "firstSmallSeconds": 40.88,
+    "command": "cargo build --locked -p atlas-shell --example frame_canvas --timings",
+    "fullyColdSeconds": null,
+    "bootstrap": "warmed dependencies; source still in progress at link",
+    "finalWarmSeconds": 48.66,
+    "exitCode": 0,
+    "sharedCrateRebuildSeconds": 85
+  },
+  "verification": {
+    "large": "100 visible at 780 x 720, Shift/Ctrl, group drag, journal undo/redo and reference-only Delete",
+    "small": "attachment, compact bar, blank click and Esc, squircle clearance",
+    "document": "shared membership, fallback, sort carries content, playback and simulated media",
+    "command": "target/debug/examples/frame_canvas.exe --verify target/frame-phase03",
+    "exitCode": 0
+  },
+  "captureComparison": {
+    "largeBrowser": "assets/frame-proposals/20261103-presentation-joined-js/100-slides-joined.png",
+    "pixelParity": "unverified",
+    "smallBrowser": "assets/frame-proposals/20261103-presentation-joined-js/five-slides-joined.png"
+  },
+  "captures": [
+    {
+      "id": "frame-phase03-frame-five-native",
+      "elementId": "frame",
+      "title": "Create Presentation · five-slide palette · Phase 03 Rust",
+      "src": "assets/frame-proposals/20261103-phase03-native/frame-five-native.png",
+      "download": "assets/frame-proposals/20261103-phase03-native/frame-five-native.png",
+      "approval": "draft-native-canvas-specimen",
+      "captureKind": "native-screenshot",
+      "sourcePhase": "03",
+      "caption": "The small Rust specimen uses an attached palette with five inline slide thumbnails.",
+      "renderer": "egui software raster",
+      "fixture": "presentation-small",
+      "capturedAt": "2026-11-03T21:23:44.6652087Z",
+      "imageSize": {
+        "width": 1280,
+        "height": 720
+      },
+      "zoom": 0.51789075,
+      "theme": "light",
+      "sha256": "0e7d5699ca82edd235301dd73c2be8366709822e50d7251f4f5e3c7044e1134a",
+      "receipt": "assets/frame-proposals/20261103-phase03-native/receipt.json"
+    },
+    {
+      "id": "frame-phase03-frame-squircle-native",
+      "elementId": "frame",
+      "title": "Create Presentation · small Frame squircle palette · Phase 03 Rust",
+      "src": "assets/frame-proposals/20261103-phase03-native/frame-squircle-native.png",
+      "download": "assets/frame-proposals/20261103-phase03-native/frame-squircle-native.png",
+      "approval": "draft-native-canvas-specimen",
+      "captureKind": "native-screenshot",
+      "sourcePhase": "03",
+      "caption": "A smaller Frame keeps its external squircle strip and a separate palette.",
+      "renderer": "egui software raster",
+      "fixture": "presentation-small",
+      "capturedAt": "2026-11-03T21:23:44.8758567Z",
+      "imageSize": {
+        "width": 1280,
+        "height": 720
+      },
+      "zoom": 0.51789075,
+      "theme": "light",
+      "sha256": "da8e94c6b6ba9ea1b72c20b32898e25d3f0a502a56e09b6d452a4f04a9b89ff4",
+      "receipt": "assets/frame-proposals/20261103-phase03-native/receipt.json"
+    },
+    {
+      "id": "frame-phase03-frame-100-live",
+      "elementId": "frame",
+      "title": "Create Presentation · 100-slide native window · Phase 03 Rust",
+      "src": "assets/frame-proposals/20261103-phase03-native/frame-100-live.jpg",
+      "download": "assets/frame-proposals/20261103-phase03-native/frame-100-live.jpg",
+      "approval": "draft-native-canvas-specimen",
+      "captureKind": "native-screenshot",
+      "sourcePhase": "03",
+      "caption": "All 100 thumbnails are visible in the launched native canvas.",
+      "renderer": "Windows live window capture",
+      "fixture": "presentation-large",
+      "capturedAt": "2026-11-03T21:25:20.2881084Z",
+      "imageSize": {
+        "width": 782,
+        "height": 750
+      },
+      "zoom": 0.8,
+      "theme": "light",
+      "sha256": "a3d668ae430b067f137091c92946611c7abb17ce7901f6998b3cef062dac23a5",
+      "receipt": "assets/frame-proposals/20261103-phase03-native/receipt.json"
+    }
+  ],
+  "slateConsumerCheck": {
+    "exitCode": 0,
+    "command": "cargo check --locked -p slate --lib --jobs 2",
+    "seconds": 49.84
+  }
+}

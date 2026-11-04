@@ -9,6 +9,10 @@ impl SlateApp {
             self.toast("Capture to Canvas needs an editable workbook.");
             return;
         }
+        if self.application_connector_active(node) {
+            self.connector_capture(node, None);
+            return;
+        }
         if self.model_has_viewport(node) {
             self.export_model_screenshot_canvas(node);
         } else {
@@ -77,6 +81,10 @@ impl SlateApp {
             self.toast("Choose MP4 for video, or PNG, JPEG, or WebP for a still image.");
             return;
         }
+        if !video && self.application_connector_active(node) {
+            self.connector_capture(node, Some(path));
+            return;
+        }
         if !video && self.model_has_viewport(node) {
             self.finish_model_screenshot_save(node, path);
         } else {
@@ -93,6 +101,10 @@ impl SlateApp {
         let Some(source) = self.portal_capture_source(node) else {
             return;
         };
+        if video && self.application_connector_active(node) {
+            self.toast("Record the Rhino process through the production screen recorder. Native still capture preserves restorable view metadata.");
+            return;
+        }
         if video && !self.portal_capture_rotation_supported(node) {
             self.toast("Reset the 3D viewport frame rotation before recording.");
             return;

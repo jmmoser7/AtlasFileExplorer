@@ -30,21 +30,70 @@ impl SlateApp {
         xf: &BoardXf,
         node: &Node,
     ) -> Option<Arc<chrome::MediaHostGeometry>> {
+        self.media_host_surface_at(ctx, xf, xf, node, false)
+    }
+
+    /// Fixed board-local sampling for the shadow; reveal still uses the real view.
+    pub(crate) fn media_shadow_outline(
+        &self,
+        ctx: &egui::Context,
+        view: &BoardXf,
+        node: &Node,
+    ) -> Vec<egui::Pos2> {
+        let world = BoardXf {
+            center: egui::Pos2::ZERO,
+            offset: egui::Vec2::ZERO,
+            z: 1.0,
+        };
+        self.media_host_surface_at(ctx, view, &world, node, true)
+            .and_then(|surface| surface.outline.first().cloned())
+            .unwrap_or_else(|| self.node_screen_outline(ctx, &world, node))
+    }
+
+    fn media_host_surface_at(
+        &self,
+        ctx: &egui::Context,
+        view: &BoardXf,
+        xf: &BoardXf,
+        node: &Node,
+        shadow: bool,
+    ) -> Option<Arc<chrome::MediaHostGeometry>> {
         if self.slate_nesting() || self.portal_capture_owns_viewport(node.id) {
             return None;
         }
-        let ports = if let Some(presentation) = Self::flow_port_presentation(node, xf)
-            .filter(|_| self.flow_ports_visible(node, ctx, xf))
+        let ports = if Self::flow_port_presentation(node, view)
+            .filter(|_| self.flow_ports_visible(node, ctx, view))
+            .is_some()
         {
+            let radius =
+                atlas_shell::canvas_scale::px(chrome::hit_regions::TYPED_PORT_RADIUS, xf.z);
             let host = self.wire_input_host(node);
-            host.ports()
+            let inputs = self.wire_input_ports(node);
+            self.presented_wire_ports(node)
                 .into_iter()
                 .map(|site| {
                     let outward = host.outward(site.side, site.t);
                     chrome::MediaPortNotch {
-                        center: xf.w2s(egui::Pos2::new(site.point[0], site.point[1])),
+                        center: chrome::hit_regions::wire_port_center(
+                            xf.w2s(egui::Pos2::new(site.point[0], site.point[1])),
+                            egui::vec2(outward[0], outward[1]),
+                            radius,
+                        ),
                         inward: egui::vec2(-outward[0], -outward[1]),
-                        radius: presentation.radius,
+                        radius,
+                        half_span: inputs
+                            .iter()
+                            .find(|port| {
+                                site.side == slate_doc::scene::Side::Left
+                                    && (port.t - site.t).abs() < 0.001
+                            })
+                            .and_then(|port| self.graft_input_count(node.id, port.slot))
+                            .map_or(0.0, |count| {
+                                ((slate_doc::wire_host::graft_capsule_height(count) * xf.z)
+                                    .max(radius * 2.0)
+                                    - radius * 2.0)
+                                    * 0.5
+                            }),
                     }
                 })
                 .collect::<Vec<_>>()
@@ -67,7 +116,7 @@ impl SlateApp {
         let outline = self.node_screen_outline(ctx, xf, node);
         Some(chrome::media_host_geometry(
             ctx,
-            Id::new(("media_host_surface", self.tab().id, node.id.0)),
+            Id::new(("media_host_surface", self.tab().id, node.id.0, shadow)),
             &outline,
             &ports,
             tab,

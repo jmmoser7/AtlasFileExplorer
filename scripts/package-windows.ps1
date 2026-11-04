@@ -16,6 +16,7 @@ $env:ATLAS_RELEASE_CHANNEL = $Channel
 if (-not $SkipBuild) {
     cargo build --locked --release -p slate -p native-file-atlas
     if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
+    & (Join-Path $repo 'tools/headless-rhino/build.ps1') -OutputDirectory (Join-Path $repo 'target/release') -SkipIfUnavailable
 }
 # CI staging belongs outside Cargo's cached target tree; otherwise each release
 # adds another complete Node/runtime/installer copy to the next build's cache.
@@ -35,6 +36,13 @@ function Get-VerifiedArchive([string]$Url, [string]$Hash, [string]$Name) {
 
 foreach ($exe in @('slate.exe', 'native-file-atlas.exe')) {
     Copy-Item -LiteralPath (Join-Path $repo "target/release/$exe") -Destination $stage
+}
+# Optional locally compiled bridge only. Rhino's commercial SDK/native DLLs
+# remain in the recipient's installed Rhino directory and are never packaged.
+$rhinoHelper=Join-Path $repo 'target/release/HeadlessRhino.exe'
+if (Test-Path -LiteralPath $rhinoHelper -PathType Leaf) {
+    Copy-Item -LiteralPath $rhinoHelper -Destination $stage
+    Copy-Item -LiteralPath (Join-Path $repo 'tools/headless-rhino/README.md') -Destination (Join-Path $stage 'HeadlessRhino-README.md')
 }
 Copy-Item -LiteralPath (Join-Path $repo 'LICENSE') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $repo 'apps/slate/assets/fonts/DEJAVU-LICENSE.txt') -Destination $stage

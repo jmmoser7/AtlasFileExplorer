@@ -1,5 +1,7 @@
 //! Gesture begin, pick, and press setup.
 
+mod update;
+
 use super::*;
 
 impl SlateApp {
@@ -41,7 +43,10 @@ impl SlateApp {
                     return None;
                 }
                 if !(mods.ctrl && mods.shift) {
-                    if let Some(id) = self.tiny_body_owns_pointer(screen) {
+                    if let Some(id) = self
+                        .tiny_body_owns_pointer(screen)
+                        .filter(|id| mods.alt || self.live_model_at(world.x, world.y) != Some(*id))
+                    {
                         return self.begin_select_body_drag(id, world, mods);
                     }
                 }
@@ -127,6 +132,7 @@ impl SlateApp {
                         return Some(BoardDrag::ModelOrbit {
                             id,
                             last_screen: screen,
+                            button: egui::PointerButton::Primary,
                         });
                     }
                 }
@@ -291,12 +297,12 @@ impl SlateApp {
         }
     }
 
-    /// True when a frame body drag should marquee its members.
+    /// A viewport-filling Frame body starts a sweep until the Frame is selected.
     pub(super) fn frame_body_selects_contents(&self, id: NodeId) -> bool {
         let Some(n) = self.doc().scene.node(id) else {
             return false;
         };
-        if !n.is_frame() {
+        if !n.is_frame() || self.board_sel.contains(&id) {
             return false;
         }
         let screen = self.board_xf().rect_w2s(n.rect).size();
@@ -307,6 +313,14 @@ impl SlateApp {
 
     pub(crate) fn board_pick_node(&self, x: f32, y: f32) -> Option<NodeId> {
         self.board_pick_node_with_locked(x, y, false)
+    }
+
+    /// A selected Frame owns its body's input until selection is released.
+    pub(crate) fn board_selected_frame_at(&self, screen: Pos2, xf: &BoardXf) -> bool {
+        let world = xf.s2w(screen);
+        self.board_pick_node(world.x, world.y).is_some_and(|id| {
+            self.board_sel.contains(&id) && self.doc().scene.node(id).is_some_and(Node::is_frame)
+        })
     }
 
     pub(crate) fn board_pick_node_with_locked(
@@ -321,7 +335,10 @@ impl SlateApp {
             self.tab().cam.z,
             include_locked,
             self.board_wire_routing,
-            |node| !self.presence.holds_node(node.id),
+            |node| {
+                !self.presence.holds_node(node.id)
+                    && (include_locked || self.board_selected_frame_owner(node.id).is_none())
+            },
             |id| self.visible_wire_host(id),
         )
     }

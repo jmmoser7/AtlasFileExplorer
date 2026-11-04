@@ -107,3 +107,98 @@ pub fn image_models(
     }));
     models
 }
+
+use super::*;
+pub fn codex_executable() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("CODEX_BIN")
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+    {
+        return Some(path);
+    }
+    if let Some(paths) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            for name in ["codex.exe", "codex"] {
+                let p = dir.join(name);
+                if p.is_file() {
+                    return Some(p);
+                }
+            }
+        }
+    }
+    let root = PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("OpenAI/Codex/bin");
+    let mut entries: Vec<_> = std::fs::read_dir(root)
+        .ok()?
+        .flatten()
+        .map(|e| e.path().join("codex.exe"))
+        .filter(|p| p.is_file())
+        .collect();
+    entries.sort();
+    entries.pop()
+}
+
+pub fn comfy_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
+    let _ = atlas_comfy::Client::start(&AtomicBool::new(false))?;
+    Ok(atlas_comfy::checkpoints()?
+        .into_iter()
+        .map(|name| atlas_agent::AgentModel {
+            id: name.clone(),
+            name,
+            ..Default::default()
+        })
+        .collect())
+}
+pub fn local_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
+    let _ = atlas_ollama::Client::start(None, &AtomicBool::new(false))?;
+    Ok(atlas_ollama::models()?
+        .into_iter()
+        .filter(|m| !m.contains("cloud"))
+        .map(|name| atlas_agent::AgentModel {
+            id: name.clone(),
+            name,
+            ..Default::default()
+        })
+        .collect())
+}
+pub fn codex_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
+    atlas_codex::Client::models(
+        &codex_executable().ok_or("Codex is not installed")?,
+        &std::env::current_dir().map_err(|e| e.to_string())?,
+    )
+}
+pub fn cursor_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
+    serde_json::from_value(crate::sidecar::query_cursor_models()?)
+        .map_err(|e| format!("Cursor model catalog: {e}"))
+}
+pub fn codex_projects() -> Vec<(String, PathBuf)> {
+    codex_executable()
+        .and_then(|exe| atlas_codex::Client::projects(&exe, &std::env::current_dir().ok()?).ok())
+        .unwrap_or_default()
+}
+
+/// GPT Image models the stored key may call, newest first. Worker-only: it
+/// reads Credential Manager and asks the API.
+pub fn openai_image_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
+    let key = atlas_core::secrets::load(OPENAI_KEY_SLOT).ok_or("Add an OpenAI API key.")?;
+    Ok(atlas_openai::models(&key)?
+        .into_iter()
+        .map(|(id, name)| atlas_agent::AgentModel {
+            id,
+            name,
+            ..Default::default()
+        })
+        .collect())
+}
+
+/// OpenAI text models the stored key may call, newest first. Worker-only.
+pub fn openai_text_models() -> Result<Vec<atlas_agent::AgentModel>, String> {
+    let key = atlas_core::secrets::load(OPENAI_KEY_SLOT).ok_or("Add an OpenAI API key.")?;
+    Ok(atlas_openai::text_models(&key)?
+        .into_iter()
+        .map(|(id, name)| atlas_agent::AgentModel {
+            id,
+            name,
+            ..Default::default()
+        })
+        .collect())
+}

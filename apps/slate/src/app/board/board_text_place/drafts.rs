@@ -9,6 +9,7 @@ impl TextBoxDraft {
         Some(scene.build_node(
             self.rect,
             NodeKind::Text(TextNode {
+                answers: Default::default(),
                 text: self.buffer.clone(),
                 style: Default::default(),
                 family: self.family,
@@ -24,7 +25,12 @@ impl TextBoxDraft {
 }
 
 pub(in crate::app::board) fn apply_document_edit(node: &mut Node, edit: &TextDocEdit) {
-    slate_doc::authored_text::apply_document_text(node, &edit.buffer, edit.rect);
+    slate_doc::authored_text::apply_document_text_from(
+        node,
+        &edit.original,
+        &edit.buffer,
+        edit.rect,
+    );
 }
 
 pub(in crate::app::board) use slate_doc::authored_text::apply_inline_edit;

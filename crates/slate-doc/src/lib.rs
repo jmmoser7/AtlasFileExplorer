@@ -5,6 +5,7 @@
 
 pub mod agent_chat;
 pub mod agent_inputs;
+pub mod text_answers;
 pub mod authored_text;
 pub mod bumper;
 pub mod create_style;
@@ -27,6 +28,7 @@ pub mod osnap;
 pub mod property;
 pub mod recovery;
 pub mod scene;
+pub mod presentations;
 mod spatial;
 pub mod stage;
 pub mod tag_command;
@@ -70,3 +72,5 @@ pub use wire::{
     VertexCorner, WireObstacle, WireRouting, CONNECTION_ZONE, ORTHO_CLEARANCE, ORTHO_CORNER_RADIUS,
 };
 pub use wire_host::{connector_anchor_on, is_open_shape, WireHost, WirePort, WireSnap};
+
+pub mod application_surface;

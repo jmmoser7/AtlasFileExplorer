@@ -10,7 +10,7 @@ impl SlateApp {
     ) {
         let tokens = atlas_shell::tokens::current().board_preview.clone();
         for (id, progress) in &self.board_hover_glow {
-            if *progress <= 0.001 {
+            if *progress <= 0.001 || self.board_selected_frame_owner(*id).is_some() {
                 continue;
             }
             let Some(n) = self.doc().scene.node(*id) else {

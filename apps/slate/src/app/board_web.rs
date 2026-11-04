@@ -39,6 +39,7 @@ mod package;
 mod presentation;
 mod scheduler;
 
+mod control;
 mod table_links;
 
 // ---------------------------------------------------------------------------
@@ -223,6 +224,16 @@ impl WebRequest {
 /// every state above run and be tested on a machine with no WebView2 at all
 /// (Art. I.3).
 pub trait WebHost {
+    fn request_controls(&mut self, _id: NodeId) -> bool {
+        false
+    }
+    fn take_controls(&mut self, _id: NodeId) -> Option<Result<String, String>> {
+        None
+    }
+    fn control_state(&mut self, _id: NodeId, _state: &serde_json::Value) {}
+    fn control_epoch(&self, _id: NodeId) -> u64 {
+        0
+    }
     /// Escape intercepted by the native browser, forwarded to Slate's cancel stack.
     fn take_escape(&mut self) -> bool {
         false
@@ -497,12 +508,14 @@ pub struct WebRuntime {
     poll_rx: crossbeam_channel::Receiver<SourcePoll>,
     /// Bounded off-thread table refresh and cached dashboard scripts.
     link_cache: table_links::TableLinks,
+    controls: control::Controls,
     /// Pages whose text an agent run is waiting on.
     text_pending: HashSet<NodeId>,
     /// Disk stills and the visible-text cache. Derived, per-user, off the
     /// frame loop. Disabled under `cfg(test)` unless a test installs one.
     stills: super::board_web_stills::StillCache,
     still_inbox: Vec<super::board_web_stills::Loaded>,
+    history_thumbnails: HashMap<String, egui::TextureHandle>,
     /// Stills read back for a waiting agent run, held only until that run
     /// takes them. Cards keep no CPU copy of their poster.
     agent_stills: HashMap<NodeId, (Instant, super::board_web_stills::Fetched)>,
@@ -540,9 +553,11 @@ impl Default for WebRuntime {
             poll_tx,
             poll_rx,
             link_cache: table_links::TableLinks::default(),
+            controls: control::Controls::default(),
             text_pending: HashSet::new(),
             stills: super::board_web_stills::StillCache::default(),
             still_inbox: Vec::new(),
+            history_thumbnails: HashMap::new(),
             agent_stills: HashMap::new(),
             restored: 0,
             host_open: HashSet::new(),
@@ -1036,6 +1051,7 @@ impl SlateApp {
         self.web.host_ms = 0.0;
         self.drain_source_polls();
         self.drain_web_stills(ctx);
+        self.pump_dashboard_controls(ctx);
         let portals = self.web_portals();
         if portals.is_empty() {
             if !self.web.views.is_empty() {
@@ -1219,6 +1235,55 @@ impl SlateApp {
         }
     }
 
+    /// Exact source-key thumbnails retain independent textures as live posters change.
+    pub(crate) fn web_history_thumbnail(
+        &mut self,
+        id: NodeId,
+        locator: &str,
+    ) -> Option<egui::TextureId> {
+        let key = still_key_for(locator);
+        if let Some(texture) = self.web.history_thumbnails.get(&key) {
+            return Some(texture.id());
+        }
+        self.web.stills.request(id, &key);
+        None
+    }
+
+    fn cache_web_history_thumbnail(&mut self, ctx: &egui::Context, key: &str, frame: &WebFrame) {
+        if key.is_empty() || self.web.history_thumbnails.contains_key(key) {
+            return;
+        }
+        let [width, height] = frame.size;
+        if width == 0 || height == 0 {
+            return;
+        }
+        let size = [
+            96usize,
+            ((height as f32 / width as f32 * 96.0).round() as usize).clamp(1, 96),
+        ];
+        let pixels = (0..size[1])
+            .flat_map(|y| {
+                (0..size[0]).map(move |x| {
+                    frame.pixels[(y * height / size[1]) * width + x * width / size[0]]
+                })
+            })
+            .collect();
+        let image = egui::ColorImage { size, pixels };
+        if self.web.history_thumbnails.len() >= 128 {
+            if let Some(oldest) = self.web.history_thumbnails.keys().next().cloned() {
+                self.web.history_thumbnails.remove(&oldest);
+            }
+        }
+        self.web.history_thumbnails.insert(
+            key.to_owned(),
+            ctx.load_texture(
+                format!("web-history-{key}"),
+                image,
+                egui::TextureOptions::LINEAR,
+            ),
+        );
+    }
+
     fn upload_poster(&mut self, ctx: &egui::Context, id: NodeId, img: impl Into<WebFrame>) {
         self.install_poster(ctx, id, img.into(), true);
     }
@@ -1264,6 +1329,7 @@ impl SlateApp {
                 egui::TextureOptions::LINEAR,
             ));
         }
+        self.cache_web_history_thumbnail(ctx, &key, &img);
         if live && !key.is_empty() {
             self.web.stills.store(&key, img);
         }
@@ -1280,6 +1346,8 @@ impl SlateApp {
                 later.push(item);
                 continue;
             }
+            self.cache_web_history_thumbnail(ctx, &item.key, &item.img);
+            self.web.uploads_this_frame += 1;
             let Some(view) = self.web.views.get(&item.id) else {
                 continue;
             };
@@ -1590,6 +1658,22 @@ impl SlateApp {
             NodeKind::Portal(p) => p.source.as_ref().map(|s| s.locator.clone()),
             _ => None,
         })
+    }
+
+    /// Restore a previously saved view through the existing page host. Keep
+    /// the source and its permissions intact; the bookmark must be same-origin.
+    pub(crate) fn restore_presentation_web_view(&mut self, id: NodeId, target: &str) {
+        let source=self.doc().scene.node(id).and_then(|n|match &n.kind {
+            NodeKind::Portal(p) if p.kind==PortalKind::Web=>p.source.as_ref().map(|s|s.locator.clone()),
+            _=>None,
+        });
+        let Some((source,target))=source.and_then(|s|url::Url::parse(&s).ok()).zip(url::Url::parse(target).ok()) else{return;};
+        if !matches!(target.scheme(),"http"|"https")||source.origin()!=target.origin()
+            ||!target.username().is_empty()||target.password().is_some() {return;}
+        let target=target.to_string();
+        if self.web.host.current_url(id).as_deref()==Some(target.as_str()){return;}
+        if let Some(view)=self.web.views.get_mut(&id){view.resume_url=Some(target.clone());}
+        if self.web.is_live(id){self.web.host.navigate(id,&target);}
     }
 
     fn web_url_target(&self, id: Option<NodeId>) -> Option<NodeId> {
@@ -2458,6 +2542,44 @@ impl SlateApp {
     /// tab and a border band stay Slate's, so a focused portal can always be
     /// grabbed by its edge and moved (D17). Right-click is Slate's too — it
     /// opens the portal menu rather than the page's.
+    pub(crate) fn presentation_web_dragging(&self) -> bool {
+        self.web.pointer_down != 0
+    }
+
+    pub(crate) fn presentation_web_input(
+        &mut self,
+        ui: &egui::Ui,
+        xf: &BoardXf,
+        hovered: Option<NodeId>,
+        pointer: Option<Pos2>,
+    ) {
+        let Some(id) = self.web.focused else {
+            return;
+        };
+        let Some(node) = self.doc().scene.node(id).cloned() else {
+            return;
+        };
+        let NodeKind::Portal(portal) = &node.kind else {
+            return;
+        };
+        let mut layout = layout_portal_chrome(
+            xf.rect_w2s(node.rect),
+            self.portal_chrome_collapsed(id),
+            false,
+            self.node_resolved_corner(&node),
+            xf.z,
+        );
+        layout.retract_when_idle(ui.ctx(), id, true);
+        self.web_input_page(
+            ui,
+            id,
+            &portal.web_ref(),
+            node.rect,
+            &layout,
+            (pointer, hovered == Some(id)),
+        );
+    }
+
     pub(crate) fn web_input_frame(
         &mut self,
         ui: &egui::Ui,
@@ -2572,7 +2694,8 @@ impl SlateApp {
         } else {
             node.rect
         };
-        self.web_input_page(ui, id, &web, css_rect, layout, pointer)
+        let owns_pointer = self.portal_owns_pointer(ui.ctx(), id);
+        self.web_input_page(ui, id, &web, css_rect, layout, (pointer, owns_pointer))
     }
 
     // -----------------------------------------------------------------------

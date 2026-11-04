@@ -1,0 +1,20 @@
+{
+  "image": "studio-launcher.png",
+  "sha256": "5415a0d3f3963192d86b53b6b82401630a1b279213a3d01c7a7bdcd43e326b03",
+  "sourceCapture": "target/frame-selection/studio-launcher.png",
+  "sourceUrl": "http://127.0.0.1:8765/",
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "theme": "light",
+  "captureMethod": "Actual browser capture supplied and visually inspected by the root agent",
+  "verification": {
+    "action": "Clicked Launch Rust Studio on the dashboard",
+    "result": "Opened native window 4588610 running frame_canvas.exe --large",
+    "cleanup": "Closed the test native window; original Studio remained open",
+    "serverPid": 51404
+  },
+  "limits": "This capture records the browser launcher and its feedback. Native Frame selection integration is pending separate verification. It does not show the native window.",
+  "buildTimings": null
+}

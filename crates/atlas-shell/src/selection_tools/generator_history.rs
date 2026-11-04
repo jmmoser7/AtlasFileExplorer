@@ -13,6 +13,10 @@ pub struct GeneratorHistoryItem<'a> {
 pub trait GeneratorHistory {
     fn len(&self) -> usize;
     fn get(&self, index: usize) -> Option<GeneratorHistoryItem<'_>>;
+    /// Existing immutable text output, rendered by the shared native text owner.
+    fn text(&self, _index: usize) -> Option<&str> {
+        None
+    }
     /// Non-image histories retain ordinary selection and revision browsing.
     fn image_actions(&self) -> bool {
         false
@@ -64,17 +68,12 @@ impl GeneratorHistory for Vec<GeneratorHistoryItem<'_>> {
     }
 }
 
-pub(super) const HEIGHT: f32 = 26.0;
-const GAP: f32 = 3.0;
+pub(super) const HEIGHT: f32 = 18.0;
+const GAP: f32 = 2.0;
 const ARROW_WIDTH: f32 = 16.0;
 
 fn occupied(count: usize) -> f32 {
     HEIGHT * count as f32 + GAP * count.saturating_sub(1) as f32
-}
-
-/// A datum lane must fit every chip, or one chip with both navigation targets.
-pub(super) fn fits(width: f32, count: usize) -> bool {
-    width >= occupied(count).min(HEIGHT + (ARROW_WIDTH + GAP) * 2.0)
 }
 
 struct HistoryLayout {
@@ -211,6 +210,17 @@ pub(super) fn history_row(
             zoom,
             theme,
         );
+        if item.thumb.is_none() {
+            if let Some(text) = history.text(index) {
+                paint_history_text_preview(
+                    ui.painter(),
+                    circle.shrink(circle.width() * 0.18),
+                    text,
+                    2.0 * zoom,
+                    theme,
+                );
+            }
+        }
         if response.hovered() {
             out.hovered_history = Some(index);
         }
@@ -234,7 +244,7 @@ pub(super) fn history_row(
             out.history_drag_position = response.interact_pointer_pos();
         }
         if object_hover_text(response, item.label.as_ref()).hovered() {
-            if let Some(texture) = item.thumb {
+            if item.thumb.is_some() || history.text(index).is_some() {
                 let preview = Rect::from_center_size(
                     circle.center() - Vec2::new(0.0, 54.0 * zoom),
                     Vec2::splat(92.0 * zoom),
@@ -245,16 +255,46 @@ pub(super) fn history_row(
                     .default_size(preview.size())
                     .interactable(false)
                     .show(ui.ctx(), |ui| {
-                        ui.add(
-                            egui::Image::new((texture, preview.size())).corner_radius(
+                        if let Some(texture) = item.thumb {
+                            ui.add(egui::Image::new((texture, preview.size())).corner_radius(
                                 egui::CornerRadius::same((5.0 * zoom).round() as u8),
-                            ),
-                        );
+                            ));
+                        } else if let Some(text) = history.text(index) {
+                            let rect = Rect::from_min_size(ui.min_rect().min, preview.size());
+                            ui.painter().rect_filled(rect, 5.0 * zoom, theme.panel);
+                            paint_history_text_preview(
+                                ui.painter(),
+                                rect.shrink(6.0 * zoom),
+                                text,
+                                6.0 * zoom,
+                                theme,
+                            );
+                            ui.allocate_space(preview.size());
+                        }
                     });
             }
         }
     }
     out
+}
+
+pub fn paint_history_text_preview(
+    painter: &egui::Painter,
+    rect: Rect,
+    text: &str,
+    size: f32,
+    theme: Palette,
+) {
+    let painter = painter.with_clip_rect(rect.intersect(painter.clip_rect()));
+    canvas_text::layout_rows(
+        &painter,
+        text.to_owned(),
+        canvas_scale::font(size, 1.0),
+        theme.ink,
+        rect.width(),
+        32,
+    )
+    .paint(&painter, rect.left_top(), theme.ink);
 }
 
 fn navigation_control(
@@ -312,22 +352,25 @@ fn paint_thumbnail(
     zoom: f32,
     theme: Palette,
 ) {
-    let radio = FilterRadio {
-        label: "",
-        fill: [72, 82, 92],
-        fill_b: None,
-        thumb: texture,
-    };
-    paint_filter_radio(
-        painter,
-        rect.center(),
-        rect.width() * 0.5,
-        &radio,
-        selected,
-        hovered,
-        zoom,
-        theme,
-    );
+    let _ = (hovered, zoom);
+    if let Some(texture) = texture {
+        // The native textured rounded-rectangle owner already gives this disc
+        // coverage AA. Do not add a ring or an inset around output thumbnails.
+        painter.add(
+            egui::epaint::RectShape::filled(
+                rect,
+                rect.width() * 0.5,
+                if selected {
+                    Color32::from_gray(216)
+                } else {
+                    Color32::WHITE
+                },
+            )
+            .with_texture(texture, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0))),
+        );
+    } else {
+        painter.circle_filled(rect.center(), rect.width() * 0.5, theme.panel);
+    }
     if texture.is_none() {
         canvas_text::text(
             painter,

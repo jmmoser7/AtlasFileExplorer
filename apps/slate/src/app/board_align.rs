@@ -4,6 +4,8 @@
 //! The group selection outline is not duplicated or ghosted on hover.
 //! See `docs/keymap/contracts/align-widget.md` (Art. VI).
 
+mod commit;
+
 use super::board::{BoardTool, BoardXf};
 use super::board_snap;
 use super::SlateApp;
@@ -255,14 +257,14 @@ fn hit_test(screen: Pos2, layout: &AlignLayout) -> Option<AlignAction> {
 impl SlateApp {
     fn alignable_selection(&self) -> Vec<(NodeId, WorldRect, bool)> {
         let mut out = Vec::new();
-        for id in &self.board_sel {
-            let Some(n) = self.doc().scene.node(*id) else {
+        for id in self.board_selection_roots() {
+            let Some(n) = self.doc().scene.node(id) else {
                 continue;
             };
             if n.hidden || matches!(n.kind, NodeKind::Connector(_)) {
                 continue;
             }
-            out.push((*id, n.rect, n.locked));
+            out.push((id, n.rect, n.locked));
         }
         out
     }
@@ -324,7 +326,7 @@ impl SlateApp {
             })
             .flat_map(|n| {
                 let reach =
-                    hit_regions::wire_outer_reach(n.rect.w.min(n.rect.h) * xf.z).unwrap_or(0.0);
+                    hit_regions::wire_outer_reach(self.wire_port_reach(n, xf).unwrap_or(0.0));
                 self.wire_host(n)
                     .ports()
                     .into_iter()
@@ -425,33 +427,6 @@ impl SlateApp {
     /// Journaled distribute. Returns whether any node moved.
     pub(crate) fn distribute_board_selection(&mut self, axis: DistributeAxis) -> bool {
         self.commit_align_action(AlignAction::Distribute(axis))
-    }
-
-    fn commit_align_action(&mut self, action: AlignAction) -> bool {
-        let members = self.alignable_selection();
-        if members.len() < MIN_ALIGN {
-            return false;
-        }
-        if action.needs_three() && members.len() < MIN_DISTRIBUTE {
-            return false;
-        }
-        let rects: Vec<(NodeId, WorldRect)> = members.iter().map(|(id, r, _)| (*id, *r)).collect();
-        let locked: Vec<NodeId> = members
-            .iter()
-            .filter(|(_, _, locked)| *locked)
-            .map(|(id, _, _)| *id)
-            .collect();
-        let targets = preview_rects(&rects, &locked, action);
-        let ids: Vec<NodeId> = targets.iter().map(|(id, _)| *id).collect();
-        let before: Vec<WorldRect> = rects.iter().map(|(_, r)| *r).collect();
-        self.patch_nodes(&ids, |n| {
-            if let Some((_, r)) = targets.iter().find(|(id, _)| *id == n.id) {
-                n.rect = *r;
-            }
-        });
-        ids.iter()
-            .zip(before.iter())
-            .any(|(id, b)| self.doc().scene.node(*id).is_some_and(|n| n.rect != *b))
     }
 
     pub(crate) fn paint_align_widget(

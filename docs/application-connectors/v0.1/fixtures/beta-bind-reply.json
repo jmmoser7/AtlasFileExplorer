@@ -1,0 +1,26 @@
+{
+  "kind": "reply",
+  "reply": {
+    "generation": 1,
+    "outcome": {
+      "binding": {
+        "dirty": false,
+        "document_id": "mock-document",
+        "mode": "linked",
+        "source": {
+          "locator": {
+            "absolute": "C:/example/models/example.dat",
+            "relative": "models/example.dat",
+            "root_id": "example-root"
+          },
+          "revision": "revision-1",
+          "source_id": "example-source"
+        }
+      },
+      "status": "source_bound"
+    },
+    "request_id": "bind-1",
+    "session_id": "fixture-beta",
+    "source": null
+  }
+}

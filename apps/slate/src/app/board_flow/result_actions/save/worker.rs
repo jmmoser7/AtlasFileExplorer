@@ -20,9 +20,20 @@ pub(super) fn preferred_extension(
     workbook: Option<&Path>,
     node: &Node,
 ) -> String {
+    if matches!(node.kind, NodeKind::Text(_)) {
+        return "txt".into();
+    }
+    if matches!(node.kind, NodeKind::Portal(_)) {
+        return "html".into();
+    }
     let NodeKind::Image(image) = &node.kind else {
         return "png".into();
     };
+    if crate::app::image_composite::item_file(doc, workbook, image.item)
+        .is_some_and(|path| slate_doc::media_kind(&path) == slate_doc::MediaKind::Model)
+    {
+        return "3dm".into();
+    }
     if original_pixels(node, image) {
         if let Some(path) = crate::app::image_composite::item_file(doc, workbook, image.item) {
             if let Some(extension) = path
@@ -43,6 +54,13 @@ pub(super) fn save(
     snapshot: &SaveSnapshot,
     destinations: &[PathBuf],
 ) -> Result<SavedImages, String> {
+    if snapshot
+        .extensions
+        .iter()
+        .any(|extension| !matches!(extension.as_str(), "png" | "jpg" | "jpeg" | "webp"))
+    {
+        return save_other_outputs(snapshot, destinations);
+    }
     if destinations.len() != snapshot.nodes.len() {
         return Err("The image selection changed.".into());
     }
@@ -148,6 +166,109 @@ pub(super) fn save(
             })
             .collect(),
         _ => Vec::new(),
+    };
+    Ok(SavedImages {
+        paths: published,
+        next_single,
+    })
+}
+
+fn save_other_outputs(
+    snapshot: &SaveSnapshot,
+    destinations: &[PathBuf],
+) -> Result<SavedImages, String> {
+    if destinations.len() != snapshot.nodes.len() {
+        return Err("The output selection changed".into());
+    }
+    let mut published = Vec::new();
+    for (index, (node, destination)) in snapshot.nodes.iter().zip(destinations).enumerate() {
+        atlas_core::workbook_assets::require_copy_destination(destination)
+            .map_err(|error| error.to_string())?;
+        let extension = &snapshot.extensions[index];
+        if !destination
+            .extension()
+            .and_then(|actual| actual.to_str())
+            .is_some_and(|actual| actual.eq_ignore_ascii_case(extension))
+        {
+            return Err(format!(
+                "Choose a .{extension} filename for this saved output"
+            ));
+        }
+        if snapshot.doc.items.iter().any(|item| {
+            atlas_core::workbook_assets::same_path(
+                destination,
+                &slate_doc::scene::resolve_source(
+                    snapshot.workbook.as_deref(),
+                    &item.path.to_string_lossy(),
+                ),
+            )
+        }) {
+            return Err("Choose a new filename; linked sources are kept intact".into());
+        }
+        let source = match &node.kind {
+            NodeKind::Image(image) => crate::app::image_composite::item_file(
+                &snapshot.doc,
+                snapshot.workbook.as_deref(),
+                image.item,
+            ),
+            NodeKind::Portal(portal) => Some(
+                crate::app::board_agent::materialize_artifact_source(
+                    snapshot.workbook.as_deref(),
+                    portal,
+                )?
+                .entry,
+            ),
+            NodeKind::Text(_) => None,
+            _ => return Err("That saved output has no supported export representation".into()),
+        };
+        if let Some(source) = &source {
+            atlas_core::workbook_assets::require_local_source(source)
+                .map_err(|error| error.to_string())?;
+            if atlas_core::workbook_assets::same_path(source, destination) {
+                return Err("Choose a new filename; saved sources are immutable".into());
+            }
+        }
+        let draft = output::Draft::reserve(destination.clone())?;
+        match &node.kind {
+            NodeKind::Text(text) => std::fs::write(draft.path(), text.text.as_bytes()),
+            _ => std::fs::copy(
+                source
+                    .as_ref()
+                    .ok_or("The saved output source is missing")?,
+                draft.path(),
+            )
+            .map(|_| ()),
+        }
+        .map_err(|error| error.to_string())?;
+        let path = draft.commit_unique()?;
+        if let SaveTarget::Results(address) = &snapshot.target {
+            if let Some(slate_doc::scene::HiddenOutputRef::Model { ticket }) =
+                address.references.get(index)
+            {
+                // The public provenance owner writes its normal sidecar. Reserve
+                // that sibling first so a pre-existing user JSON is never replaced.
+                let sidecar = atlas_core::workbook_assets::sidecar_path(&path);
+                let _owned_sidecar = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&sidecar)
+                    .map_err(|error| {
+                        format!(
+                            "Model saved; its public provenance filename is unavailable: {error}"
+                        )
+                    })?;
+                atlas_core::workbook_assets::write_headless_model_provenance(&path, ticket)
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+        published.push(path);
+    }
+    let next_single = if published.len() == 1 {
+        output::Draft::next_available_path(&published[0])
+            .into_iter()
+            .collect()
+    } else {
+        Vec::new()
     };
     Ok(SavedImages {
         paths: published,

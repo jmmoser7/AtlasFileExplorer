@@ -1063,7 +1063,19 @@ pub fn resize_from_handle(
         let cy = before.y + before.h * 0.5;
         let mut half_w = (local.x - cx).abs().max(min_size * 0.5);
         let mut half_h = (local.y - cy).abs().max(min_size * 0.5);
-        if lock_aspect {
+        if matches!(handle, 1 | 5) {
+            half_w = if lock_aspect {
+                half_h * aspect
+            } else {
+                before.w * 0.5
+            };
+        } else if matches!(handle, 3 | 7) {
+            half_h = if lock_aspect {
+                half_w / aspect
+            } else {
+                before.h * 0.5
+            };
+        } else if lock_aspect {
             if half_w / aspect > half_h {
                 half_h = half_w / aspect;
             } else {

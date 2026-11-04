@@ -33,7 +33,9 @@ impl SlateApp {
     }
 
     pub(crate) fn node_supports_fillet_grip(&self, node: &Node) -> bool {
-        slate_doc::scene::supports_corners(node) && !self.frame_chrome_suppressed(node.id)
+        slate_doc::scene::supports_corners(node)
+            && !self.frame_chrome_suppressed(node.id)
+            && self.board_selected_frame_owner(node.id).is_none()
     }
 
     pub(crate) fn node_item_path<'a>(&'a self, node: &Node) -> Option<&'a std::path::Path> {
@@ -376,7 +378,10 @@ impl SlateApp {
     }
 
     pub(super) fn node_offers_bbox_transform(&self, node: &Node) -> bool {
-        if node.hidden || matches!(node.kind, NodeKind::Connector(_)) {
+        if node.hidden
+            || matches!(node.kind, NodeKind::Connector(_))
+            || self.board_selected_frame_owner(node.id).is_some()
+        {
             return false;
         }
         if Self::node_uses_curve_grips(node) {
@@ -410,7 +415,7 @@ impl SlateApp {
             return None;
         }
         let w = world?;
-        let id = super::board_path::board_pick_node(&self.doc().scene, w.x, w.y, self.tab().cam.z)?;
+        let id = self.board_pick_node(w.x, w.y)?;
         if self.board_sel.contains(&id) {
             return None;
         }

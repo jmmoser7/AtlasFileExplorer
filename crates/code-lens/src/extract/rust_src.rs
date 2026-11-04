@@ -216,10 +216,14 @@ pub(crate) fn extract_impl_trait_edges(
 }
 
 pub fn parse_file(source: &str) -> Option<syn::File> {
-    syn::parse_file(source).ok()
+    parse_file_with_error(source).ok()
 }
 
-fn item_metadata(item: &Item) -> Option<(ItemKind, String, u32)> {
+pub fn parse_file_with_error(source: &str) -> Result<syn::File, syn::Error> {
+    syn::parse_file(source)
+}
+
+pub(crate) fn item_metadata(item: &Item) -> Option<(ItemKind, String, u32)> {
     match item {
         Item::Struct(item) => Some((
             ItemKind::Struct,
@@ -267,7 +271,7 @@ fn item_metadata(item: &Item) -> Option<(ItemKind, String, u32)> {
     }
 }
 
-fn impl_display_name(item: &ItemImpl) -> String {
+pub(crate) fn impl_display_name(item: &ItemImpl) -> String {
     if let Some((_, trait_path, _)) = &item.trait_ {
         let trait_name = path_last_ident(trait_path);
         let self_name = type_name(&item.self_ty);

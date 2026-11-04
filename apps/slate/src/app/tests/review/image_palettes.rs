@@ -80,10 +80,10 @@ fn layer_source(path: &std::path::Path, index: usize) {
 }
 
 fn native_smoke_workbook(h: &Harness, item: slate_doc::ItemId) {
-    let dir =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/review/image-workflow");
-    std::fs::create_dir_all(&dir).unwrap();
-    let source = dir.join("native-source.png");
+    let source = review_output_path("image-workflow", "native-source.png");
+    let workbook = review_output_path("image-workflow", "native-smoke.slate");
+    // SlateDoc's canonical encoder writes a sibling temporary file first.
+    let _ = review_output_path("image-workflow", "native-smoke.slate.tmp");
     photograph(&source, 0);
     let mut doc = h.app.doc().clone();
     doc.items
@@ -91,7 +91,7 @@ fn native_smoke_workbook(h: &Harness, item: slate_doc::ItemId) {
         .find(|entry| entry.id == item)
         .unwrap()
         .path = source.canonicalize().unwrap();
-    doc.save_to(&dir.join("native-smoke.slate")).unwrap();
+    doc.save_to(&workbook).unwrap();
 }
 
 fn fixture(
@@ -146,6 +146,7 @@ fn fixture(
             live: false,
             instruction: "Mountain lake at dusk, warm reflected light".into(),
             image: Default::default(),
+            generator: Default::default(),
         }));
     }
     let node = h.app.doc_mut().scene.build_node(

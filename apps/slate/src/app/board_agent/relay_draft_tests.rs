@@ -48,6 +48,7 @@ fn a_deferred_relay_preserves_new_human_edits_and_captures_its_original_sender()
                 preserve_composer: true,
             },
             inputs: input_prep::InputPreparation {
+                capture: None,
                 inputs: Default::default(),
                 replacements: vec![],
                 bake_dependencies: vec![],
@@ -87,6 +88,7 @@ fn failed_input_preparation_keeps_the_human_draft_and_sends_nothing() {
                 preserve_composer: true,
             },
             inputs: input_prep::InputPreparation {
+                capture: None,
                 inputs: Default::default(),
                 replacements: vec![],
                 bake_dependencies: vec![token],

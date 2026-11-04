@@ -567,6 +567,7 @@ mod tests {
         let mut scene = scene::Scene::default();
         let text = |fill| {
             NodeKind::Text(scene::TextNode {
+                answers: Default::default(),
                 text: "hi".into(),
                 style: Default::default(),
                 family: Default::default(),

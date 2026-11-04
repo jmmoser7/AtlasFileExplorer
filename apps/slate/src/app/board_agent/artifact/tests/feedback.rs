@@ -185,7 +185,7 @@ fn an_await_failure_stops_artifact_work_with_or_without_a_matching_session() {
 }
 
 #[test]
-fn preparation_completion_keeps_newer_editor_feedback_and_the_submitted_snapshot() {
+fn preparation_completion_preserves_newer_feedback_and_rejects_the_stale_request() {
     let (mut h, image) = board("artifact-feedback-during-preparation");
     let node = spawn(&mut h, image);
     let prepared = prepare_fixture_run(&mut h, node);
@@ -196,6 +196,7 @@ fn preparation_completion_keeps_newer_editor_feedback_and_the_submitted_snapshot
         Preparing {
             plan: plan.clone(),
             inputs: crate::app::board_agent::input_prep::InputPreparation {
+                capture: None,
                 inputs: plan.request.inputs.clone(),
                 replacements: vec![],
                 bake_dependencies: vec![],
@@ -219,26 +220,16 @@ fn preparation_completion_keeps_newer_editor_feedback_and_the_submitted_snapshot
         .unwrap()
         .instruction
         .clone();
-    h.app.sync_instruction(node, &instruction);
     assert_eq!(
         h.app.agents.prompt(node),
         Some("New feedback typed while preparation runs")
     );
-    assert_eq!(instruction, "New feedback typed while preparation runs");
-    assert_eq!(h.app.agents.dispatched.last().unwrap().1.prompt, submitted);
-    assert_eq!(
-        h.app
-            .agents
-            .artifact
-            .running
-            .get(&node)
-            .unwrap()
-            .prepared
-            .plan
-            .request
-            .prompt,
-        submitted
+    assert_ne!(
+        instruction, submitted,
+        "composed provider text must not become authored feedback"
     );
+    assert!(h.app.agents.dispatched.is_empty());
+    assert!(!h.app.agents.artifact.running.contains_key(&node));
 }
 
 #[test]
@@ -309,6 +300,7 @@ fn pending_model_catalog_preserves_the_authored_label_and_measured_prompt_height
                 }
             );
             for width in [190.0, 220.0, 360.0] {
+                let mut measured_bounds = None;
                 let output = h.ctx.clone().run(
                     egui::RawInput {
                         screen_rect: Some(Rect::from_min_size(
@@ -324,6 +316,7 @@ fn pending_model_catalog_preserves_the_authored_label_and_measured_prompt_height
                                 Pos2::new(50.0, 50.0),
                                 egui::vec2(width, height),
                             );
+                            measured_bounds = Some(rect);
                             h.app.artifact_editor_body(ui, rect, node, 1.0, theme);
                         });
                     },
@@ -345,8 +338,13 @@ fn pending_model_catalog_preserves_the_authored_label_and_measured_prompt_height
                     .expect("the prompt face is painted");
                 assert_eq!(
                     face.height(),
-                    40.0,
-                    "height and paint agree while the model catalog resolves"
+                    atlas_shell::selection_tools::generator::GENERATOR_PROMPT_MIN_HEIGHT,
+                    "the shared one-line composer retains its minimum height while the catalog resolves"
+                );
+                assert_eq!(
+                    face.bottom() + 8.0,
+                    measured_bounds.unwrap().bottom(),
+                    "painted prompt and measured editor height share the same bottom inset"
                 );
                 let agent =
                     slate_doc::agent_chat::agent(h.app.doc().scene.node(node).unwrap()).unwrap();

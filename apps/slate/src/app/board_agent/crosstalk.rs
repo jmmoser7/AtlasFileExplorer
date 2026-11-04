@@ -338,7 +338,7 @@ impl SlateApp {
 
     /// The turn policy of a message this session sends: read-only while it
     /// reviews in a crosstalk that has not ended.
-    pub(super) fn crosstalk_policy(&self, session: &str) -> atlas_agent::TurnPolicy {
+    pub(crate) fn crosstalk_policy(&self, session: &str) -> atlas_agent::TurnPolicy {
         let scene = &self.doc().scene;
         let reviews = xt::chain_of_session(scene, session)
             .and_then(|chain| xt::owner(scene, &chain).map(|(_, x)| x.clone()))
@@ -622,6 +622,7 @@ impl SlateApp {
     /// `portal.agent.crosstalk.start`: the person's grant (X10). Journals each
     /// side's transcript length as the baseline.
     pub(crate) fn crosstalk_start(&mut self, detail: Option<&str>) -> bool {
+        self.refresh_agent_access();
         let Some(chain) = self.crosstalk_chain(detail) else {
             self.toast("Select a crosstalk wire first.");
             return false;
@@ -2662,6 +2663,33 @@ mod tests {
         assert!(p.h.app.agents.dispatched.is_empty(), "nothing resends");
         assert!(command(&mut p.h, "portal.agent.crosstalk.resume", None));
         assert!(status(&p.h).starts_with("Turn 2 of 10"), "{}", status(&p.h));
+    }
+    #[test]
+    fn restart_retains_independent_relay_grant_for_a_globally_allowed_cursor() {
+        for (relay, denied) in [(true, false), (false, false), (true, true)] {
+            let mut p = linked(&format!("xt-global-relay-{relay}-{denied}"));
+            let cursor = session(&p.h, p.cursor);
+            let codex = session(&p.h, p.codex);
+            let path = p.h.base.join("agent-access.json");
+            atlas_ai::access::set_global_default_full_access_in(&path, true).unwrap();
+            atlas_ai::access::set_in(&path, &codex, false).unwrap();
+            if denied {
+                atlas_ai::access::set_in(&path, &cursor, false).unwrap();
+            }
+            atlas_ai::access::set_relay_in(&path, &cursor, true).unwrap();
+            if !relay {
+                atlas_ai::access::set_relay_in(&path, &cursor, false).unwrap();
+            }
+            // Same bootstrap owner as process startup; no explicit Cursor full grant.
+            p.h.app.set_agent_access_store_for_tests(path);
+            assert_eq!(p.h.app.agent_full_access(&cursor), !denied);
+            assert_eq!(p.h.app.agents.crosstalk.trust.contains(&cursor), relay);
+            let chain = chain(&p.h);
+            assert_eq!(
+                command(&mut p.h, "portal.agent.crosstalk.start", Some(chain)),
+                relay || denied
+            );
+        }
     }
     #[test]
     fn start_refuses_a_reviewer_with_full_access() {

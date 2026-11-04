@@ -1,0 +1,175 @@
+{
+  "sourceUrl": "http://localhost:8765/?phase=01&tab=frame&sample=1",
+  "viewport": {
+    "width": 960,
+    "height": 900
+  },
+  "theme": "light",
+  "canvasZoom": 0.8,
+  "dpr": 1,
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36 Edg/156.0.0.0",
+  "motion": [
+    {
+      "reveal": 0,
+      "height": 0.79998779296875,
+      "contentTransform": "translateY(-136px)"
+    },
+    {
+      "reveal": 0.1375,
+      "height": 14.95001220703125,
+      "contentTransform": "translateY(-117.3px)"
+    },
+    {
+      "reveal": 0.27666666666666606,
+      "height": 30.0999755859375,
+      "contentTransform": "translateY(-98.3733px)"
+    },
+    {
+      "reveal": 0.4149999999999996,
+      "height": 45.1500244140625,
+      "contentTransform": "translateY(-79.56px)"
+    },
+    {
+      "reveal": 0.6925000000000001,
+      "height": 75.3375244140625,
+      "contentTransform": "translateY(-41.82px)"
+    },
+    {
+      "reveal": 0.8316666666666662,
+      "height": 90.4749755859375,
+      "contentTransform": "translateY(-22.8933px)"
+    },
+    {
+      "reveal": 0.9699999999999998,
+      "height": 105.5250244140625,
+      "contentTransform": "translateY(-4.08px)"
+    },
+    {
+      "reveal": 1,
+      "height": 108.79998779296875,
+      "contentTransform": "translateY(0px)"
+    },
+    {
+      "reveal": 1,
+      "height": 108.79998779296875,
+      "contentTransform": "translateY(0px)"
+    },
+    {
+      "reveal": 1,
+      "height": 108.79998779296875,
+      "contentTransform": "translateY(0px)"
+    },
+    {
+      "reveal": 1,
+      "height": 108.79998779296875,
+      "contentTransform": "translateY(0px)"
+    },
+    {
+      "reveal": 1,
+      "height": 108.79998779296875,
+      "contentTransform": "translateY(0px)"
+    },
+    {
+      "reveal": 1,
+      "height": 108.79998779296875,
+      "contentTransform": "translateY(0px)"
+    },
+    {
+      "reveal": 1,
+      "height": 108.79998779296875,
+      "contentTransform": "translateY(0px)"
+    },
+    {
+      "reveal": 1,
+      "height": 108.79998779296875,
+      "contentTransform": "translateY(0px)"
+    },
+    {
+      "reveal": 1,
+      "height": 108.79998779296875,
+      "contentTransform": "translateY(0px)"
+    },
+    {
+      "reveal": 1,
+      "height": 108.79998779296875,
+      "contentTransform": "translateY(0px)"
+    }
+  ],
+  "geometry": {
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "w": 960,
+      "h": 540
+    },
+    "bottom": [
+      480,
+      540
+    ],
+    "t": 1,
+    "eligible": true,
+    "x": 264,
+    "y": 500,
+    "width": 432,
+    "height": 40,
+    "iconRects": [
+      [
+        319.4,
+        504.4,
+        31.2,
+        31.2
+      ],
+      [
+        377.4,
+        504.4,
+        31.2,
+        31.2
+      ],
+      [
+        435.4,
+        504.4,
+        31.2,
+        31.2
+      ],
+      [
+        493.4,
+        504.4,
+        31.2,
+        31.2
+      ],
+      [
+        551.4,
+        504.4,
+        31.2,
+        31.2
+      ],
+      [
+        609.4,
+        504.4,
+        31.2,
+        31.2
+      ]
+    ],
+    "panel": [
+      96,
+      604.2
+    ],
+    "panelHeight": 136,
+    "panelWidth": 960,
+    "drawer": true
+  },
+  "captureDate": "2026-11-03T17:43:37.739Z",
+  "browser": "156.0.4314.58",
+  "kind": "Actual JS Studio screenshot; isolated sample fixture, not native renderer",
+  "image": "frame-settings-v04-actual-js-960x900.png",
+  "sha256": "cc015a5580fa0dd5089f078c5c8be58cab14273a3c94aefb06914a7e915e49b7",
+  "errors": [],
+  "sourceProvenance": {
+    "index.html": "888b979c55c8eca6ac70fdbf0f81f0d363fc805f7da0a8cbbe2d86022cd2de12",
+    "frame/app.js": "4f617226e182a81b84f40f1a4926c53c050dce4e7873b69e07c0f7a600d4f7a5",
+    "frame/render.js": "540d5fabfae4eec452f65fec8a5957379cbf098904731b80e44bb0afcd6cdb12",
+    "frame/panels.js": "1f16352550cd81b7cb9959a06768e382e29201e72c8e325a1442ea00482d231b",
+    "frame/presentation-settings.js": "ae06cc1bbc1e1c28bee54ef7c5b3c1afc8f2f5a8c5975842ae9a35b4934278ec",
+    "frame/presentation-settings.css": "1265b69a4a5403364ea357d94650de454f473ba93e1c91d92692c576a04c9c26"
+  }
+}

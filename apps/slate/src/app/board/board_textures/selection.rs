@@ -64,6 +64,32 @@ impl SlateApp {
             }
         }
         let outline = self.node_screen_outline(painter.ctx(), xf, n);
+        // The Frame's selection and its painted plate share the blister cutout.
+        // In particular the lower selection line must turn up around the icons.
+        if n.is_frame() {
+            if let Some(surface) = self.media_host_surface(painter.ctx(), xf, n) {
+                let start = atlas_shell::selection_tools::media_host_shape_start(painter);
+                atlas_shell::frame_presentation::paint_plate(
+                    painter,
+                    outline,
+                    select_tint.gamma_multiply(0.16),
+                );
+                atlas_shell::selection_tools::clip_media_host_shapes(
+                    painter,
+                    egui::Id::new(("frame_selection_blister", self.tab().id, n.id.0)),
+                    start,
+                    surface.clone(),
+                );
+                for ring in &surface.outline {
+                    painter.add(egui::Shape::closed_line(
+                        ring.clone(),
+                        EStroke::new(outline_w, select_tint),
+                    ));
+                }
+                self.paint_node_fillet_grip(painter, xf, n, select_tint);
+                return;
+            }
+        }
         if outline.len() >= 3 && slate_doc::agent_chat::agent(n).is_none() {
             painter.add(egui::Shape::convex_polygon(
                 outline.clone(),

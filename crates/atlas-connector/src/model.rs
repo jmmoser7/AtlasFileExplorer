@@ -137,7 +137,8 @@ pub enum CallerAuthority {
     },
     Agent {
         agent_id: String,
-        /// Does not authorize foreign source or draft edits in v0.1.
+        /// v0.2 draft edits additionally require a host-local scoped grant.
+        /// This field alone never grants mutation authority.
         #[serde(default)]
         workspace_autonomy: bool,
     },
@@ -169,7 +170,7 @@ pub struct CommandDescriptor {
     pub effect: CommandEffect,
     pub undo: UndoOwner,
     pub cancellable: bool,
-    /// Claimed offer only. v0 denies all agent foreign mutations regardless.
+    /// Offer only; host policy and scoped authority independently admit calls.
     pub agent_allowed: bool,
     /// Bounded JSON Schema dialect enforced by validate_parameters.
     pub parameters: serde_json::Value,

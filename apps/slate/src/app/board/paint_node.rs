@@ -23,7 +23,8 @@ impl SlateApp {
         let rotated = node.rotation_deg.abs() > 0.01;
         let outline_world = node.rect.corners_rotated(node.rotation_deg);
         let outline_s: Vec<Pos2> = outline_world.map(|(x, y)| xf.w2s(Pos2::new(x, y))).to_vec();
-        let surface = chrome
+        let attached_frame = chrome && node.is_frame() && self.frame_presentation.attached(node.id);
+        let surface = (chrome && !attached_frame)
             .then(|| self.media_host_surface(painter.ctx(), xf, node))
             .flatten();
         if chrome {
@@ -45,23 +46,19 @@ impl SlateApp {
                 } else {
                     rgba32(f.fill)
                 };
-                painter.add(egui::Shape::convex_polygon(
-                    plate.clone(),
-                    fade(fill),
-                    EStroke::NONE,
-                ));
-                if !f.stroke.is_none() {
+                if attached_frame {
+                    atlas_shell::frame_presentation::paint_attached_host(
+                        painter, Rect::from_points(&plate), z, fade(fill),
+                        self.presentation_ring(node.id, palette),
+                    );
+                } else {
+                    atlas_shell::frame_presentation::paint_plate(painter, plate.clone(), fade(fill));
+                }
+                if !attached_frame && surface.is_none() && !f.stroke.is_none() {
                     stroke_outline(painter, &plate, &f.stroke, z);
                 }
                 if chrome {
-                    let order = self
-                        .viewed_doc()
-                        .scene
-                        .frames_in_order()
-                        .iter()
-                        .position(|n| n.id == node.id)
-                        .map(|i| i + 1)
-                        .unwrap_or(0);
+                    let order = self.frame_label_rank(node.id);
                     let title = canvas_scale::px(12.0, z);
                     if canvas_text::legible(title) {
                         paint_frame_label(
@@ -71,7 +68,7 @@ impl SlateApp {
                             false,
                             2.0,
                             6.0,
-                            format!("{order} · {}", f.title),
+                            order.map_or_else(||f.title.clone(),|order|format!("{order} · {}", f.title)),
                             FontId::proportional(title),
                             palette.sub,
                         );
@@ -153,6 +150,7 @@ impl SlateApp {
                         );
                     } else {
                         self.paint_text_snippet_card(
+                            ui,
                             painter,
                             &outline,
                             srect,
@@ -410,6 +408,9 @@ impl SlateApp {
             NodeKind::Portal(p) => {
                 let portal = p.clone();
                 match portal.kind {
+                    PortalKind::Application => {
+                        self.paint_application_surface(ui, painter, xf, node, &portal)
+                    }
                     PortalKind::Slate => {
                         self.paint_slate_portal(ui, painter, xf, node, &portal);
                     }
@@ -438,12 +439,20 @@ impl SlateApp {
                 start,
                 surface.clone(),
             );
-            if let NodeKind::Image(image) = &node.kind {
-                if self.image_palette_frame(painter.ctx(), node.id).is_none() {
+            match &node.kind {
+                NodeKind::Frame(frame) if !frame.stroke.is_none() => {
+                    for outline in &surface.outline {
+                        stroke_outline(painter, outline, &frame.stroke, z);
+                    }
+                }
+                NodeKind::Image(image)
+                    if self.image_palette_frame(painter.ctx(), node.id).is_none() =>
+                {
                     for outline in &surface.outline {
                         stroke_outline(painter, outline, &image.stroke, z);
                     }
                 }
+                _ => {}
             }
         }
         if (self.is_artifact_node(node.id) || self.image_palette_eligible(node.id))

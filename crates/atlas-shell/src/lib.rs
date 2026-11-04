@@ -60,6 +60,7 @@ pub mod feedback;
 pub mod file_picker;
 pub mod folder_map;
 pub mod frame_raster;
+pub mod frame_presentation;
 pub mod grid_fade;
 pub mod history_ui;
 pub mod home;

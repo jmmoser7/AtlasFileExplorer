@@ -23,10 +23,53 @@ pub struct ModelParameterHeader<'a> {
 
 /// Indexed, borrowed model choices; backend adapters need not allocate UI rows.
 pub trait ModelParameters {
+    /// Generator-only presentation; conversation pickers retain their title/model identity.
+    fn header_provider_prefix(&self) -> Option<&str> {
+        None
+    }
+    fn generator_parameter_hover(&self) -> bool {
+        false
+    }
+    /// Some exposes an optional setting's explicit override state; None retains legacy rows.
+    fn parameter_is_overridden(&self, _index: usize) -> Option<bool> {
+        None
+    }
+    fn model_label(&self) -> Option<&str> {
+        None
+    }
+    fn model_is_selected(&self, _label: &str) -> Option<bool> {
+        None
+    }
     fn len(&self) -> usize;
     fn parameter(&self, index: usize) -> Option<ModelParameterHeader<'_>>;
     fn value_count(&self, index: usize) -> usize;
     fn value_at(&self, index: usize, value: usize) -> Option<ModelParameterValue<'_>>;
+    fn provider_count(&self) -> usize {
+        0
+    }
+    fn provider(&self, _index: usize) -> Option<ModelProvider<'_>> {
+        None
+    }
+    /// App-owned native scope, independent of the global provider preference.
+    fn board_access(&self) -> Option<access::BoardAccessView> {
+        None
+    }
+    fn role(&self, index: usize) -> ParameterRole {
+        let name = self.parameter(index).map_or("", |p| p.name);
+        if ["Effort", "Reasoning effort", "Thought level", "Reasoning"]
+            .iter()
+            .any(|v| name.eq_ignore_ascii_case(v))
+        {
+            ParameterRole::Effort
+        } else if ["Speed", "Service tier"]
+            .iter()
+            .any(|v| name.eq_ignore_ascii_case(v))
+        {
+            ParameterRole::Speed
+        } else {
+            ParameterRole::Other
+        }
+    }
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -81,11 +124,31 @@ impl ModelParameters for Vec<ModelParameter<'_>> {
     }
 }
 
+/// Semantic grouping is presentation metadata, never a provider capability grant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ParameterRole {
+    Effort,
+    Speed,
+    Other,
+}
+
+#[derive(Clone, Copy)]
+pub struct ModelProvider<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    pub icon: Option<Icon>,
+    pub selected: bool,
+    /// Some(false): key missing; Some(true): key exists. No secret enters chrome.
+    pub key_present: Option<bool>,
+}
+
 /// Ephemeral navigation in the one shared model popup, including quick return.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum PickerPage {
     #[default]
     Root,
+    Providers,
+    Credentials(Id),
     Models,
     Parameter(Id),
 }
@@ -94,41 +157,136 @@ impl PickerPage {
     fn validated(self, parameters: &dyn ModelParameters) -> Self {
         match self {
             Self::Parameter(id) if parameter_index(parameters, id).is_none() => Self::Root,
+            Self::Credentials(id) if provider_index(parameters, id).is_none() => Self::Providers,
             _ => self,
         }
     }
 }
-
 fn parameter_id(id: &str) -> Id {
     Id::new(("generator-parameter", id))
 }
-
-fn parameter_index(parameters: &dyn ModelParameters, id: Id) -> Option<usize> {
-    (0..parameters.len()).find(|&index| {
-        parameters.value_count(index) > 0
-            && parameters
-                .parameter(index)
-                .is_some_and(|p| parameter_id(p.id) == id)
-    })
+fn provider_id(id: &str) -> Id {
+    Id::new(("generator-provider", id))
+}
+fn parameter_index(p: &dyn ModelParameters, id: Id) -> Option<usize> {
+    (0..p.len())
+        .find(|&i| p.value_count(i) > 0 && p.parameter(i).is_some_and(|v| parameter_id(v.id) == id))
+}
+fn provider_index(p: &dyn ModelParameters, id: Id) -> Option<usize> {
+    (0..p.provider_count()).find(|&i| p.provider(i).is_some_and(|v| provider_id(v.id) == id))
 }
 
 enum Action<'a> {
     Navigate(PickerPage),
+    Provider(&'a str),
+    Key(&'a str),
     Model(usize),
-    Parameter(&'a str, &'a str),
+    Parameter(&'a str, Option<&'a str>),
     Access(bool),
+    BoardAccess,
 }
 
-pub(in crate::selection_tools) struct PickerResponse {
-    pub menu: menu_selector::CapsuleMenu,
+pub struct PickerResponse {
+    pub(crate) menu: menu_selector::CapsuleMenu,
     pub page: PickerPage,
     pub model: Option<usize>,
-    pub parameter: Option<(String, String)>,
+    pub parameter: Option<(String, Option<String>)>,
     pub full_access: Option<bool>,
+    pub board_access: bool,
+    pub provider: Option<String>,
+    pub edit_key: Option<String>,
+}
+
+impl PickerResponse {
+    pub fn popup(&self) -> Option<Rect> {
+        self.menu.popup
+    }
+    pub fn dismissed_outside(&self) -> bool {
+        self.menu.dismissed_outside
+    }
+}
+
+/// Presentation only: preserve custom labels, unknown values and all wire identities.
+fn friendly_value_name<'a>(role: ParameterRole, value: ModelParameterValue<'a>) -> &'a str {
+    if role != ParameterRole::Effort || value.name != value.value {
+        return value.name;
+    }
+    match value.value {
+        "low" => "Low",
+        "medium" => "Medium",
+        "high" => "High",
+        "xhigh" => "Extra high",
+        "automatic" => "Automatic",
+        _ => value.name,
+    }
+}
+
+fn selected_parameter_label(parameters: &dyn ModelParameters, role: ParameterRole) -> Option<&str> {
+    (0..parameters.len()).find_map(|i| {
+        if parameters.role(i) != role {
+            return None;
+        }
+        let p = parameters.parameter(i)?;
+        (0..parameters.value_count(i))
+            .filter_map(|v| parameters.value_at(i, v))
+            .find(|v| v.value == p.selected)
+            .map(|v| friendly_value_name(role, v))
+    })
+}
+
+/// Shared by trigger painting and its datum measurement; popup model stays identity-only.
+pub fn header_caption<'a>(
+    parameters: &'a dyn ModelParameters,
+    fallback: Option<&'a str>,
+) -> std::borrow::Cow<'a, str> {
+    let model = parameters
+        .model_label()
+        .or(fallback)
+        .unwrap_or("Choose model");
+    match parameters
+        .header_provider_prefix()
+        .filter(|name| !name.is_empty())
+    {
+        Some(provider) => std::borrow::Cow::Owned(format!("{provider} · {model}")),
+        None => std::borrow::Cow::Borrowed(model),
+    }
+}
+
+fn header_hover(parameters: &dyn ModelParameters, caption: &str) -> String {
+    if !parameters.generator_parameter_hover() {
+        return caption.into();
+    }
+    format!(
+        "{} · {} · {}",
+        caption,
+        selected_parameter_label(parameters, ParameterRole::Effort).unwrap_or("Automatic"),
+        selected_parameter_label(parameters, ParameterRole::Speed).unwrap_or("Automatic")
+    )
+}
+
+/// One glyph policy for actual provider display names; never rewrites a wire value.
+fn speed_bolts(name: &str) -> u8 {
+    if name.eq_ignore_ascii_case("fast") {
+        1
+    } else if ["ultra", "ultra fast", "ultrafast"]
+        .iter()
+        .any(|alias| name.eq_ignore_ascii_case(alias))
+    {
+        2
+    } else {
+        0
+    }
+}
+
+/// Closed chrome derives its effort and speed only from advertised values.
+pub fn compact_model_parameters(parameters: &dyn ModelParameters) -> (&str, u8) {
+    let effort = selected_parameter_label(parameters, ParameterRole::Effort).unwrap_or("");
+    let speed = selected_parameter_label(parameters, ParameterRole::Speed).unwrap_or("");
+    (effort, speed_bolts(speed))
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(in crate::selection_tools) fn paint(
+pub fn paint(
     ui: &mut egui::Ui,
     rect: Rect,
     models: &[&str],
@@ -138,189 +296,91 @@ pub(in crate::selection_tools) fn paint(
     page: PickerPage,
     parameters: &dyn ModelParameters,
     access: Option<access::AccessView>,
+    cyclic_keyboard: bool,
     zoom: f32,
     theme: Palette,
 ) -> PickerResponse {
-    let has_parameters = (0..parameters.len()).any(|index| parameters.value_count(index) > 0);
-    if !has_parameters && access.is_none() {
-        let menu = model_menu(ui, rect, models, selected, open, id, zoom, theme);
-        return PickerResponse {
-            page: PickerPage::Root,
-            model: menu.picked,
-            menu,
-            parameter: None,
-            full_access: None,
-        };
-    }
     let rows = PickerRows {
         page: page.validated(parameters),
         models,
         selected,
         parameters,
         access,
+        cyclic_keyboard,
     };
+    let caption = header_caption(parameters, models.get(selected).copied());
+    let hover = header_hover(parameters, &caption);
     let menu = rich_bare_menu(
         ui,
         RichBareMenu {
             id,
             scroll_id: id.with(rows.page),
             rect,
-            label: models.get(selected).copied().unwrap_or("Auto"),
+            label: &caption,
             rows: &rows,
             open,
             zoom,
             theme,
-            label_danger: access.is_some_and(|a| a.effective),
-            label_hint: access.and_then(access::model_hint),
+            label_danger: false,
+            label_hint: Some(&hover),
+            label_detail: Some(compact_model_parameters(parameters)),
+            trailing_caret: true,
         },
     );
+    let action = menu
+        .secondary_picked
+        .and_then(|i| rows.secondary_action(i))
+        .or_else(|| {
+            menu.picked
+                .and_then(|i| rows.row_action(i).and_then(|(_, a)| a))
+        });
     let mut out = PickerResponse {
         menu,
         page: rows.page,
         model: None,
         parameter: None,
         full_access: None,
+        board_access: false,
+        provider: None,
+        edit_key: None,
     };
-    match out
-        .menu
-        .picked
-        .and_then(|index| rows.row_action(index))
-        .and_then(|(_, action)| action)
-    {
-        Some(Action::Navigate(page)) => {
-            out.page = page;
-            out.menu.picked = None;
-            *open = true;
+    match action {
+        Some(Action::Navigate(page)) => out.page = page,
+        Some(Action::Provider(provider)) => {
+            out.provider = Some(provider.into());
+            out.page = PickerPage::Root;
         }
-        Some(Action::Model(index)) => {
-            out.model = Some(index);
+        Some(Action::Key(provider)) => {
+            out.edit_key = Some(provider.into());
+            *open = false;
+        }
+        Some(Action::Model(model)) => {
+            out.model = Some(model);
             out.page = PickerPage::Root;
         }
         Some(Action::Parameter(id, value)) => {
-            out.parameter = Some((id.to_owned(), value.to_owned()));
+            out.parameter = Some((id.into(), value.map(str::to_owned)));
             out.page = PickerPage::Root;
         }
-        Some(Action::Access(enabled)) => out.full_access = Some(enabled),
+        Some(Action::Access(value)) => out.full_access = Some(value),
+        Some(Action::BoardAccess) => {
+            out.board_access = true;
+            *open = false;
+        }
         None => {}
+    }
+    if out.edit_key.is_none()
+        && !out.board_access
+        && (out.menu.picked.is_some() || out.menu.secondary_picked.is_some())
+    {
+        *open = true;
     }
     out
 }
 
-struct PickerRows<'a> {
-    page: PickerPage,
-    models: &'a [&'a str],
-    selected: usize,
-    parameters: &'a dyn ModelParameters,
-    access: Option<access::AccessView>,
-}
-
-impl PickerRows<'_> {
-    fn row_action(&self, mut index: usize) -> Option<(SelectorRow<'_>, Option<Action<'_>>)> {
-        let mut row = SelectorRow {
-            label: "Back",
-            detail: None,
-            submenu: None,
-            selected: false,
-            interactive: true,
-            danger: false,
-        };
-        if self.page != PickerPage::Root && index == 0 {
-            row.submenu = Some(Icon::ChevronLeft);
-            row.detail = match self.page {
-                PickerPage::Models => Some("Model"),
-                PickerPage::Parameter(id) => self
-                    .parameters
-                    .parameter(parameter_index(self.parameters, id)?)
-                    .map(|parameter| parameter.name),
-                PickerPage::Root => None,
-            };
-            return Some((row, Some(Action::Navigate(PickerPage::Root))));
-        }
-        match self.page {
-            PickerPage::Models => {
-                index -= 1;
-                row.label = *self.models.get(index)?;
-                row.selected = index == self.selected;
-                Some((row, Some(Action::Model(index))))
-            }
-            PickerPage::Parameter(id) => {
-                let parameter_index = parameter_index(self.parameters, id)?;
-                let parameter = self.parameters.parameter(parameter_index)?;
-                let value = self.parameters.value_at(parameter_index, index - 1)?;
-                row.label = value.name;
-                row.selected = value.value == parameter.selected;
-                Some((row, Some(Action::Parameter(parameter.id, value.value))))
-            }
-            PickerPage::Root => {
-                row.submenu = Some(Icon::ChevronRight);
-                if index == 0 {
-                    row.label = "Model";
-                    row.detail = Some(self.models.get(self.selected).copied().unwrap_or("Auto"));
-                    return Some((row, Some(Action::Navigate(PickerPage::Models))));
-                }
-                index -= 1;
-                for parameter_index in 0..self.parameters.len() {
-                    let count = self.parameters.value_count(parameter_index);
-                    if count == 0 {
-                        continue;
-                    }
-                    let parameter = self.parameters.parameter(parameter_index)?;
-                    if index == 0 {
-                        row.label = parameter.name;
-                        row.detail = Some(
-                            (0..count)
-                                .filter_map(|value| {
-                                    self.parameters.value_at(parameter_index, value)
-                                })
-                                .find(|value| value.value == parameter.selected)
-                                .map_or(
-                                    if parameter.selected.is_empty() {
-                                        "Default"
-                                    } else {
-                                        parameter.selected
-                                    },
-                                    |value| value.name,
-                                ),
-                        );
-                        return Some((
-                            row,
-                            Some(Action::Navigate(PickerPage::Parameter(parameter_id(
-                                parameter.id,
-                            )))),
-                        ));
-                    }
-                    index -= 1;
-                }
-                let access = self.access.filter(|_| index == 0)?;
-                row.label = "Full access · all dashboards";
-                row.submenu = None;
-                row.selected = access.enabled;
-                row.interactive = access.interactive;
-                row.danger = access::menu_row(access.enabled).danger;
-                Some((row, Some(Action::Access(!access.enabled))))
-            }
-        }
-    }
-}
-
-impl SelectorRows for PickerRows<'_> {
-    fn len(&self) -> usize {
-        1 + match self.page {
-            PickerPage::Root => {
-                (0..self.parameters.len())
-                    .filter(|&index| self.parameters.value_count(index) > 0)
-                    .count()
-                    + usize::from(self.access.is_some())
-            }
-            PickerPage::Models => self.models.len(),
-            PickerPage::Parameter(id) => parameter_index(self.parameters, id)
-                .map_or(0, |index| self.parameters.value_count(index)),
-        }
-    }
-    fn get(&self, index: usize) -> Option<SelectorRow<'_>> {
-        self.row_action(index).map(|(row, _)| row)
-    }
-}
+#[path = "generator_picker/rows.rs"]
+mod rows;
+use rows::PickerRows;
 
 #[cfg(test)]
 #[path = "generator_picker/tests.rs"]

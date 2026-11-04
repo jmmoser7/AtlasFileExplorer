@@ -27,6 +27,7 @@ pub(crate) fn message_text_changed(
 impl SlateApp {
     pub(super) fn presence_command_schema(&self) -> Value {
         let mut schema = Self::targeted_command_schema();
+        schema["board.image.history"]["read"] = json!({"action":"view","cursor":"optional public turn index","text_cursor":"optional UTF-8 byte offset","limit":"4–4096 bytes; default4096","generation":"required continuation token","requires":"explicit node and conversation endpoint scopes; public messages only"});
         schema["presence.send"] = json!({"targets":[],"arguments":{"recipient":"one permitted conversation ID","text":"message; <=16384 bytes"}});
         schema["presence.helper"] = json!({"targets":[],"arguments":{"task":"bounded helper task; <=8192 bytes"},"limits":"at most4 children, no grandchildren,300seconds; read participant results"});
         schema["presence.read_image"] = json!({"targets":["one readable image node ID"],"arguments":{},"requires":"human wired-file input grant; returns one prepared image_source locator, never hydrates cloud-only sources"});

@@ -3,7 +3,7 @@ use super::*;
 use slate_doc::scene::NodeKind;
 
 #[derive(Debug, Clone)]
-pub(super) struct DeferredInvocation {
+pub(super) struct GeneratorInvocation {
     target: NodeId,
     prompt: Option<String>,
     aspect: Option<atlas_agent::Aspect>,
@@ -12,15 +12,79 @@ pub(super) struct DeferredInvocation {
     requires_linked_inputs: bool,
 }
 
+#[derive(Debug, Clone)]
+pub(super) enum DeferredInvocation {
+    Generator(GeneratorInvocation),
+    Artifact {
+        target: NodeId,
+        revision: String,
+        remove: Option<slate_doc::scene::HiddenOutputRef>,
+        materialized: bool,
+        waiting: bool,
+    },
+}
 impl DeferredInvocation {
     pub(super) fn target(&self) -> NodeId {
-        self.target
+        match self {
+            Self::Generator(run) => run.target,
+            Self::Artifact { target, .. } => *target,
+        }
     }
     pub(super) fn requires_linked_inputs(&self) -> bool {
-        self.requires_linked_inputs
+        match self {
+            Self::Generator(run) => run.requires_linked_inputs,
+            Self::Artifact { .. } => true,
+        }
+    }
+    pub(super) fn pending(&self) -> bool {
+        !matches!(
+            self,
+            Self::Artifact {
+                materialized: true,
+                ..
+            }
+        )
     }
 }
 
+pub(super) fn prepare_artifact(
+    app: &SlateApp,
+    command: &str,
+    ids: &[NodeId],
+    args: &Value,
+) -> Result<Option<(Vec<SceneCmd>, Vec<NodeId>, DeferredInvocation)>, String> {
+    if !matches!(
+        command,
+        "portal.agent.result.use" | "portal.agent.result.remove"
+    ) {
+        return Ok(None);
+    }
+    prepare::validate_keys(args, schema::arguments(command)?)?;
+    let output: slate_doc::scene::HiddenOutputRef = serde_json::from_value(args["output"].clone())
+        .map_err(|_| "An exact immutable output reference is required")?;
+    if !matches!(output, slate_doc::scene::HiddenOutputRef::Artifact { .. }) {
+        return Ok(None);
+    }
+    if ids.len() != 1 {
+        return Err("An artifact result requires one stable target".into());
+    }
+    let Some((revision, remove)) =
+        app.saved_artifact_pick_plan(ids[0], &output, command.ends_with(".remove"))?
+    else {
+        return Ok(None);
+    };
+    Ok(Some((
+        Vec::new(),
+        ids.to_vec(),
+        DeferredInvocation::Artifact {
+            target: ids[0],
+            revision,
+            remove,
+            materialized: false,
+            waiting: false,
+        },
+    )))
+}
 pub(super) fn prepare(
     app: &SlateApp,
     ids: &[NodeId],
@@ -91,24 +155,46 @@ pub(super) fn prepare(
     Ok((
         cmds,
         targets,
-        DeferredInvocation {
+        DeferredInvocation::Generator(GeneratorInvocation {
             target,
             prompt,
             aspect,
             count,
             inputs,
             requires_linked_inputs,
-        },
+        }),
     ))
 }
 
 impl SlateApp {
-    pub(super) fn finish_generator_invocation(
+    pub(super) fn finish_deferred_invocation(
         &mut self,
         invocation: DeferredInvocation,
         cmds: Vec<SceneCmd>,
         author: slate_doc::scene::CmdAuthor,
     ) -> Result<String, String> {
+        let invocation = match invocation {
+            DeferredInvocation::Generator(run) => run,
+            DeferredInvocation::Artifact {
+                target,
+                revision,
+                remove,
+                materialized: false,
+                waiting: false,
+            } => {
+                if author != slate_doc::scene::CmdAuthor::Human {
+                    return Err("Saved artifact results must finish through their witnessed collaborator owner".into());
+                }
+                return if self.artifact_pick_revision_removing(target, &revision, remove, None) {
+                    Ok("queued:saved-artifact-pick".into())
+                } else {
+                    Err("Saved artifact result could not prepare".into())
+                };
+            }
+            DeferredInvocation::Artifact { .. } => {
+                return Err("Saved artifact result is already materialized".into())
+            }
+        };
         if self.generator_input_refs(invocation.target, true)? != invocation.inputs {
             return Err("Generator inputs changed while the action was prepared".into());
         }

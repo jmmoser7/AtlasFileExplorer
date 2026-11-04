@@ -79,7 +79,10 @@ fn frame(
                                 aspects: &["Source"],
                                 aspect: 0,
                                 aspect_open: &mut false,
+                                custom_aspect: None,
+                                custom_aspect_supported: false,
                                 seed_locked: false,
+                                seed_supported: false,
                                 live: false,
                                 take_focus: false,
                             },
@@ -222,6 +225,28 @@ fn expanded_history_actions_and_batch_name_field_are_reachable_above_the_editor(
     assert_eq!(initial.chips.len(), 5);
     let first_click = click(&mut h, host, initial.chips[0].center(), false);
     let selected = frame(&mut h, host, vec![], egui::Modifiers::NONE);
+    frame(
+        &mut h,
+        host,
+        vec![egui::Event::PointerButton {
+            pos: initial.chips[0].center(),
+            button: egui::PointerButton::Secondary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        egui::Modifiers::NONE,
+    );
+    frame(
+        &mut h,
+        host,
+        vec![egui::Event::PointerButton {
+            pos: initial.chips[0].center(),
+            button: egui::PointerButton::Secondary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        egui::Modifiers::NONE,
+    );
     if h.app
         .agents
         .flow
@@ -241,7 +266,43 @@ fn expanded_history_actions_and_batch_name_field_are_reachable_above_the_editor(
         h.app.agents.flow.results.menu.as_ref().unwrap().opener,
         initial.opener
     );
+    frame(
+        &mut h,
+        host,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        egui::Modifiers::NONE,
+    );
     click(&mut h, host, selected.chips[2].center(), true);
+    frame(
+        &mut h,
+        host,
+        vec![egui::Event::PointerButton {
+            pos: selected.chips[2].center(),
+            button: egui::PointerButton::Secondary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        egui::Modifiers::NONE,
+    );
+    frame(
+        &mut h,
+        host,
+        vec![egui::Event::PointerButton {
+            pos: selected.chips[2].center(),
+            button: egui::PointerButton::Secondary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        egui::Modifiers::NONE,
+    );
+    // A newly opened egui Area sizes on its first frame, then paints its rows.
+    frame(&mut h, host, vec![], egui::Modifiers::NONE);
     let menu = frame(&mut h, host, vec![], egui::Modifiers::NONE);
     assert_eq!(
         h.app
@@ -259,12 +320,17 @@ fn expanded_history_actions_and_batch_name_field_are_reachable_above_the_editor(
     let save_at = menu
         .text
         .iter()
-        .find(|(text, _)| text == "Save as…")
-        .expect("shared result menu row")
+        .find(|(text, _)| text == "Save image as…")
+        .unwrap_or_else(|| {
+            panic!(
+                "shared result menu row; actual painted words: {:?}",
+                menu.text
+            )
+        })
         .1;
     let expected_menu = egui::LayerId::new(
         chrome::POPUP_ORDER,
-        Id::new(("image-result-menu", h.app.tab().id, host.0)),
+        Id::new(("image-result-menu", h.app.tab().id, host.0)).with("pop"),
     );
     assert_eq!(
         h.ctx.layer_id_at(save_at),

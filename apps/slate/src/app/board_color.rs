@@ -1863,7 +1863,7 @@ impl SlateApp {
         if (!cmds.is_empty() || !board_removes.is_empty()) && !self.tab().read_only {
             let changed: Vec<NodeId> = cmds
                 .iter()
-                .map(super::board::cmd_node_id)
+                .filter_map(super::board::cmd_node_id)
                 .chain(board_removes.iter().map(|(_, node)| node.id))
                 .collect();
             carried = self.take_over_erase_checks(&changed, &mut board_removes);

@@ -1,0 +1,47 @@
+{
+  "camera": "Fit, 80%",
+  "sourceUrl": "http://localhost:8765/?phase=01&tab=frame&sample=1",
+  "viewport": {
+    "height": 900,
+    "width": 960
+  },
+  "captureDateUtc": "2026-11-03T18:46:54.0994350Z",
+  "captures": [
+    {
+      "sha256": "5FA9E71AFAE0163A484FAB3674A86F6F90FBFDE41713F53776CFFB09878381D4",
+      "file": "after-closed.png"
+    },
+    {
+      "sha256": "65D80223C2895D166C77C1D34A04D6CC8A827A3C4A433400494A6044FCBE5A5F",
+      "file": "after-open.png"
+    },
+    {
+      "sha256": "72B90DD8DBA0E80F6611C0FCB0E97A58AD21C0A804AE0233E698B91070CCAB56",
+      "file": "before-closed.png"
+    },
+    {
+      "sha256": "9E93EAE32AAF6237E8A1F75CBB8A4DDA60EAC7E410A440DE3F4EA33999EC5169",
+      "file": "before-open.png"
+    },
+    {
+      "sha256": "8ACFF00FB73E794F5F43D3376C8E9EA7289D5665166441513DDB3A8EEB2AE0FE",
+      "file": "frame-corners-panel.png"
+    },
+    {
+      "sha256": "C4C403B6A3EF7AF93D084711EEB935EE62144DDDCDC133FBD1695018F1BF0090",
+      "file": "frame-fill-panel.png"
+    },
+    {
+      "sha256": "9881C76FFECBE189137BB44584E61D6C1DBD1839FCE8D298731512AD6D20DC47",
+      "file": "frame-multiple-slides.png"
+    }
+  ],
+  "baseline": "render-before.js served only to the isolated before context",
+  "fixture": "authored",
+  "checks": {
+    "settings": 3,
+    "properties": 36
+  },
+  "theme": "light",
+  "browser": "Microsoft Edge headless, isolated context"
+}

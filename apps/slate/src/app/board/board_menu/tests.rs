@@ -85,6 +85,47 @@ fn text_center(out: &egui::FullOutput, label: &str) -> Option<Pos2> {
     out.shapes.iter().find_map(|s| find(&s.shape, label))
 }
 
+#[test]
+fn ordinary_image_menu_escape_and_outside_press_leave_source_unchanged() {
+    use slate_doc::scene::ImageNode;
+    let mut h = Harness::new("ordinary_image_menu_dismiss");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    let node = h.app.doc_mut().scene.build_node(
+        WorldRect::new(25.0, 40.0, 220.0, 160.0),
+        NodeKind::Image(ImageNode::new(ItemId::NONE)),
+    );
+    let id = h.app.add_nodes(vec![node])[0];
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let count = h.app.doc().scene.nodes.len();
+    for escape in [true, false] {
+        h.app.board_menu = Some((id, Pos2::new(400.0, 100.0)));
+        menu_frame(&mut h, vec![]);
+        let painted = menu_frame(&mut h, vec![]);
+        assert!(text_center(&painted, "Duplicate").is_some());
+        let event = if escape {
+            egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            }
+        } else {
+            egui::Event::PointerButton {
+                pos: Pos2::new(100.0, 800.0),
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            }
+        };
+        menu_frame(&mut h, vec![event]);
+        assert!(h.app.board_menu.is_none());
+        assert_eq!(h.app.doc().scene.node(id), Some(&before));
+        assert_eq!(h.app.doc().scene.nodes.len(), count);
+    }
+}
+
 fn save_capture(h: &Harness, out: &egui::FullOutput, name: &str, area: Rect) {
     use crate::app::tests::FrameRaster;
     let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

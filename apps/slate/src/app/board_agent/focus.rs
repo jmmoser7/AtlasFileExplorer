@@ -79,6 +79,9 @@ impl SlateApp {
     /// With no pointer yet the portal keeps its widgets registered: a tap
     /// arrives in the same frame as its position.
     pub(crate) fn portal_owns_pointer(&self, ctx: &egui::Context, id: NodeId) -> bool {
+        if self.board_selected_frame_owner(id).is_some() {
+            return false;
+        }
         let at = ctx.input(|i| i.pointer.press_origin().or(i.pointer.latest_pos()));
         self.portal_is_maximized(id)
             || at.is_none_or(|p| self.node_is_topmost(id, Some(p), &self.board_xf()))
@@ -206,6 +209,9 @@ impl SlateApp {
     /// A chat card's own grips (output, stop, context, crosstalk port,
     /// chevron) own the pointer, so no frame resize starts under them.
     pub(crate) fn agent_grip_owns(&self, screen: Pos2, xf: &BoardXf) -> bool {
+        if self.board_selected_frame_at(screen, xf) {
+            return false;
+        }
         if self.pointer_in_chat_bottom_band(screen, xf) {
             return false;
         }
@@ -231,20 +237,18 @@ impl SlateApp {
     /// A user-sized card with more content than room scrolls instead of zooming.
     pub(crate) fn pointer_over_scrolling_agent_card(
         &self,
+        ctx: &egui::Context,
         xf: &BoardXf,
         pointer: Option<Pos2>,
     ) -> bool {
         let Some(p) = pointer else {
             return false;
         };
-        let world = xf.s2w(p);
-        self.doc()
-            .scene
-            .nodes
-            .iter()
-            .rev()
-            .find(|n| !n.hidden && !n.is_frame() && n.rect.contains(world.x, world.y))
-            .is_some_and(|n| self.card_owns_transcript_wheel(n))
+        (!ctx.input(|i| i.modifiers.ctrl) && self.text_review_wheel_owner(ctx, p).is_some())
+            || self
+                .topmost_node_at(p, xf)
+                .and_then(|id| self.doc().scene.node(id))
+                .is_some_and(|n| self.card_owns_transcript_wheel(n))
     }
     pub(crate) fn agent_focus(&mut self, id: NodeId) {
         self.portal_enter_interactive(id);

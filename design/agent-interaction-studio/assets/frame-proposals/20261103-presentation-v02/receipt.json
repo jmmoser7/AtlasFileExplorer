@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "date": "2026-11-03",
+  "elementId": "frame",
+  "method": "built-in image_gen",
+  "status": "Image Studio draft",
+  "variants": [
+    {
+      "id": "frame-presentations-20261103-v02-compact",
+      "filename": "frame-presentation-v02-compact-draft.png",
+      "originalFilename": "exec-f25e7229-4fe5-41c6-b2e7-84de2bfa3793.png",
+      "sourceImage": "assets/frame-proposals/20261103-presentation-v01/frame-presentation-v01-add-frames-draft.png",
+      "userFeedback": "can be more compact also consider what hapens with 50- 100 slides",
+      "prompt": "Edit the supplied Slate Frame Studio presentation mockup. Keep the canvas, slide artwork and three frame positions, restrained colors, and existing six toolbar glyphs including the teal numbered-list icon and eye last. This revision demonstrates a compact drawer with a 100-slide presentation. Keep the white drawer attached under the main frame, but cut its current height roughly in half, to a single slim row about 54 pixels tall in a 1536 × 1024 composition. Remove the open dropdown flyout. Left to right in the one row: a compact closed “Project review” dropdown, a compact teal on switch labeled “Add frames”, a bounded carousel of exactly five small (about 30 pixels diameter) circular slide thumbnails numbered 46, 47, 48, 49, 50 with subtle left/right chevrons immediately flanking the circles, and a small editable-looking position control reading “48 / 100”. Use thin muted numerals, small unobtrusive controls, and very little padding. No second row, no tall header, no scroll bar, no pagination dots, no extra labels, no explanation text. The five circles are a moving window into the deck, so there are no overflow thumbnail rows or additional visible circles. Photo at 47, site plan at 48 with one subtle teal active indicator, other three images varied. On the canvas change “2 · Site plan” to “48 · Site plan” and “1 · Opening” to “47 · Opening”. Keep “Next steps” unnumbered and lightly highlighted as an eligible frame. Preserve the ample canvas and restrained white Slate aesthetic. Render as one coherent UI screenshot with sharp readable text and clear visual order."
+    },
+    {
+      "id": "frame-presentations-20261103-v02-map-hover",
+      "filename": "frame-presentation-v02-map-hover-draft.png",
+      "originalFilename": "exec-7c403cd6-7274-4960-9a03-e03b8823ad04.png",
+      "sourceImage": "assets/frame-proposals/20261103-presentation-v02/frame-presentation-v02-compact-draft.png",
+      "userFeedback": "provide miny map of slide positions on canvas on hover over presentation name",
+      "prompt": "Edit the supplied Slate Studio screenshot into the presentation-name HOVER state. Make exactly one UI addition: a miniature spatial map popup below the “Project review” presentation name on the left of the white drawer. Place a small mouse pointer on the words “Project review”, with its tiny chevron still visible and dropdown still closed. The mini-map is a small 250 by 118 pixel white floating card directly beneath the name, inside the available empty canvas at the bottom, with subtle border, rounded corners and a small shadow. Inside it draw a zoomed-out overhead map of the frames' actual relative positions on the Slate canvas. Many tiny landscape rectangles in light gray outlines make up an organically spaced but organized canvas layout, extending beyond the current viewport in both directions. Do not make the map look like a perfectly regular thumbnail filmstrip or a geographic map. Show the current viewport as a faint outlined box within the mini-map and the current wide Site plan frame as a distinct teal rectangle within that box. The smaller Opening frame sits just to its upper right, matching the actual canvas above. Show only member frames of this presentation. No thumbnail photos, no numbered labels or connector lines in the map, and no extra text beyond a tiny “Canvas map” label if needed. Keep the rest of the screenshot exactly the same, including the compact one-row toolbar, five small previews 46 through 50, 48 / 100, and the active Add frames switch. Popup must not overlap the drawer controls. No new controls, no giant popover, no other changes. This is a polished close-to-real UI screenshot, not an infographic."
+    }
+  ],
+  "interactionNotes": [
+    "The thumbnail strip shows a moving window of up to five slides. The number field jumps directly to a position in the active presentation.",
+    "The map opens when the pointer hovers over the presentation name. It represents member frames by canvas position, with a viewport box and current slide highlight. The mockup uses an illustrative set of frame positions."
+  ]
+}

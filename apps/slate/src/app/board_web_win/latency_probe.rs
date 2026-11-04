@@ -5,6 +5,10 @@ use super::super::board_web::{WebHost, WebInput, WebRequest};
 use super::*;
 use std::time::{Duration, Instant};
 
+mod clock;
+mod native_canvas;
+mod window_capture;
+
 fn wait_for(host: &mut Webview2Host, id: NodeId, green: bool) -> Option<Duration> {
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(5) {

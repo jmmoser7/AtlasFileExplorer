@@ -147,6 +147,26 @@ pub fn paint_blister_surface(
     theme: Palette,
     _tab_opacity: f32,
 ) {
+    paint_surface(painter, panel, zoom, theme, false);
+}
+
+/// Detached Agent cards reuse the apron painter, with rounded upper corners and full shadow.
+pub fn paint_detached_agent_surface(
+    painter: &egui::Painter,
+    panel: Rect,
+    zoom: f32,
+    theme: Palette,
+) {
+    paint_surface(painter, panel, zoom, theme, true);
+}
+
+fn paint_surface(
+    painter: &egui::Painter,
+    panel: Rect,
+    zoom: f32,
+    theme: Palette,
+    detached_agent: bool,
+) {
     let radius = canvas_scale::px(APRON_RADIUS, zoom).round().min(255.0) as u8;
     // Clip the apron shadow at the image edge: editing must never shade its pixels.
     let below = painter.with_clip_rect(painter.clip_rect().intersect(Rect::from_min_max(
@@ -154,7 +174,7 @@ pub fn paint_blister_surface(
         Pos2::new(f32::INFINITY, f32::INFINITY),
     )));
     paint_cached_shadow(
-        &below,
+        if detached_agent { painter } else { &below },
         painter.layer_id().id.with("image_apron_shadow"),
         panel,
         radius as f32,
@@ -169,8 +189,8 @@ pub fn paint_blister_surface(
     painter.rect_filled(
         panel,
         egui::CornerRadius {
-            nw: 0,
-            ne: 0,
+            nw: if detached_agent { radius } else { 0 },
+            ne: if detached_agent { radius } else { 0 },
             sw: radius,
             se: radius,
         },
@@ -284,5 +304,54 @@ mod tests {
             &first,
             &frame(rect.translate(Vec2::splat(20.0)), 0.0)
         ));
+    }
+}
+
+#[cfg(test)]
+mod surface_tests {
+    use super::*;
+
+    #[test]
+    fn detached_agent_rounds_upper_corners_and_keeps_upper_shadow_while_apron_stays_attached() {
+        let ctx = egui::Context::default();
+        let panel = Rect::from_min_size(Pos2::new(80.0, 80.0), Vec2::new(420.0, 160.0));
+        for detached in [false, true] {
+            let output = ctx.run(egui::RawInput::default(), |ctx| {
+                let painter = ctx.layer_painter(egui::LayerId::background());
+                if detached {
+                    paint_detached_agent_surface(&painter, panel, 1.0, Palette::dark());
+                } else {
+                    paint_blister_surface(
+                        &painter,
+                        panel,
+                        Rect::NOTHING,
+                        1.0,
+                        Palette::dark(),
+                        0.0,
+                    );
+                }
+            });
+            let fill = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Rect(rect) if rect.rect == panel => Some(rect),
+                    _ => None,
+                })
+                .expect("actual surface fill");
+            assert_eq!(fill.corner_radius.nw, if detached { 8 } else { 0 });
+            assert_eq!(fill.corner_radius.ne, fill.corner_radius.nw);
+            assert_eq!(fill.corner_radius.sw, 8);
+            let shadow = output
+                .shapes
+                .iter()
+                .find(|shape| matches!(shape.shape, egui::Shape::Mesh(_)))
+                .expect("existing cached shadow mesh");
+            if detached {
+                assert!(shadow.clip_rect.top() < panel.top());
+            } else {
+                assert_eq!(shadow.clip_rect.top(), panel.top());
+            }
+        }
     }
 }

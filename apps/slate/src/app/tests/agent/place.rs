@@ -49,8 +49,11 @@ fn agent_presentation_is_menu_only_and_window_is_not_a_bundle() {
             .chat
             .train
     );
-    h.app
-        .agent_set_detail(slate_doc::agent_chat::Detail::Identity);
+    h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("portal.agent.identity"),
+        None,
+    );
     assert_eq!(
         slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
             .unwrap()

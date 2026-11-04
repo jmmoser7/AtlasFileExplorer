@@ -9,6 +9,8 @@ pub struct ImageNode {
     /// Authored words shown on a linked text card; the source file stays intact.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_override: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<crate::text_answers::TextAnswer>,
     /// Column and row sizes when this card shows a spreadsheet.
     #[serde(default, skip_serializing_if = "SheetLayout::is_empty")]
     pub sheet: SheetLayout,
@@ -55,6 +57,7 @@ impl ImageNode {
         ImageNode {
             item,
             text_override: None,
+            answers: Vec::new(),
             sheet: SheetLayout::default(),
             crop: Crop::full(),
             corner: Corner::Square,

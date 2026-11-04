@@ -1,0 +1,28 @@
+{
+  "kind": "request",
+  "request": {
+    "caller": {
+      "action_id": "bind-1",
+      "kind": "human",
+      "target_source": null
+    },
+    "generation": 1,
+    "operation": {
+      "method": "bind_source",
+      "mode": "linked",
+      "selection_id": "human-selection-1",
+      "source": {
+        "locator": {
+          "absolute": "C:/example/models/example.dat",
+          "relative": "models/example.dat",
+          "root_id": "example-root"
+        },
+        "revision": "revision-1",
+        "source_id": "example-source"
+      }
+    },
+    "request_id": "bind-1",
+    "session_id": "fixture-beta",
+    "source": null
+  }
+}

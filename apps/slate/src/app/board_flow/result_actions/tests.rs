@@ -3,6 +3,7 @@ use super::*;
 use crate::app::tests::Harness;
 mod expanded;
 mod held_hover;
+mod product;
 
 pub(super) fn fixture(tag: &str) -> (Harness, NodeId) {
     let (mut h, host) = super::super::tests::generator_with_output(tag);
@@ -115,8 +116,8 @@ fn result_strip_golden_trace_preserves_host_and_range_across_repeated_picks() {
         click(&mut h, at, shift, false);
         assert_eq!(
             h.app.board_sel.iter().copied().collect::<Vec<_>>(),
-            [host],
-            "thumbnail owns press and release before board pick"
+            [],
+            "square selects output content without opening source property chrome"
         );
         assert_eq!(h.app.agent_shown_index(host), Some(index));
         let images = h.app.agent_images(host);
@@ -127,15 +128,10 @@ fn result_strip_golden_trace_preserves_host_and_range_across_repeated_picks() {
             .filter_map(|(i, image)| selection.contains(&image.id).then_some(i))
             .collect();
         assert_eq!(actual, expected, "golden range selection");
-        let menu = h
-            .app
-            .agents
-            .flow
-            .results
-            .menu
-            .as_ref()
-            .expect("click opens result actions");
-        assert_eq!(menu.address.outputs.len(), expected.len());
+        assert!(
+            h.app.agents.flow.results.menu.is_none(),
+            "primary square choice does not open a context menu"
+        );
     }
     let before = h.app.tab().journal.undo_depth();
     let at = point(&h, host, 0);
@@ -199,28 +195,39 @@ fn external_fallback_chrome_cannot_own_a_shifted_thumbnail_pick() {
     assert!(placement.bottom() >= chrome_bottom);
 
     let expected_id = h.app.agent_images(host)[1].id.clone();
+    let prior = h.app.agent_active_output(host);
     let at = point(&h, host, 1);
     click(&mut h, at, false, false);
+    assert_eq!(
+        h.app.agent_active_output(host),
+        prior,
+        "open attached history owns input; its hidden square cannot pick"
+    );
+    h.app.shape_properties.panel = None;
+    h.frame();
+    let visible = point(&h, host, 1);
+    click(&mut h, visible, false, false);
     assert_eq!(h.app.agent_shown_index(host), Some(1));
     assert_eq!(
         h.app.agent_active_output(host).as_deref(),
         Some(expected_id.as_str())
     );
     assert_eq!(
-        h.app.shape_properties.panel,
-        Some(crate::app::board_properties::Panel::Agent),
-        "thumbnail click keeps the generator editor open instead of activating fallback controls"
+        h.app.shape_properties.panel, None,
+        "square choice closes the generator without activating source fallback controls"
     );
-    let menu = h
-        .app
-        .agents
-        .flow
-        .results
-        .menu
-        .as_ref()
-        .expect("thumbnail click opens its actions");
-    assert_eq!(menu.address.outputs, vec![expected_id]);
+    assert!(h.app.agents.flow.results.menu.is_none());
+    assert!(h.app.result_selection(host).contains(&expected_id));
 
+    // Square selection intentionally closed source chrome. Start a fresh real
+    // source selection before testing its following dismissal/fade phase.
+    h.app.board_sel = std::iter::once(host).collect();
+    assert!(h
+        .app
+        .open_object_panel(crate::app::board_properties::Panel::Agent));
+    for _ in 0..3 {
+        h.frame();
+    }
     h.app.board_sel.clear();
     h.frame();
     let (fade_tab, fade_host, fade_bottom) = h
@@ -302,6 +309,9 @@ fn painted_strip_corridor_follows_host_and_zoom_without_rescaling_its_spacing() 
 fn result_actions_reject_rebound_or_closed_workbook_identity() {
     let (mut h, host) = fixture("result-stale-actions");
     let address = ResultAddress {
+        references: Vec::new(),
+        target: None,
+        witness: None,
         tab: h.app.tab().id,
         host,
         binding: h.app.result_binding(host).unwrap(),
@@ -394,6 +404,9 @@ fn copying_a_painted_result_pastes_an_independent_layer_stack() {
         image.result_layers.push(stack.clone());
     });
     let address = ResultAddress {
+        references: Vec::new(),
+        target: None,
+        witness: None,
         tab: h.app.tab().id,
         host,
         binding: h.app.result_binding(host).unwrap(),
@@ -421,4 +434,45 @@ fn copying_a_painted_result_pastes_an_independent_layer_stack() {
     assert_eq!(image.paint_layers[0].nodes.len(), 1);
     assert_ne!(image.paint_layers[0].nodes[0].id, original_mark);
     assert_ne!(image.paint_layers[0].nodes[0].id, pasted);
+}
+
+#[test]
+fn image_generator_history_replaces_canvas_squares_and_releases_hidden_hits() {
+    let (mut h, host) = fixture("image-history-exclusive-strip");
+    let key = (h.app.tab().id, host);
+    assert!(
+        h.app.agents.flow.results.strips.contains_key(&key),
+        "selected image paints its closed-panel square strip"
+    );
+    let shown = h.app.agent_active_output(host);
+    let count = h.app.agent_images(host).len();
+    let journal = h.app.tab().journal.undo_depth();
+    h.app.shape_properties.panel = Some(crate::app::board_properties::Panel::Agent);
+    h.frame(); // Actual app/update/board/image paint, not a manually invoked strip.
+    assert!(h.app.generator_history_open(host));
+    assert!(
+        !h.app.agents.flow.results.strips.contains_key(&key),
+        "circle history suppresses and retires the painted square corridor immediately"
+    );
+    let body = h
+        .app
+        .board_xf()
+        .rect_w2s(h.app.doc().scene.node(host).unwrap().rect);
+    let at = point(&h, host, 1);
+    h.frame_with(|input| input.events.push(egui::Event::PointerMoved(at)));
+    assert!(
+        !h.app
+            .result_strip_contains(&h.ctx, host, body, h.app.board_xf().z),
+        "hidden squares do not intercept generator input"
+    );
+    h.app.shape_properties.panel = None;
+    h.frame();
+    assert!(!h.app.generator_history_open(host));
+    assert!(
+        h.app.agents.flow.results.strips.contains_key(&key),
+        "closing generator history restores persistent square browsing"
+    );
+    assert_eq!(h.app.agent_active_output(host), shown);
+    assert_eq!(h.app.agent_images(host).len(), count);
+    assert_eq!(h.app.tab().journal.undo_depth(), journal);
 }

@@ -85,6 +85,14 @@ fn hover_only_strip_survives_the_gap_and_a_held_click_without_selecting_the_host
         }],
     );
     assert_eq!(h.app.agent_shown_index(host), Some(1));
-    assert!(h.app.board_sel.contains(&host));
-    assert!(h.app.agents.flow.results.menu.is_some());
+    let picked = h.app.agent_images(host)[1].id.clone();
+    assert_eq!(
+        h.app.agent_active_output(host).as_deref(),
+        Some(picked.as_str())
+    );
+    assert!(h.app.result_selection(host).contains(&picked));
+    // JS thumb pointerdown stops body selection; selectNode(node,false) never restores tools.
+    assert!(!h.app.board_sel.contains(&host));
+    assert!(h.app.shape_properties.panel.is_none());
+    assert!(h.app.agents.flow.results.menu.is_none());
 }

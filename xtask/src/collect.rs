@@ -68,12 +68,12 @@ pub fn collect(root: &Path) -> Result<Snapshot, MetricsError> {
 }
 
 /// One workspace member as its manifest describes it.
-struct Member {
-    name: String,
-    dir: PathBuf,
+pub(crate) struct Member {
+    pub(crate) name: String,
+    pub(crate) dir: PathBuf,
     kind: CrateKind,
     /// Every dependency name the manifest mentions, in any table.
-    dependencies: BTreeSet<String>,
+    pub(crate) dependencies: BTreeSet<String>,
 }
 
 impl Member {
@@ -82,12 +82,12 @@ impl Member {
     }
 }
 
-fn read_manifest(path: &Path) -> Result<toml::Value, MetricsError> {
+pub(crate) fn read_manifest(path: &Path) -> Result<toml::Value, MetricsError> {
     let text = std::fs::read_to_string(path).map_err(|e| MetricsError::io(path, e))?;
     toml::from_str(&text).map_err(|e| MetricsError::manifest(path, e.to_string()))
 }
 
-fn workspace_members(root: &Path) -> Result<Vec<Member>, MetricsError> {
+pub(crate) fn workspace_members(root: &Path) -> Result<Vec<Member>, MetricsError> {
     let manifest_path = root.join("Cargo.toml");
     let manifest = read_manifest(&manifest_path)?;
     let listed = manifest
@@ -156,6 +156,18 @@ fn collect_dependencies(table: &toml::Value, out: &mut BTreeSet<String>) {
     }
 }
 
+/// Canonical line definition, shared by crate metrics and file-level views.
+pub(crate) fn line_counts(text: &str) -> (u32, u32) {
+    let code = text
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            !trimmed.is_empty() && !trimmed.starts_with("//")
+        })
+        .count() as u32;
+    (text.lines().count() as u32, code)
+}
+
 fn measure_crate(member: &Member, all: &[Member]) -> Result<CrateMetrics, MetricsError> {
     let mut lines_total = 0u32;
     let mut lines_code = 0u32;
@@ -165,14 +177,7 @@ fn measure_crate(member: &Member, all: &[Member]) -> Result<CrateMetrics, Metric
 
     for (rel, path) in rust_sources(&member.dir)? {
         let text = std::fs::read_to_string(&path).map_err(|e| MetricsError::io(&path, e))?;
-        let total = text.lines().count() as u32;
-        let code = text
-            .lines()
-            .filter(|line| {
-                let trimmed = line.trim();
-                !trimmed.is_empty() && !trimmed.starts_with("//")
-            })
-            .count() as u32;
+        let (total, code) = line_counts(&text);
         lines_total += total;
         lines_code += code;
 
@@ -212,7 +217,7 @@ fn is_renderer(member: &Member, all: &[Member]) -> bool {
 /// Every `.rs` file under the crate's `src/` and `tests/`, as
 /// `(path relative to the crate root, absolute path)`, sorted by the former so
 /// the walk order never depends on the filesystem.
-fn rust_sources(dir: &Path) -> Result<Vec<(String, PathBuf)>, MetricsError> {
+pub(crate) fn rust_sources(dir: &Path) -> Result<Vec<(String, PathBuf)>, MetricsError> {
     let mut out = Vec::new();
     for sub in ["src", "tests"] {
         push_rust_files(&dir.join(sub), dir, &mut out)?;
@@ -349,7 +354,7 @@ fn local_offset_secs(root: &Path) -> i64 {
 
 /// Days-to-civil-date, Howard Hinnant's algorithm — the arithmetic `std` leaves
 /// to the calendar crates this tool is not allowed to depend on.
-fn civil_from_unix(secs: i64) -> (i64, i64, i64) {
+pub(crate) fn civil_from_unix(secs: i64) -> (i64, i64, i64) {
     let days = secs.div_euclid(86_400) + 719_468;
     let era = days.div_euclid(146_097);
     let day_of_era = days - era * 146_097;
@@ -363,18 +368,45 @@ fn civil_from_unix(secs: i64) -> (i64, i64, i64) {
     (if month <= 2 { year + 1 } else { year }, month, day)
 }
 
-fn git(root: &Path, args: &[&str]) -> Option<String> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(root)
-        .output()
-        .ok()?;
+pub(crate) fn git(root: &Path, args: &[&str]) -> Option<String> {
+    let output = git_output(root, args).ok()?;
     if !output.status.success() {
         return None;
     }
     let text = String::from_utf8(output.stdout).ok()?;
     let trimmed = text.trim().to_string();
     (!trimmed.is_empty()).then_some(trimmed)
+}
+
+/// Unmodified output for consumers whose format includes NUL separators or
+/// where an empty successful result must differ from a failed Git invocation.
+pub(crate) fn git_output(root: &Path, args: &[&str]) -> std::io::Result<std::process::Output> {
+    Command::new("git").args(args).current_dir(root).output()
+}
+
+/// Batch requests need concurrent stdin writing while stdout is drained; a
+/// large blob can otherwise fill Git's output pipe before stdin is complete.
+pub(crate) fn git_input_output(
+    root: &Path,
+    args: &[&str],
+    input: Vec<u8>,
+) -> std::io::Result<std::process::Output> {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let mut stdin = child.stdin.take().expect("piped stdin");
+    let writer = std::thread::Builder::new().spawn(move || stdin.write_all(&input))?;
+    let output = child.wait_with_output()?;
+    writer
+        .join()
+        .map_err(|_| std::io::Error::other("Git stdin writer failed"))??;
+    Ok(output)
 }
 
 #[cfg(test)]

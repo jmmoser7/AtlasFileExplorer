@@ -112,11 +112,15 @@ fn frame_at_height(
                             aspects: &["Source"],
                             aspect: 0,
                             aspect_open: &mut aspect_open,
+                            custom_aspect: None,
+                            custom_aspect_supported: false,
                             seed_locked: false,
+                            seed_supported: false,
                             live: false,
                             take_focus: true,
                         },
                         ImageAgentOptions {
+                            preserve_history: None,
                             history: &chips,
                             selected_history: None,
                             running: status.is_some(),
@@ -135,6 +139,8 @@ fn frame_at_height(
                         ui,
                         panel,
                         GeneratorOptions {
+                            count: None,
+                            preserve_history: None,
                             prompt,
                             hint: "Describe the dashboard",
                             take_focus: true,
@@ -222,8 +228,8 @@ fn attached_generators_reserve_only_visible_rows_and_fit_wrapped_prompts() {
                         let result = frame(&ctx, image, width, 1.0, &mut prompt, history, status, vec![]);
                         assert_eq!(result.face, result.measured_face,
                             "paint consumes the measured composition");
-                        assert!(result.face.shrink(8.0).height() >= result.text.galley.size().y);
-                        assert!((result.text.pos.y - result.face.top() - 8.0).abs() < 0.01);
+                        assert!(result.face.shrink(6.0).height() >= result.text.galley.size().y);
+                        assert!((result.text.pos.y - result.face.top() - 6.0).abs() < 0.01);
                     }
                 }
             }
@@ -270,7 +276,7 @@ fn overflowing_attached_prompts_keep_wrapping_while_typing_and_zooming() {
         let mut prompt = "monthly revenue regional totals conversion trends ".repeat(16);
         let initial = frame(&ctx, image, 360.0, 1.0, &mut prompt, false, false, vec![]);
         assert!(initial.text.galley.rows.len() > 8);
-        assert!(initial.text.galley.size().y > initial.face.shrink(8.0).height());
+        assert!(initial.text.galley.size().y > initial.face.shrink(6.0).height());
         for step in 0..=100 {
             let zoom = 0.5 + step as f32 * 0.025;
             let events = if step % 20 == 0 {
@@ -295,7 +301,7 @@ fn overflowing_attached_prompts_keep_wrapping_while_typing_and_zooming() {
                 );
                 assert!(
                     idle.text.pos.y + idle.text.galley.size().y
-                        <= idle.face.bottom() - 8.0 * zoom + 0.1 * zoom,
+                        <= idle.face.bottom() - 6.0 * zoom + 0.1 * zoom,
                     "the newly typed last line stays visible"
                 );
             }
@@ -338,7 +344,7 @@ fn borderline_overflow_does_not_toggle_scroll_position_with_zoom() {
             let mut prompt = "monthly revenue regional totals conversion trends ".repeat(16);
             let initial = frame(&ctx, image, 360.0, 1.0, &mut prompt, false, false, vec![]);
             let adjustment =
-                initial.text.galley.size().y - initial.face.shrink(8.0).height() - excess;
+                initial.text.galley.size().y - initial.face.shrink(6.0).height() - excess;
             let mut world_offset = None;
             for step in 0..=100 {
                 let zoom = 0.5 + step as f32 * 0.025;
@@ -368,7 +374,8 @@ fn borderline_overflow_does_not_toggle_scroll_position_with_zoom() {
                     vec![],
                 );
                 assert!(result.focused);
-                let offset = (result.text.pos.y - result.face.top()) / zoom - 8.0;
+                let viewport = result.face.shrink(6.0 * zoom);
+                let offset = (result.text.pos.y - viewport.top()) / zoom;
                 let expected = *world_offset.get_or_insert(offset);
                 assert!(
                     (offset - expected).abs() < 0.03,
@@ -377,7 +384,7 @@ fn borderline_overflow_does_not_toggle_scroll_position_with_zoom() {
                 if excess < 1.0 {
                     assert!(
                         offset.abs() < 0.03,
-                        "a sub-tolerance overflow stays unscrolled"
+                        "a sub-tolerance overflow stays unscrolled: image={image}, excess={excess}, zoom={zoom}, offset={offset}, viewport={viewport:?}"
                     );
                 }
             }

@@ -136,14 +136,16 @@ fn chat_messages(turns: &[AgentTurn], request: &AgentRequest, images: Vec<String
     if request.oneshot {
         messages.push(json!({"role": "system", "content": ONESHOT_SYSTEM}));
     }
-    messages.extend(
-        turns
-            .iter()
-            .filter(|t| matches!(t.role.as_str(), "user" | "assistant"))
-            .map(|t| json!({"role": t.role, "content": t.text})),
-    );
+    if !(request.oneshot && (request.text_source.is_some() || !request.history.is_empty())) {
+        messages.extend(
+            turns
+                .iter()
+                .filter(|t| matches!(t.role.as_str(), "user" | "assistant"))
+                .map(|t| json!({"role": t.role, "content": t.text})),
+        );
+    }
     let content = if request.oneshot {
-        request.prompt.clone()
+        request.prompt_with_history()
     } else {
         request.input_text()
     };
@@ -353,6 +355,40 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn response_only_text_quotes_the_source_and_replays_active_history_once() {
+        let mut request = AgentRequest {
+            oneshot: true,
+            prompt: "Explain".into(),
+            text_source: Some("A café & tea.".into()),
+            ..Default::default()
+        };
+        let off = chat_messages(&[], &request, Vec::new());
+        assert!(off.last().unwrap()["content"]
+            .as_str()
+            .unwrap()
+            .contains("A café & tea."));
+        let prior = AgentTurn {
+            role: "assistant".into(),
+            text: "Earlier active answer".into(),
+            at: 0,
+        };
+        request.history.push(prior.clone());
+        let on = chat_messages(&[prior], &request, Vec::new());
+        let serialized = serde_json::to_string(&on).unwrap();
+        assert_eq!(serialized.matches("Earlier active answer").count(), 1);
+        assert_eq!(serialized.matches("café").count(), 1);
+        assert_eq!(request.prompt, "Explain");
+        request.text_source = None;
+        let legacy = chat_messages(&[request.history[0].clone()], &request, Vec::new());
+        assert_eq!(
+            serde_json::to_string(&legacy)
+                .unwrap()
+                .matches("Earlier active answer")
+                .count(),
+            1
+        );
+    }
 
     #[test]
     fn a_text_block_sends_its_instruction_and_pictures_without_history() {

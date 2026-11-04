@@ -21,6 +21,13 @@ impl SlateApp {
             });
             return;
         };
+        if ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            self.board_menu = None;
+            ctx.data_mut(|data| {
+                data.remove::<SubmenuState>(egui::Id::new("board-context-submenu"))
+            });
+            return;
+        }
         if self.doc().scene.node(node_id).is_none() {
             self.board_menu = None;
             return;

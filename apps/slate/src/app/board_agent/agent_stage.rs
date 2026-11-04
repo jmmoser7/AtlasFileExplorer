@@ -112,6 +112,18 @@ impl SlateApp {
             self.toast("Could not accept the proposal: the AI workspace is unavailable.");
             return;
         };
+        if let Some(target) = self.presence_image_history_cut_target(proposal) {
+            if let Err(error) = stage::preflight_record(
+                proposal,
+                self.tab().path.as_deref(),
+                &self.doc().scene,
+                &ws,
+            ) {
+                self.toast(format!("Proposal not applied: {error}."));
+                return;
+            }
+            self.cancel_generator_history_work(target);
+        }
         let outcome = {
             let tab = self.tab_mut();
             stage::accept_and_record(
@@ -165,6 +177,7 @@ impl SlateApp {
     }
 
     fn note_accepted_stage_proposal(&mut self, proposal: &Proposal) {
+        self.finish_presence_image_history(proposal);
         self.presence_accepted_proposal(proposal);
         self.agents.presence_proposals.remove(&proposal.id);
         self.finish_targeted_proposal_bookkeeping(&proposal.cmds);

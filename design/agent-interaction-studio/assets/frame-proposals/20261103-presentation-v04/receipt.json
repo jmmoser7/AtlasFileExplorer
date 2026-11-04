@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "date": "2026-11-03",
+  "elementId": "frame",
+  "method": "built-in image_gen",
+  "status": "Image Studio draft",
+  "userFeedback": "no need for the number capsules on the side just leve it as full grid. dropdown should display as select presentation at all times. the name of the presentation will be shown in the dropdown along with th + Reorder is redudndant the user should be able to grip and drag slides around to re order at will. add subtle horizontal deviders between rows. allow for shift and ctrle multy select options allow for drag drop insertions. add option to top bar to sort frames on canvas. automatickly puts them in the same order as the slide show. have a mode for a small number of slides where all slides are in the datum of the top bar",
+  "variants": [
+    {
+      "key": "grid",
+      "title": "Create Presentation · direct drag grid · AI draft",
+      "originalFilename": "exec-a054e07b-ed3f-4188-bc66-1cff856276be.png",
+      "sourceImage": "assets/frame-proposals/20261103-presentation-v03/frame-presentation-v03-reorder-draft.png",
+      "desc": "Full 100-slide grid with subtle row dividers, multi-selection outlines, a drop marker and Sort on canvas.",
+      "prompt": "Revise this Slate Studio presentation drawer screenshot as a precise UI edit. Preserve the screenshot style, Frame tool icons, slide imagery, and COMPLETE EXACTLY 10 columns by 10 rows of 100 thumbnail tiles, with all 100 fully visible together. Keep the upper canvas visible as in the reference. Remove all ten left side number capsules (1–10 through 91–100) and their rail entirely. Move the grid toward the left and use the cleared space for comfortable gutters, with consistent side margins. Add nine very subtle thin light-gray HORIZONTAL rules in the whitespace between the ten rows, running across the grid only, and no vertical rules. Keep previews softly rounded, and keep each row aligned. Header ONE compact row: closed dropdown permanently labeled exactly “Select presentation”, existing “Add frames” toggle, a quiet “100 slides” count, and a right-aligned compact button labeled “Sort on canvas” with a tiny ordered-grid line glyph. REMOVE the Reorder button and label completely. Dragging the thumbnails themselves is always available. Demonstrate a group move with three thin teal selection rings on tiles, including two neighbors and one separate selection, and a single short teal vertical insertion caret in a gap between two thumbnails. Show no duplicated drag ghost, added explanatory text, labels on each tile, extra icons on tiles, or heavy outline. Maintain the tasteful restrained Slate aesthetic. This is the large-deck review state, a coherent screenshot with one complete 100-tile grid.",
+      "id": "frame-presentations-20261103-v04-grid",
+      "filename": "frame-presentation-v04-grid-draft.png"
+    },
+    {
+      "key": "inline",
+      "title": "Create Presentation · slides in toolbar · AI draft",
+      "originalFilename": "exec-a5c54cfb-56c1-43f8-af6e-945b194b55f7.png",
+      "sourceImage": "assets/frame-proposals/20261103-presentation-v02/frame-presentation-v02-compact-draft.png",
+      "desc": "Five slide previews in the toolbar with the fixed Select presentation label and an open menu showing names and New presentation.",
+      "prompt": "Edit this Slate Frame Studio screenshot to show the SMALL PRESENTATION state with exactly five slides. Preserve the three canvas frames, site-plan and architectural imagery, compact attached white drawer, existing six Frame tool glyphs, and Slate colors and fonts. The presentation drawer consists of ONE shallow toolbar datum only, with all five complete slide preview SQUIRCLES in one row at the same vertical center as the toolbar controls. Left to right: a closed-field style dropdown trigger labeled exactly “Select presentation” with a chevron; compact “Add frames” toggle; five small square softly rounded edge-to-edge image thumbnails with generous enough gaps to drag between them; and a quiet button labeled “Sort on canvas” with a tiny ordered-grid glyph at the right. The actual screenshot shows the presentation menu OPEN just below its trigger, a compact regular dropdown with precisely three short rows: “Project review” with a teal checkmark, “Client walkthrough”, a thin divider, then “+ New presentation”. The trigger label stays “Select presentation” even with an active deck. Make sure there is no second thumbnail row, no Reorder button, no carousel arrows, no 48 / 100 field, no number rail or scroll bar. One thin teal ring can mark the active thumbnail. All five tiles are visible and directly grippable. Leave the other controls unobscured. Change the canvas titles “48 · Site plan” and “47 · Opening” to “2 · Site plan” and “1 · Opening” to match a five-slide example. Clean, minimal, realistic Slate UI screenshot.",
+      "correctionPrompt": "Make one precise correction to this UI screenshot. The bottom toolbar has exactly five slide thumbnails. Keep the identical scene, UI controls, text, canvas positions, open menu, selected border style, and single-row layout. Reorder only the five thumbnails as follows, left to right: 1 the building exterior photo matching the right-hand canvas frame labeled “1 · Opening”, 2 the site plan matching the large left-hand canvas frame labeled “2 · Site plan” (put the one teal selection ring on this second thumbnail), 3 the bright interior lobby, 4 the wood-ceiling interior, 5 the tree landscape. Keep all five squircle previews the same size and position as the existing five slots. The names on the two canvas frames must remain “1 · Opening” and “2 · Site plan”. The “Select presentation” trigger remains constant and its dropdown shows Project review, Client walkthrough, and + New presentation. Preserve the Sort on canvas control. No other changes.",
+      "intermediateOriginalFilename": "exec-e6e37e82-4b7b-4319-8fd2-7187080e1249.png",
+      "id": "frame-presentations-20261103-v04-inline",
+      "filename": "frame-presentation-v04-inline-draft.png"
+    }
+  ],
+  "interactionNotes": [
+    "Select presentation is always the trigger label. The menu shows presentation names, the active checkmark, and + New presentation. Hovering a named entry carries the canvas mini-map preview forward.",
+    "Each thumbnail is draggable in either layout. Shift selects a contiguous range. Ctrl toggles individual slides. A drop between thumbnails inserts the selected slides there as a group, preserving their relative order.",
+    "Sort on canvas arranges the active presentation’s frames in slideshow order. Canvas positions are shared by all presentations that reference those frames. Each presentation retains its own slideshow order.",
+    "Small decks show every thumbnail on the toolbar datum when they fit. Larger decks use the full grid with subtle horizontal row dividers."
+  ]
+}

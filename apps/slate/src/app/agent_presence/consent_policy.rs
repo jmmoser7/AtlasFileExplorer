@@ -79,6 +79,9 @@ impl AgentConsentPolicy {
 
 impl super::SlateApp {
     pub(crate) fn presence_full_access_for(&self, who: &str) -> bool {
+        if self.is_chat_train_identity(who) {
+            return self.agent_full_access(who);
+        }
         self.presence
             .agents
             .iter()

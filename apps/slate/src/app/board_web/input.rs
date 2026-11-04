@@ -135,16 +135,26 @@ impl SlateApp {
         web: &WebPortalRef,
         css_rect: slate_doc::scene::WorldRect,
         layout: &PortalChromeLayout,
-        pointer: Option<Pos2>,
+        pointer: (Option<Pos2>, bool),
     ) -> bool {
+        let (pointer, owns_pointer) = pointer;
         let page = layout.body;
-        let inside = pointer.is_some_and(|p| page_owns_point(layout, p))
-            && self.portal_owns_pointer(ui.ctx(), id);
+        let inside = pointer.is_some_and(|p| page_owns_point(layout, p)) && owns_pointer;
         let dragging = self.web.pointer_down != 0;
         if !inside && !dragging {
             if std::mem::take(&mut self.web.pointer_inside) {
                 self.web.host.send_input(id, WebInput::Leave);
                 self.web.reset_page_input();
+            }
+            if self.presenting.is_some() {
+                let events = self.web_keyboard_events(ui);
+                if !events.is_empty() {
+                    for event in events {
+                        self.web.host.send_input(id, event);
+                    }
+                    self.web.note_page_input();
+                    ui.ctx().request_repaint();
+                }
             }
             return false;
         }
@@ -233,7 +243,7 @@ impl SlateApp {
             .into_iter()
             .filter(|event| {
                 !matches!(event, WebInput::Key { key, modifiers, .. }
-                if self.slate_owns_web_key(*key, *modifiers))
+                if self.presenting.is_none() && self.slate_owns_web_key(*key, *modifiers))
             })
             .collect()
     }

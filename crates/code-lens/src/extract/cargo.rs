@@ -8,10 +8,15 @@ pub struct PackageMeta {
     pub name: String,
     pub is_app: bool,
 }
-pub fn discover_packages(root: &Path) -> Result<Vec<PackageMeta>, LensError> {
+
+fn read_manifest(root: &Path) -> Result<toml::Value, LensError> {
     let content = fs::read_to_string(root.join("Cargo.toml"))?;
-    let manifest: toml::Value = toml::from_str(&content)
-        .map_err(|e| LensError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
+    toml::from_str(&content)
+        .map_err(|e| LensError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))
+}
+
+pub fn discover_packages(root: &Path) -> Result<Vec<PackageMeta>, LensError> {
+    let manifest = read_manifest(root)?;
     let member_paths = if let Some(members) = manifest
         .get("workspace")
         .and_then(|w| w.get("members"))
@@ -47,9 +52,7 @@ pub fn workspace_dependency_names(
     pkg_root: &Path,
     member_names: &HashSet<String>,
 ) -> Result<Vec<String>, LensError> {
-    let content = fs::read_to_string(pkg_root.join("Cargo.toml"))?;
-    let manifest: toml::Value = toml::from_str(&content)
-        .map_err(|e| LensError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
+    let manifest = read_manifest(pkg_root)?;
     let mut deps = Vec::new();
     for table_key in ["dependencies", "dev-dependencies", "build-dependencies"] {
         if let Some(table) = manifest.get(table_key).and_then(|v| v.as_table()) {
@@ -120,9 +123,7 @@ fn parse_package_meta(root: &Path, pkg_root: &Path) -> Result<PackageMeta, LensE
             }
         })
         .unwrap_or_else(|_| PathBuf::from("."));
-    let content = fs::read_to_string(pkg_root.join("Cargo.toml"))?;
-    let manifest: toml::Value = toml::from_str(&content)
-        .map_err(|e| LensError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
+    let manifest = read_manifest(pkg_root)?;
     let name = manifest
         .get("package")
         .and_then(|p| p.get("name"))
@@ -146,4 +147,118 @@ fn dependency_name(key: &str, value: &toml::Value) -> String {
         }
     }
     key.to_string()
+}
+
+/// Rust extern binding to actual package name, across all declared target kinds.
+/// Conflicting target-specific aliases are omitted instead of guessed.
+pub(crate) fn dependency_bindings(
+    root: &Path,
+    pkg_root: &Path,
+) -> Result<HashMap<String, String>, LensError> {
+    bindings_from_manifests(&read_manifest(root)?, &read_manifest(pkg_root)?)
+}
+
+fn bindings_from_manifests(
+    workspace: &toml::Value,
+    package: &toml::Value,
+) -> Result<HashMap<String, String>, LensError> {
+    let inherited = workspace
+        .get("workspace")
+        .and_then(|w| w.get("dependencies"));
+    let mut bindings = HashMap::new();
+    let mut ambiguous = HashSet::new();
+    let targets = package
+        .get("target")
+        .and_then(toml::Value::as_table)
+        .into_iter()
+        .flat_map(|table| table.values());
+    for group in std::iter::once(package).chain(targets) {
+        for key in ["dependencies", "dev-dependencies", "build-dependencies"] {
+            let Some(table) = group.get(key).and_then(toml::Value::as_table) else {
+                continue;
+            };
+            for (binding, value) in table {
+                let definition =
+                    if value.get("workspace").and_then(toml::Value::as_bool) == Some(true) {
+                        inherited
+                            .and_then(|table| table.get(binding))
+                            .ok_or_else(|| {
+                                LensError::Io(std::io::Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    format!("missing workspace dependency binding `{binding}`"),
+                                ))
+                            })?
+                    } else {
+                        value
+                    };
+                let binding = normalize_crate_name(binding);
+                let actual = normalize_crate_name(&dependency_name(binding.as_str(), definition));
+                if bindings
+                    .get(&binding)
+                    .is_some_and(|previous| previous != &actual)
+                {
+                    bindings.remove(&binding);
+                    ambiguous.insert(binding);
+                } else if !ambiguous.contains(&binding) {
+                    bindings.insert(binding, actual);
+                }
+            }
+        }
+    }
+    Ok(bindings)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extern_bindings_preserve_workspace_renames_and_target_declarations() {
+        let workspace: toml::Value = toml::from_str(
+            "[workspace.dependencies]\nshared-alias = { package = 'actual-package', version = '1' }",
+        ).unwrap();
+        let package: toml::Value = toml::from_str(
+            "[dependencies]\nshared-alias = { workspace = true }\nplain-name = '1'\n\
+             [dev-dependencies]\ntest-alias = { package = 'test-package', version = '1' }\n\
+             [build-dependencies]\nbuild-alias = { package = 'build-package', version = '1' }\n\
+             [target.'cfg(windows)'.dependencies]\nwin-alias = { package = 'win-package', version = '1' }",
+        ).unwrap();
+        let bindings = bindings_from_manifests(&workspace, &package).unwrap();
+        assert_eq!(
+            bindings.get("shared_alias").map(String::as_str),
+            Some("actual_package")
+        );
+        assert_eq!(
+            bindings.get("plain_name").map(String::as_str),
+            Some("plain_name")
+        );
+        assert_eq!(
+            bindings.get("test_alias").map(String::as_str),
+            Some("test_package")
+        );
+        assert_eq!(
+            bindings.get("build_alias").map(String::as_str),
+            Some("build_package")
+        );
+        assert_eq!(
+            bindings.get("win_alias").map(String::as_str),
+            Some("win_package")
+        );
+        assert!(!bindings.contains_key("actual_package"));
+    }
+
+    #[test]
+    fn ambiguous_bindings_stay_ambiguous_and_missing_inheritance_fails() {
+        let workspace: toml::Value = toml::from_str("[workspace]").unwrap();
+        let package: toml::Value = toml::from_str(
+            "[dependencies]\nrenamed = { package = 'first', version = '1' }\n\
+             [target.'cfg(windows)'.dependencies]\nrenamed = { package = 'second', version = '1' }\n\
+             [target.'cfg(unix)'.dependencies]\nrenamed = { package = 'first', version = '1' }",
+        ).unwrap();
+        assert!(!bindings_from_manifests(&workspace, &package)
+            .unwrap()
+            .contains_key("renamed"));
+        let missing = toml::from_str("[dependencies]\nmissing = { workspace = true }").unwrap();
+        assert!(bindings_from_manifests(&workspace, &missing).is_err());
+    }
 }

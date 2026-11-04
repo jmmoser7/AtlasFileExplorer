@@ -305,6 +305,8 @@ pub enum BoardDrag {
     Resize {
         id: NodeId,
         before: Node,
+        /// Movable Frame members captured before any geometry changes.
+        members: Vec<Node>,
         handle: u8,
         /// Press-time offset from the displayed control to the authored grip.
         grab_offset: Vec2,
@@ -415,7 +417,11 @@ pub enum BoardDrag {
     },
     /// Orbit/pan inside an unlocked 3D model viewport (Shift = pan). The
     /// camera pose is journaled once, when the viewport locks.
-    ModelOrbit { id: NodeId, last_screen: Pos2 },
+    ModelOrbit {
+        id: NodeId,
+        last_screen: Pos2,
+        button: egui::PointerButton,
+    },
     /// Point-to-point measurement inside a live viewport (Navigate tool uses
     /// [`ModelOrbit`] instead).
     ModelMeasure { id: NodeId, start_screen: Pos2 },

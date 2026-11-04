@@ -51,6 +51,9 @@ pub fn paste_is_train_fork(payload: &[crate::scene::Node]) -> bool {
 /// A copied card is a new view of the same checkpoint, never a new history edge
 /// into a different workbook. Copying a whole train preserves internal refs.
 pub fn remap_view(node: &mut Node, remap: impl Fn(NodeId) -> Option<NodeId>) {
+    if let Some(agent) = agent_mut(node) {
+        agent.generator.history_source = agent.generator.history_source.and_then(&remap);
+    }
     if let Some(artifact) = crate::scene::artifact_mut(node) {
         artifact.workspace = None;
         if let Some(agent) = agent_mut(node) {

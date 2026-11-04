@@ -196,17 +196,6 @@ pub(crate) fn hit_connector_filtered(
     vector_ink::hit_stroke(&kurbo, &style, [wx, wy], slop)
 }
 
-/// The world point of one connector end (anchored ends resolve through the
-/// current rects; hidden anchors still resolve for interaction purposes).
-fn end_point(scene: &Scene, end: &ConnectorEnd) -> Option<Pos2> {
-    match end {
-        ConnectorEnd::Anchored { node, side, t } => {
-            scene.node(*node).map(|n| port_point(n, *side, *t))
-        }
-        ConnectorEnd::Free { point } => Some(Pos2::new(point[0], point[1])),
-    }
-}
-
 /// The pointer is on a node (or within the wire's own pick slop of one).
 /// That node wins; the wire underneath must not.
 fn wire_blocked_by_node(
@@ -374,13 +363,16 @@ impl SlateApp {
             return None;
         }
         for n in self.doc().scene.nodes.iter().rev() {
-            if n.hidden || matches!(n.kind, NodeKind::Connector(_)) {
+            if n.hidden
+                || matches!(n.kind, NodeKind::Connector(_))
+                || self.board_selected_frame_owner(n.id).is_some()
+            {
                 continue;
             }
             if self.polygon_rotate_at(n, screen, xf).is_some() {
                 return None;
             }
-            let host = self.wire_host(n);
+            let host = self.wire_input_host(n);
             if self.portal_capture_owns_viewport(n.id)
                 || !host.offers_ports()
                 || !wire_ports_fit(n.rect, xf.z)
@@ -419,8 +411,8 @@ impl SlateApp {
                 }
             }
             // Reject distant pointer fields before asking for actual overlap.
-            let hovered = host
-                .ports()
+            let hovered = self
+                .presented_wire_ports(n)
                 .into_iter()
                 .filter(|port| {
                     let outward = host.outward(port.side, port.t);
@@ -487,6 +479,12 @@ impl SlateApp {
         if self.portal_capture_owns_viewport(node.id) {
             return;
         }
+        if (!self.wire_input_ports(node).is_empty() && self.source_agent_inputs_visible(node.id))
+            || slate_doc::agent_chat::agent(node)
+                .is_some_and(|a| a.generator.input_source_kind.is_some())
+        {
+            return; // The shared typed-port owner paints these graph sites.
+        }
         let visible = self
             .wire_grips
             .is_some_and(|g| g.node == grips.node && g.hovered == Some(side));
@@ -502,6 +500,7 @@ impl SlateApp {
         let Some(presentation) =
             atlas_shell::selection_tools::hit_regions::PortPresentation::ordinary(
                 node.rect.w.min(node.rect.h) * xf.z,
+                xf.z,
             )
         else {
             return;
@@ -534,7 +533,7 @@ impl SlateApp {
                 self.doc().scene.node(id).map(|n| n.kind.clone())
             {
                 for (end, end_b) in [(&conn.a, false), (&conn.b, true)] {
-                    let Some(p) = end_point(&self.doc().scene, end) else {
+                    let Some(p) = self.wire_end_point(end) else {
                         continue;
                     };
                     if xf.w2s(p).distance(screen) <= grip_hit_radius(xf.z) {
@@ -542,7 +541,25 @@ impl SlateApp {
                             self.toast("A crosstalk wire follows its messages; its ends stay put.");
                             return None;
                         }
-                        if conn.binding.as_ref().is_some_and(|b| b.consumed) {
+                        if let Some(target) = slate_doc::agent_inputs::generator_memory_target(
+                            &self.doc().scene,
+                            &conn,
+                        ) {
+                            if !slate_doc::agent_inputs::generator_history_is_terminal(
+                                &self.doc().scene,
+                                target,
+                            ) {
+                                self.toast("Only the final generator's incoming history can be disconnected.");
+                                return None;
+                            }
+                        }
+                        if conn.binding.as_ref().is_some_and(|b| b.consumed)
+                            && slate_doc::agent_inputs::generator_memory_target(
+                                &self.doc().scene,
+                                &conn,
+                            )
+                            .is_none()
+                        {
                             self.toast("This context was already sent. It stays attached.");
                             return None;
                         }
@@ -591,7 +608,6 @@ impl SlateApp {
             WireMode::MoveAll { items: ends }
         } else if mods.ctrl && !mods.shift && !ends.is_empty() {
             // Detach the end nearest the press.
-            let scene = &self.doc().scene;
             let nearest = ends
                 .into_iter()
                 .min_by(|a, b| {
@@ -600,7 +616,7 @@ impl SlateApp {
                             return f32::INFINITY;
                         };
                         let end = if item.1 { &c.b } else { &c.a };
-                        end_point(scene, end)
+                        self.wire_end_point(end)
                             .map(|p| p.distance(world))
                             .unwrap_or(f32::INFINITY)
                     };
@@ -608,7 +624,23 @@ impl SlateApp {
                 })
                 .expect("non-empty");
             if let NodeKind::Connector(c) = &nearest.2.kind {
-                if c.binding.as_ref().is_some_and(|b| b.consumed) {
+                if let Some(target) =
+                    slate_doc::agent_inputs::generator_memory_target(&self.doc().scene, c)
+                {
+                    if !slate_doc::agent_inputs::generator_history_is_terminal(
+                        &self.doc().scene,
+                        target,
+                    ) {
+                        self.toast(
+                            "Only the final generator's incoming history can be disconnected.",
+                        );
+                        return None;
+                    }
+                }
+                if c.binding.as_ref().is_some_and(|b| b.consumed)
+                    && slate_doc::agent_inputs::generator_memory_target(&self.doc().scene, c)
+                        .is_none()
+                {
                     self.toast("This context was already sent. It stays attached.");
                     return None;
                 }

@@ -2,24 +2,13 @@
 use super::*;
 mod apron;
 mod media;
+mod model_actions;
+mod state;
 pub(crate) use apron::EditorHost;
+pub(super) use state::LastChrome;
 
 #[cfg(test)]
 mod tests;
-
-#[derive(Clone)]
-pub(super) struct LastChrome {
-    pub(super) host: Option<(u64, NodeId)>,
-    pub(super) bounds: WorldRect,
-    pub(super) items: Vec<StripItem>,
-    pub(super) count: usize,
-    generation: (u64, u64),
-    picked_vertices: bool,
-    pub(super) bottom: Pos2,
-    pub(super) blister: bool,
-    pub(super) image: bool,
-    pub(super) media: Option<media::PreparedBlister>,
-}
 
 impl SlateApp {
     /// Runs before board input. Layout is recomputed from the host transform every frame.
@@ -134,7 +123,11 @@ impl SlateApp {
             }
             return false;
         }
-        let z = xf.z;
+        let maximized = matches!(
+            self.shape_properties.ids.as_slice(),
+            [id] if self.portal_is_maximized(*id)
+        );
+        let z = super::super::board_portal_chrome::portal_chrome_scale(maximized, xf.z);
         if canvas_scale::too_small(12.0 * z) {
             self.clear_prepared_media_blister();
             // The strip and its panel are not painted, but screen-constant
@@ -162,7 +155,10 @@ impl SlateApp {
             return false;
         }
         let theme = self.palette();
-        let bounds = xf.rect_w2s(chrome_state.bounds);
+        let authored_bounds = xf.rect_w2s(chrome_state.bounds);
+        let bounds = chrome_state.host.map_or(authored_bounds, |(_, id)| {
+            self.text_review_visual_body(&ctx, id, authored_bounds, z)
+        });
         let enabled =
             live && !self.tab().read_only && self.shape_properties.nodes.iter().all(|n| !n.locked);
         if live && !enabled {
@@ -175,7 +171,7 @@ impl SlateApp {
         }
         let items = chrome_state.items;
         let blister = chrome_state.blister;
-        let presentation = if self.shape_properties.panel.is_some() {
+        let presentation = if self.shape_properties.panel.is_some() || self.frame_presentation.is_open() {
             chrome::BlisterPresentation::Overlay
         } else {
             chrome::BlisterPresentation::Collapsed
@@ -190,7 +186,13 @@ impl SlateApp {
                 Vec2::ZERO,
             )
         } else {
-            chrome::strip_rect_below(xf.w2s(chrome_state.bottom), items.len(), z, fade)
+            let original_bottom = xf.w2s(chrome_state.bottom);
+            let visual_bottom = if bounds != authored_bounds {
+                Pos2::new(bounds.center().x, bounds.bottom())
+            } else {
+                original_bottom
+            };
+            chrome::strip_rect_below(visual_bottom, items.len(), z, fade)
         };
         self.occupy_result_chrome(chrome_state.host, strip);
         let mut requested_panel = None;
@@ -198,7 +200,13 @@ impl SlateApp {
         let mut requested_agent = None;
         let mut requested_measure = false;
         let mut requested_screenshot = false;
+        let mut requested_connector = false;
+        let mut requested_connector_draft = None;
+        let mut requested_headless = None;
+        let mut requested_board_access = None;
+        let mut requested_maximize = false;
         let mut captures = false;
+        let mut popup_dismissal_captures = false;
         let strip_ui_id = ui.id().with("selection-strip-input");
         let mut strip_ui = chrome::object_ui(ui, strip_ui_id, strip);
         // P1.curve.grips: a painted grip under a button takes the press. The
@@ -253,6 +261,28 @@ impl SlateApp {
                 )
             };
             #[cfg(test)]
+            if matches!(item, StripItem::Panel(Panel::Agent)) {
+                if let Some((_, host)) = chrome_state.host {
+                    let transform = ctx
+                        .layer_transform_to_global(strip_ui.layer_id())
+                        .unwrap_or_default();
+                    ctx.data_mut(|data| {
+                        data.insert_temp(
+                            Id::new(("painted-agent-tool-hit", host.0)),
+                            transform * response.rect,
+                        )
+                    });
+                }
+            }
+            if button_live && matches!(item, StripItem::ApplicationConnector) {
+                let model = self.shape_properties.ids.first().copied();
+                (
+                    requested_headless,
+                    requested_board_access,
+                    requested_connector_draft,
+                ) = self.model_connector_context(&response, model, enabled);
+            }
+            #[cfg(test)]
             if matches!(
                 item,
                 StripItem::Panel(Panel::Text) | StripItem::ModelMeasure
@@ -273,6 +303,8 @@ impl SlateApp {
                     StripItem::Agent(expand) => requested_agent = Some(*expand),
                     StripItem::ModelMeasure => requested_measure = true,
                     StripItem::ModelScreenshot => requested_screenshot = true,
+                    StripItem::ApplicationConnector => requested_connector = true,
+                    StripItem::ModelMaximize => requested_maximize = true,
                 }
             }
             captures |= button_live && grip_probe.is_some_and(|p| r.contains(p));
@@ -292,6 +324,8 @@ impl SlateApp {
             );
         }
         if let Some(panel) = requested_panel {
+            self.commit_frame_settings();
+            self.frame_presentation.dismiss();
             let was = self.shape_properties.panel;
             if was.is_some() {
                 if let Some(id) = self.shape_properties.ids.first().copied() {
@@ -324,32 +358,28 @@ impl SlateApp {
             self.shape_properties.number = None;
             self.run_frame_strip_action(&ctx, action);
         }
-        if requested_measure {
-            self.apply_shape_preview(&ctx, true);
-            self.shape_properties.number = None;
-            if let Some(id) = self.shape_properties.ids.first().copied() {
-                self.dispatch(
-                    &ctx,
-                    CommandId("board.model_measure"),
-                    Some(id.0.to_string()),
-                );
-            }
+        self.run_model_strip_actions(
+            &ctx,
+            requested_measure,
+            requested_connector,
+            requested_connector_draft,
+            requested_maximize,
+            requested_screenshot,
+        );
+        if let Some(id) = requested_headless {
+            self.dispatch(
+                &ctx,
+                CommandId("board.model.headless.activate"),
+                Some(id.0.to_string()),
+            );
         }
-        if requested_screenshot {
-            let was_open = self.shape_properties.panel == Some(Panel::Capture);
-            self.apply_shape_preview(&ctx, true);
-            self.shape_properties.number = None;
-            if let Some(id) = self
-                .shape_properties
-                .ids
-                .first()
-                .copied()
-                .filter(|_| !was_open)
-            {
-                self.dispatch(&ctx, CommandId("portal.capture"), Some(id.0.to_string()));
-            }
+        if let Some(id) = requested_board_access {
+            self.board_sel = [id].into_iter().collect();
+            self.dispatch(&ctx, CommandId("portal.agent.board_access"), None);
         }
-        captures |= self.paint_property_dimensions(ui, xf, live, enabled);
+        if !self.frame_presentation.is_open() {
+            captures |= self.paint_property_dimensions(ui, xf, live, enabled);
+        }
         if self.shape_properties.panel != Some(Panel::Filter) {
             self.shape_properties.filter_aim = None;
         }
@@ -417,7 +447,15 @@ impl SlateApp {
                         ui.layer_id(),
                         (kind, height),
                         enabled || panel == Panel::Capture,
-                        |ui, rect, layout| self.shape_property_body(ui, rect, panel, z, layout),
+                        panel == Panel::Agent,
+                        |ui, rect, layout| {
+                            let sample = self.shape_property_body(ui, rect, panel, z, layout);
+                            let ids = self.shape_properties.ids.as_slice();
+                            popup_dismissal_captures = panel == Panel::Agent
+                                && ids.len() == 1
+                                && self.generator_menu_dismissal_owns_press(&ctx, ids[0]);
+                            sample
+                        },
                     );
                     if let Some(editor) = editor {
                         self.occupy_result_chrome(chrome_state.host, editor.area);
@@ -442,6 +480,9 @@ impl SlateApp {
             captures |= self.paint_model_screenshot_popup(&ctx);
             let overlay_open =
                 self.shape_properties.panel.is_some() || self.shape_properties.number.is_some();
+            // Keep the shared popup's dismissal press out of parent selection
+            // and quick-return memory; this flag comes only from this paint.
+            captures |= popup_dismissal_captures;
             let press = self.property_dismiss_press(&ctx);
             let on_host = overlay_open
                 && press.is_some()

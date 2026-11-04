@@ -6,8 +6,10 @@
 pub mod artifact;
 pub(crate) mod deadline;
 pub mod host;
+pub mod headless_rhino;
 #[cfg(windows)]
 mod pipe;
+pub mod registration;
 #[cfg(windows)]
 mod security;
 pub mod surface;

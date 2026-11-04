@@ -1,7 +1,101 @@
 use super::*;
 
 impl SlateApp {
+    pub(super) fn artifact_batch_guard(&self, id: NodeId) -> Option<String> {
+        let node = self.doc().scene.node(id)?;
+        let agent = slate_doc::agent_chat::agent(node)?;
+        let source = match &node.kind {
+            NodeKind::Portal(portal) => &portal.source,
+            _ => return None,
+        };
+        let inputs: Vec<_> =
+            self.doc()
+                .scene
+                .nodes
+                .iter()
+                .filter_map(|node| {
+                    let NodeKind::Connector(conn) = &node.kind else {
+                        return None;
+                    };
+                    let binding = conn.binding.as_ref()?;
+                    (slate_doc::agent_inputs::endpoint_node(binding.target_end(conn)) == Some(id))
+                        .then(|| {
+                            (
+                                node.id,
+                                (
+                                    binding.kind,
+                                    &binding.output,
+                                    &binding.order,
+                                    binding.all_images,
+                                    &binding.slot,
+                                ),
+                                slate_doc::agent_inputs::endpoint_node(binding.source_end(conn)),
+                            )
+                        })
+                })
+                .collect();
+        let prompt = self.agents.prompt(id).unwrap_or(&agent.instruction).trim();
+        let captured = self.agent_input_snapshot(id).ok()?;
+        let values: Vec<_> = captured
+            .wired
+            .iter()
+            .map(|item| (item.node, &item.text, &item.images, &item.depth, item.slot))
+            .collect();
+        serde_json::to_string(&(
+            prompt,
+            inputs,
+            values,
+            source,
+            &artifact(node)?.revision,
+            &agent.provider,
+            &agent.model,
+            &agent.model_parameters,
+            (
+                agent.generator.count,
+                agent.generator.preserve_history,
+                &agent.generator.grafted_slots,
+                agent.generator.history_cut,
+            ),
+            node.locked,
+        ))
+        .ok()
+    }
+
     pub(crate) fn pump_artifact_generations(&mut self, ctx: &egui::Context) {
+        let queued: Vec<_> = self.agents.artifact.queued.keys().copied().collect();
+        for id in queued {
+            if self.artifact_is_busy(id) || self.agents.artifact.pending.contains_key(&id) {
+                continue;
+            }
+            if self.agents.artifact.preparing.len() + self.agents.artifact.running.len() >= 2 {
+                break;
+            }
+            let Some((plan, inputs)) = self
+                .agents
+                .artifact
+                .queued
+                .get_mut(&id)
+                .and_then(|queue| queue.pop_front())
+            else {
+                self.agents.artifact.queued.remove(&id);
+                continue;
+            };
+            if !self.artifact_target_current(plan.tab, id, &plan.previous)
+                || self.artifact_batch_guard(id).as_deref() != Some(plan.guard.as_str())
+            {
+                self.agents.artifact.queued.remove(&id);
+                continue;
+            }
+            self.agents.requests.insert(id, plan.request.id.clone());
+            self.agents.artifact.preparing.insert(
+                id,
+                Preparing {
+                    plan,
+                    inputs,
+                    started: false,
+                },
+            );
+        }
         let ids = self
             .agents
             .artifact
@@ -23,6 +117,40 @@ impl SlateApp {
                 match self.poll_agent_input_preparation(&mut pending.inputs) {
                     Ok(true) => {
                         pending.plan.request.inputs = pending.inputs.inputs.clone();
+                        let since = self
+                            .agents
+                            .capture_wait
+                            .get(&id)
+                            .copied()
+                            .unwrap_or_else(Instant::now);
+                        match self.capture_prepared_generator_inputs(
+                            id,
+                            &mut pending.inputs,
+                            &mut pending.plan.request,
+                            since.elapsed() > CAPTURE_TIMEOUT,
+                        ) {
+                            Ok(true) => {}
+                            Ok(false) => {
+                                let since = *self
+                                    .agents
+                                    .capture_wait
+                                    .entry(id)
+                                    .or_insert_with(Instant::now);
+                                if since.elapsed() > CAPTURE_TIMEOUT {
+                                    self.agents.capture_wait.remove(&id);
+                                    self.agents.artifact.queued.remove(&id);
+                                    self.fail_agent_await(id, "The connected model, video or web page did not finish loading.".into());
+                                    continue;
+                                }
+                                self.agents.artifact.preparing.insert(id, pending);
+                                continue;
+                            }
+                            Err(error) => {
+                                self.fail_agent_await(id, error);
+                                continue;
+                            }
+                        }
+                        self.agents.capture_wait.remove(&id);
                         let plan = pending.plan.clone();
                         let tx = self.artifact_work_tx();
                         self.agents.artifact.active_workers += 1;
@@ -90,38 +218,86 @@ impl SlateApp {
                     if !matches {
                         continue;
                     }
+                    let guard = self
+                        .agents
+                        .artifact
+                        .running
+                        .get(&id)
+                        .map(|r| r.prepared.plan.guard.clone());
+                    let current = self.artifact_batch_guard(id);
                     self.agents.artifact.running.remove(&id);
+                    if guard != current {
+                        self.agents.artifact.queued.remove(&id);
+                        continue;
+                    }
                     match result {
                         Ok(pending) if self.artifact_target_current(tab, id, &pending.previous) => {
                             self.agents.artifact.pending.insert(id, pending);
-                            self.toast("Artifact preview ready. Apply keeps this revision; Discard retains the accepted source.");
+                            if self.accept_artifact_output_from(id, true, None) {
+                                let next_guard = self.artifact_batch_guard(id).unwrap_or_default();
+                                let next_revision = self
+                                    .doc()
+                                    .scene
+                                    .node(id)
+                                    .and_then(artifact)
+                                    .and_then(|a| a.revision.clone());
+                                if let Some(queue) = self.agents.artifact.queued.get_mut(&id) {
+                                    for (plan, _) in queue {
+                                        plan.previous = next_revision.clone();
+                                        plan.guard = next_guard.clone();
+                                    }
+                                }
+                            } else {
+                                self.agents.artifact.queued.remove(&id);
+                            }
                         }
                         Ok(_) => {}
                         Err(error) => self.fail_agent_await(id, error),
                     }
                 }
-                WorkDone::Picked(tab, id, token, previous, result) => {
-                    if self.agents.artifact.picks.get(&id) != Some(&token) {
-                        continue;
+                WorkDone::Picked(tab, id, token, expected, remove, lease, result) => {
+                    let current = self.agents.artifact.picks.get(&id) == Some(&token);
+                    if current {
+                        self.agents.artifact.picks.remove(&id);
                     }
-                    self.agents.artifact.picks.remove(&id);
-                    if !self.artifact_target_current(tab, id, &previous) {
-                        continue;
-                    }
-                    match result {
-                        Ok((reference, revision)) => {
-                            self.agents.artifact.pending.insert(
-                                id,
-                                Pending {
+                    let valid = current
+                        && self.tab().id == tab
+                        && !self.tab().read_only
+                        && !expected.locked
+                        && self.doc().scene.node(id) == Some(expected.as_ref());
+                    if let Some(lease) = lease {
+                        let command = if valid {
+                            result.and_then(|(reference, revision)| {
+                                let pending = Pending {
                                     tab,
-                                    previous,
+                                    previous: artifact(&expected).and_then(|a| a.revision.clone()),
                                     reference,
                                     revision,
-                                },
-                            );
-                            self.accept_artifact_output(id);
+                                };
+                                self.prepare_artifact_output_patch(id, &pending, false, remove)
+                            })
+                        } else {
+                            Err("Saved output target changed or preparation was cancelled".into())
+                        };
+                        self.complete_presence_artifact_pick(*lease, command);
+                    } else if valid {
+                        let previous =
+                            artifact(&expected).and_then(|binding| binding.revision.clone());
+                        match result {
+                            Ok((reference, revision)) => {
+                                self.agents.artifact.pending.insert(
+                                    id,
+                                    Pending {
+                                        tab,
+                                        previous,
+                                        reference,
+                                        revision,
+                                    },
+                                );
+                                self.accept_artifact_output_from(id, false, remove);
+                            }
+                            Err(error) => self.fail_agent_await(id, error),
                         }
-                        Err(error) => self.fail_agent_await(id, error),
                     }
                 }
             }
@@ -212,11 +388,19 @@ impl SlateApp {
                 let _ = tx.send(WorkDone::Published(plan.tab, plan.node, request, result));
             });
         }
-        if !self.agents.artifact.preparing.is_empty() || !self.agents.artifact.running.is_empty() {
+        if !self.agents.artifact.preparing.is_empty()
+            || !self.agents.artifact.running.is_empty()
+            || !self.agents.artifact.queued.is_empty()
+        {
             ctx.request_repaint_after(Duration::from_millis(30));
         }
     }
-    fn artifact_target_current(&self, tab: u64, id: NodeId, previous: &Option<String>) -> bool {
+    pub(super) fn artifact_target_current(
+        &self,
+        tab: u64,
+        id: NodeId,
+        previous: &Option<String>,
+    ) -> bool {
         self.tab().id == tab
             && !self.tab().read_only
             && self
@@ -228,6 +412,12 @@ impl SlateApp {
     fn start_prepared_artifact(&mut self, prepared: Prepared) {
         let plan = &prepared.plan;
         let id = plan.node;
+        if self.artifact_batch_guard(id).as_deref() != Some(plan.guard.as_str()) {
+            self.agents.artifact.queued.remove(&id);
+            discard_prepared(prepared);
+            self.fail_agent_await(id, "The artifact prompt or connected sources changed during preparation. Send the updated request again.".into());
+            return;
+        }
         if !self
             .doc()
             .scene
@@ -258,11 +448,7 @@ impl SlateApp {
         };
         // The submitted request owns its immutable prompt. The editor may
         // already hold feedback for the next run while preparation finishes.
-        let instruction = self
-            .agents
-            .prompt(id)
-            .unwrap_or(&plan.request.prompt)
-            .to_owned();
+        let instruction = plan.authored_prompt.clone();
         self.patch_nodes(&[id], |node| {
             if let Some(a) = slate_doc::agent_chat::agent_mut(node) {
                 a.session.clone_from(&plan.session);
@@ -288,111 +474,6 @@ impl SlateApp {
         } else {
             discard_prepared(prepared);
         }
-    }
-    pub(crate) fn accept_artifact_output(&mut self, id: NodeId) -> bool {
-        if self.refuse_read_only_edit() {
-            return false;
-        }
-        let Some(pending) = self.agents.artifact.pending.get(&id) else {
-            self.toast("There is no artifact preview to apply. Play to build one first.");
-            return false;
-        };
-        if !self.artifact_target_current(pending.tab, id, &pending.previous) {
-            self.toast(
-                "This preview belongs to an earlier artifact state. Discard it and Play again.",
-            );
-            return false;
-        }
-        let pending = self.agents.artifact.pending.remove(&id).unwrap();
-        let before = self.doc().scene.node(id).unwrap().clone();
-        let mut after = before.clone();
-        let base = self.tab().path.as_deref();
-        let source = SourceUri {
-            locator: super::super::super::board_portal::source_locator(
-                base,
-                &pending.reference.materialized_entry,
-            ),
-        };
-        let root = SourceUri {
-            locator: super::super::super::board_portal::source_locator(
-                base,
-                &pending.reference.source_root,
-            ),
-        };
-        if let NodeKind::Portal(p) = &mut after.kind {
-            p.source = Some(source);
-        }
-        let a = artifact_mut(&mut after).unwrap();
-        a.family = pending.revision.family_id.clone();
-        a.history_root = Some(root);
-        a.revision = Some(pending.reference.revision_id.clone());
-        if !a.revisions.contains(&pending.reference.revision_id) {
-            a.revisions.push(pending.reference.revision_id);
-        }
-        a.checkpoint = pending.revision.provenance.checkpoint.through;
-        a.packaged = None;
-        let cmds = vec![SceneCmd::Patch {
-            before: Box::new(before),
-            after: Box::new(after),
-        }];
-        let applied = self.commit_scene_as(
-            cmds,
-            slate_doc::scene::CmdAuthor::Agent(pending.revision.provenance.provider),
-        );
-        if applied {
-            self.toast(
-                "Artifact preview applied. This revision is now available to downstream artifacts.",
-            );
-        }
-        applied
-    }
-    pub(crate) fn reject_artifact_output(&mut self, id: NodeId) -> bool {
-        if self.agents.artifact.pending.remove(&id).is_some() {
-            self.toast("Artifact preview discarded. The accepted revision is unchanged.");
-            true
-        } else {
-            self.toast("There is no artifact preview to discard.");
-            false
-        }
-    }
-    pub(crate) fn artifact_pick_revision(&mut self, id: NodeId, revision: &str) -> bool {
-        if self.tab().read_only
-            || self.agents.artifact.active_workers >= 2
-            || self.agents.artifact.preparing.contains_key(&id)
-            || self.agents.artifact.running.contains_key(&id)
-        {
-            self.toast("Wait for artifact preparation or generation to finish before selecting a revision.");
-            return false;
-        }
-        let reference = match self.artifact_reference(id, revision) {
-            Ok(r) => r,
-            Err(e) => {
-                self.toast(e);
-                return false;
-            }
-        };
-        let tab = self.tab().id;
-        let previous = self
-            .doc()
-            .scene
-            .node(id)
-            .and_then(artifact)
-            .and_then(|a| a.revision.clone());
-        let tx = self.artifact_work_tx();
-        let token = atlas_ai::agent::request_id();
-        self.agents.artifact.picks.insert(id, token.clone());
-        self.agents.artifact.active_workers += 1;
-        std::thread::spawn(move || {
-            let result = (|| {
-                atlas_ai::versions::materialize_artifact_revision(&reference)
-                    .map_err(|e| e.to_string())?;
-                let manifest = atlas_ai::versions::load_artifact_revision(&reference)
-                    .map_err(|e| e.to_string())?;
-                Ok((reference, manifest))
-            })();
-            let _ = tx.send(WorkDone::Picked(tab, id, token, previous, result));
-        });
-        true
     }
 }
 
