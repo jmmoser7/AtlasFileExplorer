@@ -27,8 +27,8 @@ use super::SlateApp;
 mod image_editor;
 mod result_actions;
 mod state;
-pub(crate) use state::FlowUi;
 use state::{AgentDraft, Engines, FlowMenu};
+pub(crate) use state::{FlowUi, TextAnswerRequest};
 mod image_workflow;
 mod model_defaults;
 mod pending_editor;
@@ -53,9 +53,10 @@ const TEXT_ENGINES: [&str; 3] = ["ollama", "codex-text", "openai-text"];
 
 mod editor_focus;
 mod editor_helpers;
-use editor_helpers::{absorb_key, fresh_seed, model_index};
+use editor_helpers::{fresh_seed, model_index};
 
 /// The instruction a text block spawned from a picture starts with.
+#[cfg(test)]
 const DESCRIBE_STYLE: &str = "Describe the visual style of this image as a comma-separated image prompt of 15 to 30 words: medium, palette, lighting, texture and mood. Leave out the subject.";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -816,10 +817,10 @@ impl SlateApp {
     /// Opens the model list of `source`'s Agent editor, as a click would.
     #[cfg(test)]
     pub(crate) fn open_agent_model_menu_for_test(&mut self, source: NodeId) {
-        let mut draft = AgentDraft::new();
-        draft.model_open = true;
-        draft.take_focus = false;
-        self.agents.flow.drafts.insert(source, draft);
+        let mut presentation = self.generator_presentation(source);
+        presentation.model_open = true;
+        presentation.picker_page = atlas_shell::selection_tools::generator::PickerPage::Models;
+        self.restore_generator_presentation(source, presentation);
     }
 
     fn submit_agent_draft(
@@ -991,55 +992,6 @@ impl SlateApp {
         }
     }
 
-    /// A generator's own prompt, typed in the frame. Wired prompts are read
-    /// before it; Enter journals it and runs.
-    pub(crate) fn paint_generator_prompt(
-        &mut self,
-        ui: &egui::Ui,
-        id: NodeId,
-        field: Rect,
-        z: f32,
-        hint: &str,
-    ) {
-        let journaled = self
-            .doc()
-            .scene
-            .node(id)
-            .and_then(slate_doc::agent_chat::agent)
-            .map(|a| a.instruction.clone())
-            .unwrap_or_default();
-        self.sync_instruction(id, &journaled);
-        let mut theme = self.palette();
-        // The field sits on the overlay scrim, not on the canvas.
-        let ink = theme.overlay();
-        theme.ink = ink.text;
-        theme.sub = ink.muted;
-        let mut text = self.agents.prompt_mut(id).clone();
-        let take_focus = self.take_flow_prompt_focus(id);
-        let out = atlas_shell::selection_tools::prompt_field(
-            ui,
-            Id::new(("generator-prompt", id.0)),
-            field,
-            z,
-            &mut text,
-            hint,
-            true,
-            take_focus,
-            theme,
-        );
-        self.track_flow_prompt_focus(id, out.focused);
-        if out.changed {
-            *self.agents.prompt_mut(id) = text;
-        }
-        if out.submit {
-            self.agents.flow.typing = None;
-            ui.memory_mut(|m| m.surrender_focus(Id::new(("generator-prompt", id.0))));
-            self.commit_instruction(id);
-            self.board_sel = std::iter::once(id).collect();
-            self.run_agent_media(id);
-        }
-    }
-
     /// Journal the typed prompt now instead of on blur.
     pub(super) fn commit_instruction(&mut self, id: NodeId) {
         let draft = if self.text_response_only(id) {
@@ -1063,90 +1015,6 @@ impl SlateApp {
         }
         *self.agents.prompt_mut(id) = draft.clone();
         self.agents.flow.synced.insert(id, draft);
-    }
-
-    /// The prompt as a capsule in the bottom bar. Hovering expands it into an
-    /// editable field above the bar; Enter runs the frame again.
-    pub(crate) fn paint_prompt_capsule(
-        &mut self,
-        ui: &egui::Ui,
-        painter: &egui::Painter,
-        id: NodeId,
-        capsule: Rect,
-        body: Rect,
-        z: f32,
-    ) {
-        if capsule.width() < canvas_scale::px(40.0, z) {
-            return;
-        }
-        let journaled = self
-            .doc()
-            .scene
-            .node(id)
-            .and_then(slate_doc::agent_chat::agent)
-            .map(|a| a.instruction.clone())
-            .unwrap_or_default();
-        self.sync_instruction(id, &journaled);
-        let typed = self.agents.prompt_mut(id).trim().to_string();
-        let wired = self.generator_view(id).prompt.clone();
-        let label = [wired.as_str(), typed.as_str()]
-            .into_iter()
-            .filter(|p| !p.is_empty())
-            .collect::<Vec<_>>()
-            .join(", ");
-        let px = |v: f32| canvas_scale::px(v, z);
-        let expanded = Rect::from_min_max(
-            Pos2::new(body.left() + px(12.0), capsule.top() - px(6.0) - px(84.0)),
-            Pos2::new(body.right() - px(12.0), capsule.top() - px(6.0)),
-        );
-        let pointer = ui.ctx().pointer_latest_pos();
-        let was_open = self.agents.flow.capsule == Some(id);
-        let over = pointer.is_some_and(|p| {
-            capsule.contains(p)
-                || (was_open && (expanded.contains(p) || expanded.union(capsule).contains(p)))
-        });
-        let open = over || self.agents.flow.typing == Some(id);
-        if open {
-            self.agents.flow.capsule = Some(id);
-        } else if was_open {
-            self.agents.flow.capsule = None;
-        }
-        let ink = self.palette().overlay();
-        paint_overlay_pill(painter, capsule, capsule.height() * 0.5, ink.fill, &ink, z);
-        let font = canvas_scale::font(super::board_agent::GENERATOR_CHIP_PX, z);
-        let shown = if label.is_empty() {
-            "Add a prompt".to_string()
-        } else {
-            format!("“{label}”")
-        };
-        let laid = canvas_text::layout_rows(
-            painter,
-            shown,
-            font,
-            if label.is_empty() {
-                ink.muted
-            } else {
-                ink.text
-            },
-            capsule.width() - px(24.0),
-            1,
-        );
-        laid.paint_anchored(
-            &painter.with_clip_rect(capsule),
-            Pos2::new(capsule.left() + px(12.0), capsule.center().y),
-            Align2::LEFT_CENTER,
-            ink.text,
-        );
-        if !open {
-            return;
-        }
-        paint_overlay_pill(painter, expanded, px(10.0), ink.raised, &ink, z);
-        let hint = if wired.is_empty() {
-            "Describe the picture. Enter runs it again."
-        } else {
-            "Add to the wired prompt. Enter runs it again."
-        };
-        self.paint_generator_prompt(ui, id, expanded.shrink(px(10.0)), z, hint);
     }
 
     /// Grow the note to its newest reply once, so reading never needs a scroll
@@ -1539,9 +1407,6 @@ pub(crate) mod tests {
         assert_eq!(on_disk.trim(), "Warm light on stone.");
     }
 
-    /// A wire dropped on empty board from any media with the Agent squircle
-    /// opens the modality menu, and the new wire leaves from that grip.
-
     /// A placed file on the board, like a drop.
     pub(crate) fn place(h: &mut super::super::tests::Harness, name: &str, x: f32) -> NodeId {
         let path = h.base.join(name);
@@ -1569,7 +1434,8 @@ pub(crate) mod tests {
             h.app.is_agent_media(generator),
             "a generated frame is media too"
         );
-        let before = h.app.doc().scene.nodes.len();
+        let before_nodes = h.app.doc().scene.nodes.clone();
+        let before = before_nodes.len();
         let depth = h.app.tab().journal.undo_depth();
         let detail = serde_json::json!({
             "source": picture.0, "kind": "image", "prompt": "a watercolor of this site",
@@ -1610,6 +1476,8 @@ pub(crate) mod tests {
             .on(atlas_agent::InputSlot::Media)
             .any(|i| i.images[0].ends_with("site.png")));
 
+        let first_spawn = h.app.doc().scene.nodes.clone();
+
         // ChatGPT through the Codex sign-in is the same frame on another engine.
         let detail = serde_json::json!({
             "source": picture.0, "kind": "image", "prompt": "night version",
@@ -1626,6 +1494,20 @@ pub(crate) mod tests {
             .map(|a| a.provider.clone());
         assert_eq!(provider.as_deref(), Some("codex-image"));
         assert_eq!(h.app.agents.dispatched.last().unwrap().0, chatgpt);
+        assert_eq!(h.app.tab().journal.undo_depth(), depth + 2);
+        h.app.board_undo();
+        assert_eq!(
+            h.app.doc().scene.nodes,
+            first_spawn,
+            "one Undo removes the second auto-run frame and its wire"
+        );
+        h.app.board_undo();
+        assert_eq!(
+            h.app.doc().scene.nodes,
+            before_nodes,
+            "one Undo removes the first auto-run frame and wire, preserving unrelated sources"
+        );
+        assert_eq!(h.app.tab().journal.undo_depth(), depth);
     }
 
     #[test]

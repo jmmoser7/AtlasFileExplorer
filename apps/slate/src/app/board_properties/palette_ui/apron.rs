@@ -22,13 +22,13 @@ impl EditorHost<'_> {
     pub(crate) fn show<T>(
         &self,
         ctx: &egui::Context,
-        id: Id,
-        layer: egui::LayerId,
+        owner: (Id, egui::LayerId),
         panel: (chrome::ImagePanelKind, f32),
         enabled: bool,
         agent_panel: bool,
         paint: impl FnOnce(&mut egui::Ui, Rect, Option<&chrome::ImagePresentationLayout>) -> T,
     ) -> Option<EditorResponse<T>> {
+        let (id, layer) = owner;
         let (kind, height) = panel;
         if canvas_scale::too_small(12.0 * self.zoom) {
             return None;
@@ -79,13 +79,13 @@ impl EditorHost<'_> {
     pub(crate) fn show_image<T>(
         &self,
         ctx: &egui::Context,
-        id: Id,
-        layer: egui::LayerId,
+        owner: (Id, egui::LayerId),
         layout: &chrome::ImagePresentationLayout,
         enabled: bool,
         detached_agent: bool,
         paint: impl FnOnce(&mut egui::Ui) -> T,
     ) -> Option<EditorResponse<T>> {
+        let (id, layer) = owner;
         self.show_area(ctx, id, layer, layout.overall, |ui| {
             if detached_agent {
                 chrome::paint_detached_agent_surface(

@@ -218,7 +218,11 @@ impl AttachedGenerator {
         let released = self.frame(vec![button(point, false)]);
         // Studio dismissal is a pointerdown event. The app snapshots its
         // presentation in that pass before deselection; release has no menu.
-        if pressed.0.presentation.dismissed_menu.is_some() { pressed } else { released }
+        if pressed.0.presentation.dismissed_menu.is_some() {
+            pressed
+        } else {
+            released
+        }
     }
 
     fn open(&mut self) -> Rect {

@@ -90,7 +90,7 @@ impl SlateApp {
                         z,
                     );
                     let offset = if self.text_review_visible(node) {
-                        self.text_sheet_scroll(ui, node, inner, galley.size().y, z, false, true)
+                        self.text_sheet_scroll(ui, node, (inner, galley.size().y), z, false, true)
                     } else {
                         0.0
                     };

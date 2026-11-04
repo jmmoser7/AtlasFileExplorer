@@ -52,12 +52,11 @@ fn ports_show_near_a_generator_and_the_text_block_paints_its_controls() {
     }
     h.app.board_sel = std::iter::once(block).collect();
     let selected = painted(&mut h, Pos2::new(2.0, 890.0));
-    for label in ["Image"] {
-        assert!(
-            selected.iter().any(|t| t.starts_with(label)),
-            "missing {label}: {selected:?}"
-        );
-    }
+    let label = "Image";
+    assert!(
+        selected.iter().any(|t| t.starts_with(label)),
+        "missing {label}: {selected:?}"
+    );
     for label in ["Run", "Wire a note to Prompt, or type here"] {
         assert!(
             !selected.iter().any(|text| text.starts_with(label)),

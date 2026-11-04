@@ -61,6 +61,7 @@ impl SlateApp {
     }
 
     pub(crate) fn save_chrome_prefs(&self) {
+        #[cfg(not(test))]
         if self.screenshot.is_some() {
             return;
         }

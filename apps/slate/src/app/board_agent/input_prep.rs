@@ -31,7 +31,17 @@ impl SlateApp {
                         })
                         .map(|output| output.id.clone())
                 });
-            ImageResultId::Output(output.ok_or("A captured image output is unavailable.")?)
+            match output {
+                Some(output) => ImageResultId::Output(output),
+                // Plain graph settings do not turn a linked picture into a
+                // generated result. Match the captured file, not the live pick.
+                None if item.active.is_none()
+                    && self.item_path(image.item).as_deref() == Some(source) =>
+                {
+                    ImageResultId::Item(image.item)
+                }
+                None => return Err("A captured image output is unavailable.".into()),
+            }
         } else {
             ImageResultId::Item(image.item)
         };

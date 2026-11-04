@@ -88,18 +88,20 @@ pub(super) fn center_on(h: &mut super::super::tests::Harness, id: NodeId) {
 /// A Codex train card whose model list holds three installed models.
 pub(super) fn codex_card_with_models(h: &mut super::super::tests::Harness) -> NodeId {
     let card = train(h, Pos2::ZERO, "codex");
-    let catalog = atlas_ai::agent::model_catalog("codex").to_string();
-    h.app.agents.models_started.insert(catalog.clone());
-    h.app.agents.models.insert(
-        catalog,
-        ["gpt-6-astra", "gpt-6-terra", "gpt-6-luna"]
-            .into_iter()
-            .map(|id| atlas_ai::agent::AgentModel {
-                id: id.into(),
-                name: id.into(),
-                ..Default::default()
-            })
-            .collect(),
+    h.app.set_agent_catalog_for_test(
+        "codex",
+        [
+            ("gpt-6-astra", "Astra"),
+            ("gpt-6-terra", "Terra"),
+            ("gpt-6-luna", "Luna"),
+        ]
+        .into_iter()
+        .map(|(id, name)| atlas_ai::agent::AgentModel {
+            id: id.into(),
+            name: name.into(),
+            ..Default::default()
+        })
+        .collect(),
     );
     h.app.patch_nodes(&[card], |n| {
         if let NodeKind::Portal(p) = &mut n.kind {

@@ -48,11 +48,18 @@ impl SlateApp {
                 };
                 if attached_frame {
                     atlas_shell::frame_presentation::paint_attached_host(
-                        painter, Rect::from_points(&plate), z, fade(fill),
+                        painter,
+                        Rect::from_points(&plate),
+                        z,
+                        fade(fill),
                         self.presentation_ring(node.id, palette),
                     );
                 } else {
-                    atlas_shell::frame_presentation::paint_plate(painter, plate.clone(), fade(fill));
+                    atlas_shell::frame_presentation::paint_plate(
+                        painter,
+                        plate.clone(),
+                        fade(fill),
+                    );
                 }
                 if !attached_frame && surface.is_none() && !f.stroke.is_none() {
                     stroke_outline(painter, &plate, &f.stroke, z);
@@ -68,7 +75,10 @@ impl SlateApp {
                             false,
                             2.0,
                             6.0,
-                            order.map_or_else(||f.title.clone(),|order|format!("{order} · {}", f.title)),
+                            order.map_or_else(
+                                || f.title.clone(),
+                                |order| format!("{order} · {}", f.title),
+                            ),
                             FontId::proportional(title),
                             palette.sub,
                         );

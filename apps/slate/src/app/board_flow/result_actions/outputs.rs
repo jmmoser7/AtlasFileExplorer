@@ -8,14 +8,6 @@ pub(crate) struct Output {
 }
 
 impl SlateApp {
-    pub(crate) fn output_is_hidden(&self, host: NodeId, reference: &HiddenOutputRef) -> bool {
-        self.doc()
-            .scene
-            .node(host)
-            .and_then(slate_doc::agent_chat::agent)
-            .is_some_and(|agent| agent.generator.hidden_outputs.contains(reference))
-    }
-
     pub(crate) fn result_outputs(&self, host: NodeId) -> Vec<Output> {
         let Some(node) = self.doc().scene.node(host) else {
             return Vec::new();

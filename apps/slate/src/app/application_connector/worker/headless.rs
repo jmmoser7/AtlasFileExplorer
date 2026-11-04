@@ -99,11 +99,13 @@ fn run(path: PathBuf, actions: Receiver<Action>, events: &Sender<Event>) -> Resu
                     &mut draft,
                     &mut root,
                     &mut serial,
-                    &key,
-                    &path,
-                    &revision,
-                    Some(&revision),
-                    None,
+                    rebind::SourcePreparation {
+                        key: &key,
+                        path: &path,
+                        expected: &revision,
+                        content: Some(&revision),
+                        lease: None,
+                    },
                 )?;
                 let _ = events.send(Event::Binding(snapshot(&draft, &root, serial)));
             }
@@ -120,11 +122,13 @@ fn run(path: PathBuf, actions: Receiver<Action>, events: &Sender<Event>) -> Resu
                     &mut draft,
                     &mut root,
                     &mut serial,
-                    &key,
-                    &path,
-                    &revision,
-                    None,
-                    Some(&lease),
+                    rebind::SourcePreparation {
+                        key: &key,
+                        path: &path,
+                        expected: &revision,
+                        content: None,
+                        lease: Some(&lease),
+                    },
                 );
                 lease.complete();
                 match result {
@@ -138,7 +142,7 @@ fn run(path: PathBuf, actions: Receiver<Action>, events: &Sender<Event>) -> Resu
             }
             Action::Native(request) => {
                 serial += 1;
-                execute(&mut draft, &root, serial, events, request);
+                execute(&mut draft, &root, serial, events, *request);
             }
             Action::Focus(request) => {
                 let _ = events.send(Event::FocusApplied {
@@ -346,7 +350,7 @@ fn dispatch(
     match reply.outcome {
         ReplyBody::Failure { error } => Ok(NativeOutcome::Rejected { error }),
         ReplyBody::OutcomeUnknown { ref reason } => Ok(NativeOutcome::OutcomeUnknown {
-            receipt: Some(reply.clone()),
+            receipt: Some(Box::new(reply.clone())),
             reason: reason.clone(),
         }),
         body if matches!(&request.operation,NativeOperation::Invoke{command,..} if command==GENERATE_COMMAND) =>

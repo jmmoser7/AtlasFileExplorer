@@ -1,5 +1,4 @@
-//! One verbatim workbook per historical on-disk format version, and the
-//! harness that proves each one still opens.
+//! Historical workbook fixtures and the harness proving each still opens.
 //! Convention: a card that bumps `SlateDoc::CURRENT` adds a fixture for the
 //! version it supersedes plus a `vN_fixture_upgrades_to_current` test; it never
 //! edits an existing fixture. The committed JSON is the source of truth —
@@ -72,7 +71,6 @@ fn round_trip(fixture: &str) -> SlateDoc {
     let reloaded =
         SlateDoc::load_from(&saved).unwrap_or_else(|err| panic!("reload {fixture}: {err}"));
     assert_eq!(reloaded, doc, "{fixture} survives save and reload");
-
     let _ = std::fs::remove_dir_all(dir);
     doc
 }

@@ -225,6 +225,17 @@ fn a_generator_popup_keeps_its_visible_hits_while_the_image_apron_opens() {
                 assert_eq!(h.app.board_sel, std::iter::once(id).collect());
                 continue;
             }
+            let provider = h
+                .app
+                .pending_generator_choice(id)
+                .map(|(p, _, _)| p.to_owned())
+                .unwrap_or_else(|| "comfy".into());
+            let model_labels: Vec<String> = h
+                .app
+                .source_model_options(id, &provider)
+                .into_iter()
+                .map(|(_, _, label)| label)
+                .collect();
             let (point, row_clip) = output
                 .shapes
                 .iter()
@@ -234,10 +245,10 @@ fn a_generator_popup_keeps_its_visible_hits_while_the_image_apron_opens() {
                     };
                     let row_clip = shape.clip_rect;
                     let point = text.visual_bounding_rect().center();
-                    (text.galley.text().contains('·')
+                    (model_labels.iter().any(|label| label == text.galley.text())
                         && row_clip.is_positive()
                         && row_clip.top() > image.bottom()
-                        && row_clip.height() < 220.0 * xf.z
+                        && row_clip.height() < 220.0
                         && row_clip.contains(point)
                         && canvas.contains(point))
                     .then_some((point, row_clip))

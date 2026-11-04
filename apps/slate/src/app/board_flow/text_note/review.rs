@@ -272,7 +272,7 @@ impl SlateApp {
         let content_height =
             (REVIEW_COPY_TOP + 10.0 + REVIEW_ACTION_HEIGHT + 12.0) * zoom + copy.size().y;
         let offset =
-            self.text_sheet_scroll(ui, id, section, content_height, zoom, true, interactive);
+            self.text_sheet_scroll(ui, id, (section, content_height), zoom, true, interactive);
         let origin = section.min + egui::vec2(16.0 * zoom, 11.0 * zoom - offset);
         canvas_text::text(
             &p,
@@ -362,12 +362,12 @@ impl SlateApp {
         &self,
         ui: &egui::Ui,
         id: NodeId,
-        viewport: Rect,
-        content_height: f32,
+        sheet: (Rect, f32),
         zoom: f32,
         review: bool,
         interactive: bool,
     ) -> f32 {
+        let (viewport, content_height) = sheet;
         let key = scroll_id(id, review);
         let max = (content_height - viewport.height()).max(0.0);
         let mut offset = ui.ctx().data(|d| d.get_temp::<f32>(key).unwrap_or(0.0)) * zoom;

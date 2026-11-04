@@ -42,7 +42,7 @@
 //! - Frames drag their members with them (geometric membership, captured at
 //!   gesture start).
 mod paint_node;
-#[cfg(test)]
+#[cfg(all(test, windows))]
 pub(crate) mod paint_probe;
 use super::{
     board_color, board_crop, board_forcefield, board_handles, board_osnap, board_path, board_place,
@@ -519,7 +519,7 @@ impl SlateApp {
                 || (space && resp.dragged_by(egui::PointerButton::Primary))
                 || (resp.dragged_by(egui::PointerButton::Secondary)
                     && !turbo_pan_active
-                    && !hold_right)
+                    && !(hold_right || model_pointer))
                 || (hand_pan && resp.dragged_by(egui::PointerButton::Primary))
                 || through_palette.is_some());
         if hand_pan && resp.hovered() {
@@ -1298,7 +1298,7 @@ impl SlateApp {
             self.property_panel_fades_selection(),
         );
 
-        #[cfg(test)]
+        #[cfg(all(test, windows))]
         paint_probe::record(&xf, &self.board_sel);
         if self.board_show_grid {
             let _grid = atlas_core::session_log::span("slate.board.grid");

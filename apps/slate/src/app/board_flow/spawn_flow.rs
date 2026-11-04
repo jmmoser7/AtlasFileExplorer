@@ -25,6 +25,11 @@ impl SlateApp {
         bind_program(&mut node, program, binding);
         if let Some(agent) = slate_doc::agent_chat::agent_mut(&mut node) {
             agent.generator.preserve_history = Some(false);
+            // This is a new image session, not a saved conversation to load.
+            // Submission attaches its real manifest after the first request.
+            if kind == SpawnKind::Image {
+                agent.bundle = None;
+            }
         }
         node.rect = rect;
         node
@@ -299,6 +304,7 @@ impl SlateApp {
         if self.add_nodes(nodes).is_empty() {
             return false;
         }
+        let creation_step = self.tab().journal.top_token().expect("spawn was committed");
         if spawn.chooser {
             self.board_sel.clear();
             self.shape_properties.panel = None;
@@ -321,7 +327,9 @@ impl SlateApp {
         if run {
             match kind {
                 SpawnKind::Image if spawn.live => {}
-                SpawnKind::Image => self.queue_generation(id),
+                SpawnKind::Image => {
+                    self.queue_spawned_generation(id, creation_step);
+                }
                 SpawnKind::Text => self.queue_text_block(id),
                 SpawnKind::Artifact => {
                     self.queue_artifact_generation(id);

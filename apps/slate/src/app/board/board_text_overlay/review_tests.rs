@@ -186,7 +186,7 @@ fn active_editor_scrollarea_and_reader_apply_wheel_once_across_discarded_passes(
             // Deliberately offer the same source to the reader path. Its
             // canvas layer must defer to the actual native editor Area.
             h.app
-                .text_sheet_scroll(ui, id, viewport, 10000.0, xf.z, false, true);
+                .text_sheet_scroll(ui, id, (viewport, 10000.0), xf.z, false, true);
         });
         h.app.text_edit_overlay(ctx, &xf);
         passes += 1;

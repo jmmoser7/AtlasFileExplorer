@@ -2,9 +2,22 @@
 use super::*;
 
 fn chain(h: &mut crate::app::tests::Harness, source: NodeId) -> NodeId {
-    let detail = serde_json::json!({"source":source.0,"kind":"image","prompt":"evening light"});
+    let detail = serde_json::json!({"source":source.0,"kind":"image"});
     assert!(h.app.spawn_flow_node(Some(&detail.to_string())));
-    *h.app.board_sel.iter().next().unwrap()
+    let child = *h.app.board_sel.iter().next().unwrap();
+    assert!(
+        slate_doc::agent_chat::agent(h.app.doc().scene.node(child).unwrap())
+            .unwrap()
+            .bundle
+            .is_none(),
+        "a new child must not claim a saved transcript before its first request"
+    );
+    // These tests capture requests explicitly; spawning with a prompt would
+    // already submit the first run and legitimately attach its manifest.
+    h.app.patch_nodes(&[child], |node| {
+        slate_doc::agent_chat::agent_mut(node).unwrap().instruction = "evening light".into();
+    });
+    child
 }
 
 fn solid_layer(h: &mut crate::app::tests::Harness, color: [u8; 4]) -> slate_doc::PaintLayer {

@@ -27,7 +27,10 @@ use crate::ids::{GroupId, ItemId, TagId};
 use crate::spatial::SpatialIndex;
 
 mod agent;
-pub use agent::{AgentContextScope, AgentPortalRef, GeneratorSettings, GraphInputKind, HiddenOutputRef, ImageSettings};
+pub use agent::{
+    AgentContextScope, AgentPortalRef, GeneratorSettings, GraphInputKind, HiddenOutputRef,
+    ImageSettings,
+};
 mod model_output;
 pub use model_output::ModelOutputRef;
 mod image;
@@ -1123,7 +1126,10 @@ pub struct NodeId(pub u64);
 /// `assignments` are tags auto-applied to any image dropped into the frame.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FrameNode {
-    #[serde(default, skip_serializing_if = "crate::presentations::MediaSettings::is_default")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::presentations::MediaSettings::is_default"
+    )]
     pub presentation_media: crate::presentations::MediaSettings,
     pub title: String,
     /// Slide sequence position (ascending; gaps allowed).
@@ -3444,6 +3450,19 @@ impl SceneJournal {
     pub fn top_token(&self) -> Option<GroupToken> {
         self.done.last().map(|g| g.token)
     }
+    /// The current step owns creation of this node under the same author.
+    /// Used with its captured token when an automatic first run completes it.
+    pub fn top_creates_node(&self, id: NodeId, author: &CmdAuthor) -> bool {
+        self.undone.is_empty()
+            && self.done.last().is_some_and(|group| {
+                &group.author == author
+                    && group
+                        .cmds
+                        .iter()
+                        .any(|cmd| matches!(cmd, SceneCmd::Add { node, .. } if node.id == id))
+            })
+    }
+
     /// Group `token` is applied to the scene: committed and not undone, or
     /// redone since. Amending a group keeps its token.
     pub fn is_applied(&self, token: GroupToken) -> bool {
@@ -3620,6 +3639,9 @@ impl SceneJournal {
     }
 }
 
+#[cfg(test)]
+#[path = "scene/creation_group_tests.rs"]
+mod creation_group_tests;
 #[cfg(test)]
 #[path = "scene/lookup_tests.rs"]
 mod lookup_tests;

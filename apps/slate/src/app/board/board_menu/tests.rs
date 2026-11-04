@@ -43,6 +43,29 @@ fn shipped_menus_preserve_studio_revision_and_the_canvas_wire_refinement() {
             .unwrap();
         entries.insert(position + 1, "board.image.save_as".into());
     }
+    // Declared web controls add explicit origin access to the existing portal menu.
+    let web = agreed["menus"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|menu| menu["id"] == "web")
+        .unwrap();
+    let entries = web["entries"].as_array_mut().unwrap();
+    let after_reload = entries
+        .iter()
+        .position(|entry| entry == "portal.web.reload")
+        .unwrap()
+        + 1;
+    for (offset, command) in [
+        "portal.web.allow_origin",
+        "portal.web.revoke_origin",
+        "portal.web.access_settings",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        entries.insert(after_reload + offset, command.into());
+    }
     assert_eq!(native["menus"], agreed["menus"]);
     assert_eq!(native["metrics"], agreed["metrics"]);
     assert_eq!(native["menus"].as_array().unwrap().len(), 28);

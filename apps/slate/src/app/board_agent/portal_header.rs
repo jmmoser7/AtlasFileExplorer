@@ -192,15 +192,13 @@ impl SlateApp {
                         .max_rect(band),
                 );
                 self.paint_header_responding(&mut respond, node.id, z);
-            } else if tail {
-                if model_owned.is_some() {
-                    let hit = Rect::from_min_max(
-                        Pos2::new(x, at.y),
-                        Pos2::new(title_rect.right().max(x + 20.0 * z), at.y + 20.0 * z),
-                    );
-                    self.paint_chat_model_picker(ui, node.id, agent, hit, z);
-                    model_rect = Some(hit);
-                }
+            } else if tail && model_owned.is_some() {
+                let hit = Rect::from_min_max(
+                    Pos2::new(x, at.y),
+                    Pos2::new(title_rect.right().max(x + 20.0 * z), at.y + 20.0 * z),
+                );
+                self.paint_chat_model_picker(ui, node.id, agent, hit, z);
+                model_rect = Some(hit);
             }
             if !tail && self.agents.model_menu == Some(node.id) {
                 self.agents.model_menu = None;

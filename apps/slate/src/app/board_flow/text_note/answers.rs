@@ -250,7 +250,7 @@ impl SlateApp {
                 answers: Arc::new(answers.clone()),
                 revision: revision.map(str::to_owned),
                 links: Arc::new(
-                    text_answers::valid_answers(shown, &answers)
+                    text_answers::valid_answers(shown, answers)
                         .into_iter()
                         .filter(|answer| answer.is_valid_for_revision(shown, revision))
                         .filter_map(|answer| {

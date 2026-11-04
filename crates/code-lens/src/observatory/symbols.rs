@@ -9,7 +9,7 @@ use syn::{Attribute, Item};
 use crate::extract::rust_src::item_metadata;
 use crate::model::{ItemKind, NodeId};
 
-use super::{Builder, Call, Impl, Import, ModuleDecl, PathRef};
+use super::{Builder, Call, Impl, Import, ModuleDecl, PathRef, SourceInfo};
 
 pub(super) fn extract(builder: &mut Builder, file: NodeId, path: &Path, ast: &syn::File) {
     builder.source[file as usize].doc = docs(&ast.attrs);
@@ -45,13 +45,17 @@ impl Extractor<'_> {
         let conditional = self.builder.source[old as usize].conditional || conditional(attrs);
         self.current = self.builder.push(
             old,
-            kind,
             name,
             self.path,
-            span.start().line as u32,
-            span.end().line as u32,
-            docs(attrs),
-            conditional,
+            SourceInfo {
+                kind,
+                line: span.start().line as u32,
+                end_line: span.end().line as u32,
+                self_loc: 0,
+                doc: docs(attrs),
+                conditional,
+                identity: String::new(),
+            },
         );
         f(self);
         self.current = old;

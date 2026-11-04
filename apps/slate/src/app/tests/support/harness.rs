@@ -73,6 +73,7 @@ impl Harness {
         let ctx = self.ctx.clone();
         let app = &mut self.app;
         let out = ctx.run(input, |c| app.update_app(c));
+        record_interaction_shadow_uploads(&ctx, &out);
         assert_invariants(&self.app);
         out
     }

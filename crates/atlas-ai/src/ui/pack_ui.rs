@@ -256,9 +256,11 @@ mod tests {
                     "settled actual form missing {label}: {painted:?}"
                 );
             }
-            let mask: String = std::iter::repeat(egui::epaint::text::PASSWORD_REPLACEMENT_CHAR)
-                .take(draft.chars().count())
-                .collect();
+            let mask: String = std::iter::repeat_n(
+                egui::epaint::text::PASSWORD_REPLACEMENT_CHAR,
+                draft.chars().count(),
+            )
+            .collect();
             assert!(
                 painted.iter().any(|text| text == &mask),
                 "actual password field must positively paint its mask"

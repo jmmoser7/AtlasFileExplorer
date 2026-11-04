@@ -18,9 +18,9 @@ mod deferred;
 pub(super) use deferred::{DeferredWorkbookAction, DeferredWorkbookActions};
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod model_collection_tests;
+#[cfg(test)]
+mod tests;
 
 mod source_rebase;
 

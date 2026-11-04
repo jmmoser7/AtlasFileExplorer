@@ -102,17 +102,17 @@ pub(crate) struct TextAnswerRequest {
     pub(crate) selected: bool,
 }
 
+type ConnectedInputCache = (
+    (u64, u64, u64),
+    HashMap<NodeId, std::collections::HashSet<atlas_agent::InputSlot>>,
+);
+
 /// Derived view state; nothing here is journaled.
 #[derive(Default)]
 pub(crate) struct FlowUi {
     /// Derived visibility cache, rebuilt once per scene revision rather than
     /// scanning every connector for every painted native source.
-    pub(super) connected_inputs: std::cell::RefCell<
-        Option<(
-            (u64, u64, u64),
-            HashMap<NodeId, std::collections::HashSet<atlas_agent::InputSlot>>,
-        )>,
-    >,
+    pub(super) connected_inputs: std::cell::RefCell<Option<ConnectedInputCache>>,
     pub(super) graph_menu: Option<super::graph_ui::GraphMenu>,
     pub(super) history_view: Option<super::graph_history::HistoryView>,
     pub(super) history_press: Option<(u64, NodeId, bool, Pos2)>,

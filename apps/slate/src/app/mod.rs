@@ -43,7 +43,6 @@ mod board_bumper;
 mod board_color;
 pub mod board_crop;
 mod board_deck;
-mod frame_presentation;
 mod board_direct;
 mod board_dock_embed;
 mod board_flags;
@@ -85,6 +84,7 @@ mod enscape_host;
 mod external_drop;
 mod external_drop_classify;
 mod external_drop_image;
+mod frame_presentation;
 mod image_composite;
 #[cfg(test)]
 mod image_layer_tests;
@@ -2149,7 +2149,12 @@ impl SlateApp {
         if self.screenshot.is_some() {
             let canvas_zoom = (!self.at_home && !self.tabs.is_empty()).then(|| self.tab().cam.z);
             if let Some(shot) = &mut self.screenshot {
-                shot.frame(ctx, self.frame_no, self.recovery.capture_status(), canvas_zoom);
+                shot.frame(
+                    ctx,
+                    self.frame_no,
+                    self.recovery.capture_status(),
+                    canvas_zoom,
+                );
             }
         }
     }
@@ -2207,6 +2212,7 @@ impl SlateApp {
 
     pub(crate) fn ensure_home_cover_bakes(&mut self) {
         // Covers for unrelated recent workbooks must not be opened by a capture.
+        #[cfg(not(test))]
         if self.screenshot.is_some() {
             return;
         }

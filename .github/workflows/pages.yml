@@ -35,10 +35,12 @@ jobs:
         run: python website/build.py
       - name: Check links, assets and markup
         run: python website/check.py
-      - name: Check suggestion-box JavaScript
+      - name: Check website JavaScript
         run: |
           node --check website/suggestions/suggestions.js
           node website/check-suggestions.cjs
+          node --check website/release.js
+          node website/check-release.cjs
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'
         with:

@@ -410,7 +410,7 @@ impl SlateApp {
                 custom_aspect_supported: self.custom_aspect_available(id, &provider),
                 seed_locked: image_settings.seed.is_some(),
                 seed_supported: atlas_ai::runtime::image_seed_supported(&provider),
-                live: live,
+                live,
                 take_focus: std::mem::take(&mut draft.take_focus),
             },
             z,

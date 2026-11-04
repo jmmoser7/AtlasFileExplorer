@@ -1,10 +1,17 @@
 use super::*;
 
-pub(in crate::app::application_connector) fn create_empty() -> (
-    Receiver<Result<super::super::super::super::items::ReadyFile, String>>,
+type ReadyResult = Result<super::super::super::super::items::ReadyFile, String>;
+pub(in crate::app::application_connector) type EmptyCreation =
+    (Receiver<ReadyResult>, Cancellation, Sender<bool>);
+#[cfg(test)]
+pub(in crate::app::application_connector) type TestEmptyCreation = (
+    Receiver<ReadyResult>,
     Cancellation,
     Sender<bool>,
-) {
+    Receiver<()>,
+);
+
+pub(in crate::app::application_connector) fn create_empty() -> EmptyCreation {
     let (tx, rx) = crossbeam_channel::bounded(1);
     let (accepted, admission) = crossbeam_channel::bounded(1);
     let cancel = Cancellation::default();
@@ -54,9 +61,9 @@ pub(in crate::app::application_connector) fn create_empty() -> (
 /// Ownership stays on the dedicated blank worker until the existing UI pump
 /// accepts its single prepared commit. Receiver loss/app close rejects it too.
 fn deliver_empty_result(
-    tx: Sender<Result<super::super::super::super::items::ReadyFile, String>>,
+    tx: Sender<ReadyResult>,
     admission: Receiver<bool>,
-    result: Result<super::super::super::super::items::ReadyFile, String>,
+    result: ReadyResult,
     owned: Option<std::path::PathBuf>,
 ) {
     let has_file = result.is_ok();
@@ -81,12 +88,7 @@ fn finish_empty_admission(
 #[cfg(test)]
 pub(in crate::app::application_connector) fn owned_empty_for_test(
     path: std::path::PathBuf,
-) -> (
-    Receiver<Result<super::super::super::super::items::ReadyFile, String>>,
-    Cancellation,
-    Sender<bool>,
-    Receiver<()>,
-) {
+) -> TestEmptyCreation {
     let (tx, rx) = crossbeam_channel::bounded(1);
     let (accepted, admission) = crossbeam_channel::bounded(1);
     let (done, completion) = crossbeam_channel::bounded(1);

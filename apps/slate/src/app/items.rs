@@ -49,12 +49,11 @@ impl SlateApp {
 
     fn ready_link_path(&self, path: &Path) -> PathBuf {
         let locator = slate_doc::scene::source_locator(self.tab().path.as_deref(), path);
-        let stored = if locator.starts_with("assets/") {
+        if locator.starts_with("assets/") {
             PathBuf::from(locator)
         } else {
             path.to_path_buf()
-        };
-        stored
+        }
     }
 }
 

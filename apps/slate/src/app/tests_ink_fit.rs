@@ -1,5 +1,4 @@
-//! Pen fit and Smoothing brush acceptance through the app (pen.md GP3,
-//! smooth.md golden paths and behavior matrix).
+//! Pen fit and Smoothing brush acceptance (pen.md GP3 and smooth.md golden paths).
 
 use super::board::BoardTool;
 use super::board_path;

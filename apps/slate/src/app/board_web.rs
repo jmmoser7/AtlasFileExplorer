@@ -1663,17 +1663,35 @@ impl SlateApp {
     /// Restore a previously saved view through the existing page host. Keep
     /// the source and its permissions intact; the bookmark must be same-origin.
     pub(crate) fn restore_presentation_web_view(&mut self, id: NodeId, target: &str) {
-        let source=self.doc().scene.node(id).and_then(|n|match &n.kind {
-            NodeKind::Portal(p) if p.kind==PortalKind::Web=>p.source.as_ref().map(|s|s.locator.clone()),
-            _=>None,
+        let source = self.doc().scene.node(id).and_then(|n| match &n.kind {
+            NodeKind::Portal(p) if p.kind == PortalKind::Web => {
+                p.source.as_ref().map(|s| s.locator.clone())
+            }
+            _ => None,
         });
-        let Some((source,target))=source.and_then(|s|url::Url::parse(&s).ok()).zip(url::Url::parse(target).ok()) else{return;};
-        if !matches!(target.scheme(),"http"|"https")||source.origin()!=target.origin()
-            ||!target.username().is_empty()||target.password().is_some() {return;}
-        let target=target.to_string();
-        if self.web.host.current_url(id).as_deref()==Some(target.as_str()){return;}
-        if let Some(view)=self.web.views.get_mut(&id){view.resume_url=Some(target.clone());}
-        if self.web.is_live(id){self.web.host.navigate(id,&target);}
+        let Some((source, target)) = source
+            .and_then(|s| url::Url::parse(&s).ok())
+            .zip(url::Url::parse(target).ok())
+        else {
+            return;
+        };
+        if !matches!(target.scheme(), "http" | "https")
+            || source.origin() != target.origin()
+            || !target.username().is_empty()
+            || target.password().is_some()
+        {
+            return;
+        }
+        let target = target.to_string();
+        if self.web.host.current_url(id).as_deref() == Some(target.as_str()) {
+            return;
+        }
+        if let Some(view) = self.web.views.get_mut(&id) {
+            view.resume_url = Some(target.clone());
+        }
+        if self.web.is_live(id) {
+            self.web.host.navigate(id, &target);
+        }
     }
 
     fn web_url_target(&self, id: Option<NodeId>) -> Option<NodeId> {

@@ -113,9 +113,11 @@ fn linked_text_answers_share_native_range_model_and_never_export_private_origin(
         "original.txt",
         Some(text),
         std::path::Path::new("original.txt"),
-        NodeId(1),
-        &[answer.clone()],
-        Some("file-v1"),
+        TextCardAnswers {
+            node: NodeId(1),
+            answers: std::slice::from_ref(&answer),
+            revision: Some("file-v1"),
+        },
     );
     assert!(html.contains("data-text-answer"));
     assert!(html.contains("Coffee"));
@@ -128,9 +130,11 @@ fn linked_text_answers_share_native_range_model_and_never_export_private_origin(
         "original.txt",
         Some(text),
         std::path::Path::new("original.txt"),
-        NodeId(1),
-        &[answer],
-        Some("file-v2"),
+        TextCardAnswers {
+            node: NodeId(1),
+            answers: std::slice::from_ref(&answer),
+            revision: Some("file-v2"),
+        },
     );
     assert!(!refreshed.contains("data-text-answer"));
     assert!(!refreshed.contains("Coffee"));

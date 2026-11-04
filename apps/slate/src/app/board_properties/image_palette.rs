@@ -301,8 +301,7 @@ pub(super) fn show(
                 }
                 .show_image(
                     &ctx,
-                    outline::layer(id).id,
-                    ui.layer_id(),
+                    (outline::layer(id).id, ui.layer_id()),
                     &layout,
                     true,
                     panel.or(closing_panel) == Some(Panel::Agent),

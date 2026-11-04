@@ -205,7 +205,7 @@ impl SlateApp {
                             .map_err(|error| format!("Could not record local feedback: {error}"))?;
                         return Ok(Some(json!({"status":"recorded_locally"})));
                     }
-                    self.validate_text_output_scope(&grant, command, targets)?;
+                    self.validate_text_output_scope(grant, command, targets)?;
                     if command == "board.image.history" {
                         self.validate_image_history_scope(grant, targets, arguments)?;
                     }

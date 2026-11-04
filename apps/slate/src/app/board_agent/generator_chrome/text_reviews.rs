@@ -74,15 +74,16 @@ impl SlateApp {
         &mut self,
         id: NodeId,
         request: &str,
-        group: &str,
-        context_epoch: u64,
-        source: String,
-        source_revision: Option<String>,
-        selection: Option<Range<usize>>,
-        question: String,
+        snapshot: &crate::app::board_flow::TextAnswerRequest,
         text: String,
         response: TextAnswerRef,
     ) -> bool {
+        let group = snapshot.group.as_str();
+        let context_epoch = snapshot.context_epoch;
+        let source = snapshot.source.clone();
+        let source_revision = snapshot.source_revision.clone();
+        let selection = snapshot.selected.then(|| snapshot.range.clone());
+        let question = snapshot.question.clone();
         let Some(origin) = self.text_output_source(id) else {
             return false;
         };

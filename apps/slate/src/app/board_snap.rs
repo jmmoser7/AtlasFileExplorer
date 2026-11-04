@@ -1,9 +1,7 @@
 //! Smart guides for the Board canvas — object-to-object alignment and spacing.
 //!
-//! Defaults follow InDesign / tldraw / Keynote: only objects in the current
-//! view, in the same row or column (a "lane"), and not behind a closer
-//! neighbor. Hold Alt to suspend. Reach (Tight / Nearby / Wide) is a
-//! session preference under Document Settings.
+//! Guides use visible objects in the same lane, excluding occluded neighbors.
+//! Hold Alt to suspend. Document Settings controls Tight / Nearby / Wide reach.
 
 use eframe::egui::{Pos2, Vec2};
 use slate_doc::scene::WorldRect;
@@ -172,10 +170,8 @@ fn along_gap(moving: &SnapLines, t: &SnapLines, axis: GuideAxis) -> f32 {
     }
 }
 
-/// True when another in-lane object sits strictly between `moving` and
-/// `target` along the guide (the cross axis). A neighbor in the same
-/// column blocks X-alignments beyond it; a neighbor in the same row
-/// blocks Y-alignments beyond it.
+/// True when an in-lane neighbor blocks alignment beyond it. Columns block
+/// X-alignments; rows block Y-alignments along the cross axis.
 fn occluded(
     moving: &SnapLines,
     target: &SnapLines,
@@ -602,9 +598,8 @@ pub fn snap_resize_rect_scoped(
     (r, guides)
 }
 
-/// Snap a rect that stays centered on `center`. Each axis applies the nearer
-/// edge snap to both sides so the press point does not walk. `square` keeps
-/// a circle or square by taking the snap that moves the side length less.
+/// Snap both sides symmetrically using each axis's nearer edge. For `square`,
+/// preserve equal sides using the smaller side-length adjustment.
 pub fn snap_centered_rect_scoped(
     center: Pos2,
     proposed: WorldRect,
@@ -862,11 +857,9 @@ fn nearest_edge_from(
     best.map(|(d, _, t)| (d, t))
 }
 
-/// Map a member's origin through a group-box scale, keeping width and height.
-/// Used by Ctrl+Alt+Shift group-grip: the selection AABB changes, items only
-/// translate. Callers must then [`pin_group_union`] so the opposite handle
-/// of the stack stays put — scaling origins alone walks that corner on
-/// Nw / Ne / Sw (the member that defined it still has the same size).
+/// Map an origin through group-box scale without resizing the member
+/// (Ctrl+Alt+Shift). Call [`pin_group_union`] afterward to keep the opposite
+/// handle fixed; unchanged member extents otherwise move Nw / Ne / Sw.
 pub fn remap_group_keep_size(rect: WorldRect, sx: f32, sy: f32, anchor: (f32, f32)) -> WorldRect {
     WorldRect::new(
         anchor.0 + (rect.x - anchor.0) * sx,
@@ -886,9 +879,8 @@ pub fn remap_group_scale(rect: WorldRect, sx: f32, sy: f32, anchor: (f32, f32)) 
     )
 }
 
-/// Translate remapped members so the union's opposite handle matches the
-/// original group box. Without this, keep-size remap from Nw / Ne / Sw
-/// slides the whole stack because member extents do not scale.
+/// Pin the remapped union's opposite handle to the original group box.
+/// This prevents unchanged member extents from shifting Nw / Ne / Sw.
 pub fn pin_group_union(
     rects: &mut [WorldRect],
     original: WorldRect,
@@ -1010,8 +1002,7 @@ pub fn handle_local(rect: WorldRect, handle: u8) -> (f32, f32) {
     }
 }
 
-/// Opposite handle — the world-space point that must stay put during a
-/// non-center resize, and the origin of a group-box scale.
+/// Fixed world handle for non-center resize; origin of a group-box scale.
 pub fn resize_anchor(rect: WorldRect, handle: u8, from_center: bool) -> (f32, f32) {
     if from_center {
         return rect.center();
@@ -1042,10 +1033,9 @@ fn pin_rotated_resize(
     r
 }
 
-/// Resize from a handle (0–7: corners then edge midpoints). Operates in the
-/// node's local axes when `rotation_deg` is non-zero, then pins the opposite
-/// handle in world space so the grabbed edge is the one that moves. Shift
-/// locks aspect ratio; Ctrl resizes from center (PowerPoint / Office).
+/// Resize from handle 0–7 (corners then edge midpoints) in the node's local
+/// axes, pinning the opposite world handle. Shift locks aspect ratio;
+/// Ctrl resizes from center (PowerPoint / Office).
 pub fn resize_from_handle(
     before: WorldRect,
     pointer: Pos2,
@@ -1186,10 +1176,9 @@ pub fn resize_from_handle(
     pin_rotated_resize(before, r, handle, rotation_deg)
 }
 
-/// [`resize_from_handle`] that lets the grabbed edge pass its opposite. The
-/// rect stays positive and on the far side of the anchor; `crossed` reports
-/// per local axis (x, y) that the result is the mirror image, so the caller
-/// mirrors the content (P1.node.transform).
+/// Resize past the opposite handle while keeping a positive rect beyond
+/// the anchor. `crossed` reports mirrored local axes so callers can mirror
+/// content (P1.node.transform).
 pub fn resize_from_handle_mirroring(
     before: WorldRect,
     pointer: Pos2,
@@ -1257,8 +1246,7 @@ fn handle_sides(handle: u8) -> (f32, f32) {
     (sx, sy)
 }
 
-/// Rotate `p` about `center` by `delta_deg` (clockwise in y-down world
-/// space — same convention as `WorldRect::corners_rotated`).
+/// Rotate clockwise in y-down space, matching `WorldRect::corners_rotated`.
 pub fn orbit_point(center: (f32, f32), p: (f32, f32), delta_deg: f32) -> (f32, f32) {
     slate_doc::geom::orbit_point(center, p, delta_deg)
 }

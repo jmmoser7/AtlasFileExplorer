@@ -15,6 +15,7 @@ pub(in crate::selection_tools) enum OptionsPage {
     Seed,
 }
 
+#[derive(Default)]
 pub(in crate::selection_tools) struct OptionsData<'a> {
     pub preserve: Option<bool>,
     pub aspects: &'a [&'a str],
@@ -26,23 +27,6 @@ pub(in crate::selection_tools) struct OptionsData<'a> {
     pub seed_supported: bool,
     pub legacy: &'a [&'a str],
     pub legacy_selected: usize,
-}
-
-impl Default for OptionsData<'_> {
-    fn default() -> Self {
-        Self {
-            preserve: None,
-            aspects: &[],
-            aspect: 0,
-            custom_aspect: None,
-            custom_supported: false,
-            live: None,
-            seed_locked: None,
-            seed_supported: false,
-            legacy: &[],
-            legacy_selected: 0,
-        }
-    }
 }
 
 #[derive(Default)]

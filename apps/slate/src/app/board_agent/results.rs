@@ -324,27 +324,6 @@ impl SlateApp {
             }
         });
     }
-    /// One rounded hover control over a generator image. Returns its click.
-    pub(crate) fn generator_button(
-        ui: &egui::Ui,
-        painter: &egui::Painter,
-        at: Pos2,
-        label: &str,
-        id: Id,
-        ink: &OverlayInk,
-        z: f32,
-    ) -> (egui::Response, Rect) {
-        let font = canvas_scale::font(GENERATOR_CHIP_PX, z);
-        let text = canvas_text::layout_no_wrap(painter, label.to_string(), font, ink.text);
-        let pad = canvas_scale::px(12.0, z);
-        let rect = Rect::from_min_size(
-            at,
-            egui::vec2(text.size().x + pad * 2.0, canvas_scale::px(28.0, z)),
-        );
-        paint_overlay_pill(painter, rect, canvas_scale::px(8.0, z), ink.fill, ink, z);
-        text.paint_anchored(painter, rect.center(), Align2::CENTER_CENTER, ink.text);
-        (ui.interact(rect, id, Sense::click()), rect)
-    }
     /// The generator's inputs as the run will read them. A click selects the source.
     pub(super) fn paint_generator_chips(
         &mut self,

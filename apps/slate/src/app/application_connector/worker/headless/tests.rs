@@ -38,7 +38,7 @@ fn real_headless_generation_transfers_and_loads_native_preview() {
     let plan = serde_json::json!({"units":"meters","operations":[{"kind":"box","id":"box","origin":[0,0,0],"size":[12,8,3]},{"kind":"sphere","id":"sphere","origin":[6,4,3],"radius":2},{"kind":"difference","id":"cut","left":"box","right":"sphere"}]});
     let (reply, result) = crossbeam_channel::bounded(1);
     actions
-        .send(Action::Native(NativeRequest {
+        .send(Action::Native(Box::new(NativeRequest {
             ticket: format!("proof-{}", atlas_agent::request_id()),
             key: binding.key(),
             expected: binding.binding.source.scope(),
@@ -50,7 +50,7 @@ fn real_headless_generation_transfers_and_loads_native_preview() {
             lease: Lease::new(),
             expires: Instant::now() + Duration::from_secs(240),
             reply,
-        }))
+        })))
         .unwrap();
     let completion = result
         .recv_timeout(Duration::from_secs(240))
@@ -97,7 +97,7 @@ fn real_headless_generation_transfers_and_loads_native_preview() {
     let (reply, result) = crossbeam_channel::bounded(1);
     let second_plan = serde_json::json!({"units":"source","operations":[{"kind":"sphere","id":"second","origin":[30,0,0],"radius":2}]});
     actions
-        .send(Action::Native(NativeRequest {
+        .send(Action::Native(Box::new(NativeRequest {
             ticket: format!("proof-repeat-{}", atlas_agent::request_id()),
             key: rebound.key(),
             expected: rebound.binding.source.scope(),
@@ -109,7 +109,7 @@ fn real_headless_generation_transfers_and_loads_native_preview() {
             lease: Lease::new(),
             expires: Instant::now() + Duration::from_secs(240),
             reply,
-        }))
+        })))
         .unwrap();
     let second = result
         .recv_timeout(Duration::from_secs(240))

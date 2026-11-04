@@ -1,6 +1,8 @@
 //! Registered Images history actions share the human SceneCmd owners.
 use super::*;
 
+pub(super) type PreparedHistory = (Vec<SceneCmd>, Vec<NodeId>, Option<NodeId>);
+
 impl SlateApp {
     pub(crate) fn finish_image_history_action(&mut self, action: Option<&(NodeId, String)>) {
         if let Some((source, action)) = action {
@@ -15,7 +17,7 @@ pub(super) fn prepare(
     app: &SlateApp,
     ids: &[NodeId],
     args: &Value,
-) -> Result<(Vec<SceneCmd>, Vec<NodeId>, Option<NodeId>), String> {
+) -> Result<PreparedHistory, String> {
     if ids.len() != 1 {
         return Err("Choose exactly one Image history target".into());
     }

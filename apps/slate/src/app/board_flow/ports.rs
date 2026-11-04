@@ -183,11 +183,7 @@ impl SlateApp {
                 if let Some(rect) =
                     self.image_history_handle(node.id, incoming, xf.rect_w2s(node.rect), z)
                 {
-                    painter.circle_filled(
-                        rect.center(),
-                        rect.width() * 0.5,
-                        Color32::from_rgb(135, 142, 150),
-                    );
+                    painter.circle_filled(rect.center(), rect.width() * 0.5, palette.sub);
                 }
             }
             let font = canvas_scale::font(PORT_LABEL_PX, z);

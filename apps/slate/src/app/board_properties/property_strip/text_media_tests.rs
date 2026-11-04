@@ -78,8 +78,8 @@ fn legacy_and_linked_text_media_use_the_shared_notch_and_one_prompt_owner() {
                 matches!(&entry.shape,
                 egui::Shape::Text(text) if text.galley.text()=="Run")
             });
-            assert_eq!(
-                legacy_run, false,
+            assert!(
+                !legacy_run,
                 "the explicit Agent dialogue owns Send for every selection state, linked={linked}"
             );
         }

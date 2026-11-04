@@ -131,7 +131,7 @@ fn fourth_spawn_choice_creates_one_web_host_and_content_wire_without_running() {
             .iter()
             .map(|c| c.id)
             .collect::<Vec<_>>(),
-        ["text", "image", "agent", "artifact"]
+        ["text", "image", "artifact", "model", "agent"]
     );
     let source_before = h.app.doc().scene.node(image).unwrap().clone();
     let source_path = h.app.image_item_path(image).unwrap();

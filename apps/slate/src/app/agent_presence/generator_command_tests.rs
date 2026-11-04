@@ -80,7 +80,10 @@ fn generator_commands_share_human_patches_with_witnessed_approved_agent_journals
             .prepare_targeted_command(command, &[node.0.to_string()], &arguments)
             .unwrap();
         assert_eq!(prepared.targets, [node]);
-        assert_eq!(prepared.witness_nodes(&h.app.doc().scene), [before.clone()]);
+        assert_eq!(
+            prepared.witness_nodes(&h.app.doc().scene).as_slice(),
+            std::slice::from_ref(&before)
+        );
         let SceneCmd::Patch { after, .. } = &prepared.cmds[0] else {
             panic!("selection/settings must be an ordinary patch");
         };

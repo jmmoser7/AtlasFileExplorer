@@ -40,6 +40,23 @@ impl HostPresentation {
         self.failed = false;
         self.release_request_pending = false;
     }
+    pub fn begin_release(&mut self) {
+        self.failed = false;
+        self.release_request_pending = true;
+    }
+    pub fn retry_release(&mut self, mut enqueue: impl FnMut(FocusRequest) -> bool) {
+        if !self.release_request_pending {
+            return;
+        }
+        if let Some(request) = self.request(false, true) {
+            if enqueue(request) {
+                self.queued(request);
+                self.release_request_pending = false;
+            }
+        } else {
+            self.release_request_pending = false;
+        }
+    }
     pub fn ready_for_child_launch(&self) -> bool {
         self.readable && self.revealed && self.applied && self.queued.is_none() && !self.failed
     }
@@ -102,24 +119,12 @@ impl HostPresentation {
 
 impl Session {
     pub(super) fn queue_hidden_release(&mut self) {
-        self.host.failed = false;
-        self.host.release_request_pending = true;
+        self.host.begin_release();
         self.retry_hidden_release();
     }
     pub(super) fn retry_hidden_release(&mut self) {
-        if !self.host.release_request_pending {
-            return;
-        }
-        if let Some(request) = self.host.request(false, true) {
-            if self.tx.try_send(worker::Action::Focus(request)).is_ok() {
-                self.host.queued(request);
-                self.host.release_request_pending = false;
-            }
-        } else {
-            // An identical hide is already admitted. Never replay a failed
-            // native effect; only retry queue admission before dispatch.
-            self.host.release_request_pending = false;
-        }
+        self.host
+            .retry_release(|request| self.tx.try_send(worker::Action::Focus(request)).is_ok());
     }
     pub(super) fn release_hidden_surface(&mut self) -> Result<(), String> {
         if let Some(mut surface) = self.surface.take() {
