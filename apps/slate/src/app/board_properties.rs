@@ -1835,7 +1835,11 @@ mod tests {
                 let (bounds, dims) = dimensions(std::slice::from_ref(&node));
                 let bounds = bounds.unwrap();
                 let items = live_property_strip_items(&h.app, std::slice::from_ref(&node));
-                assert_eq!(items.len(), 7, "fill, stroke, corners, <, >, present, deck");
+                assert_eq!(
+                    items.len(),
+                    6,
+                    "fill, stroke, corners, deck, settings, present"
+                );
                 let strip = chrome::strip_rect(
                     Pos2::new(bounds.x + bounds.w * 0.5, bounds.y),
                     items.len(),

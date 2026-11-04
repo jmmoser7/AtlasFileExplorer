@@ -373,7 +373,11 @@ fn running_an_edited_generated_text_card_releases_its_override_as_one_undo() {
         h.app.agents.awaiting.remove(&note);
         h.app.sync_agent_text_output(note);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while std::fs::read_to_string(&path).ok().as_deref() != Some(CHAT_REPLY) {
+        // Wait for the writer receipt as well as the bytes: a late completion
+        // would otherwise invalidate the preview injected below on the paint frame.
+        while !h.app.agents.text_output.is_idle_for_test()
+            || std::fs::read_to_string(&path).ok().as_deref() != Some(CHAT_REPLY)
+        {
             h.app.pump_agent_text_outputs();
             assert!(
                 std::time::Instant::now() < deadline,

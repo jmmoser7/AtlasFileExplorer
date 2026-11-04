@@ -70,6 +70,8 @@ pub(crate) struct AgentTextOutputWriter {
     jobs: Option<SyncSender<WriteJob>>,
     results: Option<Receiver<WriteDone>>,
     slots: HashMap<NodeId, Slot>,
+    #[cfg(test)]
+    pending_writes: usize,
 }
 
 impl AgentTextOutputWriter {
@@ -132,7 +134,13 @@ impl AgentTextOutputWriter {
             text,
         };
         if let Some(tx) = &self.jobs {
-            let _ = tx.try_send(job);
+            let sent = tx.try_send(job).is_ok();
+            #[cfg(test)]
+            if sent {
+                self.pending_writes += 1;
+            }
+            #[cfg(not(test))]
+            let _ = sent;
         }
     }
 
@@ -205,6 +213,10 @@ impl AgentTextOutputWriter {
         for _ in 0..QUEUE_DEPTH {
             match rx.try_recv() {
                 Ok(done) => {
+                    #[cfg(test)]
+                    {
+                        self.pending_writes -= 1;
+                    }
                     if done.ok {
                         stale.push((done.item, done.path.clone()));
                     }
@@ -254,6 +266,12 @@ impl AgentTextOutputWriter {
             self.try_send(node, gen, item, path, text);
         }
         stale
+    }
+
+    /// A visible file write may precede its completion receipt and preview invalidation.
+    #[cfg(test)]
+    pub(crate) fn is_idle_for_test(&self) -> bool {
+        self.pending_writes == 0
     }
 
     /// Whether the linked document already has authored bytes (snippet cache only).
@@ -313,6 +331,7 @@ mod tests {
             let generation = current.gen;
             let (tx, rx) = crossbeam_channel::bounded(2);
             writer.results = Some(rx);
+            writer.pending_writes = 1; // The injected receipt represents one queued write.
             tx.send(WriteDone {
                 node,
                 gen: generation,

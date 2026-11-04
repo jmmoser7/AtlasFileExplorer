@@ -376,11 +376,11 @@ impl SlateApp {
                 || palette_wheel)
             && !external_capture
         {
-            // Nested content and Shift-pan retain egui's scroll feel. The
-            // board camera applies each raw wheel delta in its arrival frame.
-            let ((scroll, shift), zoom_scroll) =
-                ui.input(|i| (Self::board_wheel_input(i), i.raw_scroll_delta.y));
-            if scroll != 0.0 || zoom_scroll != 0.0 {
+            // Nested content retains egui's scroll feel. Board camera zoom
+            // and Shift-pan consume raw wheel input in its arrival frame.
+            let ((scroll, shift), camera_scroll) =
+                ui.input(|i| (Self::board_wheel_input(i), i.raw_scroll_delta));
+            if scroll != 0.0 || camera_scroll != Vec2::ZERO {
                 // Scroll over an unlocked 3D viewport zooms the model, not
                 // the board (Rhino wheel semantics while live).
                 let live_model = (!frame_presentation_captures)
@@ -395,14 +395,17 @@ impl SlateApp {
                         self.model_scroll(id, scroll);
                     }
                 } else if !sheet_scrolled && shift {
-                    let zc = self.tab().cam.z;
-                    self.tab_mut().cam.offset.x -= scroll / zc;
-                    canvas_nav = true;
-                } else if !sheet_scrolled && zoom_scroll != 0.0 {
+                    let pan_scroll = camera_scroll.x + camera_scroll.y;
+                    if pan_scroll != 0.0 {
+                        let zc = self.tab().cam.z;
+                        self.tab_mut().cam.offset.x -= pan_scroll / zc;
+                        canvas_nav = true;
+                    }
+                } else if !sheet_scrolled && camera_scroll.y != 0.0 {
                     if let Some(p) = pointer {
                         self.board_zoom_at(
                             p,
-                            atlas_core::display::SLATE_BOARD.wheel_factor(zoom_scroll),
+                            atlas_core::display::SLATE_BOARD.wheel_factor(camera_scroll.y),
                         );
                         canvas_nav = true;
                     }
