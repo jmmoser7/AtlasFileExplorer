@@ -12,6 +12,8 @@ hard-coded compiler/SDK paths in Cargo configuration or scripts.
 
 Build configuration changes are a **last resort**. Use the established release
 entry point (`scripts/build-release.ps1`) or the existing focused app invocation.
+For dev launches, use `scripts/run-both-dev.ps1` (optionally `-App slate` or
+`-App native-file-atlas`); it builds the required sibling video decoder helper.
 Preserve the toolchain, target triple/directory, profiles, linker, Rust flags,
 features and lockfile while repairing application code. Dependency or feature
 changes can also create new build helpers and DLL variants without changing a

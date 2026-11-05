@@ -7,7 +7,7 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 . (Join-Path $PSScriptRoot "_msvc-env.ps1")
 
-cargo build --release -p slate -p native-file-atlas
+cargo build --release -p slate -p native-file-atlas -p atlas-core --bin slate --bin native-file-atlas --bin slate-video-worker
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

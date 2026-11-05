@@ -1,0 +1,16 @@
+{
+  "pid": 58380,
+  "time": "2026-11-04T23:14:57.0713939Z",
+  "binary": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\debug\\examples\\video_canvas.exe",
+  "sha256": "AF46EFD2488AC6AD6AF8B0535BA4780EC2C466DD117E01B6251A487A75C2EBD6",
+  "workerSha256": "73CAD25AEB994CF9FD9A9A531EE8B47EE6545DE1CA9A88DD8BAD0713D733CBC7",
+  "inputs": [
+    "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\tests\\fixtures\\video-motion.mp4",
+    "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\video-studio\\corpus\\400x300-red-resize-200x150-green.mp4",
+    "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\video-studio\\corpus\\test-1s.mp4",
+    "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\video-studio\\corpus\\test.mp4",
+    "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\video-studio\\corpus\\test-1s.webm"
+  ],
+  "backend": "V7 functional20+8 passed",
+  "harness": "V8 event-gated3 tests passed"
+}

@@ -611,6 +611,15 @@ preview path and remain linked assets; portal chrome owns hover Maximize.
 requesting tab and placement point. All three use existing linked item placement;
 Rhino and Video retain their existing interpreters.
 
+Native video uses `atlas_core::video::VideoPool` as its sole decode supervisor;
+the required sibling `slate-video-worker.exe` isolates each Media Foundation job.
+The board and video Studio share `atlas-shell::video_controls` for visible
+Play/Pause geometry. Board hover still scrubs all sample positions, while Play
+preserves the paused position and replays a completed trim from its in-point.
+Resident strip pixels use the shared byte budget and evict older complete strips;
+Home/tab changes cancel the old decode context. Source identities and monotonic
+request tokens reject delayed frames without changing authored `VideoOpts`.
+
 `pdf::documents` owns source-scoped, bounded background preparation for PDFs and
 PowerPoint. It keeps the source locator intact, keys derived PDFs by source
 revision and render version, and retains the last preview during refresh.

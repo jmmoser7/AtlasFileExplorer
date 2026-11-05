@@ -14,10 +14,12 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
 
+mod chrome;
+mod decoder;
 mod input;
+mod memory;
 
-use atlas_shell::{canvas_scale, canvas_text};
-use eframe::egui::{self, Color32, FontId, Pos2, Stroke, Vec2};
+use eframe::egui::{self, Pos2};
 use slate_doc::scene::{ImageAdjust, NodeKind, VideoOpts, WorldRect};
 use slate_doc::NodeId;
 
@@ -29,8 +31,6 @@ mod source;
 #[cfg(test)]
 mod tests;
 
-const PLAYHEAD_PX: f32 = 2.0;
-const TIMECODE_PX: f32 = 12.0;
 const MAX_STRIPS: usize = 3;
 
 struct Slot {
@@ -60,7 +60,8 @@ struct Play {
     /// Trim in-point. Looping wraps back here, not to `from`.
     start: f32,
     end: f32,
-    started: Instant,
+    /// Waiting for the first decoded frame does not consume media time.
+    started: Option<Instant>,
     looped: bool,
 }
 
@@ -80,6 +81,8 @@ struct ShownTex {
 
 pub(crate) struct VideoBoard {
     pool: Option<atlas_core::video::VideoPool>,
+    #[cfg(test)]
+    decoder_held: bool,
     next_token: u64,
     /// Node ids are local to this workbook; tokens stay monotonic across switches.
     tab: Option<u64>,
@@ -92,6 +95,7 @@ pub(crate) struct VideoBoard {
     hover: Option<(NodeId, f32)>,
     play: Option<Play>,
     live: Option<Live>,
+    failed_play: Option<NodeId>,
     textures: HashMap<NodeId, ShownTex>,
 }
 
@@ -99,6 +103,8 @@ impl Default for VideoBoard {
     fn default() -> Self {
         Self {
             pool: None,
+            #[cfg(test)]
+            decoder_held: false,
             next_token: 1,
             tab: None,
             sources: HashMap::new(),
@@ -108,6 +114,7 @@ impl Default for VideoBoard {
             hover: None,
             play: None,
             live: None,
+            failed_play: None,
             textures: HashMap::new(),
         }
     }
@@ -120,20 +127,21 @@ struct Vid {
 
 impl SlateApp {
     pub(crate) fn video_pump(&mut self, ctx: &egui::Context) {
+        self.video_pump_at(ctx, Instant::now());
+    }
+
+    fn video_pump_at(&mut self, ctx: &egui::Context, now: Instant) {
         self.sync_video_context();
-        let Some(pool) = self.video.pool.as_ref() else {
-            return;
-        };
         let events: [Option<atlas_core::video::VideoEvent>; 8] =
-            std::array::from_fn(|_| pool.try_recv());
+            std::array::from_fn(|_| self.video.pool.as_ref().and_then(|pool| pool.try_recv()));
         let playing = self.video.play.is_some();
         let inflight = self.video.strips.values().any(|s| s.inflight);
         for ev in events.into_iter().flatten() {
             self.apply_video_event(ev);
         }
         if let Some(play) = &self.video.play {
-            if !play.looped {
-                let t = play_clock(play, Instant::now());
+            if !play.looped && play.started.is_some() {
+                let t = play_clock(play, now);
                 if t >= play.end - 1.0e-3 {
                     let id = play.id;
                     let end = play.end;
@@ -153,7 +161,8 @@ impl SlateApp {
     }
 
     pub(crate) fn video_hides_badge(&self, id: NodeId) -> bool {
-        self.video_shown(id).is_some()
+        // The shared Play/Pause control replaces the poster-only badge.
+        self.node_is_video(id)
     }
 
     pub(crate) fn video_texture(
@@ -195,66 +204,6 @@ impl SlateApp {
             tex
         };
         Some(tex)
-    }
-
-    pub(crate) fn paint_video_chrome(
-        &self,
-        painter: &egui::Painter,
-        xf: &BoardXf,
-        node: &slate_doc::scene::Node,
-    ) {
-        let id = node.id;
-        let Some(time) = self.video_shown(id) else {
-            return;
-        };
-        let Some((start, end)) = self.video_window(id) else {
-            return;
-        };
-        let u = self
-            .video
-            .hover
-            .and_then(|(hid, u)| (hid == id).then_some(u))
-            .unwrap_or_else(|| atlas_core::video::fraction_at(time, start, end));
-        let rect = node.rect.normalized();
-        let x = rect.x + rect.w * u;
-        let a = rect.rotate_point([x, rect.y], node.rotation_deg);
-        let b = rect.rotate_point([x, rect.y + rect.h], node.rotation_deg);
-        let a = xf.w2s(Pos2::new(a[0], a[1]));
-        let b = xf.w2s(Pos2::new(b[0], b[1]));
-        let weight = canvas_scale::px(PLAYHEAD_PX, xf.z);
-        if !canvas_scale::too_small(weight) {
-            painter.line_segment(
-                [a, b],
-                Stroke::new(
-                    weight + canvas_scale::px(1.0, xf.z),
-                    Color32::from_black_alpha(170),
-                ),
-            );
-            painter.line_segment([a, b], Stroke::new(weight, Color32::WHITE));
-        }
-        let size = canvas_scale::px(TIMECODE_PX, xf.z);
-        if !canvas_text::legible(size) {
-            return;
-        }
-        let label = atlas_core::video::format_timecode(time);
-        let font = FontId::proportional(size);
-        let laid = canvas_text::layout_no_wrap(painter, label, font, Color32::WHITE);
-        let pad = Vec2::new(canvas_scale::px(5.0, xf.z), canvas_scale::px(2.0, xf.z));
-        let mid = rect.rotate_point([rect.x + rect.w * 0.5, rect.y + rect.h], node.rotation_deg);
-        let anchor =
-            xf.w2s(Pos2::new(mid[0], mid[1])) - Vec2::new(0.0, canvas_scale::px(6.0, xf.z));
-        let origin = anchor - Vec2::new(laid.size().x * 0.5 + pad.x, laid.size().y + pad.y * 2.0);
-        let bg = egui::Rect::from_min_size(origin, laid.size() + pad * 2.0);
-        let srect = xf.rect_w2s(rect);
-        if bg.width() > srect.width() || bg.height() > srect.height() {
-            return;
-        }
-        painter.rect_filled(
-            bg,
-            canvas_scale::px(3.0, xf.z),
-            Color32::from_black_alpha(150),
-        );
-        laid.paint(painter, origin + pad, Color32::WHITE);
     }
 
     fn video_stamp(&self, id: NodeId) -> Option<u64> {
@@ -407,8 +356,9 @@ impl SlateApp {
         );
         self.touch_strip(id);
         let path = vid.path;
-        self.pool()
-            .request_strip(id.0, token, path, vid.opts.start, vid.opts.end);
+        if let Some(pool) = self.pool() {
+            pool.request_strip(id.0, token, path, vid.opts.start, vid.opts.end);
+        }
     }
 
     fn stop_other_video(&mut self, except: NodeId) {
@@ -425,13 +375,6 @@ impl SlateApp {
         if let Some(pool) = self.video.pool.as_ref() {
             pool.stop();
         }
-    }
-
-    fn pool(&mut self) -> &atlas_core::video::VideoPool {
-        if self.video.pool.is_none() {
-            self.video.pool = Some(atlas_core::video::VideoPool::spawn());
-        }
-        self.video.pool.as_ref().unwrap()
     }
 
     fn next_token(&mut self) -> u64 {
@@ -512,22 +455,6 @@ impl SlateApp {
     }
 }
 
-impl Strip {
-    fn failed(opts: VideoOpts) -> Self {
-        Self {
-            token: 0,
-            start: opts.start,
-            end: opts.end,
-            duration: 0.0,
-            probed: false,
-            done: false,
-            inflight: false,
-            failed: true,
-            slots: Vec::new(),
-        }
-    }
-}
-
 fn nearest_slot(strip: &Strip, time: f32) -> Option<(usize, &Slot)> {
     let mut best: Option<(usize, f32)> = None;
     for (i, slot) in strip.slots.iter().enumerate() {
@@ -544,7 +471,9 @@ fn nearest_slot(strip: &Strip, time: f32) -> Option<(usize, &Slot)> {
 }
 
 fn play_clock(play: &Play, now: Instant) -> f32 {
-    let elapsed = now.saturating_duration_since(play.started).as_secs_f32();
+    let elapsed = play.started.map_or(0.0, |started| {
+        now.saturating_duration_since(started).as_secs_f32()
+    });
     let span = play.end - play.start;
     if span <= 1.0e-4 {
         return play.start;

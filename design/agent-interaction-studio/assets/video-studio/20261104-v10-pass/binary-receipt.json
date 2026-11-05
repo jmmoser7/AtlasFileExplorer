@@ -1,0 +1,16 @@
+{
+  "pid": 34948,
+  "time": "2026-11-04T23:57:25.5044583Z",
+  "binary": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\debug\\examples\\video_canvas.exe",
+  "sha256": "1A08245B7DD2AD5ADDD1A288D4B0F119D4802AF219E53A4A8B3C71F2555799BE",
+  "workerSha256": "ED13A6EBEE3C749CEAE7B752DA69E8301C433856BF873FA3DB0D4F453A84CD4B",
+  "inputs": [
+    "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\tests\\fixtures\\video-motion.mp4",
+    "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\video-studio\\corpus\\400x300-red-resize-200x150-green.mp4",
+    "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\video-studio\\corpus\\test-1s.mp4",
+    "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\video-studio\\corpus\\test.mp4",
+    "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\video-studio\\corpus\\test-1s.webm"
+  ],
+  "backend": "V10 core25/25 real12/12 passed",
+  "harness": "3 gates passed; user-visible Run button will start in foreground"
+}

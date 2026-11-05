@@ -12,7 +12,8 @@
   const builtins=[
     {id:'chat-train',name:'Chat Train',kind:'chat-train',contract:'contracts/chat-train.md'},
     {id:'image-generator',name:'Images',kind:'image-generator',contract:'contracts/image-generator.md',status:'draft'},
-    ...[['dashboard-builder','Dashboard Builder'],['text-agent','Text Agent'],['rhino-agent','Rhino 3D'],['frame','Frames']].map(([id,name])=>({id,name,kind:'element',contract:`contracts/${id}.md`,status:'draft'}))
+    ...[['dashboard-builder','Dashboard Builder'],['text-agent','Text Agent'],['rhino-agent','Rhino 3D'],['frame','Frames']].map(([id,name])=>({id,name,kind:'element',contract:`contracts/${id}.md`,status:'draft'})),
+    {id:'video',name:'Videos',kind:'blank',contract:'contracts/video.md',status:'draft'}
   ];
   const studio={id:'studio',name:'Studio',kind:'studio'};
   function elements(saved){

@@ -43,6 +43,8 @@
     "path": "M8 5H16Q19 5 19 8V16Q19 19 16 19H8Q5 19 5 16V8Q5 5 8 5Z",
     "filled": false
   },
+  "Play": {"path":"M6 2 22 12 6 22Z","filled":true},
+  "Pause": {"path":"M6 3H10V21H6ZM15 3H19V21H15Z","filled":true},
   "Fill": {
     "path": "M5 10 12 3 20 11 12 19 4 11ZM5 11H20M19 16Q15 21 19 21Q23 21 19 16M9 3 14 8",
     "filled": false

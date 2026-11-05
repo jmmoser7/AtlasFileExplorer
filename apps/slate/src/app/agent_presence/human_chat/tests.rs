@@ -91,7 +91,8 @@ fn status(h: &Harness, thread: &str) -> String {
 fn actual_two_app_delivery_waits_for_recipient_persistence_and_survives_reload() {
     let mut alice = participant("Alice");
     let mut bob = participant("Bob");
-    let _host = connect(&mut alice, &mut bob);
+    let host = connect(&mut alice, &mut bob);
+    let mut server_failures = Vec::new();
     let outgoing = format!("human:{}", bob.app.settings.presence_identity.id);
     let incoming = format!("human:{}", alice.app.settings.presence_identity.id);
     alice
@@ -103,16 +104,25 @@ fn actual_two_app_delivery_waits_for_recipient_persistence_and_survives_reload()
     // the incoming event. Relay acceptance must never become delivery here.
     until("sender persistence and relay acceptance", || {
         tick(&mut alice);
-        (status(&alice, &outgoing) == "accepted", diagnostic(&alice))
+        server_failures.extend(host.errors().try_iter().take(16 - server_failures.len()));
+        (
+            status(&alice, &outgoing) == "accepted",
+            format!("Alice: {}; server={server_failures:?}", diagnostic(&alice)),
+        )
     });
     assert_ne!(status(&alice, &outgoing), "delivered");
     assert!(bob.app.presence_conversation(&incoming).is_none());
     until("recipient persistence and delivery acknowledgement", || {
         tick(&mut alice);
         tick(&mut bob);
+        server_failures.extend(host.errors().try_iter().take(16 - server_failures.len()));
         (
             status(&alice, &outgoing) == "delivered",
-            format!("Alice: {}; Bob: {}", diagnostic(&alice), diagnostic(&bob)),
+            format!(
+                "Alice: {}; Bob: {}; server={server_failures:?}",
+                diagnostic(&alice),
+                diagnostic(&bob)
+            ),
         )
     });
     let received = bob

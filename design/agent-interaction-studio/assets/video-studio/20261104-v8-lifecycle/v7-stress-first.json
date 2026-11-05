@@ -1,0 +1,115 @@
+{
+  "actions": 92,
+  "clips": [
+    {
+      "changed_frame_samples": 3,
+      "decoded_dimensions": [
+        [
+          96,
+          64
+        ]
+      ],
+      "dimension_history_overflow": 0,
+      "failure_events": 0,
+      "frames": 4,
+      "malformed_fixture": false,
+      "new_frames": 4,
+      "optional_webm_codec": false,
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\tests\\fixtures\\video-motion.mp4",
+      "required_decode_pass": true,
+      "state": "Paused"
+    },
+    {
+      "changed_frame_samples": 0,
+      "decoded_dimensions": [
+        [
+          400,
+          300
+        ]
+      ],
+      "dimension_history_overflow": 0,
+      "failure_events": 0,
+      "frames": 1,
+      "malformed_fixture": false,
+      "new_frames": 1,
+      "optional_webm_codec": false,
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\video-studio\\corpus\\400x300-red-resize-200x150-green.mp4",
+      "required_decode_pass": true,
+      "state": "Paused"
+    },
+    {
+      "changed_frame_samples": 0,
+      "decoded_dimensions": [],
+      "dimension_history_overflow": 0,
+      "failure_events": 0,
+      "frames": 0,
+      "malformed_fixture": false,
+      "new_frames": 0,
+      "optional_webm_codec": false,
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\video-studio\\corpus\\test-1s.mp4",
+      "required_decode_pass": false,
+      "state": "Paused"
+    },
+    {
+      "changed_frame_samples": 0,
+      "decoded_dimensions": [],
+      "dimension_history_overflow": 0,
+      "failure_events": 0,
+      "frames": 0,
+      "malformed_fixture": false,
+      "new_frames": 0,
+      "optional_webm_codec": false,
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\video-studio\\corpus\\test.mp4",
+      "required_decode_pass": false,
+      "state": "Paused"
+    },
+    {
+      "changed_frame_samples": 18,
+      "decoded_dimensions": [
+        [
+          320,
+          240
+        ]
+      ],
+      "dimension_history_overflow": 0,
+      "failure_events": 0,
+      "frames": 20,
+      "malformed_fixture": false,
+      "new_frames": 20,
+      "optional_webm_codec": true,
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\video-studio\\corpus\\test-1s.webm",
+      "required_decode_pass": null,
+      "state": "Paused"
+    },
+    {
+      "changed_frame_samples": 0,
+      "decoded_dimensions": [],
+      "dimension_history_overflow": 0,
+      "failure_events": 1,
+      "frames": 0,
+      "malformed_fixture": true,
+      "new_frames": 0,
+      "optional_webm_codec": false,
+      "path": "C:\\Users\\jeffr\\AppData\\Local\\Temp\\atlas-studio-malformed-59720.mp4",
+      "required_decode_pass": null,
+      "state": "Unavailable · click Play to retry, or choose another clip"
+    }
+  ],
+  "dropped_frames": 20,
+  "elapsed_seconds": 51.08449935913086,
+  "failure_events": 1,
+  "fault_event_before_recovery": true,
+  "fault_stage_requested": true,
+  "fault_stage_skip_reason": null,
+  "limits": "Native codec allocations, GPU driver residency and process RSS not measured. Scripted scrub adapter does not certify pointer slider interaction. Resize and Clear/reload require interactive review.",
+  "new_playback_frames": 25,
+  "peak_queued_frame_bytes": 0,
+  "peak_retained_rgba_bytes": 0,
+  "peak_texture_rgba_estimate_bytes": 811776,
+  "post_failure_frames_observed": false,
+  "recovery_pass": false,
+  "scope": "actual production decoder smoke; no machine OOM, leak or multi-GPU certification",
+  "strip_budget_bytes": 41943040,
+  "worker_pid_at_receipt": 59740,
+  "worker_restarts": 0
+}

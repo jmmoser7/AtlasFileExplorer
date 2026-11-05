@@ -11,13 +11,14 @@
   const canvas=el('section','portal-native-canvas'),world=el('div','portal-native-world');canvas.id='portal-workspace';canvas.setAttribute('aria-label','Empty element workspace');canvas.append(world);canvas.hidden=true;
   const transform=()=>{world.style.transform=`translate(${camera.x}px,${camera.y}px) scale(${camera.zoom})`;if(current)cameras.set(current,{...camera});};
   StudioCanvasNavigation.bind({canvas,camera,transform,closeMenus:()=>{},deselect:()=>{}});
-  function nativeLauncher(){
+  function nativeLauncher(element='frame'){
+    const endpoint=element==='video'?'/api/native-studio/video':'/api/native-studio';
     const group=el('div','portal-native-launch'),status=el('span','portal-subtitle');
     status.setAttribute('role','status');
-    const button=action('Launch Rust Studio',async()=>{
+    const button=action(element==='video'?'Launch Video Studio':'Launch Rust Studio',async()=>{
       button.disabled=true;status.textContent='Opening Rust Studio…';
       try{
-        const response=await fetch('/api/native-studio/launch',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+        const response=await fetch(endpoint+'/launch',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
         let result;try{result=await response.json();}catch{throw new Error('Restart the local Studio server with python serve.py to enable launching.');}
         if(!response.ok)throw new Error(result.message||'Rust Studio could not be opened.');
         status.textContent=result.message;status.title=result.modifiedUtc?'Built artifact modified '+result.modifiedUtc:'';
@@ -26,7 +27,7 @@
     });
     button.title='Open the latest built standalone Rust canvas specimen in its own window';
     group.append(button,status);
-    fetch('/api/native-studio').then(response=>response.json()).then(result=>{
+    fetch(endpoint).then(response=>response.json()).then(result=>{
       if(result.available){button.title+=' · built artifact modified '+result.modifiedUtc;}
       else{status.textContent=result.message;}
     }).catch(()=>{status.textContent='Start the local Studio server with python serve.py to enable launching.';});
@@ -102,10 +103,12 @@
         for(const [label,href] of [['Run and verification',specimen.report],['Native captures','?phase=00&tab='+tab.id]]){
           const link=el('a','portal-action',label);link.href=href;links.append(link);
         }
-        links.prepend(nativeLauncher());
+        links.prepend(nativeLauncher(tab.id));
         heading.append(el('p','portal-subtitle','Interactive specimen opens in its own Rust window.'));
-        const capture=el('img','portal-native-capture');capture.src=specimen.capture;capture.alt='Native Frames canvas with a 100-slide presentation grid';
-        content.append(links,capture);root.append(content);return;
+        content.append(links);
+        if(specimen.capture){const capture=el('img','portal-native-capture');capture.src=specimen.capture;capture.alt=specimen.alt||'Native '+tab.name+' canvas';content.append(capture);}
+        else content.append(el('p','portal-empty','Native capture not recorded yet. Launch the specimen to exercise the real component.'));
+        root.append(content);return;
       }
       const key=`${state.phase}:${tab.id}`;current=key;Object.assign(camera,cameras.get(key)||{x:0,y:0,zoom:1});transform();
       const native=state.phase!=='01';heading.append(el('p','portal-subtitle',native?'Empty native workspace · no native component has been populated for this element.':'Empty JavaScript workspace for this element.'));

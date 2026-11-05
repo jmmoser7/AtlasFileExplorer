@@ -1,10 +1,33 @@
 # Build + launch Slate and File Atlas (dev). Used by `bacon both`.
 # Stays running until both apps exit or bacon kills this process.
 # See docs/dev-loop.md.
+[CmdletBinding()]
+param(
+    [ValidateSet('both', 'slate', 'native-file-atlas')][string]$App = 'both',
+    [switch]$Release,
+    [switch]$UiTuner,
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$AppArguments
+)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 . (Join-Path $PSScriptRoot "_msvc-env.ps1")
+
+# Bacon and cargo-watch use this same owner for single-app relaunches. Cargo
+# does not build a dependency's binary target when it builds the application.
+if ($App -ne 'both') {
+    $helperArgs = @('build', '-p', 'atlas-core', '--bin', 'slate-video-worker', '--color', 'always')
+    $runArgs = @('run', '-p', $App, '--color', 'always')
+    if ($Release) { $helperArgs += '--release'; $runArgs += '--release' }
+    if ($UiTuner) { $runArgs += @('--features', 'ui-tuner') }
+    cargo @helperArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    cargo @runArgs -- @AppArguments
+    exit $LASTEXITCODE
+}
+if ($Release -or $UiTuner -or $AppArguments) {
+    throw 'Release, UiTuner and AppArguments apply to a single -App only.'
+}
 
 $debugDir = Join-Path $root "target\debug"
 
@@ -20,7 +43,7 @@ function Stop-DevApps {
 
 Stop-DevApps
 
-cargo build -p slate -p native-file-atlas
+cargo build -p slate -p native-file-atlas -p atlas-core --bin slate --bin native-file-atlas --bin slate-video-worker
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

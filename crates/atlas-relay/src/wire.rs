@@ -39,6 +39,29 @@ pub(crate) fn retryable(err: &tungstenite::Error) -> bool {
         if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut))
 }
 
+/// `false` means the frame is already owned by WebSocket/TLS. Resume with
+/// `flush`, never by sending the message again or dequeuing another message.
+pub(crate) fn send<S: std::io::Read + std::io::Write>(
+    socket: &mut tungstenite::WebSocket<S>,
+    message: tungstenite::Message,
+) -> Result<bool, crate::RelayError> {
+    write_result(socket.send(message))
+}
+
+pub(crate) fn flush<S: std::io::Read + std::io::Write>(
+    socket: &mut tungstenite::WebSocket<S>,
+) -> Result<bool, crate::RelayError> {
+    write_result(socket.flush())
+}
+
+fn write_result(result: Result<(), tungstenite::Error>) -> Result<bool, crate::RelayError> {
+    match result {
+        Ok(()) => Ok(true),
+        Err(error) if retryable(&error) => Ok(false),
+        Err(error) => Err(crate::transport::socket_failure("Relay write", error)),
+    }
+}
+
 /// A connection gets a small burst, then 20 commands/sec. Applied before JSON
 /// dispatch, including invalid requests and acknowledgments.
 pub(crate) struct Rate {

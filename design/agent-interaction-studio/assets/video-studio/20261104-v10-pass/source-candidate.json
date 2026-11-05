@@ -1,0 +1,139 @@
+{
+  "time": "2026-11-04T23:45:39.6618509Z",
+  "base": "ec5dbc147645f2c3fc6721b2a2ebbd7f8030ecbc",
+  "version": "1.0.7",
+  "files": [
+    {
+      "sha256": "745A809FCCF7C9E1158650D5E6F626A97F8CDD9B47FFC81C8813683D093A6AC9",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\events.rs"
+    },
+    {
+      "sha256": "8C06BBDA5EB6A17D1BC54944E79B0DD1B93F3C2F5877BE61FD8CFE8E35DB6DA2",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\frame.rs"
+    },
+    {
+      "sha256": "F96B10FEA4673654B6AA1B2818F72855F268EB58E2A0593E30634AE6000C0F50",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\mf.rs"
+    },
+    {
+      "sha256": "E2E0E503C3B347FF6C8375927464C03194F1B454BF63A880A873C613F303EE8D",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\process.rs"
+    },
+    {
+      "sha256": "94AF8DF01B8CA29051018600CF6D603EEE3C0D5359957FE34F0CDF9D1EA4B91B",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\protocol.rs"
+    },
+    {
+      "sha256": "91128C174D1DDE7786C8EB3D7385F8A447ADAFFB99B29B369F02475BE1143549",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\recovery_pixels.rs"
+    },
+    {
+      "sha256": "FD0BFD163DBE72589D7DFBD40A05A7E36A07149B2C0CDF513E8327349FF84F2D",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\recovery_pressure_tests.rs"
+    },
+    {
+      "sha256": "A02C5572BC7B9B11E5C543229B113C218B564ED044C64C92B86222944B0B7A88",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\recovery_timing_tests.rs"
+    },
+    {
+      "sha256": "AA3FEAE79167BF5C9866F714EB83B5F815A3B52DC7437EC10CF6E3CB7FA039E7",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\runtime.rs"
+    },
+    {
+      "sha256": "C10E791A31C554919A1F93FB74A5395AF6CEBB80B622108C1EB493B379764EB4",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\sampling.rs"
+    },
+    {
+      "sha256": "47C63D28A898A37C9FDF0496C46ED3682496C378C0AF2E8D065111F4D9194528",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\tests.rs"
+    },
+    {
+      "sha256": "F8371183C5C61F392BFB7696AEC61722DD6D87A03911E64E5325A8BCA84283A4",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\timebase.rs"
+    },
+    {
+      "sha256": "ED3C79BC420938B27E59FB7F6A0C22CAE234E113C9685BF17C70D529A35BFEC2",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\worker.rs"
+    },
+    {
+      "sha256": "A4BA05529A0636A1DB6144CC60CB510940E6DB6F2F251CCB223E8574575B4B2B",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\events\\tests.rs"
+    },
+    {
+      "sha256": "13E82FE757503A87BFE4DAF2D80DCC3599E14F0805B0AF4159E6C920294FDEAA",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\mf\\aperture.rs"
+    },
+    {
+      "sha256": "C797FDC2E3645B8D36822FF75B2216BF77424E2E1DFA5FEDC9049C608B64595B",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\mf\\buffer.rs"
+    },
+    {
+      "sha256": "4FE2A5B725E6201957E6B809020E13669DE3CCF821351E37A28308C2AB97F186",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\mf\\clock.rs"
+    },
+    {
+      "sha256": "09AEBBD2A80F716CDD9A7A3A43A86E81CD30D048C1DC14802C5DCC59E2655F4E",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\mf\\diagnostics.rs"
+    },
+    {
+      "sha256": "C662A5878F1822D2DC550BD3845CF850243537A4037571069048FAF81DD2B117",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\mf\\reader.rs"
+    },
+    {
+      "sha256": "45BA5AF0540C8CAC2D3479496FFD637CF08AAA20C90C094910DA9488ADA078F6",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\mf\\strip.rs"
+    },
+    {
+      "sha256": "F206100D975786DBD71AB7D4E06FE38D353728BEA71408A559D8BE1329E49280",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\process\\job_object.rs"
+    },
+    {
+      "sha256": "B3429C5B48262BB0E5290AC3EDE552D4A96DA12B86C7CF30482C4B64038A5011",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\process\\tests.rs"
+    },
+    {
+      "sha256": "633C12FEBE9B365E1A801D07D20B51B3F7407F53F8BBB34A58B1F4BA736A311A",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video\\protocol\\tests.rs"
+    },
+    {
+      "sha256": "314513E23CB03A0AAF940351CADBF8AD32319C16B61C8B2F62C6F6DD8F23F221",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-shell\\examples\\video_canvas\\media.rs"
+    },
+    {
+      "sha256": "73A1279668871C6B1169DA4B23C454F6C82ECBD5769783BEA88A05D7021C8361",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-shell\\examples\\video_canvas\\stress.rs"
+    },
+    {
+      "sha256": "8BD37B95320633430CDA0A8DAD60AAF9FB2DF1B4B6BC699C4E3A51748D422CBE",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\Cargo.toml"
+    },
+    {
+      "sha256": "E89FA0C0F39BEF7589ADD1AFEEE75AC812107775FCDF29714594B297D5DC7719",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\Cargo.lock"
+    },
+    {
+      "sha256": "28197DA1A351A63427AC2BC3F3851EBCD4AF69B7B2EFFCE801132543DCC3F728",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\Cargo.toml"
+    },
+    {
+      "sha256": "8ADEAEFC2B79DBAD7FC332C7F16D35925B33280101628434395B16D61EE2C5C7",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\video.rs"
+    },
+    {
+      "sha256": "5C704C397DA1F1C6DDE594E99549F6288DF1784E4D11F4F5420E5E518AC395DA",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\src\\bin\\slate-video-worker.rs"
+    },
+    {
+      "sha256": "26CC1F8FAAD554533E943B80235BE089FC8A7FA921D47CF8C783D80115F843F3",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-core\\tests\\video_recovery.rs"
+    },
+    {
+      "sha256": "FCD9DC307EB89F9FBE4655F8781A5F3D8E15E03A8D93051991FBC14170969F5C",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-shell\\examples\\video_canvas.rs"
+    },
+    {
+      "sha256": "1D73A187F93B7F5B87C5ECFA683A0B86DE5873A28BE856D843334EA0CBBD27F5",
+      "path": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\crates\\atlas-shell\\src\\video_controls.rs"
+    }
+  ]
+}

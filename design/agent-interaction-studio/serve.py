@@ -11,10 +11,15 @@ from urllib.parse import urlsplit
 STUDIO = Path(__file__).resolve().parent
 WORKSPACE = STUDIO.parent.parent
 NATIVE_STUDIO = WORKSPACE / "target/debug/examples/frame_canvas.exe"
+VIDEO_STUDIO = WORKSPACE / "target/debug/examples/video_canvas.exe"
+VIDEO_WORKER = WORKSPACE / "target/debug/slate-video-worker.exe"
+VIDEO_STATUS_PATH = "/api/native-studio/video"
+VIDEO_LAUNCH_PATH = VIDEO_STATUS_PATH + "/launch"
 LAUNCH_PATH = "/api/native-studio/launch"
 STATUS_PATH = "/api/native-studio"
 launch_lock = threading.Lock()
 native_process = None
+video_process = None
 
 
 def native_status():
@@ -26,6 +31,16 @@ def native_status():
         "available": True,
         "artifact": "target/debug/examples/frame_canvas.exe",
         "modifiedUtc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+    }
+
+
+def video_status():
+    if not VIDEO_STUDIO.is_file() or not VIDEO_WORKER.is_file():
+        return {"available": False, "message": "Video Studio and its production decoder worker must both be built in this workspace."}
+    return {
+        "available": True,
+        "artifact": "target/debug/examples/video_canvas.exe",
+        "modifiedUtc": datetime.fromtimestamp(VIDEO_STUDIO.stat().st_mtime, timezone.utc).isoformat(),
     }
 
 
@@ -53,13 +68,16 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path == STATUS_PATH:
             self.json_response(200, native_status())
+        elif self.path == VIDEO_STATUS_PATH:
+            self.json_response(200, video_status())
         else:
             super().do_GET()
 
     def do_POST(self):
-        global native_process
+        global native_process, video_process
         self.close_connection = True
-        if self.path != LAUNCH_PATH:
+        video = self.path == VIDEO_LAUNCH_PATH
+        if self.path not in (LAUNCH_PATH, VIDEO_LAUNCH_PATH):
             self.json_response(404, {"message": "Unknown Studio action."})
             return
         # A browser must explicitly originate the launch from this loopback server.
@@ -94,16 +112,17 @@ class Handler(SimpleHTTPRequestHandler):
             self.json_response(400, {"message": "This action accepts no launch arguments."})
             return
         with launch_lock:
-            status = native_status()
+            status = video_status() if video else native_status()
             if not status["available"]:
                 self.json_response(404, status)
                 return
-            if native_process is not None and native_process.poll() is None:
-                self.json_response(200, {**status, "message": "Rust Studio is already open.", "pid": native_process.pid})
+            process = video_process if video else native_process
+            if process is not None and process.poll() is None:
+                self.json_response(200, {**status, "message": "Rust Studio is already open.", "pid": process.pid})
                 return
             try:
-                native_process = subprocess.Popen(
-                    [str(NATIVE_STUDIO), "--large"],
+                process = subprocess.Popen(
+                    [str(VIDEO_STUDIO)] if video else [str(NATIVE_STUDIO), "--large"],
                     cwd=str(WORKSPACE),
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,
@@ -112,10 +131,14 @@ class Handler(SimpleHTTPRequestHandler):
             except OSError:
                 self.json_response(500, {"message": "Rust Studio could not be opened. Check the local executable."})
                 return
-            if native_process.poll() is not None:
+            if video:
+                video_process = process
+            else:
+                native_process = process
+            if process.poll() is not None:
                 self.json_response(500, {"message": "Rust Studio exited during launch."})
                 return
-            self.json_response(200, {**status, "message": "Rust Studio launch requested. Look for its native window.", "pid": native_process.pid})
+            self.json_response(200, {**status, "message": "Rust Studio launch requested. Look for its native window.", "pid": process.pid})
 
 
 class Server(ThreadingHTTPServer):
