@@ -126,7 +126,7 @@ fn declared_stride_allows_unused_coded_rows_without_guessing_pitch() {
     use super::frame::linear_stride;
     let (w, h, pitch, coded_rows) = (400u32, 300u32, 1600i32, 304usize);
     let mut source = vec![0u8; pitch as usize * coded_rows];
-    for pixel in source[..pitch as usize * h as usize].chunks_exact_mut(4) {
+    for pixel in source[..pitch as usize * h as usize].as_chunks_mut::<4>().0 {
         pixel.copy_from_slice(&[7, 31, 93, 0]);
     }
     source[pitch as usize * h as usize..].fill(199);
@@ -142,8 +142,10 @@ fn declared_stride_allows_unused_coded_rows_without_guessing_pitch() {
     assert_eq!((scaled.w, scaled.h), (320, 240));
     assert!(scaled
         .rgba
-        .chunks_exact(4)
-        .all(|pixel| pixel == [93, 31, 7, 255]));
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .all(|pixel| *pixel == [93, 31, 7, 255]));
 }
 
 #[test]
@@ -168,8 +170,10 @@ fn display_aperture_ignores_coded_padding_and_honors_negative_pitch_and_offsets(
     assert_eq!((frame.w, frame.h), (3, 3));
     assert!(frame
         .rgba
-        .chunks_exact(4)
-        .all(|pixel| pixel == [93, 31, 7, 255]));
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .all(|pixel| *pixel == [93, 31, 7, 255]));
     let reversed: Vec<u8> = data.chunks_exact(pitch).rev().flatten().copied().collect();
     let origin = (coded.1 as usize - 1) * pitch;
     assert_eq!(
