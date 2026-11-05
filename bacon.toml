@@ -13,12 +13,12 @@ command = ["cargo", "check", "--workspace", "--color", "always"]
 need_stdout = false
 
 [jobs.slate]
-command = ["cargo", "run", "--color", "always", "-p", "slate"]
+command = ["powershell", "-NoProfile", "-File", "scripts/run-both-dev.ps1", "-App", "slate"]
 need_stdout = true
 allow_warnings = true
 
 [jobs.atlas]
-command = ["cargo", "run", "--color", "always", "-p", "native-file-atlas"]
+command = ["powershell", "-NoProfile", "-File", "scripts/run-both-dev.ps1", "-App", "native-file-atlas"]
 need_stdout = true
 allow_warnings = true
 
@@ -26,14 +26,8 @@ allow_warnings = true
 # when dialing timeline padding. See docs/ui-tuning-workflow.md.
 [jobs.atlas-tuner]
 command = [
-    "cargo",
-    "run",
-    "--color",
-    "always",
-    "-p",
-    "native-file-atlas",
-    "--features",
-    "ui-tuner",
+    "powershell", "-NoProfile", "-File", "scripts/run-both-dev.ps1",
+    "-App", "native-file-atlas", "-UiTuner",
 ]
 need_stdout = true
 allow_warnings = true
@@ -54,7 +48,7 @@ allow_warnings = true
 
 # Release rebuild when you need real paint/perf feel (still auto-relaunches).
 [jobs.slate-release]
-command = ["cargo", "run", "--release", "--color", "always", "-p", "slate"]
+command = ["powershell", "-NoProfile", "-File", "scripts/run-both-dev.ps1", "-App", "slate", "-Release"]
 need_stdout = true
 allow_warnings = true
 

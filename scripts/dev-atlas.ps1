@@ -11,7 +11,7 @@ if (Get-Command bacon -ErrorAction SilentlyContinue) {
 }
 
 if (Get-Command cargo-watch -ErrorAction SilentlyContinue) {
-    cargo watch -x "run -p native-file-atlas" @args
+    cargo watch -s "powershell -NoProfile -File scripts/run-both-dev.ps1 -App native-file-atlas" @args
     exit $LASTEXITCODE
 }
 
@@ -23,6 +23,6 @@ Install a watcher once, then re-run this script:
 
 Or without a watcher:
 
-  cargo run -p native-file-atlas
+  .\scripts\run-both-dev.ps1 -App native-file-atlas
 "@
 exit 1

@@ -63,6 +63,21 @@ class LaunchTests(unittest.TestCase):
             self.assertEqual(self.request("/api/native-studio/launch", self.base, b'{"exe":"other"}')[0], 400)
             launch.assert_not_called()
 
+    def test_video_is_fixed_separate_action_and_requires_worker(self):
+        server_module.video_process = None
+        with patch.object(server_module, "VIDEO_STUDIO") as binary, patch.object(server_module, "VIDEO_WORKER") as worker:
+            binary.is_file.return_value = True
+            worker.is_file.return_value = False
+            self.assertFalse(server_module.video_status()["available"])
+        process = Mock(pid=2345)
+        process.poll.return_value = None
+        with patch.object(server_module, "video_status", return_value={"available": True}), patch.object(server_module.subprocess, "Popen", return_value=process) as launch:
+            self.assertEqual(self.request("/api/native-studio/video")[0], 200)
+            self.assertEqual(self.request("/api/native-studio/video/launch", self.base, b"{}")[0], 200)
+            self.assertEqual(self.request("/api/native-studio/video/launch", self.base, b"{}")[1]["pid"], 2345)
+            launch.assert_called_once()
+            self.assertEqual(launch.call_args.args[0], [str(server_module.VIDEO_STUDIO)])
+
     def test_missing_binary_and_launch_errors_are_visible(self):
         server_module.native_process = None
         with patch.object(server_module, "native_status", return_value={"available": False, "message": "Missing"}):

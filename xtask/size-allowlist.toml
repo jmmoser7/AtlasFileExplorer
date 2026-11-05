@@ -135,11 +135,6 @@ ceiling = 1163
 reason = "Slate app; extract one concern per module"
 
 [[entry]]
-file = "apps/slate/src/app/board_video.rs"
-ceiling = 559
-reason = "Slate app; extract one concern per module"
-
-[[entry]]
 file = "apps/slate/src/app/board_web.rs"
 ceiling = 3994
 reason = "Slate app; extract one concern per module"

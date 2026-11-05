@@ -12,6 +12,16 @@ impl SlateApp {
             self.video.hover = None;
             return;
         };
+        let normalized = rect.normalized();
+        let host = egui::Rect::from_min_size(
+            Pos2::new(normalized.x, normalized.y),
+            egui::vec2(normalized.w, normalized.h),
+        );
+        if atlas_shell::video_controls::rect(host, 1.0).contains(world) {
+            // Approaching Play must preserve the paused/replay position.
+            self.video.hover = None;
+            return;
+        }
         let Some(u) =
             atlas_core::video::scrub_u(world.x, world.y, rect.x, rect.y, rect.w, rect.h, rotation)
         else {
@@ -58,20 +68,20 @@ impl SlateApp {
             }
             return;
         }
+        // A decoder failure belongs to that request. An explicit Play is a
+        // fresh attempt; the pool owns worker recovery and retry policy.
         if self.video.strips.get(&id).is_some_and(|s| s.failed) {
-            return;
+            self.video.strips.remove(&id);
+        }
+        if self.video.failed_play == Some(id) {
+            self.video.failed_play = None;
         }
         self.stop_other_video(id);
         let (start, end) = self
             .video_window(id)
             .unwrap_or((vid.opts.start.max(0.0), vid.opts.end.unwrap_or(f32::MAX)));
-        let from = self
-            .video
-            .paused
-            .get(&id)
-            .copied()
-            .unwrap_or(start)
-            .clamp(start, end.max(start));
+        let paused = self.video.paused.get(&id).copied().unwrap_or(start);
+        let from = atlas_core::video::playback_origin(paused, start, end.max(start));
         let token = self.next_token();
         self.video.play = Some(Play {
             id,
@@ -79,7 +89,7 @@ impl SlateApp {
             from,
             start,
             end,
-            started: Instant::now(),
+            started: None,
             looped: loop_override.unwrap_or(vid.opts.looped),
         });
         self.ensure_strip(id);
@@ -88,15 +98,17 @@ impl SlateApp {
             return;
         }
         let path = vid.path;
-        self.pool().play(
-            id.0,
-            token,
-            path,
-            vid.opts.start,
-            vid.opts.end,
-            from,
-            loop_override.unwrap_or(vid.opts.looped),
-        );
+        if let Some(pool) = self.pool() {
+            pool.play(
+                id.0,
+                token,
+                path,
+                vid.opts.start,
+                vid.opts.end,
+                from,
+                loop_override.unwrap_or(vid.opts.looped),
+            );
+        }
     }
 
     pub(crate) fn presentation_video_enter(

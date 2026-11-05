@@ -727,6 +727,7 @@
     if (!frames.some(image => image.id === capture.id)) frames.push(capture);
   }
   window.StudioPortalData.nativeCanvas = {
+    ...window.StudioPortalData.nativeCanvas,
   "frame": {
     "capture": "assets/frame-proposals/20261103-phase03-native/frame-100-live.jpg",
     "report": "contract-viewer.html?document=contracts/frame-phase-03-receipt.md"

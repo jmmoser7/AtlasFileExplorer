@@ -11,7 +11,7 @@ if (Get-Command bacon -ErrorAction SilentlyContinue) {
 }
 
 if (Get-Command cargo-watch -ErrorAction SilentlyContinue) {
-    cargo watch -x "run -p slate" @args
+    cargo watch -s "powershell -NoProfile -File scripts/run-both-dev.ps1 -App slate" @args
     exit $LASTEXITCODE
 }
 
@@ -23,6 +23,6 @@ Install a watcher once, then re-run this script:
 
 Or without a watcher:
 
-  cargo run -p slate
+  .\scripts\run-both-dev.ps1 -App slate
 "@
 exit 1

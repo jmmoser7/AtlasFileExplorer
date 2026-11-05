@@ -14,7 +14,7 @@ Set-Location $repo
 $env:ATLAS_RELEASE_VERSION = $Version
 $env:ATLAS_RELEASE_CHANNEL = $Channel
 if (-not $SkipBuild) {
-    cargo build --locked --release -p slate -p native-file-atlas
+    cargo build --locked --release -p slate -p native-file-atlas -p atlas-core --bin slate --bin native-file-atlas --bin slate-video-worker
     if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
 }
 # Even SkipBuild packages must include the helper; compile it from the local
@@ -36,7 +36,7 @@ function Get-VerifiedArchive([string]$Url, [string]$Hash, [string]$Name) {
     return $path
 }
 
-foreach ($exe in @('slate.exe', 'native-file-atlas.exe')) {
+foreach ($exe in @('slate.exe', 'native-file-atlas.exe', 'slate-video-worker.exe')) {
     Copy-Item -LiteralPath (Join-Path $repo "target/release/$exe") -Destination $stage
 }
 # Our compiled bridge only. Rhino's commercial SDK/native DLLs

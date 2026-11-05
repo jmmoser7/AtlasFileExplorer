@@ -23,6 +23,9 @@ impl VideoSource {
 
 impl VideoBoard {
     pub(super) fn forget_source(&mut self, id: NodeId) {
+        if self.failed_play == Some(id) {
+            self.failed_play = None;
+        }
         if self.play.as_ref().is_some_and(|play| play.id == id) {
             self.play = None;
             if let Some(pool) = &self.pool {
@@ -47,7 +50,7 @@ impl VideoBoard {
             return;
         }
         if let Some(pool) = &self.pool {
-            pool.stop();
+            pool.cancel_all();
         }
         self.tab = tab;
         self.sources.clear();
@@ -58,6 +61,7 @@ impl VideoBoard {
         self.hover = None;
         self.play = None;
         self.live = None;
+        self.failed_play = None;
         // Keep next_token: delayed work from an old workbook cannot acquire
         // the token of a new node with the same document-local NodeId.
     }
@@ -134,5 +138,21 @@ impl SlateApp {
             self.touch_strip(id);
         }
         Some(video)
+    }
+}
+
+impl Strip {
+    pub(super) fn failed(opts: VideoOpts) -> Self {
+        Self {
+            token: 0,
+            start: opts.start,
+            end: opts.end,
+            duration: 0.0,
+            probed: false,
+            done: false,
+            inflight: false,
+            failed: true,
+            slots: Vec::new(),
+        }
     }
 }

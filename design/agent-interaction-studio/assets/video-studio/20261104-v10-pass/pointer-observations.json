@@ -1,0 +1,8 @@
+{
+  "source": "Root native V10 UI observations after the stress capture",
+  "play": "One pointer Play advanced actual frame count 162 to 384",
+  "pause": "Settled Pause retained 384 frames and Decoder Idle",
+  "scrub": "Native AX click17 changed media time 0.4 to0.49, state Scrub decoded sample, image timer0.50; AX setValue0.4 also invoked actual callback;192positions cached",
+  "earlier_coordinate_attempt": "Hardcoded pointer coordinates missed the tiny track; no product slider defect established",
+  "scope": "Component UI only; stress-pass capture precedes these follow-up pointer observations"
+}

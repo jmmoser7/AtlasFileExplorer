@@ -1,0 +1,18 @@
+{
+  "at": "2026-11-04T22:09:52.557683+00:00",
+  "binary": "v3-ui-launch.json",
+  "oneClickPlay": "Pass actualframe/timeadvance",
+  "oneClickPause": "Pass visualPaused0.625stableafterUIsettles",
+  "crash": "v3-gui-worker-crash.json; helperPID/path/parentverifiedbeforeintentionalStop",
+  "differentClipAfterCrash": "Pass singlePlay, frame/timeadvance observed, originalfailurestayslocal",
+  "sameClipRetryAfterCrash": "Pass singlePlay originalPlayingotherPaused",
+  "captures": [
+    "design/agent-interaction-studio/assets/video-studio/20261104-v3-ui/decoder-crash-recovered.jpg",
+    "design/agent-interaction-studio/assets/video-studio/20261104-v3-ui/original-clip-retried.jpg"
+  ],
+  "limits": [
+    "V3 replayopening/adaptiveMP4stillfailingcomponenttests; notintegration/releasePass",
+    "NativeAXsnapshotcanlagoneframeafteraction; screenshot+subsequentAXconfirmedsettledstate",
+    "EarlierPausefailureinferencefromimmediateAXwasnotconclusive; retainedasinitialobservationcorrectedbysettledv3proof"
+  ]
+}

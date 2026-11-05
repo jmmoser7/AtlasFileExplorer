@@ -258,8 +258,8 @@ fn video_pan_scrubs_the_full_trim_and_does_not_journal() {
     assert!(!h.app.video_playing_for_test(node_id));
     let paused = h.app.video_shown_for_test(node_id).expect("paused");
     assert!(
-        (paused - right).abs() < 0.2,
-        "pause keeps the panned frame {paused}"
+        (paused - 3.0).abs() < 0.2,
+        "playing from the out-point replays at the trim in-point {paused}"
     );
     assert_eq!(before, h.app.doc().scene.nodes);
 }

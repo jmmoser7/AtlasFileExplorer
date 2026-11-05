@@ -1,0 +1,10 @@
+{
+  "binarySha256": "AF46EFD2488AC6AD6AF8B0535BA4780EC2C466DD117E01B6251A487A75C2EBD6",
+  "workerSha256": "73CAD25AEB994CF9FD9A9A531EE8B47EE6545DE1CA9A88DD8BAD0713D733CBC7",
+  "window": 40242958,
+  "clear": "Pass: clips removed,0positions,0MiBdecodedcache,0MiBtextureestimate,workerNone",
+  "reload": "Pass: ordinaryOpenvideofilepicker loadedbuiltinMP4; all96positions",
+  "oneClickAfterReload": "Pass: actual8frames thenEnded, no additional failure",
+  "screenshot": "v8-clear-reload.jpg",
+  "limits": "V8controller/backendV7 before later lossless strip delivery; final integration not certified"
+}

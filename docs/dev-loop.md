@@ -265,15 +265,17 @@ stops any prior `slate` / `native-file-atlas` processes before relaunching.
 ### Prefer the dev profile for logic work
 
 Workspace `[profile.dev]` already tunes compile speed (`opt-level = 1` for
-workspace crates, `2` for dependencies). Use `bacon slate` / `cargo run -p
-slate` while iterating on board tools, hit-testing, and contracts.
+workspace crates, `2` for dependencies). Use `bacon slate` or
+`.\scripts\run-both-dev.ps1 -App slate` while iterating on board tools,
+hit-testing, and contracts. The shared runner builds the required video helper
+in the matching profile before each app launch, including watcher relaunches.
 
 Use release only when paint or frame-time matters:
 
 ```powershell
 bacon slate-release
 # or
-cargo run --release -p slate
+.\scripts\run-both-dev.ps1 -App slate -Release
 ```
 
 ### Cargo aliases (no watcher)
@@ -282,6 +284,12 @@ cargo run --release -p slate
 cargo slate          # = cargo run -p slate --
 cargo atlas          # = cargo run -p native-file-atlas --
 ```
+
+Raw Cargo app launches and these aliases do not build a dependency's executable.
+First build `cargo build -p atlas-core --bin slate-video-worker`, adding
+`--release` when launching a release app. Rebuild it after changes to the video
+backend. The runner above handles this prerequisite on every launch and accepts
+`-AppArguments` for app arguments; `-UiTuner` preserves the Atlas tuner feature.
 
 Both aliases end in `--`, so everything after them goes to **the app**, not to
 cargo. Atlas takes an optional folder to open as its first argument, which makes

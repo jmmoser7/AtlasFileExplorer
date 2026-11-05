@@ -65,7 +65,8 @@ entry point used in CI. It requires Rust/MSVC, .NET 9 and the pinned
 Outputs live under a fresh `target/distribution/` directory. Only explicitly
 selected assets ship; no workbooks, local settings, API keys or developer logs.
 
-The suite includes both release executables, PDFium 151.0.7920.0 and its license
+The suite includes both release executables, the required `slate-video-worker.exe`
+decoder helper beside them, PDFium 151.0.7920.0 and its license
 bundle, Node 24.21.0/npm, the Cursor sidecar's source/manifests, and Rust dependency
 license texts. Archives are pinned by SHA-256. Velopack bootstraps WebView2 and
 the Visual C++ 2015–2022 runtime if needed (internet may be required at setup).

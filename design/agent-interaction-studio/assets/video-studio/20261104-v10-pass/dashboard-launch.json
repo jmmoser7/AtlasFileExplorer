@@ -1,0 +1,12 @@
+{
+  "route": "POST /api/native-studio/video/launch via visible dashboard button",
+  "page": "http://127.0.0.1:8765/?phase=03&tab=video",
+  "serverPID": 55380,
+  "pid": 53552,
+  "window": 16909372,
+  "binarySha256": "1A08245B7DD2AD5ADDD1A288D4B0F119D4802AF219E53A4A8B3C71F2555799BE",
+  "workerSha256": "ED13A6EBEE3C749CEAE7B752DA69E8301C433856BF873FA3DB0D4F453A84CD4B",
+  "result": "Pass actual native window, primary real poster96positions; second and third controls eachplayonce thenEnded",
+  "capture": "v10-dashboard-launch.jpg",
+  "scope": "Standalone launch/runtime; packagedSlate and stablepublication pending"
+}

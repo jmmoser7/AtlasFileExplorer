@@ -1,0 +1,22 @@
+{
+  "stage": "early native slice: layout/software/replay owner only; processisolationandstressinprogress",
+  "createdAt": "2026-11-04T21:05:02.514451+00:00",
+  "binary": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\debug\\examples\\video_canvas.exe",
+  "binarySha256": "4da9c447c42ab9b54ffce5aff57bdc07fe087a119dc38826dcf62e519d5ebf18",
+  "files": {
+    "crates\\atlas-core\\src\\video.rs": "d513e89c11ab8493dc95b5bba99b7d0daad589ddc7e7f33b99d19b7fd3bd596d",
+    "crates\\atlas-core\\Cargo.toml": "d108c3c3910e9caef9425f865fc6b134b9ef332de7dc252a05d543bf24874214",
+    "crates\\atlas-shell\\Cargo.toml": "cecf4edc94aca82fadedb406ff332881b6ff5aa22b556fdf65fa665342f3d1aa",
+    "Cargo.lock": "98d25d0ec3ae4f0a6be788df1c99e71c19c7248c5ec848307fe816fea473e211",
+    "Cargo.toml": "3eea9b67aea1048472f0a3875ca6d5561c78e4a4325f0b0de88a2a3a4952355c",
+    "crates\\atlas-core\\src\\video\\frame.rs": "8fae69b62eaf7ea3c2bf307c3682144574a1b9e9bee4cd01d71f957467974a9f",
+    "crates\\atlas-core\\src\\video\\mf.rs": "56792448cabcac8b4b91e240a6569dddad9a88b0f47a8a9e370b53d4d3a2b25f",
+    "crates\\atlas-core\\src\\video\\tests.rs": "fdde4cbe8a7a15c92a4e5ff1ecda269af611ec5289e2b600e527ae8c6b5ab89a",
+    "crates\\atlas-core\\src\\video\\worker.rs": "c6e56e8ac36402f22dfa91abf12fb650fb94e29d940aff0d012fa6deb7384571",
+    "crates\\atlas-core\\src\\video\\mf\\buffer.rs": "676ceedd42d09678be595ccb25d7dc3f707d071c92754ea66a40b0a23092efeb",
+    "crates\\atlas-core\\src\\video\\mf\\tests.rs": "bed2e4d9aed51d5ae9274dddf42537509efbbb5d2732461db8988ea637980383",
+    "crates\\atlas-shell\\examples\\video_canvas.rs": "cc446fcbb6aa2c9a009dc61766fae836b784232a4845daf61ef52e39aa5fb236",
+    "crates\\atlas-shell\\examples\\video_canvas\\media.rs": "87aaa7b2b36614180b98cd55b9fb8128d741a334a85b4e4d3e7bbb004edb5892",
+    "crates\\atlas-shell\\examples\\video_canvas\\stress.rs": "a7f171c0ce62707cbdd0520c1f3beaf41b1eb8c8d6a57289a3f0ba84287d665e"
+  }
+}

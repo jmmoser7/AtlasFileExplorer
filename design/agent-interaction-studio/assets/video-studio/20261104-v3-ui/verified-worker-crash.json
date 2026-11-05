@@ -1,0 +1,7 @@
+{
+  "workerPath": "C:\\Users\\jeffr\\source\\repos\\FileAtlas\\AtlasFileExplorer\\target\\debug\\slate-video-worker.exe",
+  "action": "intentional worker crash during looping playback",
+  "workerPid": 48496,
+  "studioPid": 54432,
+  "at": "2026-11-04T22:05:38.3145446Z"
+}

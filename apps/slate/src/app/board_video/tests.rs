@@ -4,6 +4,8 @@ use super::*;
 use crate::app::tests::Harness;
 use atlas_core::video::{VideoEvent, VideoFrame};
 
+mod startup;
+
 fn clip(harness: &mut Harness, name: &str) -> NodeId {
     harness.app.leave_home();
     harness.app.ensure_work_tab();
@@ -33,13 +35,14 @@ fn video_body_hover_and_click_reach_the_player() {
     h.app.zoom_to_rect(rect);
     h.frame();
     h.app.video_probe_for_test(id, 10.0);
-    let at = h.app.board_xf().rect_w2s(rect).center();
+    let screen = h.app.board_xf().rect_w2s(rect);
+    let at = Pos2::new(screen.left() + screen.width() * 0.25, screen.center().y);
     for _ in 0..3 {
         h.frame_with(|input| input.events.push(egui::Event::PointerMoved(at)));
     }
     let (hovered, fraction) = h.app.video.hover.expect("body hover must scrub");
     assert_eq!(hovered, id);
-    assert!((fraction - 0.5).abs() < 1e-4);
+    assert!((fraction - 0.25).abs() < 1e-4);
     for pressed in [true, false] {
         h.frame_with(|input| {
             input.events.push(egui::Event::PointerButton {
@@ -51,6 +54,201 @@ fn video_body_hover_and_click_reach_the_player() {
         });
     }
     assert!(h.app.video_playing_for_test(id), "body click must play");
+}
+
+#[test]
+fn visible_play_control_preserves_position_and_ordinary_click_toggles_player() {
+    let mut h = Harness::new("video_visible_control");
+    let id = clip(&mut h, "movie.mp4");
+    let node = h.app.doc_mut().scene.node_mut(id).unwrap();
+    node.rotation_deg = 90.0;
+    node.rect.w = 240.0;
+    node.rect.h = 120.0;
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    h.app.zoom_to_rect(rect);
+    h.frame();
+    h.app.video_probe_for_test(id, 10.0);
+    h.app.video.paused.insert(id, 2.0);
+    let xf = h.app.board_xf();
+    let at = atlas_shell::video_controls::rect(xf.rect_w2s(rect), xf.z).center();
+    h.frame_with(|input| input.events.push(egui::Event::PointerMoved(at)));
+    assert!(h.app.video.hover.is_none());
+    assert_eq!(h.app.video.paused[&id], 2.0);
+    for pressed in [true, false] {
+        h.frame_with(|input| {
+            input.events.push(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        });
+    }
+    for _ in 0..3 {
+        h.frame();
+    }
+    assert!(
+        h.app.video.pool.is_none(),
+        "headless UI input must not start codec I/O"
+    );
+    let play = h
+        .app
+        .video
+        .play
+        .as_ref()
+        .expect("visible Play must start the player");
+    assert_eq!(play.id, id);
+    assert_eq!(play.from, 2.0);
+    // The same ordinary click pauses; no separate Studio-only action exists.
+    h.app.video_click(id);
+    assert!(!h.app.video_playing_for_test(id));
+}
+
+#[test]
+fn completed_trim_replays_from_its_in_point() {
+    let mut h = Harness::new("video_trim_replay");
+    let id = clip(&mut h, "movie.mp4");
+    h.app.patch_nodes(&[id], |node| {
+        if let NodeKind::Image(image) = &mut node.kind {
+            image.video.start = 2.0;
+            image.video.end = Some(8.0);
+            image.video.looped = false;
+        }
+    });
+    h.app.video_probe_for_test(id, 10.0);
+    h.app.video_click(id);
+    let token = h.app.video.play.as_ref().unwrap().token;
+    h.app
+        .apply_video_event(VideoEvent::Ended { id: id.0, token });
+    assert_eq!(h.app.video.paused[&id], 8.0);
+    h.app.video_click(id);
+    assert_eq!(h.app.video.play.as_ref().unwrap().from, 2.0);
+}
+
+#[test]
+fn failed_request_preserves_healthy_scrub_and_does_not_block_another_clip() {
+    let mut h = Harness::new("video_request_failure");
+    let first = clip(&mut h, "first.mp4");
+    seed(&mut h, first, 31);
+    let token = seed_play(&mut h, first);
+    h.app
+        .apply_video_event(VideoEvent::Failed { id: first.0, token });
+    assert!(!h.app.video_playing_for_test(first));
+    assert!(!h.app.video.strips[&first].failed);
+    assert_eq!(h.app.video_copy(first).unwrap().2[0], 31);
+    let second = clip(&mut h, "second.mp4");
+    seed(&mut h, second, 42);
+    h.app.video_click(second);
+    let current = h.app.video.play.as_ref().unwrap().token;
+    h.app.apply_video_event(VideoEvent::Play {
+        id: second.0,
+        token: current,
+        time: 4.0,
+        frame: frame(44),
+    });
+    h.app
+        .apply_video_event(VideoEvent::Failed { id: first.0, token });
+    assert!(h.app.video_playing_for_test(second));
+    assert_eq!(h.app.video_copy(second).unwrap().2[0], 44);
+}
+
+#[test]
+fn explicit_play_retries_a_failed_strip_with_a_fresh_generation() {
+    let mut h = Harness::new("video_retry_failed_strip");
+    let first = clip(&mut h, "unsupported.mp4");
+    let old = seed(&mut h, first, 31);
+    h.app.apply_video_event(VideoEvent::Failed {
+        id: first.0,
+        token: old,
+    });
+    assert!(h.app.video.strips[&first].failed);
+    let healthy = clip(&mut h, "healthy.mp4");
+    let healthy_token = seed(&mut h, healthy, 42);
+    h.app.video_click(first);
+    let current = h.app.video.strips[&first].token;
+    assert!(current > old);
+    assert!(!h.app.video.strips[&first].failed);
+    assert!(h.app.video_playing_for_test(first));
+    h.app.apply_video_event(VideoEvent::Failed {
+        id: first.0,
+        token: old,
+    });
+    assert!(!h.app.video.strips[&first].failed);
+    h.app.video_click(healthy);
+    assert!(h.app.video_playing_for_test(healthy));
+    assert_eq!(h.app.video.strips[&healthy].token, healthy_token);
+}
+
+#[test]
+fn unfinished_strip_keeps_its_generation_through_play_pause_and_scrub() {
+    let mut h = Harness::new("video_interrupted_strip");
+    let id = clip(&mut h, "movie.mp4");
+    h.app.video_probe_for_test(id, 10.0);
+    let strip = h.app.video.strips.get_mut(&id).unwrap();
+    strip.done = false;
+    strip.inflight = true;
+    let original = strip.token;
+    h.app.video_click(id);
+    assert_ne!(h.app.video.play.as_ref().unwrap().token, original);
+    h.app.video_click(id);
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    h.app
+        .video_pointer(Pos2::new(rect.x + rect.w * 0.1, rect.y + rect.h * 0.5));
+    assert_eq!(h.app.video.strips[&id].token, original);
+    assert!(h.app.video.strips[&id].inflight);
+    h.app.apply_video_event(VideoEvent::Strip {
+        id: id.0,
+        token: original,
+        index: 1,
+        time: 1.0,
+        frame: frame(45),
+    });
+    h.app.apply_video_event(VideoEvent::StripDone {
+        id: id.0,
+        token: original,
+    });
+    assert!(!h.app.video.strips[&id].inflight);
+    assert!(h.app.video.strips[&id].done);
+    assert_eq!(h.app.video_copy(id).unwrap().2[0], 45);
+}
+
+#[test]
+fn strip_byte_budget_reclaims_pixels_without_stopping_the_active_clip() {
+    let mut h = Harness::new("video_strip_byte_budget");
+    let first = clip(&mut h, "first.mp4");
+    let old_token = seed(&mut h, first, 31);
+    seed_play(&mut h, first);
+    let second = clip(&mut h, "second.mp4");
+    let current = seed(&mut h, second, 42);
+    assert_eq!(h.app.video.strip_bytes(), 8);
+    assert!(h.app.video.reserve_strip_frame(second, 1, 4, 8));
+    assert!(h.app.video.strips[&first].slots.iter().all(Option::is_none));
+    assert!(h.app.video.strips[&first].probed);
+    assert_eq!(h.app.video.paused[&first], 3.0);
+    assert!(h.app.video_playing_for_test(first));
+    h.app.apply_video_event(VideoEvent::Strip {
+        id: second.0,
+        token: current,
+        index: 1,
+        time: 5.0,
+        frame: frame(45),
+    });
+    h.app.apply_video_event(VideoEvent::Strip {
+        id: first.0,
+        token: old_token,
+        index: 1,
+        time: 5.0,
+        frame: frame(99),
+    });
+    assert_eq!(h.app.video.strip_bytes(), 8);
+    assert_eq!(
+        h.app.video.strips[&second].slots.len(),
+        atlas_core::video::STRIP_FRAMES
+    );
+    assert!(
+        atlas_core::video::STRIP_FRAMES * (atlas_core::video::STRIP_EDGE as usize).pow(2) * 4
+            <= atlas_core::video::STRIP_CACHE_BYTES
+    );
 }
 
 fn seed(harness: &mut Harness, id: NodeId, color: u8) -> u64 {
@@ -80,7 +278,7 @@ fn seed_play(harness: &mut Harness, id: NodeId) -> u64 {
         from: 3.0,
         start: 0.0,
         end: 10.0,
-        started: Instant::now(),
+        started: Some(Instant::now()),
         looped: false,
     });
     harness.app.apply_video_event(VideoEvent::Play {

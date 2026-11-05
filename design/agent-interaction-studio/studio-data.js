@@ -109,6 +109,57 @@
   window.StudioPortalData = {
     version: 1,
     images: {
+      video: [{
+        id:'video-native-early-20261104',title:'Early native Video Studio · real test-pattern clip',
+        src:'assets/video-studio/20261104-early/video-native-early.jpg',
+        date:'2026-11-04',approval:'review-capture',
+        caption:'Early in-process layout/software slice; recovery/stress not yet proved in this binary. The color-bar test pattern is the real video-motion.mp4 fixture reference, not a stripe defect. An immediate AX snapshot initially suggested Pause failure; that inference was not conclusive because AX can lag one frame. Settled V3 screenshot plus subsequent AX later confirmed Paused at 0.625.',
+        initialObservation:'Immediate early AX snapshot was interpreted as Pause failed. Retained as an initial observation, not proof of a production Pause defect.',
+        clarification:'V3 component UI subsequently passed settled Play/Pause, verified helper crash recovery and original-clip retry. Replay-opening and adaptive corpus tests remained blocked at that V3 evidence stage.',
+        promptDescription:'Native capture of the early standalone canvas using production Media Foundation decode; no image generation or paid inference.',
+        source:'Early video_canvas.exe SHA256 4da9c447c42ab9b54ffce5aff57bdc07fe087a119dc38826dcf62e519d5ebf18',
+        receipt:'assets/video-studio/20261104-early/capture-source-receipt.json'
+      },{
+        id:'video-native-v3-crash-recovered-20261104',title:'V3 component UI · different clip after verified helper crash',
+        src:'assets/video-studio/20261104-v3-ui/decoder-crash-recovered.jpg',date:'2026-11-04',approval:'review-capture',
+        caption:'V3 component UI only: after the owned helper PID, path and parent were verified and the helper was intentionally stopped, one click played a different known valid clip with real frame/time advance. Settled Play/Pause also passed. Replay-opening and adaptive corpus tests were still blocked; this is not integration or release approval.',
+        promptDescription:'Actual native Video Studio capture after externally crashing its verified decoder child and playing another clip; no image generation.',
+        source:'V3 video_canvas.exe SHA256 28770C81C8629F2C91599B2FBA8B0218C38EF17FC8D1161DB4BC92EC0F864CE1',
+        receipt:'assets/video-studio/20261104-v3-ui/ui-proof.json',binaryReceipt:'assets/video-studio/20261104-v3-ui/binary-receipt.json',
+        crashReceipt:'assets/video-studio/20261104-v3-ui/verified-worker-crash.json'
+      },{
+        id:'video-native-v3-original-retried-20261104',title:'V3 component UI · original clip retried after crash',
+        src:'assets/video-studio/20261104-v3-ui/original-clip-retried.jpg',date:'2026-11-04',approval:'review-capture',
+        caption:'V3 component UI only: one click retried the original clip after the verified decoder-child crash; original clip Playing and the other clip Paused were observed. Settled Pause was confirmed at 0.625 with screenshot plus subsequent AX. Replay-opening and adaptive corpus tests were still blocked; this capture proves only the exercised component UI cases.',
+        promptDescription:'Actual native Video Studio capture after one-click retry of the original clip following decoder-child crash recovery; no image generation.',
+        source:'V3 video_canvas.exe SHA256 28770C81C8629F2C91599B2FBA8B0218C38EF17FC8D1161DB4BC92EC0F864CE1',
+        receipt:'assets/video-studio/20261104-v3-ui/ui-proof.json',binaryReceipt:'assets/video-studio/20261104-v3-ui/binary-receipt.json',
+        crashReceipt:'assets/video-studio/20261104-v3-ui/verified-worker-crash.json'
+      },{
+        id:'video-native-v8-clear-reload-20261104',title:'V8 component UI · Clear and ordinary picker reload',
+        src:'assets/video-studio/20261104-v8-lifecycle/clear-reload.jpg',date:'2026-11-04',approval:'review-capture',
+        caption:'V8 component UI lifecycle only: Clear removed clips, all positions, decoded cache and texture estimate, with no worker. Ordinary Open video file picker reloaded the baseline MP4 and all 96 positions; one click produced 8 real frames then Ended, with no additional failure. This binary predates lossless strip delivery. Historical V9 native adaptive scrub was blocked; V10 later passed the full component stress. This V8 capture is not app-integration or release approval.',
+        promptDescription:'Actual native capture after Clear, normal file-picker reload and one-click baseline playback. No image generation.',
+        source:'V8 video_canvas.exe SHA256 AF46EFD2488AC6AD6AF8B0535BA4780EC2C466DD117E01B6251A487A75C2EBD6; worker SHA256 73CAD25AEB994CF9FD9A9A531EE8B47EE6545DE1CA9A88DD8BAD0713D733CBC7',
+        receipt:'assets/video-studio/20261104-v8-lifecycle/lifecycle-proof.json',binaryReceipt:'assets/video-studio/20261104-v8-lifecycle/binary-receipt.json',
+        failureHistory:['assets/video-studio/20261104-v8-lifecycle/v7-stress-first.json','assets/video-studio/20261104-v8-lifecycle/v8-stress-first.json','assets/video-studio/20261104-v8-lifecycle/v9-stress-first.json']
+      },{
+        id:'video-native-v10-stress-passed-20261104',title:'V10 native component · all 92 stress actions passed',
+        src:'assets/video-studio/20261104-v10-pass/native-stress-passed.jpg',date:'2026-11-04',approval:'review-capture',
+        caption:'V10 component UI: 92/92 observed actions passed in 97.744 seconds with 162 real playback frames across five supported clips including WebM, one expected malformed failure and successful recovery. Peak retained RGBA 41,889,600 / 41,943,040 bytes; peak queue 1,536,000 / 8 MiB. Core25, real12 and gate3 tests passed. Follow-up Play/Pause and native scrub callback also passed. This is component evidence on Iris Plus, not physical Iris Xe, app-integration or release approval.',
+        promptDescription:'Actual native Video Studio capture after the event-gated full stress run. Earlier failed runs are retained; no image generation.',
+        source:'V10 video_canvas.exe SHA256 1A08245B7DD2AD5ADDD1A288D4B0F119D4802AF219E53A4A8B3C71F2555799BE; worker SHA256 ED13A6EBEE3C749CEAE7B752DA69E8301C433856BF873FA3DB0D4F453A84CD4B',
+        receipt:'assets/video-studio/20261104-v10-pass/stress-pass.json',binaryReceipt:'assets/video-studio/20261104-v10-pass/binary-receipt.json',
+        sourceReceipt:'assets/video-studio/20261104-v10-pass/source-candidate.json',pointerReceipt:'assets/video-studio/20261104-v10-pass/native-ui-proof.json'
+      },{
+        id:'video-native-v10-dashboard-launch-20261104',title:'V10 native entry · launched from the visible Studio button',
+        src:'assets/video-studio/20261104-v10-pass/dashboard-launch.jpg',date:'2026-11-04',approval:'review-capture',
+        caption:'V10 standalone native entry passed: the visible phase 03 Video launch button opened a new native window through the fixed POST route, using the exact stress-tested binary. Primary poster loaded all 96 positions; second and third video controls each played once through Ended with actual pixels. Studio was left open for review. The 92-action pass capture remains separate; packaged Slate integration, full CI and publication retain separate gates.',
+        promptDescription:'Actual clean three-specimen native window opened through the visible phase 03 Video launcher. No image generation.',
+        source:'V10 video_canvas.exe SHA256 1A08245B7DD2AD5ADDD1A288D4B0F119D4802AF219E53A4A8B3C71F2555799BE',
+        receipt:'assets/video-studio/20261104-v10-pass/dashboard-launch.json',binaryReceipt:'assets/video-studio/20261104-v10-pass/binary-receipt.json',
+        pointerReceipt:'assets/video-studio/20261104-v10-pass/native-ui-proof.json'
+      }],
       studio: [
         image('01-initial', 'Initial workflow graphic', 'superseded',
           'Initial colorful ladder proposal; superseded by later iterations.',
@@ -127,6 +178,7 @@
           'Add a small identifying icon to each approved white card, retaining its layout and typography.')
       ]
     },
+    nativeCanvas: {video: {report:'contract-viewer.html?document=contracts/video.md',capture:'assets/video-studio/20261104-v10-pass/dashboard-launch.jpg',alt:'V10 clean three-video native window launched from the visible phase 03 button; standalone native entry passed'}},
     summaries: { '04': { studio: integration }, '05': { studio: releaseSummary } },
     audit: {
       id: 'global-release-1.0.5-20261103', scope: 'global', retrospective: true, source,

@@ -1,0 +1,14 @@
+{
+  "binarySha256": "1A08245B7DD2AD5ADDD1A288D4B0F119D4802AF219E53A4A8B3C71F2555799BE",
+  "workerSha256": "ED13A6EBEE3C749CEAE7B752DA69E8301C433856BF873FA3DB0D4F453A84CD4B",
+  "window": 10946944,
+  "pid": 34948,
+  "script": "92/92 observed actions,162realframes,expectedmalformedfailure1,recoverytrue",
+  "oneClickPlay": "Pass nativepointer:162to384realframes whileLoopactive",
+  "oneClickPause": "Pass settledAXPaused,decoderIdle,workerNone,counter384stable",
+  "scrub": "Pass nativeaccessibilitypointerclick .4to.49,displayeddecodedframe .50; hardcodedcoordinate dragunproved",
+  "scope": "Standalone production-backed Studio; ordinary packagedSlate and stablepublication pending",
+  "stressReceipt": "v10-stress-pass.json",
+  "capture": "v10-native-stress-passed.jpg",
+  "hardware": "LocalIntelIrisPlus, affectedIrisXephysicalvalidationnotperformed"
+}

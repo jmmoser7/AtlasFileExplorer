@@ -30,8 +30,12 @@ impl SlateApp {
                         );
                         play.start = start;
                         play.end = end;
-                        play.from = now_t.clamp(start, end);
-                        play.started = Instant::now();
+                        play.from = if play.started.is_some() {
+                            now_t.clamp(start, end)
+                        } else {
+                            atlas_core::video::playback_origin(now_t, start, end)
+                        };
+                        play.started = play.started.map(|_| Instant::now());
                     }
                 }
             }
@@ -43,7 +47,7 @@ impl SlateApp {
                 frame,
             } => {
                 let id = NodeId(id);
-                let Some(strip) = self.video.strips.get_mut(&id) else {
+                let Some(strip) = self.video.strips.get(&id) else {
                     return;
                 };
                 if strip.token != token || strip.failed {
@@ -53,6 +57,15 @@ impl SlateApp {
                 if index >= strip.slots.len() {
                     return;
                 }
+                if !self.video.reserve_strip_frame(
+                    id,
+                    index,
+                    frame.rgba.len(),
+                    atlas_core::video::STRIP_CACHE_BYTES,
+                ) {
+                    return;
+                }
+                let strip = self.video.strips.get_mut(&id).unwrap();
                 strip.slots[index] = Some(Slot {
                     time,
                     w: frame.w,
@@ -82,6 +95,12 @@ impl SlateApp {
                     .as_ref()
                     .is_some_and(|p| p.id == id && p.token == token)
                 {
+                    let play = self.video.play.as_mut().unwrap();
+                    if play.started.is_none() {
+                        play.from = time.clamp(play.start, play.end);
+                        play.started = Some(Instant::now());
+                    }
+                    self.video.failed_play = None;
                     self.video.live = Some(Live {
                         id,
                         token,
@@ -116,6 +135,7 @@ impl SlateApp {
                     .as_ref()
                     .is_some_and(|p| p.id == id && p.token == token)
                 {
+                    self.video.failed_play = Some(id);
                     let t = self
                         .video
                         .play
