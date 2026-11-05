@@ -7,8 +7,10 @@ fn delete_key_removes_the_card_under_the_cursor() {
     let mut h = Harness::new("edit_delete");
     let root = h._base.join("delete_proj");
     std::fs::create_dir_all(&root).unwrap();
-    std::fs::write(root.join("doomed.jpg"), vec![b'x'; 32]).unwrap();
-    std::fs::write(root.join("keeper.jpg"), vec![b'y'; 32]).unwrap();
+    let pixels = image::RgbImage::from_pixel(8, 8, image::Rgb([12, 200, 90]));
+    for name in ["doomed.jpg", "keeper.jpg"] {
+        pixels.save(root.join(name)).unwrap();
+    }
     h.app.set_root(root.clone());
     h.pump_until_idle();
     h.app.set_edit_mode(EditMode::Edit);
@@ -36,6 +38,19 @@ fn delete_key_removes_the_card_under_the_cursor() {
             "Delete generated fixture Windows: attributes=0x{:x}, utf16_len={}, utf16_units={wide:?}",
             metadata.file_attributes(), wide.len()
         );
+    }
+    // Loading/camera idle does not imply thumbnail idle. Settle this fixture's
+    // readers before exercising the real shell delete, without retrying it.
+    let thumbnail_deadline = Instant::now() + Duration::from_secs(10);
+    while h.app.thumbs_pending != 0 {
+        assert!(
+            Instant::now() < thumbnail_deadline,
+            "fixture thumbnails did not settle before Delete: pending={}, states={:?}",
+            h.app.thumbs_pending,
+            h.app.thumb_state
+        );
+        h.frame();
+        std::thread::sleep(Duration::from_millis(5));
     }
     let center = h.app.w2s(
         h.app.tree.as_ref().unwrap().file_pos[doomed as usize]

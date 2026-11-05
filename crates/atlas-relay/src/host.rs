@@ -53,7 +53,7 @@ impl Host {
     pub fn invite(&self) -> Invite {
         self.invite.clone()
     }
-    /// At most16 sanitized handshake failures; no room or message contents.
+    /// At most16 sanitized connection failures; no room or message contents.
     pub fn errors(&self) -> &Receiver<String> {
         &self.errors
     }
@@ -208,11 +208,14 @@ fn peer(
         })
         .map_err(crate::channel_error)?;
     socket.get_mut().sock.polling()?;
-    exchange(&mut socket, events, input, stop, connection)
+    exchange(&mut socket, events, input, stop, connection).inspect_err(|error| {
+        let summary = format!("Server exchange: {error}");
+        let _ = errors.try_send(summary.chars().take(256).collect());
+    })
 }
 
-fn exchange(
-    socket: &mut Socket,
+pub(crate) fn exchange<S: std::io::Read + std::io::Write>(
+    socket: &mut WebSocket<S>,
     events: Receiver<Event>,
     input: &Sender<room::Input>,
     stop: &AtomicBool,
@@ -221,26 +224,41 @@ fn exchange(
     let mut rate = wire::Rate::new();
     let mut seen = Instant::now();
     let mut pinged = Instant::now();
+    let mut writable = true;
     while !stop.load(Ordering::Acquire) && seen.elapsed() < Duration::from_secs(20) {
+        if !writable {
+            writable = wire::flush(socket)?;
+            if !writable {
+                std::thread::sleep(Duration::from_millis(2));
+                continue;
+            }
+        }
         for _ in 0..8 {
             match events.try_recv() {
                 Ok(event) => {
                     let terminal = matches!(event, Event::Disconnected | Event::Error { .. });
-                    write(socket, &event)?;
+                    writable = write(socket, &event)?;
                     if terminal {
                         let _ = socket.close(None);
                         return Ok(());
+                    }
+                    if !writable {
+                        break;
                     }
                 }
                 Err(crossbeam_channel::TryRecvError::Empty) => break,
                 Err(crossbeam_channel::TryRecvError::Disconnected) => return Ok(()),
             }
         }
+        if !writable {
+            continue;
+        }
         if pinged.elapsed() > Duration::from_secs(5) {
-            socket
-                .send(Message::Ping(Vec::new().into()))
-                .map_err(ws_error)?;
+            writable = wire::send(socket, Message::Ping(Vec::new().into()))?;
             pinged = Instant::now();
+            if !writable {
+                continue;
+            }
         }
         match socket.read() {
             Ok(Message::Text(text)) => {
@@ -264,18 +282,21 @@ fn exchange(
             Err(err) if wire::retryable(&err) => {}
             Err(err) => return Err(ws_error(err)),
         }
-        socket.flush().map_err(ws_error)?;
+        writable = wire::flush(socket)?;
     }
     let _ = socket.close(None);
     Ok(())
 }
 
-fn write(socket: &mut Socket, event: &Event) -> Result<(), RelayError> {
+pub(crate) fn write<S: std::io::Read + std::io::Write>(
+    socket: &mut WebSocket<S>,
+    event: &Event,
+) -> Result<bool, RelayError> {
     let text = serde_json::to_string(event)
         .map_err(|_| RelayError::Invalid("Could not encode relay event"))?;
-    socket.send(Message::Text(text.into())).map_err(ws_error)
+    wire::send(socket, Message::Text(text.into()))
 }
 
 fn ws_error(error: tungstenite::Error) -> RelayError {
-    RelayError::Transport(error.to_string())
+    crate::transport::socket_failure("Server read", error)
 }

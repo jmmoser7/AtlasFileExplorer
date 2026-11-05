@@ -58,6 +58,18 @@ pub(crate) fn websocket_failure<Role: tungstenite::handshake::HandshakeRole>(
     crate::RelayError::Transport(format!("{phase}: {category}"))
 }
 
+pub(crate) fn socket_failure(phase: &'static str, error: tungstenite::Error) -> crate::RelayError {
+    use tungstenite::Error;
+    let category = match error {
+        Error::Io(error) => return io_failure(phase, &error),
+        Error::ConnectionClosed | Error::AlreadyClosed => "closed",
+        Error::Protocol(_) => "protocol",
+        Error::Capacity(_) | Error::WriteBufferFull(_) => "capacity",
+        _ => "websocket",
+    };
+    crate::RelayError::Transport(format!("{phase}: {category}"))
+}
+
 pub(crate) struct Transport {
     tcp: TcpStream,
     deadline: Option<Instant>,
@@ -182,6 +194,21 @@ mod tests {
         let summary = io_failure("Client TLS handshake", &error).to_string();
         assert!(summary.contains("tls_other, kind=InvalidData"));
         assert!(!summary.contains("PRIVATE_TLS_DETAILS"));
+        assert!(summary.len() < 256);
+    }
+
+    #[test]
+    fn exchange_diagnostic_reports_stage_and_kind_without_error_payload() {
+        let summary = socket_failure(
+            "Server read",
+            tungstenite::Error::Io(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "PRIVATE_MESSAGE_OR_PATH",
+            )),
+        )
+        .to_string();
+        assert!(summary.contains("Server read: io, kind=BrokenPipe"));
+        assert!(!summary.contains("PRIVATE_MESSAGE_OR_PATH"));
         assert!(summary.len() < 256);
     }
 

@@ -140,7 +140,7 @@ fn run(
         credential: invite.credential,
         profile,
     };
-    write(&mut socket, &hello)?;
+    let mut writable = write(&mut socket, &hello)?;
     let mut authenticated = false;
     let started = Instant::now();
     let mut seen = Instant::now();
@@ -151,16 +151,30 @@ fn run(
         {
             return Err(RelayError::Invalid("Relay did not respond"));
         }
-        if authenticated {
-            for command in commands.try_iter().take(8) {
-                write(&mut socket, &command)?;
+        if !writable {
+            writable = wire::flush(&mut socket)?;
+            if !writable {
+                std::thread::sleep(Duration::from_millis(2));
+                continue;
             }
         }
+        if authenticated {
+            for command in commands.try_iter().take(8) {
+                writable = write(&mut socket, &command)?;
+                if !writable {
+                    break;
+                }
+            }
+        }
+        if !writable {
+            continue;
+        }
         if pinged.elapsed() > Duration::from_secs(5) {
-            socket
-                .send(Message::Ping(Vec::new().into()))
-                .map_err(ws_error)?;
+            writable = wire::send(&mut socket, Message::Ping(Vec::new().into()))?;
             pinged = Instant::now();
+            if !writable {
+                continue;
+            }
         }
         match socket.read() {
             Ok(Message::Text(text)) => {
@@ -185,18 +199,25 @@ fn run(
             Err(err) if wire::retryable(&err) => {}
             Err(err) => return Err(ws_error(err)),
         }
-        socket.flush().map_err(ws_error)?;
+        writable = wire::flush(&mut socket)?;
     }
     let _ = socket.close(None);
     Ok(())
 }
 
-fn write(socket: &mut Socket, command: &wire::Command) -> Result<(), RelayError> {
+fn write<S: std::io::Read + std::io::Write>(
+    socket: &mut WebSocket<S>,
+    command: &wire::Command,
+) -> Result<bool, RelayError> {
     let text = serde_json::to_string(command)
         .map_err(|_| RelayError::Invalid("Could not encode relay command"))?;
-    socket.send(Message::Text(text.into())).map_err(ws_error)
+    wire::send(socket, Message::Text(text.into()))
 }
 
 fn ws_error(error: tungstenite::Error) -> RelayError {
-    RelayError::Transport(error.to_string())
+    crate::transport::socket_failure("Client read", error)
 }
+
+#[cfg(test)]
+#[path = "write_tests.rs"]
+mod write_tests;
