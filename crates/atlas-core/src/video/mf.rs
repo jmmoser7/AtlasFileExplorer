@@ -10,6 +10,7 @@ mod aperture;
 mod buffer;
 mod clock;
 mod diagnostics;
+mod path;
 use buffer::copy_sample;
 use diagnostics::at;
 mod reader;

@@ -3,9 +3,10 @@ use crate::video::{timebase::Timeline, STRIP_EDGE};
 use std::path::Path;
 use windows::core::{Interface, PCWSTR};
 use windows::Win32::Media::MediaFoundation::{
-    IMFAttributes, IMFMediaType, IMFSourceReader, MFCreateAttributes, MFCreateMediaType,
-    MFCreateSourceReaderFromURL, MFMediaType_Video, MFVideoFormat_RGB32, MF_MT_FRAME_RATE,
-    MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE, MF_PD_DURATION, MF_PD_PLAYBACK_BOUNDARY_TIME,
+    IMFAttributes, IMFByteStream, IMFMediaType, IMFSourceReader, MFCreateAttributes, MFCreateFile,
+    MFCreateMediaType, MFCreateSourceReaderFromByteStream, MFMediaType_Video, MFVideoFormat_RGB32,
+    MF_ACCESSMODE_READ, MF_FILEFLAGS_NONE, MF_MT_FRAME_RATE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE,
+    MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_PD_DURATION, MF_PD_PLAYBACK_BOUNDARY_TIME,
     MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SOURCE_READER_ALL_STREAMS,
     MF_SOURCE_READER_CURRENT_TYPE_INDEX, MF_SOURCE_READER_DISABLE_DXVA,
     MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, MF_SOURCE_READER_FIRST_VIDEO_STREAM,
@@ -17,6 +18,7 @@ use windows::Win32::System::Variant::{VT_I8, VT_UI8};
 pub struct Open {
     pub(super) path: std::path::PathBuf,
     pub(super) reader: IMFSourceReader,
+    _stream: IMFByteStream,
     pub(super) duration: f32,
     pub(super) stream: u32,
     timeline: std::cell::Cell<Option<Timeline>>,
@@ -48,8 +50,8 @@ impl Open {
         timeline.clip_time(native_hns)
     }
     pub(super) fn from_path(path: &Path) -> Result<Self, ()> {
-        let wide = wide_path(path);
-        let reader = unsafe {
+        let wide = super::path::reader_path(path)?;
+        let (byte_stream, reader) = unsafe {
             let mut attributes = None;
             MFCreateAttributes(&mut attributes, 3).map_err(at("attributes.create"))?;
             let attributes = attributes.ok_or(())?;
@@ -64,9 +66,19 @@ impl Open {
             attributes
                 .SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 0)
                 .map_err(at("attributes.hardware-transforms"))?;
-            MFCreateSourceReaderFromURL(PCWSTR(wide.as_ptr()), &attributes)
-        }
-        .map_err(at("reader.open"))?;
+            // Open the exact filesystem namespace instead of asking a URL
+            // scheme handler to interpret verbatim prefixes or percent signs.
+            let stream = MFCreateFile(
+                MF_ACCESSMODE_READ,
+                MF_OPENMODE_FAIL_IF_NOT_EXIST,
+                MF_FILEFLAGS_NONE,
+                PCWSTR(wide.as_ptr()),
+            )
+            .map_err(at("reader.file-open"))?;
+            let reader = MFCreateSourceReaderFromByteStream(&stream, &attributes)
+                .map_err(at("reader.byte-stream"))?;
+            (stream, reader)
+        };
         let stream = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
         unsafe {
             reader
@@ -81,6 +93,7 @@ impl Open {
         let open = Self {
             path: path.to_path_buf(),
             reader,
+            _stream: byte_stream,
             duration,
             stream,
             timeline: std::cell::Cell::new(None),
@@ -164,12 +177,4 @@ pub(super) fn seek(open: &Open, secs: f32) -> Result<(), ()> {
             .map_err(at("reader.seek"))?;
     }
     Ok(())
-}
-
-fn wide_path(path: &Path) -> Vec<u16> {
-    use std::os::windows::ffi::OsStrExt;
-    path.as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect()
 }

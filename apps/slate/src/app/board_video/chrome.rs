@@ -32,7 +32,7 @@ impl SlateApp {
                 painter.layer_id(),
                 egui::Id::new(("video-control", id.0)),
                 |ui| {
-                    ui.label(self.video_control_hint(id));
+                    ui.add(egui::Label::new(self.video_control_hint(id)).extend());
                 },
             );
         }

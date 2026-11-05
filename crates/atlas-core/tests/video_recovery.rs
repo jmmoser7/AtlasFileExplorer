@@ -83,7 +83,7 @@ fn wait_event(pool: &VideoPool, token: u64, timeout: Duration) -> VideoEvent {
 }
 fn check_pixels(frame: &VideoFrame) {
     assert_eq!(frame.rgba.len(), frame.w as usize * frame.h as usize * 4);
-    assert!(frame.rgba.chunks_exact(4).all(|px| px[3] == 255));
+    assert!(frame.rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 255));
 }
 fn play_to_end(
     pool: &VideoPool,
@@ -243,7 +243,9 @@ fn optional_verified_real_corpus_decodes_tiny_frames_and_dynamic_format_changes(
                         assert!(
                             frame
                                 .rgba
-                                .chunks_exact(4)
+                                .as_chunks::<4>()
+                                .0
+                                .iter()
                                 .all(|px| px[1] > 100 && px[0] < 20 && px[2] < 20),
                             "tiny clip rows/channels corrupt"
                         );
@@ -469,3 +471,6 @@ mod recovery_pixels;
 
 #[path = "../src/video/recovery_pressure_tests.rs"]
 mod recovery_pressure_tests;
+
+#[path = "../src/video/recovery_path_tests.rs"]
+mod recovery_path_tests;

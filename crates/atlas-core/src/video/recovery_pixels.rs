@@ -9,7 +9,7 @@ pub(super) fn assert_solid(frame: &VideoFrame, red: bool) {
     let mut examples = Vec::new();
     for (y, row) in frame.rgba.chunks_exact(frame.w as usize * 4).enumerate() {
         let mut row_bad = false;
-        for (x, pixel) in row.chunks_exact(4).enumerate() {
+        for (x, pixel) in row.as_chunks::<4>().0.iter().enumerate() {
             for ((low, high), value) in min.iter_mut().zip(max.iter_mut()).zip(pixel.iter()) {
                 *low = (*low).min(*value);
                 *high = (*high).max(*value);
@@ -39,7 +39,7 @@ pub(super) fn assert_solid(frame: &VideoFrame, red: bool) {
 pub(super) fn assert_reference_transition(frame: &VideoFrame) {
     assert_eq!((frame.w, frame.h), (200, 150));
     let mut histogram = [0usize; 3];
-    for pixel in frame.rgba.chunks_exact(4) {
+    for pixel in frame.rgba.as_chunks::<4>().0 {
         assert!(
             pixel[0] <= 2 && pixel[0] == pixel[1] && pixel[1] == pixel[2] && pixel[3] == 255,
             "encodedtransitionframe hasunexpectedpixel{pixel:?}"
