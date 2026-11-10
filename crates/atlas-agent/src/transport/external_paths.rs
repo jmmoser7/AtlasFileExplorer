@@ -6,8 +6,8 @@ pub(super) fn external_tool_path(path: &Path) -> Cow<'_, str> {
     #[cfg(windows)]
     {
         use std::path::{Component, Prefix};
-        match path.components().next() {
-            Some(Component::Prefix(prefix)) => match prefix.kind() {
+        if let Some(Component::Prefix(prefix)) = path.components().next() {
+            match prefix.kind() {
                 Prefix::VerbatimDisk(_) => {
                     if let Some(plain) = text.strip_prefix(r"\\?\") {
                         return Cow::Owned(plain.to_owned());
@@ -19,8 +19,7 @@ pub(super) fn external_tool_path(path: &Path) -> Cow<'_, str> {
                     }
                 }
                 _ => {}
-            },
-            _ => {}
+            }
         }
     }
     text

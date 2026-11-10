@@ -51,6 +51,9 @@ impl<C: Packet> Mailbox<C> {
     pub fn len(&self) -> usize {
         self.calls.len()
     }
+    pub fn is_empty(&self) -> bool {
+        self.calls.is_empty()
+    }
     pub fn start(&mut self, token: Value, dir: PathBuf, call: C) -> Result<(), String> {
         if self.calls.len() >= 8 {
             return Err("Full host tool queue.".into());
