@@ -8,12 +8,11 @@ fn only_text_shapes_are_admitted_before_provider_execution() {
         ..Default::default()
     };
     assert!(validate_request_shape(&request, None).is_ok());
-    for rejected in [AgentRequest {
+    let rejected = AgentRequest {
         image: Some(Default::default()),
         ..request.clone()
-    }] {
-        assert!(validate_request_shape(&rejected, None).is_err());
-    }
+    };
+    assert!(validate_request_shape(&rejected, None).is_err());
     assert!(
         validate_request_shape(
             &AgentRequest {

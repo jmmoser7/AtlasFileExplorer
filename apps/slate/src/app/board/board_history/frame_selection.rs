@@ -36,4 +36,25 @@ impl SlateApp {
         }
         self.board_sel = self.board_selection_roots().into_iter().collect();
     }
+
+    /// Selection expanded so selected frames carry their members. Hidden and
+    /// locked members stay put, and connectors never ride along (their
+    /// geometry is derived from their endpoints — frame membership does not
+    /// apply to them).
+    pub(crate) fn expand_with_members(&self, ids: &[NodeId]) -> Vec<NodeId> {
+        let mut out: Vec<NodeId> = ids.to_vec();
+        for id in ids {
+            if self.doc().scene.node(*id).map(|n| n.is_frame()) == Some(true) {
+                for m in self.doc().scene.members_of(*id) {
+                    let skip = self.doc().scene.node(m).is_none_or(|n| {
+                        n.hidden || n.locked || matches!(n.kind, NodeKind::Connector(_))
+                    });
+                    if !skip && !out.contains(&m) {
+                        out.push(m);
+                    }
+                }
+            }
+        }
+        out
+    }
 }

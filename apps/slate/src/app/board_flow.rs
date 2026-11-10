@@ -441,9 +441,7 @@ impl SlateApp {
             });
         }
         self.cache_snippet(item, Some(String::new()));
-        self.agents
-            .text_output
-            .write_now(id, item, path, String::new());
+        self.agents.text_output.begin_run(id, item, path);
         true
     }
 

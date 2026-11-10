@@ -6,13 +6,13 @@ fn registered_parameter_reset_omits_only_override_and_rejects_missing_or_invalid
     let (mut h, id) = generator_with_output("parameter-default-reset");
     h.app.patch_nodes(&[id], |node| {
         let agent = slate_doc::agent_chat::agent_mut(node).unwrap();
-        agent.provider = "codex".into();
+        agent.provider = "codex-image".into();
         agent.model = Some("advertised".into());
         agent
             .model_parameters
             .insert("effort".into(), "high".into());
     });
-    h.app.agents.set_catalog_for_test("codex", vec![serde_json::from_value(serde_json::json!({
+    h.app.agents.set_catalog_for_test("codex-image", vec![serde_json::from_value(serde_json::json!({
         "id":"advertised", "name":"Actual discovered label", "parameters":[
             {"id":"effort","name":"Thought level","values":[{"value":"high","name":"Vendor intense"}]},
             {"id":"serviceTier","name":"Speed","values":[{"value":"priority","name":"Fast"},{"value":"instant","name":"Ultrafast"}]}

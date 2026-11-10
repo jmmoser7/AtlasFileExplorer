@@ -53,8 +53,7 @@ impl SlateApp {
         lease: Lease,
     ) -> Result<NativeTicket, NativeOutcome> {
         self.native_submit_caller(
-            self.tab().id,
-            node,
+            (self.tab().id, node),
             expected,
             Some((identity, autonomy)),
             None,
@@ -63,30 +62,9 @@ impl SlateApp {
         )
     }
 
-    pub(in crate::app::application_connector) fn native_submit_model_task(
-        &mut self,
-        node: NodeId,
-        expected: &BindingSnapshot,
-        identity: AgentIdentity,
-        task: &ModelTaskPermit,
-        operation: NativeOperation,
-        lease: Lease,
-    ) -> Result<NativeTicket, NativeOutcome> {
-        self.native_submit_model_task_in(
-            self.tab().id,
-            node,
-            expected,
-            identity,
-            task,
-            operation,
-            lease,
-        )
-    }
-
     pub(in crate::app::application_connector) fn native_submit_model_task_in(
         &mut self,
-        doc: u64,
-        node: NodeId,
+        (doc, node): (u64, NodeId),
         expected: &BindingSnapshot,
         identity: AgentIdentity,
         task: &ModelTaskPermit,
@@ -103,8 +81,7 @@ impl SlateApp {
             ));
         }
         self.native_submit_caller(
-            doc,
-            node,
+            (doc, node),
             expected,
             Some((identity, false)),
             Some(task),
@@ -122,13 +99,19 @@ impl SlateApp {
         operation: NativeOperation,
         lease: Lease,
     ) -> Result<NativeTicket, NativeOutcome> {
-        self.native_submit_caller(self.tab().id, node, expected, None, None, operation, lease)
+        self.native_submit_caller(
+            (self.tab().id, node),
+            expected,
+            None,
+            None,
+            operation,
+            lease,
+        )
     }
 
     fn native_submit_caller(
         &mut self,
-        doc: u64,
-        node: NodeId,
+        (doc, node): (u64, NodeId),
         expected: &BindingSnapshot,
         identity: Option<(AgentIdentity, bool)>,
         task: Option<&ModelTaskPermit>,

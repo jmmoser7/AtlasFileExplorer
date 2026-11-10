@@ -4,6 +4,7 @@ use super::*;
 use std::collections::VecDeque;
 
 mod generation_preview;
+mod input_role;
 
 /// Persisted MRU of folders the human bound to an agent portal.
 pub(super) const AGENT_RECENTS_KEY: &str = "slate-agent-projects";
@@ -31,27 +32,6 @@ pub(crate) enum InputRole {
     Geometry,
     Image,
     Style,
-}
-
-impl InputRole {
-    /// The role a port reads before anything is wired to it.
-    pub fn of_slot(slot: atlas_agent::InputSlot) -> Self {
-        match slot {
-            atlas_agent::InputSlot::Media | atlas_agent::InputSlot::View => Self::Image,
-            atlas_agent::InputSlot::Prompt => Self::Prompt,
-            atlas_agent::InputSlot::Style => Self::Style,
-        }
-    }
-
-    /// Chip name and the colour a chip dot and its port share.
-    pub fn look(self, roles: &atlas_shell::tokens::AgentRoleInk) -> (&'static str, Color32) {
-        match self {
-            Self::Prompt => ("Prompt", roles.prompt),
-            Self::Geometry => ("Geometry", roles.geometry),
-            Self::Image => ("Image", roles.image),
-            Self::Style => ("Style", roles.style),
-        }
-    }
 }
 
 /// Who a wheel notch over an image portal belongs to.

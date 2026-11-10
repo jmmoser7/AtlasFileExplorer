@@ -1,6 +1,6 @@
 //! Claude Code print streaming preserves the installed user's subscription login.
 use crate::{payload::TextPayload, process::Process, progress::Progress, Provider};
-use atlas_agent::{helper::HelperLaunch, AgentModel, AgentRequest, AgentSession};
+use atlas_agent::{helper::HelperLaunch, AgentModel, AgentRequest};
 use serde_json::{json, Value};
 use std::{
     path::Path,
@@ -14,11 +14,14 @@ pub(crate) fn run(
     request: &AgentRequest,
     tools: Option<&HelperLaunch>,
     payload: &mut TextPayload,
-    session: &mut AgentSession,
-    answer: usize,
     stop: &AtomicBool,
-    changed: &mut impl FnMut(&AgentSession),
+    feedback: crate::RunFeedback<'_>,
 ) -> Result<(), String> {
+    let crate::RunFeedback {
+        session,
+        answer,
+        changed,
+    } = feedback;
     // One captured Model end time covers setup, tools and final response.
     let task_deadline = tools
         .map(|tools| {
@@ -264,7 +267,7 @@ fn respond_control(
         );
     }
     let result = process.send(&response);
-    if let Some(progress) = progress.as_deref_mut() {
+    if let Some(progress) = progress {
         progress.note(
             if result.is_ok() {
                 "control_reply_stdin_flushed"

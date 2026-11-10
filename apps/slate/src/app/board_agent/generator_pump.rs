@@ -1,4 +1,5 @@
 //! Comfy queue, live pump, and model steer.
+mod history;
 mod live;
 #[cfg(test)]
 mod undo_tests;
@@ -6,32 +7,6 @@ mod undo_tests;
 use super::*;
 
 impl SlateApp {
-    /// A committed history cut retires only this target's pending snapshots.
-    /// Undo restores the document, never restarts canceled inference.
-    pub(crate) fn invalidate_queued_generator_history(&mut self, id: NodeId) {
-        let queued: Vec<_> = self
-            .agents
-            .comfy_queue
-            .get(&id)
-            .into_iter()
-            .flatten()
-            .map(|entry| entry.request.id.clone())
-            .collect();
-        for request in queued {
-            self.discard_generation_request(id, &request);
-        }
-        self.cancel_artifact_generation(id);
-        self.cancel_preparing_agent_send(id);
-        if let Some(request) = self.agents.requests.remove(&id) {
-            self.agents.cancelled_generations.insert(id, request);
-        }
-        self.agents.awaiting.remove(&id);
-        self.agents.capture_wait.remove(&id);
-        self.agents
-            .flow
-            .text_answer_requests
-            .retain(|(_, node, _), _| *node != id);
-    }
     /// Undo cancels only the automatic work tagged by that exact creation.
     pub(crate) fn discard_undone_generator_creation(
         &mut self,
@@ -426,12 +401,7 @@ impl SlateApp {
         let dir = self
             .agent_link_dir(id, &ws)
             .unwrap_or_else(|| atlas_ai::agent::agent_dir(&ws, &session));
-        let manifest = slate_doc::SourceUri {
-            locator: super::super::board_portal::source_locator(
-                self.tab().path.as_deref(),
-                &dir.join("session.json"),
-            ),
-        };
+        let manifest = self.generation_bundle_manifest(&dir);
         if let Some(mut after) = self
             .doc()
             .scene

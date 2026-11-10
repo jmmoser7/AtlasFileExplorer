@@ -163,7 +163,28 @@ fn output_chooser_creates_only_the_clicked_modality_with_no_automatic_run() {
         assert_all_agent_inputs(&h, child);
         assert!(!h.app.source_agent_dialogue_open(child));
         assert!(!h.app.source_agent_inputs_visible(source));
+        let _ = std::io::Write::write_fmt(
+            &mut std::io::stderr(),
+            format_args!(
+                "chooser Undo before: modality={modality}, depth={}, top={:?}, creates_child={}, child={:?}, source={:?}\n",
+                h.app.tab().journal.undo_depth(),
+                h.app.tab().journal.top_token(),
+                h.app.tab().journal.top_creates_node(child, &slate_doc::scene::CmdAuthor::Human),
+                h.app.doc().scene.node(child).map(|n| (n.id, n.rect, std::mem::discriminant(&n.kind))),
+                h.app.doc().scene.node(source).map(|n| (n.id, n.rect, std::mem::discriminant(&n.kind))),
+            ),
+        );
         h.app.board_undo();
+        let _ = std::io::Write::write_fmt(
+            &mut std::io::stderr(),
+            format_args!(
+                "chooser Undo after: modality={modality}, depth={}, top={:?}, child={:?}, source={:?}\n",
+                h.app.tab().journal.undo_depth(),
+                h.app.tab().journal.top_token(),
+                h.app.doc().scene.node(child).map(|n| (n.id, n.rect, std::mem::discriminant(&n.kind))),
+                h.app.doc().scene.node(source).map(|n| (n.id, n.rect, std::mem::discriminant(&n.kind))),
+            ),
+        );
         assert!(h.app.doc().scene.node(child).is_none());
         assert!(!h.app.source_agent_inputs_visible(child));
         h.app.board_redo();

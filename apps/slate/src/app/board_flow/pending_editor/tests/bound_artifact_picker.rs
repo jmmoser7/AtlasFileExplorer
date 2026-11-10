@@ -29,7 +29,6 @@ fn models(provider: &str, artifact: bool) -> Vec<atlas_agent::AgentModel> {
                 ],
                 default: Some("medium".into()),
             }],
-            ..Default::default()
         })
         .collect()
 }
@@ -161,14 +160,24 @@ fn wired_bound_dashboard_shared_provider_and_model_clicks_bind_and_persist_subsc
         assert_eq!(agent.session, session);
         let output = h.frame_output(|_| {});
         click(&mut h, text_rect(&output, "Effort").unwrap().center());
+        // Match the shared picker's Area/layout stabilization protocol after navigation.
+        for _ in 0..3 {
+            h.frame();
+        }
         let output = h.frame_output(|_| {});
-        click(
-            &mut h,
-            text_rect(&output, "High")
-                .expect("selected model effort choice")
-                .center(),
+        let high = text_rect(&output, "High").expect("selected model effort choice");
+        eprintln!(
+            "High picker before click: provider={provider}, rect={high:?}, clip={:?}, layer={:?}, page={:?}",
+            label_clip(&output, "High"),
+            h.ctx.layer_id_at(high.center()),
+            h.app.generator_presentation(target).picker_page,
         );
+        click(&mut h, high.center());
         let agent = slate_doc::agent_chat::agent(h.app.doc().scene.node(target).unwrap()).unwrap();
+        eprintln!(
+            "High picker after click: provider={}, model={:?}, parameters={:?}",
+            agent.provider, agent.model, agent.model_parameters
+        );
         assert_eq!(
             agent.provider, provider,
             "model and parameter selection never switches provider"

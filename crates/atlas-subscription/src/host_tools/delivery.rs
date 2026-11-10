@@ -27,6 +27,12 @@ pub(super) struct Audit {
     path: PathBuf,
     count: usize,
 }
+struct Receipt<'a> {
+    call: &'a Call,
+    id: &'a Value,
+    bytes: &'a [u8],
+    ticket: Option<&'a str>,
+}
 impl Audit {
     pub(super) fn new(dir: &Path) -> Self {
         Self {
@@ -36,14 +42,15 @@ impl Audit {
     }
     fn record(
         &mut self,
-        call: &Call,
-        id: &Value,
+        receipt: &Receipt<'_>,
         phase: &str,
-        bytes: &[u8],
         success: bool,
         current: bool,
-        ticket: Option<&str>,
     ) -> Result<(), String> {
+        let call = receipt.call;
+        let id = receipt.id;
+        let bytes = receipt.bytes;
+        let ticket = receipt.ticket;
         if self.count >= 64 || fs::metadata(&self.path).is_ok_and(|meta| meta.len() >= 65_536) {
             return Err("MCP delivery receipt budget exhausted".into());
         }
@@ -77,13 +84,13 @@ impl Audit {
     pub(super) fn send(
         &mut self,
         output: &mut impl Write,
-        dir: &Path,
-        guard: CloudGuard,
+        binding: (&Path, CloudGuard),
         call: &BoardCall,
         id: Value,
         result: Value,
         ticket: Option<&str>,
     ) -> Result<(), String> {
+        let (dir, guard) = binding;
         self.send_dispatch(
             output,
             || transport::binding_matches(dir, &call.session, &call.request_id, Some(guard)),
@@ -104,38 +111,20 @@ impl Audit {
     ) -> Result<(), String> {
         let bytes = serde_json::to_vec(&result).map_err(|e| e.to_string())?;
         let success = result["isError"] != true;
-        self.record(
+        let receipt = Receipt {
             call,
-            &id,
-            "output_prepared",
-            &bytes,
-            success,
-            current(),
+            id: &id,
+            bytes: &bytes,
             ticket,
-        )?;
+        };
+        self.record(&receipt, "output_prepared", success, current())?;
         if let Err(error) = super::send(
             output,
             json!({"jsonrpc":"2.0","id":id.clone(),"result":result}),
         ) {
-            let _ = self.record(
-                call,
-                &id,
-                "stdout_write_failed",
-                &bytes,
-                false,
-                current(),
-                ticket,
-            );
+            let _ = self.record(&receipt, "stdout_write_failed", false, current());
             return Err(error);
         }
-        self.record(
-            call,
-            &id,
-            "stdout_written_and_flushed",
-            &bytes,
-            success,
-            current(),
-            ticket,
-        )
+        self.record(&receipt, "stdout_written_and_flushed", success, current())
     }
 }

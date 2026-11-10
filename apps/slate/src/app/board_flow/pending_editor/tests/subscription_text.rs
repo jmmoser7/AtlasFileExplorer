@@ -1,5 +1,7 @@
 use super::*;
 
+const REPORTED_MODEL: &str = "fixture-reported-model";
+
 #[test]
 fn subscription_artifact_picker_and_bound_admission_require_exact_task_capability() {
     for provider in ["cursor-cli", "claude-code"] {
@@ -22,7 +24,7 @@ fn subscription_artifact_picker_and_bound_admission_require_exact_task_capabilit
             h.app.set_agent_catalog_for_test(
                 provider,
                 vec![atlas_agent::AgentModel {
-                    id: String::new(),
+                    id: REPORTED_MODEL.into(),
                     name: "Verified task model".into(),
                     is_default: true,
                     capabilities: Some(atlas_agent::ModelCapabilities {
@@ -39,18 +41,17 @@ fn subscription_artifact_picker_and_bound_admission_require_exact_task_capabilit
                 accepted
             );
             if accepted {
-                assert!(h.app.set_pending_generator_provider(target, provider));
-                let mut draft = h.app.agents.flow.drafts[&target].clone();
-                draft.prompt = "Build an interactive view of the connected reference.".into();
-                assert!(h.app.pending_submission_choice(target, &draft).is_some());
-                assert!(h.app.bind_pending_generator(
-                    target,
-                    PendingHost::Artifact,
-                    &draft,
-                    provider,
-                    ""
-                ));
+                h.app
+                    .dispatch_generator_provider(target, Some(provider.into()), None);
+                let selected =
+                    slate_doc::agent_chat::agent(h.app.doc().scene.node(target).unwrap()).unwrap();
+                assert_eq!(selected.provider, provider);
+                assert_eq!(selected.model.as_deref(), Some(REPORTED_MODEL));
                 assert!(h.app.validate_subscription_source_choice(target).is_ok());
+                assert!(
+                    h.app.agents.dispatched.is_empty(),
+                    "compatible selection grants no generation"
+                );
             } else if h
                 .app
                 .doc()
@@ -72,7 +73,7 @@ fn subscription_fixture(provider: &str) -> (Harness, NodeId) {
     h.app.set_agent_catalog_for_test(
         provider,
         vec![atlas_agent::AgentModel {
-            id: String::new(),
+            id: REPORTED_MODEL.into(),
             name: "Account default".into(),
             is_default: true,
             capabilities: Some(atlas_agent::ModelCapabilities::text_only()),
@@ -96,9 +97,19 @@ fn subscription_fixture(provider: &str) -> (Harness, NodeId) {
         .to_string()
     )));
     let target = h.app.doc().scene.nodes[before].id;
-    assert!(h.app.set_pending_generator_provider(target, provider));
-    h.app.agents.flow.drafts.get_mut(&target).unwrap().prompt =
-        "Summarize the supplied text.".into();
+    h.app
+        .dispatch_generator_provider(target, Some(provider.into()), None);
+    h.app
+        .set_flow_model(target, false, provider, REPORTED_MODEL);
+    *h.app.agents.prompt_mut(target) = "Summarize the supplied text.".into();
+    h.app.commit_instruction(target);
+    assert_eq!(
+        slate_doc::agent_chat::agent(h.app.doc().scene.node(target).unwrap())
+            .unwrap()
+            .provider,
+        provider
+    );
+    assert!(h.app.agents.dispatched.is_empty());
     (h, target)
 }
 
@@ -138,25 +149,52 @@ fn subscription_text_uses_shared_first_send_and_projects_linked_source_once() {
 fn subscription_text_rejects_stale_choices_and_never_offers_other_output_tasks() {
     for provider in ["cursor-cli", "claude-code"] {
         let (mut h, target) = subscription_fixture(provider);
-        {
-            let draft = h.app.agents.flow.drafts.get_mut(&target).unwrap();
-            draft.choice = Some((provider.into(), "unadvertised-model".into()));
-        }
-        h.app.prepare_pending_chat_choice(target);
-        let mut draft = h.app.agents.flow.drafts[&target].clone();
-        assert_eq!(draft.choice.as_ref().unwrap().1, "unadvertised-model");
-        assert!(h.app.pending_submission_choice(target, &draft).is_none());
-        draft.choice = Some((provider.into(), String::new()));
-        draft
-            .model_parameters
-            .insert("invented-speed".into(), "fast".into());
-        assert!(h.app.pending_submission_choice(target, &draft).is_none());
-        assert!(h.app.agents.dispatched.is_empty());
-        assert!(
+        let session = slate_doc::agent_chat::agent(h.app.doc().scene.node(target).unwrap())
+            .unwrap()
+            .session
+            .clone();
+        h.app.patch_nodes(&[target], |node| {
+            slate_doc::agent_chat::agent_mut(node).unwrap().model =
+                Some("unadvertised-model".into());
+        });
+        assert!(h.app.validate_subscription_source_choice(target).is_err());
+        h.app.dispatch(
+            &h.ctx,
+            atlas_commands::CommandId("portal.agent.send"),
+            Some(serde_json::json!({"node":target}).to_string()),
+        );
+        assert_eq!(
             slate_doc::agent_chat::agent(h.app.doc().scene.node(target).unwrap())
                 .unwrap()
-                .provider
-                .is_empty()
+                .model
+                .as_deref(),
+            Some("unadvertised-model")
+        );
+        h.app.patch_nodes(&[target], |node| {
+            let agent = slate_doc::agent_chat::agent_mut(node).unwrap();
+            agent.model = Some(REPORTED_MODEL.into());
+            agent
+                .model_parameters
+                .insert("invented-speed".into(), "fast".into());
+        });
+        assert!(h.app.validate_subscription_source_choice(target).is_err());
+        h.app.dispatch(
+            &h.ctx,
+            atlas_commands::CommandId("portal.agent.send"),
+            Some(serde_json::json!({"node":target}).to_string()),
+        );
+        assert!(h.app.agents.dispatched.is_empty());
+        let binding =
+            slate_doc::agent_chat::agent(h.app.doc().scene.node(target).unwrap()).unwrap();
+        assert_eq!(binding.provider, provider);
+        assert_eq!(binding.session, session);
+        assert_eq!(
+            binding
+                .model_parameters
+                .get("invented-speed")
+                .map(String::as_str),
+            Some("fast"),
+            "rejected settings are not silently erased"
         );
         let picture = super::super::super::tests::place(&mut h, "visual.png", 1200.0);
         let before = h.app.doc().scene.nodes.len();
@@ -209,7 +247,7 @@ fn subscription_visual_input_uses_real_vision_capability_independently_of_image_
         h.app.set_agent_catalog_for_test(
             provider,
             vec![atlas_agent::AgentModel {
-                id: String::new(),
+                id: REPORTED_MODEL.into(),
                 name: "Vision account default".into(),
                 is_default: true,
                 capabilities: Some(atlas_agent::ModelCapabilities {
@@ -233,18 +271,20 @@ fn subscription_visual_input_uses_real_vision_capability_independently_of_image_
                 .any(|entry| entry.id == provider),
             "vision input grants no image generation"
         );
-        assert!(h.app.set_pending_generator_provider(target, provider));
-        let mut draft = h.app.agents.flow.drafts[&target].clone();
-        draft.prompt = "Describe the supplied image".into();
-        assert!(h.app.pending_submission_choice(target, &draft).is_some());
-        assert!(h
-            .app
-            .bind_pending_generator(target, PendingHost::Text, &draft, provider, ""));
+        h.app
+            .dispatch_generator_provider(target, Some(provider.into()), None);
+        h.app
+            .set_flow_model(target, false, provider, REPORTED_MODEL);
+        let binding =
+            slate_doc::agent_chat::agent(h.app.doc().scene.node(target).unwrap()).unwrap();
+        assert_eq!(binding.provider, provider);
+        assert_eq!(binding.model.as_deref(), Some(REPORTED_MODEL));
+        assert!(h.app.agents.dispatched.is_empty());
         assert!(h.app.validate_subscription_source_choice(target).is_ok());
         h.app.set_agent_catalog_for_test(
             provider,
             vec![atlas_agent::AgentModel {
-                id: String::new(),
+                id: REPORTED_MODEL.into(),
                 name: "Text only".into(),
                 is_default: true,
                 capabilities: Some(atlas_agent::ModelCapabilities::text_only()),

@@ -21,8 +21,7 @@ fn expired_task_after_native_handle_retains_receipt_as_unknown_and_cannot_publis
         assert!(lease.claim());
         lease.complete();
         let outcome = finish_task_call(Some(false), &lease, result)
-            .err()
-            .expect("expired admitted task returns an outcome");
+            .expect_err("expired admitted task returns an outcome");
         assert!(
             outcome.unknown(),
             "receipt retention must see actual post-admission uncertainty"

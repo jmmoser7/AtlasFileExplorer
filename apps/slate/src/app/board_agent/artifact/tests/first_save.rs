@@ -13,9 +13,11 @@ fn finish_asset_save(h: &mut Harness) {
 #[test]
 fn fresh_wire_artifact_first_send_survives_same_path_save_and_cache_layout_before_publication() {
     let (mut h, image) = board("artifact-first-bind-save-publication");
+    h.app.settings.agent_artifact_model = Some(("codex".into(), "remembered-native-model".into()));
     let saved = h.base.join("Fresh dashboard.slate");
     h.app.save_doc_to(h.app.tab().id, saved.clone());
     finish_asset_save(&mut h);
+    let source_before = h.app.doc().scene.node(image).unwrap().clone();
     let before = h.app.doc().scene.nodes.len();
     assert!(h.app.spawn_flow_node(Some(
         &serde_json::json!({
@@ -25,9 +27,19 @@ fn fresh_wire_artifact_first_send_survives_same_path_save_and_cache_layout_befor
     )));
     let id = h.app.doc().scene.nodes[before].id;
     let agent = slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap()).unwrap();
-    assert!(agent.provider.is_empty() && agent.session.is_empty());
-    h.app
-        .submit_pending_artifact_for_test(&h.ctx, id, "Make the supplied pie interactive.");
+    assert_eq!(agent.provider, "codex");
+    assert_eq!(agent.model.as_deref(), Some("remembered-native-model"));
+    assert!(!agent.session.is_empty());
+    assert_eq!(h.app.doc().scene.node(image), Some(&source_before));
+    assert!(h.app.agents.dispatched.is_empty());
+    assert!(!h.app.artifact_is_busy(id));
+    *h.app.agents.prompt_mut(id) = "Make the supplied pie interactive.".into();
+    h.app.commit_instruction(id);
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("portal.agent.send"),
+        Some(serde_json::json!({"node":id}).to_string()),
+    ));
     let plan = super::graft_review::start_prepared_fixture(&mut h, id);
     let guard_before = h.app.artifact_batch_guard(id);
     assert_eq!(guard_before.as_deref(), Some(plan.guard.as_str()));
@@ -74,6 +86,8 @@ fn fresh_wire_artifact_first_send_survives_same_path_save_and_cache_layout_befor
         b"<html>Synthetic generated output</html>",
     )
     .unwrap();
+    // The synthetic provider boundary does not start the runtime that creates this parent.
+    std::fs::create_dir_all(&plan.link_dir).unwrap();
     atlas_ai::agent::atomic_write_json(
         &plan.link_dir.join("return.json"),
         &serde_json::json!({

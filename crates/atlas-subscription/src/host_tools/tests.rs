@@ -1,6 +1,5 @@
 use super::*;
 use atlas_agent::collaborator::BoardOperation;
-use base64::Engine as _;
 use sha2::{Digest, Sha256};
 
 #[test]
@@ -28,8 +27,7 @@ fn helper_delivery_receipt_distinguishes_output_prepared_from_flushed() {
     audit
         .send(
             &mut output,
-            &dir,
-            |_| false,
+            (&dir, |_| false),
             &call,
             json!(9),
             result.clone(),
@@ -65,8 +63,7 @@ fn helper_delivery_receipt_distinguishes_output_prepared_from_flushed() {
     assert!(audit
         .send(
             &mut BrokenFlush,
-            &dir,
-            |_| false,
+            (&dir, |_| false),
             &call,
             json!(10),
             result,

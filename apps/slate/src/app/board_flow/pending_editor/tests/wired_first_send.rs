@@ -16,7 +16,13 @@ fn wire_created_text_registered_send_binds_its_remembered_model_before_dispatch(
     )));
     let id = h.app.doc().scene.nodes[before].id;
     let pending = slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap()).unwrap();
-    assert!(pending.provider.is_empty() && pending.session.is_empty());
+    assert_eq!(pending.provider, "codex-text");
+    assert_eq!(pending.model.as_deref(), Some("discovered-native-id"));
+    assert!(!pending.session.is_empty());
+    assert!(
+        h.app.agents.dispatched.is_empty(),
+        "remembering a choice never sends a request"
+    );
     let prompt = super::super::super::tests::place(&mut h, "instructions.txt", -300.0);
     let NodeKind::Image(image) = &h.app.doc().scene.node(prompt).unwrap().kind else {
         panic!()

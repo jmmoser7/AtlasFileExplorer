@@ -54,7 +54,7 @@ fn fixture(name: &str) -> (Harness, NodeId, test_support::Peer) {
 fn wait_for_task(h: &mut Harness, node: NodeId) {
     let end = Instant::now() + Duration::from_secs(3);
     while Instant::now() < end {
-        h.app.pump_model_tasks(&h.ctx);
+        h.app.maintain_application_connectors(&h.ctx);
         if h.app
             .connectors
             .headless
@@ -116,7 +116,7 @@ fn human_first_send_ensures_headless_setup_without_a_board_grant() {
         "Create a box"
     );
     assert!(h.app.presence.agents_empty());
-    assert!(h.app.attached_model_native_access(node).is_none());
+    assert_eq!(h.app.attached_model_native_access(node), Some(false));
 }
 
 #[test]
@@ -221,7 +221,7 @@ fn explicit_first_model_send_creates_task_without_general_board_membership_then_
     assert_eq!(first.model.as_deref(), Some("native-task-model"));
     assert!(first.collaborator.as_ref().unwrap().is_model_task());
     assert!(!h.app.presence.has_live_agents(h.app.tab().id));
-    assert!(h.app.attached_model_native_access(node).is_none());
+    assert_eq!(h.app.attached_model_native_access(node), Some(false));
     assert!(
         h.app
             .validate_chat_train_send(node)
@@ -272,7 +272,7 @@ fn model_task_admits_only_own_closed_generation_and_carries_revocable_worker_pur
         }
         let mut identity = permit.identity.clone();
         identity.call = atlas_agent::request_id();
-        assert!(h.app.native_submit_model_task(node,&permit.binding,identity,&permit,crate::app::application_connector::native::NativeOperation::Inspect,Lease::new()).is_err(),"lower native boundary binds the exact Slate doc and node even if native bindings are cloned");
+        assert!(h.app.native_submit_model_task_in((h.app.tab().id,node),&permit.binding,identity,&permit,crate::app::application_connector::native::NativeOperation::Inspect,Lease::new()).is_err(),"lower native boundary binds the exact Slate doc and node even if native bindings are cloned");
         assert!(peer.next().is_none());
     }
     for wrong_request in [false, true] {
@@ -370,8 +370,8 @@ fn model_task_admits_only_own_closed_generation_and_carries_revocable_worker_pur
     identity.call = atlas_agent::request_id();
     assert!(h
         .app
-        .native_submit_model_task(
-            node,
+        .native_submit_model_task_in(
+            (h.app.tab().id, node),
             &task.permit.binding,
             identity,
             &task.permit,

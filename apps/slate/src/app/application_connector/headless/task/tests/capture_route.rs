@@ -22,8 +22,7 @@ fn own_not_dispatched_capture_advances_only_observation_and_keeps_task_valid() {
         let ticket = h
             .app
             .native_submit_model_task_in(
-                key.0,
-                node,
+                (key.0, node),
                 &expected,
                 identity,
                 &task.permit,

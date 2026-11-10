@@ -22,6 +22,12 @@ struct Downstream {
     history: Option<slate_doc::agent_inputs::GeneratorMemoryPin>,
 }
 
+type BlankModelChoice = (
+    atlas_ai::agent::AgentProvider,
+    Option<String>,
+    std::collections::BTreeMap<String, String>,
+);
+
 impl SlateApp {
     pub(crate) fn connector_stop_empty_headless(&mut self) {
         for job in self.connectors.headless.blanks.drain(..) {
@@ -124,17 +130,7 @@ impl SlateApp {
     }
 
     /// Use the same compatible agentic preference and parameter owner as ordinary 3D.
-    fn blank_model_choice(
-        &self,
-        requires_vision: bool,
-    ) -> Result<
-        (
-            atlas_ai::agent::AgentProvider,
-            Option<String>,
-            std::collections::BTreeMap<String, String>,
-        ),
-        String,
-    > {
+    fn blank_model_choice(&self, requires_vision: bool) -> Result<BlankModelChoice, String> {
         let program = self.blank_model_program(requires_vision)?;
         let catalog = self
             .agents
@@ -160,7 +156,7 @@ impl SlateApp {
                     .filter(compatible)
                     .find(|model| model.is_default)
             })
-            .or_else(|| catalog.iter().filter(compatible).next())
+            .or_else(|| catalog.iter().find(compatible))
             .map(|model| model.id.clone());
         let parameters = self.default_model_parameters(&program.id, model.as_deref().unwrap_or(""));
         Ok((program, model, parameters))

@@ -352,18 +352,55 @@ impl SlateApp {
             self.reconcile_human_image_count(id);
             // Capture the shown result and its authored crop/layers before the
             // card releases an album pick to follow the next result.
-            self.queue_generation(id);
-            let result = self.image_result_id(id);
-            self.patch_nodes(&[id], |node| {
-                if let NodeKind::Image(image) = &mut node.kind {
-                    if !image.paint_layers.is_empty() {
-                        if let Some(result) = result.clone() {
-                            slate_doc::image_paint::seed_result_from_legacy(image, result);
-                        }
-                    }
-                    image.item = slate_doc::ItemId::NONE;
-                }
+            let prepared = self.generation_request(id, false).and_then(|request| {
+                self.begin_agent_input_preparation(request.inputs.clone())
+                    .map(|inputs| (request, inputs))
             });
+            let (request, inputs) = match prepared {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    self.toast(error.clone());
+                    self.fail_agent_await(id, error);
+                    return;
+                }
+            };
+            let manifest = self.ai.config.valid_workspace().and_then(|workspace| {
+                let (session, _) = self.agent_session_for(id)?;
+                let dir = self
+                    .agent_link_dir(id, workspace)
+                    .unwrap_or_else(|| atlas_ai::agent::agent_dir(workspace, &session));
+                Some(self.generation_bundle_manifest(&dir))
+            });
+            let result = self.image_result_id(id);
+            let Some(before) = self.doc().scene.node(id).cloned() else {
+                return;
+            };
+            let mut after = before.clone();
+            // The first durable bundle reference completes this same Send,
+            // rather than adding a later automatic undo step at dispatch.
+            if let Some(agent) = slate_doc::agent_chat::agent_mut(&mut after) {
+                if agent.bundle.is_none() {
+                    agent.bundle.clone_from(&manifest);
+                }
+            }
+            if let NodeKind::Image(image) = &mut after.kind {
+                if !image.paint_layers.is_empty() {
+                    if let Some(result) = result {
+                        slate_doc::image_paint::seed_result_from_legacy(image, result);
+                    }
+                }
+                image.item = slate_doc::ItemId::NONE;
+            }
+            self.last_board_edit = None;
+            if before != after
+                && !self.commit_scene(vec![SceneCmd::Patch {
+                    before: Box::new(before),
+                    after: Box::new(after),
+                }])
+            {
+                return;
+            }
+            self.enqueue_prepared_generation(id, request, inputs);
         }
     }
 }

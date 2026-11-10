@@ -38,6 +38,7 @@ impl SlateApp {
     /// Insert/dedupe a ready media link using supplied metadata. Workbooks are
     /// diverted by the caller before reaching this ordinary-media owner.
     pub(crate) fn item_for_ready_path(&mut self, path: &Path, size: u64, mtime: i64) -> ItemId {
+        self.ensure_work_tab();
         self.item_for_ready_path_in(self.tab().id, path, size, mtime)
             .expect("current workbook")
     }
@@ -77,6 +78,29 @@ fn stored_ready_link_path(workbook: Option<&Path>, path: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use crate::app::tests::Harness;
+
+    #[test]
+    fn ordinary_ready_link_from_home_creates_its_workbook_without_probing() {
+        let mut h = Harness::new("ready-link-from-home");
+        assert!(h.app.tabs.is_empty());
+        let path = h.base.join("not-opened.png");
+        atlas_core::fs_probe::reset();
+        let item = h.app.item_for_ready_path(&path, 16, 1);
+        assert_eq!(atlas_core::fs_probe::count(), 0);
+        assert_eq!(h.app.tabs.len(), 1);
+        assert!(h.app.doc().item(item).is_some());
+    }
+
+    #[test]
+    fn addressed_ready_link_for_a_closed_workbook_does_not_create_another() {
+        let mut h = Harness::new("ready-link-closed-workbook");
+        h.app.ensure_work_tab();
+        let doc = h.app.tab().id;
+        h.app.tabs.clear();
+        let path = h.base.join("late-output.png");
+        assert!(h.app.item_for_ready_path_in(doc, &path, 16, 1).is_none());
+        assert!(h.app.tabs.is_empty());
+    }
 
     #[test]
     fn refused_prepared_media_commit_registers_no_item_or_scene_identity() {
