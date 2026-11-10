@@ -127,7 +127,7 @@ impl SlateApp {
         let (provider, model) = match spawn.provider.clone() {
             Some(provider)
                 if kind == SpawnKind::Artifact
-                    && !atlas_ai::runtime::linear_provider(&provider) =>
+                    && !atlas_ai::runtime::artifact_provider(&provider) =>
             {
                 self.toast("Artifact generation requires Cursor or Codex.");
                 return false;
@@ -138,11 +138,11 @@ impl SlateApp {
                 .scene
                 .node(source)
                 .and_then(slate_doc::agent_chat::agent)
-                .filter(|a| atlas_ai::runtime::linear_provider(&a.provider))
+                .filter(|a| atlas_ai::runtime::artifact_provider(&a.provider))
                 .map(|a| (Some(a.provider.clone()), a.model.clone()))
                 .or_else(|| {
                     self.default_flow_model(SpawnKind::Artifact)
-                        .filter(|(provider, _)| atlas_ai::runtime::linear_provider(provider))
+                        .filter(|(provider, _)| atlas_ai::runtime::artifact_provider(provider))
                         .map(|(provider, model)| {
                             (Some(provider), (!model.is_empty()).then_some(model))
                         })
@@ -160,7 +160,7 @@ impl SlateApp {
             SpawnKind::Artifact => atlas_ai::agent::provider_by_id(
                 provider
                     .as_deref()
-                    .filter(|p| atlas_ai::runtime::linear_provider(p))
+                    .filter(|p| atlas_ai::runtime::artifact_provider(p))
                     .unwrap_or("codex"),
             ),
             SpawnKind::Image => atlas_ai::agent::provider_by_id(
@@ -249,7 +249,12 @@ impl SlateApp {
             .and_then(slate_doc::agent_chat::agent)
             .filter(|a| Some(&a.provider) == provider.as_ref() && a.model == model)
             .map(|a| a.model_parameters.clone())
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                self.default_model_parameters(
+                    provider.as_deref().unwrap_or(""),
+                    model.as_deref().unwrap_or(""),
+                )
+            });
         if let Some(a) = slate_doc::agent_chat::agent_mut(&mut node) {
             a.instruction = if run { prompt } else { String::new() };
             a.model = model.clone().filter(|m| !m.is_empty());

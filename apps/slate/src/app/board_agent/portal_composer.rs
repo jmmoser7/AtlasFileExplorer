@@ -65,7 +65,7 @@ impl SlateApp {
         if take_focus {
             self.web_release_keyboard();
         }
-        let mut text = self.agents.prompt_mut(id).clone();
+        let mut text = self.agent_prompt_text(id);
         let field_out = atlas_shell::selection_tools::prompt_field(
             ui,
             Id::new(("agent-composer", id.0)),
@@ -93,8 +93,13 @@ impl SlateApp {
             self.agents.composer_editing = None;
         }
         if field_out.changed {
-            *self.agents.prompt_mut(id) = text;
-            self.agents.prompt_epoch = self.agents.prompt_epoch.wrapping_add(1);
+            self.edit_agent_prompt_text(id, text.clone());
+            self.sync_projected_prompt_cursor(
+                ui.ctx(),
+                id,
+                &text,
+                self.agents.prompt(id).unwrap_or(""),
+            );
         }
         if field_out.submit {
             self.send_agent_prompt(id);
@@ -181,7 +186,19 @@ impl SlateApp {
     pub(crate) fn agent_failure_reason(&self, id: NodeId) -> Option<&str> {
         match self.agents.awaiting.get(&id) {
             Some(AgentAwait::Failed { reason, .. }) => Some(reason.as_str()),
-            _ => None,
+            _ => self
+                .agents
+                .sessions
+                .get(&id)
+                .filter(|session| {
+                    self.agents
+                        .request_of(id)
+                        .is_none_or(|request| request == session.request)
+                })
+                .and_then(|session| match &session.status {
+                    AgentStatus::Error(reason) => Some(reason.as_str()),
+                    _ => None,
+                }),
         }
     }
     #[cfg(test)]

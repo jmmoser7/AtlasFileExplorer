@@ -38,22 +38,38 @@ impl SlateApp {
     /// Insert/dedupe a ready media link using supplied metadata. Workbooks are
     /// diverted by the caller before reaching this ordinary-media owner.
     pub(crate) fn item_for_ready_path(&mut self, path: &Path, size: u64, mtime: i64) -> ItemId {
+        self.item_for_ready_path_in(self.tab().id, path, size, mtime)
+            .expect("current workbook")
+    }
+
+    pub(crate) fn item_for_ready_path_in(
+        &mut self,
+        doc: u64,
+        path: &Path,
+        size: u64,
+        mtime: i64,
+    ) -> Option<ItemId> {
+        let tab = self.tabs.iter_mut().find(|tab| tab.id == doc)?;
         let name = path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default();
         let key = cache_key(&path.to_string_lossy(), size, mtime);
-        let stored = self.ready_link_path(path);
-        self.doc_mut().add_item(stored, name, size, mtime, key)
+        let stored = stored_ready_link_path(tab.path.as_deref(), path);
+        tab.dirty = true;
+        Some(tab.doc.add_item(stored, name, size, mtime, key))
     }
-
     fn ready_link_path(&self, path: &Path) -> PathBuf {
-        let locator = slate_doc::scene::source_locator(self.tab().path.as_deref(), path);
-        if locator.starts_with("assets/") {
-            PathBuf::from(locator)
-        } else {
-            path.to_path_buf()
-        }
+        stored_ready_link_path(self.tab().path.as_deref(), path)
+    }
+}
+
+fn stored_ready_link_path(workbook: Option<&Path>, path: &Path) -> PathBuf {
+    let locator = slate_doc::scene::source_locator(workbook, path);
+    if locator.starts_with("assets/") {
+        PathBuf::from(locator)
+    } else {
+        path.to_path_buf()
     }
 }
 

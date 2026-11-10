@@ -49,7 +49,13 @@ const NOTE_DOCK: f32 = 56.0;
 /// A note an agent writes grows to fit its reply up to this height.
 const NOTE_MAX_H: f32 = 1200.0;
 /// Providers a text block may run on: local, ChatGPT sign-in, OpenAI API.
-const TEXT_ENGINES: [&str; 3] = ["ollama", "codex-text", "openai-text"];
+const TEXT_ENGINES: [&str; 5] = [
+    "ollama",
+    "codex-text",
+    "openai-text",
+    "cursor-cli",
+    "claude-code",
+];
 
 mod editor_focus;
 mod editor_helpers;
@@ -429,6 +435,11 @@ impl SlateApp {
         if let NodeKind::Image(i) = &mut node.kind {
             i.item = item;
         }
+        if let Some(agent) = slate_doc::agent_chat::agent_mut(node) {
+            agent.generator.owned_text_output = Some(slate_doc::SourceUri {
+                locator: super::board_portal::source_locator(self.tab().path.as_deref(), &path),
+            });
+        }
         self.cache_snippet(item, Some(String::new()));
         self.agents
             .text_output
@@ -460,21 +471,16 @@ impl SlateApp {
         id: NodeId,
         inputs: &atlas_agent::InputSnapshot,
     ) -> String {
-        let typed = self.agents.prompt_mut(id).trim().to_string();
-        if self.text_response_only(id) {
-            return self.agents.prompt_mut(id).clone();
-        }
-        inputs
-            .on(atlas_agent::InputSlot::Prompt)
-            .map(|item| item.text.trim())
-            .chain(std::iter::once(typed.as_str()))
-            .filter(|text| !text.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n\n")
+        let typed = self.agents.prompt_mut(id).clone();
+        Self::prompt_with_inputs(inputs, &typed)
     }
 
     /// Run a text block once with wired prompts, its instruction, and Image inputs.
     pub(crate) fn queue_text_block(&mut self, id: NodeId) {
+        if let Err(error) = self.validate_subscription_source_choice(id) {
+            self.fail_agent_await(id, error);
+            return;
+        }
         self.last_board_edit = None;
         let journaled = self
             .doc()
@@ -492,7 +498,7 @@ impl SlateApp {
             }
         };
         let prompt = self.text_block_prompt(id, &inputs);
-        if prompt.trim().is_empty() {
+        if prompt.trim().is_empty() && !self.has_dynamic_prompt_inputs(&inputs) {
             self.fail_agent_await(
                 id,
                 "Type an instruction, or wire a note to Prompt.".to_string(),
@@ -525,6 +531,14 @@ impl SlateApp {
         let mut request = AgentRequest {
             id: atlas_ai::agent::request_id(),
             prompt,
+            prompt_inputs_projected: true,
+            pending_prompt_projection: self.has_dynamic_prompt_inputs(&inputs).then(|| {
+                atlas_agent::PromptProjection {
+                    authored: self.agents.prompt(id).unwrap_or_default().to_owned(),
+                    separator: "\n\n".into(),
+                    static_instructions: String::new(),
+                }
+            }),
             model,
             model_parameters: self
                 .doc()
@@ -691,7 +705,12 @@ impl SlateApp {
         let Some(text) = self.agent_reply(id) else {
             return;
         };
-        let streaming = self.agent_is_running(id) || self.generations_waiting(id) > 0;
+        // The session pump receives Idle before the await pump clears its UI
+        // marker. That terminal snapshot must flush its final bytes immediately.
+        let streaming = self
+            .agents
+            .session(id)
+            .is_some_and(|session| session.status == atlas_ai::agent::AgentStatus::Thinking);
         self.agents
             .text_output
             .sync(id, item, &path, &text, streaming);
@@ -806,12 +825,40 @@ impl SlateApp {
         if openai {
             self.agents.want_catalog("openai-text");
         }
-        atlas_ai::runtime::text_models(
+        let mut models = atlas_ai::runtime::text_models(
             self.agents.catalog("ollama"),
             engines.codex.then(|| self.agents.catalog("codex")),
             openai,
             self.agents.catalog("openai-text"),
-        )
+        );
+        for provider in ["cursor-cli", "claude-code"] {
+            if self
+                .registered_agent_programs()
+                .iter()
+                .any(|p| p.id == provider)
+            {
+                self.agents.want_catalog(provider);
+                let label = atlas_ai::agent::provider_by_id(provider).display_name;
+                models.extend(
+                    self.agents
+                        .catalog(provider)
+                        .iter()
+                        .filter(|model| {
+                            model.capabilities.is_some_and(|caps| {
+                                caps.supports(atlas_agent::OutputTask::Text, false)
+                            })
+                        })
+                        .map(|model| {
+                            (
+                                provider.into(),
+                                model.id.clone(),
+                                format!("{label} · {}", model.name),
+                            )
+                        }),
+                );
+            }
+        }
+        models
     }
 
     /// Opens the model list of `source`'s Agent editor, as a click would.

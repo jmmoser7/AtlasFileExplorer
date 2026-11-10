@@ -167,6 +167,7 @@ impl SlateApp {
     }
 
     pub(crate) fn mark_document_cache_changed(&self) {
+        self.invalidate_generator_inputs();
         self.document_previews.borrow_mut().mark_changed();
     }
 
@@ -202,6 +203,7 @@ impl SlateApp {
     }
 
     fn invalidate_document_preview_request(&self, item: ItemId) {
+        self.invalidate_generator_inputs();
         self.document_previews
             .borrow_mut()
             .forget(self.tab().id, item);
@@ -274,6 +276,7 @@ impl SlateApp {
                         data: made.data,
                     },
                 );
+                self.invalidate_generator_inputs();
                 ctx.request_repaint();
             }
         }

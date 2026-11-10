@@ -8,12 +8,21 @@ $repository = 'jmmoser7/AtlasFileExplorer'
 $tag = if ($Channel -eq 'stable') { "v$Version" } else { 'preview' }
 $title = if ($Channel -eq 'stable') { "Slate & File Atlas $Version" } else { "Slate & File Atlas Preview ($Version)" }
 $notes = Join-Path $env:RUNNER_TEMP 'atlas-release-notes.md'
+$previewNotes = if ($Channel -eq 'preview') {
+@'
+
+This preview includes native Claude Code/Cursor CLI subscription connections and fixes for connected inputs, saved model choices, model history, scoped native generation and viewport capture.
+
+Known modeling limits: complex architectural detailing is experimental and has not been validated as a complete workflow; requests may expire before producing a result. Fresh 3D targets reconstruct from rendered source views rather than importing exact source geometry. The Cursor CLI image-output adapter is not implemented in this preview.
+'@
+} else { '' }
 @"
 Windows x64 installer for Slate and File Atlas. Download the **Setup.exe** asset once; installed copies check for updates when opened.
 
 Channel: **$Channel** · Version: **$Version** · Source: $Commit
 
-The setup includes both apps, PDFium, and a private Node/npm runtime. It installs WebView2 and the Visual C++ runtime when missing. Optional Cursor/Office integrations still require their own account or installed application.
+The setup includes both apps, PDFium, and a private Node/npm runtime. It installs WebView2 and the Visual C++ runtime when missing. Optional integrations require their own accounts or installed applications. Rhino-backed generation requires a separately installed, licensed Rhino 8 and .NET Framework 4.8; Rhino binaries and licenses are not bundled. Subscription CLI connections require the current user's external native Windows vendor CLI and login.
+$previewNotes
 
 Workbooks and settings are preserved during updates. Save your work and close all suite windows when an update is ready. See [distribution documentation](https://github.com/$repository/blob/$Commit/docs/distribution.md).
 "@ | Set-Content -LiteralPath $notes -Encoding utf8

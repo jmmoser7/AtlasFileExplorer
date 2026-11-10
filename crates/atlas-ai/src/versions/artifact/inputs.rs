@@ -3,7 +3,7 @@
 use super::{hash_artifact_input, paths, validate_prepared_artifact_run};
 use atlas_agent::{ArtifactInputProvenance, ArtifactRun, InputSnapshot};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     io,
     path::{Path, PathBuf},
 };
@@ -38,6 +38,7 @@ pub fn freeze_artifact_inputs(
     let mut state = Freeze {
         directory,
         files: HashMap::new(),
+        frozen: BTreeMap::new(),
         total: 0,
         provenance: Vec::new(),
     };
@@ -61,12 +62,20 @@ pub fn freeze_artifact_inputs(
     }
     frozen.context.clone_from(&frozen.wired);
     frozen.revision = hash_artifact_input(&serde_json::to_vec(&frozen.wired)?);
+    paths::write_new(
+        &run.staging_output
+            .parent()
+            .unwrap()
+            .join("frozen-inputs.json"),
+        &serde_json::to_vec(&state.frozen)?,
+    )?;
     Ok((frozen, state.provenance))
 }
 
 struct Freeze {
     directory: PathBuf,
     files: HashMap<PathBuf, PathBuf>,
+    frozen: BTreeMap<PathBuf, String>,
     total: u64,
     provenance: Vec<ArtifactInputProvenance>,
 }
@@ -100,6 +109,8 @@ impl Freeze {
             .directory
             .join(format!("input-{}.{}", self.files.len(), ext));
         paths::write_new(&path, &bytes)?;
+        self.frozen
+            .insert(path.clone(), hash_artifact_input(&bytes));
         self.total = self
             .total
             .checked_add(bytes.len() as u64)

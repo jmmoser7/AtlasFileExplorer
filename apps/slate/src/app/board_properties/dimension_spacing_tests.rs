@@ -111,7 +111,10 @@ fn dimension_spacing_tracks_media_presentation_in_both_themes_and_at_every_zoom(
                     h.app.tab_mut().cam.z = zoom;
                     frame(&mut h, step as f64 + 1.0);
                     let output = frame(&mut h, step as f64 + 1.5);
-                    assert_spacing(&h, &output, !attached || kind == "native-text");
+                    // Ordinary Text now shares the generic media blister:
+                    // large hosts attach, while small hosts use the external
+                    // strip. Both routes retain their board-space offsets.
+                    assert_spacing(&h, &output, !attached);
                 }
             }
         }

@@ -36,6 +36,7 @@ pub mod projects;
 pub mod runtime;
 pub mod schedule;
 pub mod sidecar;
+pub use atlas_subscription as subscription_cli;
 pub mod ui;
 pub mod versions;
 

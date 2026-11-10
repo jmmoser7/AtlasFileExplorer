@@ -3,9 +3,22 @@
 mod crash;
 
 fn main() -> std::process::ExitCode {
+    let args: Vec<String> = std::env::args().collect();
+    // Private stdio mode must precede logging, updates, crash relaunch and GUI.
+    if let Some(result) = atlas_ai::subscription_cli::host_tools::run_if_requested(
+        &args,
+        atlas_core::cloud::is_dehydrated,
+    ) {
+        return match result {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
     atlas_core::session_log::note_process_start();
     // Task Scheduler runs a conversation's repeating message with no window.
-    let args: Vec<String> = std::env::args().collect();
     if let Some(at) = args.iter().position(|a| a == "--scheduled-run") {
         if let Some(dir) = args.get(at + 1) {
             let dir = std::path::Path::new(dir);

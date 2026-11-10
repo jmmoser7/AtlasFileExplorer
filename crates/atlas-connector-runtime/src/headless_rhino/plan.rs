@@ -44,6 +44,22 @@ pub enum GeometryOperation {
         points: Vec<[f64; 2]>,
         height: f64,
     },
+    Mesh {
+        id: String,
+        vertices: Vec<[f64; 3]>,
+        triangles: Vec<[u32; 3]>,
+        /// true asserts a native closed oriented manifold; false/omitted permits panels.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        closed: Option<bool>,
+    },
+    Appearance {
+        id: String,
+        target: String,
+        diffuse: [u8; 3],
+        /// Standard Rhino shine, normalized to 0..1 of Material.MaxShine.
+        gloss: f64,
+        transparency: f64,
+    },
     Move {
         id: String,
         target: String,
@@ -82,6 +98,8 @@ impl GeometryOperation {
             | Self::Sphere { id, .. }
             | Self::Cylinder { id, .. }
             | Self::Extrude { id, .. }
+            | Self::Mesh { id, .. }
+            | Self::Appearance { id, .. }
             | Self::Move { id, .. }
             | Self::Rotate { id, .. }
             | Self::Scale { id, .. }
@@ -99,6 +117,26 @@ fn positive(v: f64) -> bool {
 }
 fn point(v: &[f64]) -> bool {
     v.iter().all(|v| number(*v))
+}
+
+fn mesh_valid(vertices: &[[f64; 3]], triangles: &[[u32; 3]]) -> bool {
+    (3..=4096).contains(&vertices.len())
+        && (1..=8192).contains(&triangles.len())
+        && vertices.iter().all(|p| point(p))
+        && triangles.iter().all(|face| {
+            let [a, b, c] = face.map(|i| vertices.get(i as usize));
+            let (Some(a), Some(b), Some(c)) = (a, b, c) else {
+                return false;
+            };
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let cross = [
+                ab[1] * ac[2] - ab[2] * ac[1],
+                ab[2] * ac[0] - ab[0] * ac[2],
+                ab[0] * ac[1] - ab[1] * ac[0],
+            ];
+            cross.iter().map(|v| v * v).sum::<f64>() > 0.0
+        })
 }
 
 impl GeometryPlan {
@@ -148,6 +186,23 @@ impl GeometryPlan {
                     (3..=128).contains(&points.len())
                         && points.iter().all(|p| point(p))
                         && positive(*height)
+                }
+                GeometryOperation::Mesh {
+                    vertices,
+                    triangles,
+                    ..
+                } => mesh_valid(vertices, triangles),
+                GeometryOperation::Appearance {
+                    target,
+                    gloss,
+                    transparency,
+                    ..
+                } => {
+                    ids.contains(target.as_str())
+                        && gloss.is_finite()
+                        && (0.0..=1.0).contains(gloss)
+                        && transparency.is_finite()
+                        && (0.0..=1.0).contains(transparency)
                 }
                 GeometryOperation::Move { target, vector, .. } => {
                     ids.contains(target.as_str()) && point(vector)
@@ -261,3 +316,6 @@ mod tests {
         .is_ok());
     }
 }
+
+#[cfg(test)]
+mod mesh_tests;

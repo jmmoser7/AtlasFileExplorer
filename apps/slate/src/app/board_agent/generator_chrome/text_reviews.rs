@@ -5,8 +5,45 @@ use slate_doc::text_answers::{TextAnswerRef, TextOutputRef, TextReview};
 use std::ops::Range;
 
 impl SlateApp {
+    /// Durable producer role applies only to the exact current linked source.
+    /// Neither empty bytes, a filename nor a cached snippet establishes ownership.
+    pub(crate) fn is_owned_text_output(&self, id: NodeId) -> bool {
+        let Some(node) = self.doc().scene.node(id) else {
+            return false;
+        };
+        let NodeKind::Image(image) = &node.kind else {
+            return false;
+        };
+        let Some(item) = self.doc().item(image.item) else {
+            return false;
+        };
+        slate_doc::agent_chat::agent(node)
+            .and_then(|agent| agent.generator.owned_text_output.as_ref())
+            .is_some_and(|output| {
+                let base = self.tab().path.as_deref();
+                slate_doc::scene::resolve_source(base, &output.locator)
+                    == slate_doc::scene::resolve_source(base, &item.path.to_string_lossy())
+            })
+    }
+
     pub(crate) fn activate_text_review_mode(&mut self, id: NodeId) {
-        if self.text_response_only(id) || self.tab().read_only {
+        if self.tab().read_only {
+            return;
+        }
+        if self.is_owned_text_output(id) {
+            // A saved output may carry the old erroneous review-role flag.
+            // Explicit human Submit repairs only that derived role, retaining
+            // existing outputs, settings, source bytes and the editable draft.
+            if self.text_response_only(id) {
+                self.patch_nodes(&[id], |node| {
+                    if let Some(agent) = slate_doc::agent_chat::agent_mut(node) {
+                        agent.generator.text_response_only = false;
+                    }
+                });
+            }
+            return;
+        }
+        if self.text_response_only(id) {
             return;
         }
         let selected = self

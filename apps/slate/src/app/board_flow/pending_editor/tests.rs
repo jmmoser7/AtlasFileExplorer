@@ -1,7 +1,14 @@
 use super::*;
 use crate::app::tests::Harness;
+mod artifact_save;
+mod bound_artifact_picker;
 mod menus;
+mod model_preferences;
+mod owned_output_submit;
 mod repeated_text;
+mod subscription_text;
+mod toolbar_retention;
+mod wired_first_send;
 
 fn click(h: &mut Harness, point: Pos2) {
     for pressed in [true, false] {

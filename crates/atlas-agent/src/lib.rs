@@ -59,6 +59,13 @@ impl Viewport {
 pub struct AgentRequest {
     pub id: String,
     pub prompt: String,
+    /// Prompt-slot words are already projected into `prompt` at capture.
+    /// Legacy authored-only requests retain separate quoted input projection.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub prompt_inputs_projected: bool,
+    /// Pending live source projection, resolved against frozen inputs before dispatch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_prompt_projection: Option<PromptProjection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// Immutable provider-advertised parameters captured at submission.
@@ -111,6 +118,34 @@ pub struct AgentRequest {
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromptProjection {
+    pub authored: String,
+    pub separator: String,
+    pub static_instructions: String,
+}
+
+impl AgentRequest {
+    /// Capture owns input freshness; projection owns exact submitted suffixes.
+    pub fn resolve_pending_prompt_projection(&mut self) {
+        let Some(projection) = self.pending_prompt_projection.take() else {
+            return;
+        };
+        self.prompt = self
+            .inputs
+            .on(InputSlot::Prompt)
+            .map(|item| item.text.trim())
+            .chain([
+                projection.static_instructions.as_str(),
+                projection.authored.as_str(),
+            ])
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(&projection.separator);
+        self.prompt_inputs_projected = true;
+    }
 }
 
 /// The permissions a provider runs one turn under.
@@ -204,8 +239,10 @@ mod activity;
 pub use activity::*;
 mod activity_semantics;
 pub use activity_semantics::*;
+pub mod artifact_tools;
 pub mod collaborator;
 pub mod control;
+pub mod helper;
 #[cfg(test)]
 mod manifest_tests;
 pub mod presence;

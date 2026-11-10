@@ -93,6 +93,9 @@ pub(super) fn visit_linked_sources(node: &mut Node, visit: &mut impl FnMut(&mut 
         if let Some(text) = &mut agent.generator.shown_text {
             visit(&mut text.source.locator);
         }
+        if let Some(output) = &mut agent.generator.owned_text_output {
+            visit(&mut output.locator);
+        }
         for review in &mut agent.generator.text_reviews {
             visit(&mut review.output.source.locator);
         }

@@ -92,6 +92,7 @@ fn catalog_model(model: &Value) -> Option<atlas_agent::AgentModel> {
         name: model["displayName"].as_str().unwrap_or(id).into(),
         parameters,
         is_default: model["isDefault"] == true,
+        ..Default::default()
     })
 }
 

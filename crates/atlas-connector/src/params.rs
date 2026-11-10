@@ -1,5 +1,6 @@
 //! Enforced v0 parameter dialect: closed object, <=64 scalar properties;
-//! scalar type, enum, numeric bounds and string lengths only. No references,
+//! scalar type, enum, numeric bounds and string lengths, plus bounded JSON strings.
+//! No references,
 //! nesting, combinators, regex, coercion or executable expressions.
 
 use serde_json::{Map, Value};
@@ -8,6 +9,7 @@ use crate::{ErrorCode, ProtocolError};
 
 pub const MAX_PARAMETER_BYTES: usize = 64 * 1024;
 pub const MAX_PARAMETER_STRING: u64 = 4096;
+pub const MAX_JSON_PARAMETER_STRING_BYTES: u64 = 24 * 1024;
 
 fn invalid(message: impl Into<String>) -> ProtocolError {
     ProtocolError::new(ErrorCode::InvalidDescriptor, message)
@@ -59,6 +61,7 @@ pub fn validate_parameter_schema(schema: &Value) -> Result<(), ProtocolError> {
                 "maximum",
                 "minLength",
                 "maxLength",
+                "contentMediaType",
             ],
         )?;
         let kind = shape
@@ -68,6 +71,20 @@ pub fn validate_parameter_schema(schema: &Value) -> Result<(), ProtocolError> {
         if !["string", "integer", "number", "boolean"].contains(&kind) {
             return Err(invalid("unsupported scalar parameter type"));
         }
+        let json_content = match shape.get("contentMediaType") {
+            None => false,
+            Some(Value::String(media)) if kind == "string" && media == "application/json" => true,
+            _ => {
+                return Err(invalid(
+                    "contentMediaType requires a string with application/json",
+                ));
+            }
+        };
+        let string_limit = if json_content {
+            MAX_JSON_PARAMETER_STRING_BYTES
+        } else {
+            MAX_PARAMETER_STRING
+        };
         for key in ["minimum", "maximum"] {
             if let Some(bound) = shape.get(key) {
                 if !["integer", "number"].contains(&kind) || bound.as_f64().is_none() {
@@ -79,8 +96,8 @@ pub fn validate_parameter_schema(schema: &Value) -> Result<(), ProtocolError> {
         }
         for key in ["minLength", "maxLength"] {
             if let Some(bound) = shape.get(key) {
-                if kind != "string" || bound.as_u64().is_none_or(|n| n > MAX_PARAMETER_STRING) {
-                    return Err(invalid("string bounds must be <=4096"));
+                if kind != "string" || bound.as_u64().is_none_or(|n| n > string_limit) {
+                    return Err(invalid("string bounds exceed the scalar content limit"));
                 }
             }
         }
@@ -90,7 +107,7 @@ pub fn validate_parameter_schema(schema: &Value) -> Result<(), ProtocolError> {
                 .ok_or_else(|| invalid("enum must be an array"))?;
             if choices.is_empty()
                 || choices.len() > 64
-                || choices.iter().any(|v| !matches_type(v, kind))
+                || choices.iter().any(|v| !matches_type(v, kind, json_content))
             {
                 return Err(invalid(
                     "enum must contain 1..64 values of the declared scalar type",
@@ -105,7 +122,7 @@ pub fn validate_parameter_schema(schema: &Value) -> Result<(), ProtocolError> {
                 > shape
                     .get("maxLength")
                     .and_then(Value::as_u64)
-                    .unwrap_or(MAX_PARAMETER_STRING)
+                    .unwrap_or(string_limit)
         {
             return Err(invalid("inverted parameter bounds"));
         }
@@ -153,11 +170,16 @@ fn allowed_keys(object: &Map<String, Value>, allowed: &[&str]) -> Result<(), Pro
     Ok(())
 }
 
-fn matches_type(value: &Value, kind: &str) -> bool {
+fn matches_type(value: &Value, kind: &str, json_content: bool) -> bool {
     match kind {
-        "string" => value
-            .as_str()
-            .is_some_and(|s| s.chars().count() as u64 <= MAX_PARAMETER_STRING),
+        "string" => value.as_str().is_some_and(|s| {
+            if json_content {
+                s.len() as u64 <= MAX_JSON_PARAMETER_STRING_BYTES
+                    && serde_json::from_str::<Value>(s).is_ok()
+            } else {
+                s.chars().count() as u64 <= MAX_PARAMETER_STRING
+            }
+        }),
         "boolean" => value.is_boolean(),
         "integer" => {
             value.is_i64() || value.is_u64() || value.as_f64().is_some_and(|n| n.fract() == 0.0)
@@ -217,7 +239,8 @@ pub fn validate_parameters(schema: &Value, parameters: &Value) -> Result<(), Pro
             .get(name)
             .ok_or_else(|| bad("unknown parameter"))?;
         let kind = shape["type"].as_str().expect("validated type");
-        if !matches_type(value, kind) {
+        let json_content = shape.get("contentMediaType").is_some();
+        if !matches_type(value, kind, json_content) {
             return Err(bad(
                 "parameter has wrong scalar type or exceeds length limit",
             ));
@@ -246,7 +269,11 @@ pub fn validate_parameters(schema: &Value, parameters: &Value) -> Result<(), Pro
                     > shape
                         .get("maxLength")
                         .and_then(Value::as_u64)
-                        .unwrap_or(MAX_PARAMETER_STRING)
+                        .unwrap_or(if json_content {
+                            MAX_JSON_PARAMETER_STRING_BYTES
+                        } else {
+                            MAX_PARAMETER_STRING
+                        })
             {
                 return Err(bad("parameter is outside string length bounds"));
             }

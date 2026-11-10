@@ -9,6 +9,7 @@ pub(super) fn run(
     result: Snapshot<AgentSession>,
     outputs_out: Snapshot<crate::outputs::LinkOutputs>,
     place_out: Snapshot<String>,
+    history_out: Snapshot<Result<bool, String>>,
 ) {
     let mut link = FileAgentLink::new();
     // Snapshot files only when completion or the artifact list can have
@@ -21,6 +22,7 @@ pub(super) fn run(
     // deliverable polling must never consume that manifest first.
     let mut artifact_request = false;
     while let Ok(work) = rx.recv() {
+        let reading = matches!(&work, LinkWork::Read(_));
         let update = match work {
             LinkWork::Roots(r) => {
                 roots = Some(r);
@@ -98,6 +100,11 @@ pub(super) fn run(
         if update.is_some() {
             if let Ok(mut value) = result.lock() {
                 *value = update;
+            }
+        }
+        if reading {
+            if let Ok(mut state) = history_out.lock() {
+                *state = link.history_read.clone();
             }
         }
     }

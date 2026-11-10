@@ -106,14 +106,24 @@ fn new_text_starter_queries_unicode_passage_on_original_source_and_shared_dialog
     );
     assert_eq!(h.app.doc().scene.node(id), Some(&before));
     draft.prompt = "Explain these words".into();
+    draft
+        .model_parameters
+        .insert("provider-effort".into(), "deep".into());
+    draft
+        .model_parameters
+        .insert("provider-speed".into(), "fast".into());
     h.app.tab_mut().read_only = true;
     h.app
         .submit_agent_draft(&h.ctx, id, &mut draft, Some(("ollama".into(), "".into())));
     assert_eq!(h.app.doc().scene.node(id), Some(&before));
     assert!(h.app.agents.dispatched.is_empty());
     h.app.tab_mut().read_only = false;
-    h.app
-        .submit_agent_draft(&h.ctx, id, &mut draft, Some(("ollama".into(), "".into())));
+    h.app.submit_agent_draft(
+        &h.ctx,
+        id,
+        &mut draft,
+        Some(("ollama".into(), "selected-text-model".into())),
+    );
     h.app.pump_comfy_queue();
     assert_eq!(
         h.app.doc().scene.nodes.len(),
@@ -123,6 +133,20 @@ fn new_text_starter_queries_unicode_passage_on_original_source_and_shared_dialog
     assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
     let (target, request) = h.app.agents.dispatched.last().unwrap().clone();
     assert_eq!(target, id);
+    assert_eq!(request.model.as_deref(), Some("selected-text-model"));
+    assert_eq!(request.model_parameters, draft.model_parameters);
+    assert_eq!(
+        slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
+            .unwrap()
+            .model_parameters,
+        request.model_parameters
+    );
+    draft.model_parameters.clear();
+    assert_eq!(
+        request.model_parameters.len(),
+        2,
+        "the submitted selection and parameters are immutable"
+    );
     assert!(request.prompt.contains("Selected passage:\ncafé"));
     assert!(request.prompt.contains("Explain these words"));
     h.app.set_agent_session_for_test(

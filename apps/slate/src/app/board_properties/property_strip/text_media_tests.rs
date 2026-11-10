@@ -107,3 +107,125 @@ fn rotated_media_use_real_flat_edge_capacity_for_the_blister() {
         "90° uses the shorter authored height as its lower edge"
     );
 }
+
+#[test]
+fn ordinary_owned_text_uses_four_attached_controls_and_the_generic_editor_host() {
+    let mut h = Harness::new("ordinary-owned-text-attached-editors");
+    h.app.ensure_work_tab();
+    h.app.leave_home();
+    let id = text(&mut h, false).id;
+    h.app.patch_nodes(&[id], |node| {
+        node.rect = WorldRect::new(-325.0, -195.0, 650.0, 390.0);
+        let NodeKind::Text(text) = &mut node.kind else {
+            panic!()
+        };
+        text.agent = None;
+    });
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    let items = node_strip_items(&h.app, std::slice::from_ref(&node));
+    assert_eq!(
+        items,
+        vec![
+            StripItem::Panel(Panel::Fill),
+            StripItem::Panel(Panel::Stroke),
+            StripItem::Panel(Panel::Text),
+            StripItem::Panel(Panel::Agent),
+        ]
+    );
+    assert!(rectangular_blister(
+        &h.app,
+        std::slice::from_ref(&node),
+        items.len()
+    ));
+    assert!(!h.app.image_palette_eligible(id));
+    h.app.board_sel = std::iter::once(id).collect();
+    crate::app::tests::frame_on(&mut h, id, 1.0);
+    for panel in [Panel::Fill, Panel::Stroke, Panel::Text, Panel::Agent] {
+        h.app.shape_properties.panel = Some(panel);
+        h.frame();
+        h.frame();
+        let state = h.app.shape_properties.last_chrome.as_ref().unwrap();
+        assert!(
+            state.blister && !state.image,
+            "ordinary Text uses the generic attached route"
+        );
+        assert_eq!(state.count, 4);
+        let xf = h.app.board_xf();
+        let bounds = xf.rect_w2s(node.rect);
+        let kind = h.app.property_editor_kind(
+            &h.ctx.layer_painter(egui::LayerId::background()),
+            panel,
+            bounds.width() / xf.z,
+        );
+        let expected = chrome::image_presentation_layout(bounds, xf.z, kind)
+            .overall
+            .intersect(h.app.canvas_rect);
+        assert!(
+            h.app.shape_properties.chrome_hits.iter().any(|hit| {
+                (hit.min - expected.min).length() < 0.1 && (hit.max - expected.max).length() < 0.1
+            }),
+            "the real generic EditorHost renders its attached subpanel: {panel:?}"
+        );
+        assert!(slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap()).is_none());
+    }
+}
+
+#[test]
+fn transparent_owned_text_keeps_attached_controls_without_an_interior_media_shadow() {
+    for bound in [false, true] {
+        for (fill, opacity, shadow) in [
+            (None, 1.0, false),
+            (
+                Some(slate_doc::scene::Rgba([255, 255, 255, 120])),
+                1.0,
+                false,
+            ),
+            (Some(slate_doc::scene::Rgba::WHITE), 0.5, false),
+            (Some(slate_doc::scene::Rgba::WHITE), 1.0, true),
+        ] {
+            let mut h = Harness::new(&format!("text-shadow-{bound}-{opacity}-{fill:?}"));
+            h.app.ensure_work_tab();
+            h.app.leave_home();
+            let id = text(&mut h, false).id;
+            h.app.patch_nodes(&[id], |node| {
+                node.rect = WorldRect::new(0.0, 0.0, 650.0, 390.0);
+                node.opacity = opacity;
+                let NodeKind::Text(text) = &mut node.kind else {
+                    panic!()
+                };
+                text.fill = fill;
+                if !bound {
+                    text.agent = None;
+                }
+            });
+            let node = h.app.doc().scene.node(id).unwrap().clone();
+            h.app.board_sel = std::iter::once(id).collect();
+            assert!(rectangular_blister(&h.app, std::slice::from_ref(&node), 4));
+            let mut fade = 0.0_f32;
+            for frame in 0..4 {
+                let _ = h.ctx.clone().run(
+                    egui::RawInput {
+                        time: Some(frame as f64 * 0.1),
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        fade = fade.max(h.app.media_interaction_shadow_fade(
+                            &ctx.layer_painter(egui::LayerId::background()),
+                            &node,
+                        ));
+                    },
+                );
+            }
+            assert_eq!(
+                fade > 0.0,
+                shadow,
+                "bound={bound}, fill={fill:?}, opacity={opacity}"
+            );
+            assert_eq!(
+                h.app.doc().scene.node(id),
+                Some(&node),
+                "shadow policy never restyles authored Text"
+            );
+        }
+    }
+}

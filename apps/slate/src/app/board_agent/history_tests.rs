@@ -2,6 +2,48 @@
 
 use super::*;
 
+#[test]
+fn matching_pre_turn_native_error_replaces_timeout_without_accepting_a_stale_session() {
+    let (mut h, id) =
+        super::super::board_flow::tests::generator_with_output("native-error-before-turn");
+    h.app
+        .agents
+        .requests
+        .insert(id, "current-image-request".into());
+    let timeout =
+        "No response from this program. Open its link folder and start or reconnect the sidecar.";
+    h.app.fail_agent_await(id, timeout.into());
+    h.app.agents.sessions.insert(
+        id,
+        std::sync::Arc::new(AgentSession {
+            request: "older-image-request".into(),
+            status: AgentStatus::Error("An older request failed".into()),
+            ..Default::default()
+        }),
+    );
+    h.app.pump_agent_awaits(&h.ctx, &h.base);
+    assert_eq!(h.app.agent_failure_reason(id), Some(timeout));
+    let native = "This image run has no output folder.";
+    h.app.agents.sessions.insert(
+        id,
+        std::sync::Arc::new(AgentSession {
+            request: "current-image-request".into(),
+            status: AgentStatus::Error(native.into()),
+            ..Default::default()
+        }),
+    );
+    h.app.pump_agent_awaits(&h.ctx, &h.base);
+    assert_eq!(h.app.agent_failure_reason(id), Some(native));
+    let turns = h.app.agents.local_turns[&id].len();
+    h.app.pump_agent_awaits(&h.ctx, &h.base);
+    assert_eq!(
+        h.app.agents.local_turns[&id].len(),
+        turns,
+        "same error is recorded once"
+    );
+    assert!(h.app.agents.dispatched.is_empty());
+}
+
 mod transcript;
 
 impl SlateApp {

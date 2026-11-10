@@ -2,7 +2,155 @@
 
 use super::*;
 
+#[derive(Clone)]
+pub(super) enum ChatSendPurpose {
+    Conversation,
+    HumanModelTask {
+        source_inputs: atlas_agent::InputSnapshot,
+        authored: String,
+    },
+}
+
 impl SlateApp {
+    pub(crate) fn prepare_model_task_request(
+        &mut self,
+        portal: NodeId,
+        prompt: String,
+        workspace: PathBuf,
+        source_inputs: atlas_agent::InputSnapshot,
+        authored: String,
+        inputs: atlas_agent::InputSnapshot,
+    ) -> Option<NodeId> {
+        let result = (|| -> Result<(), String> {
+            self.validate_model_generator_send(portal)?;
+            let node = self.doc().scene.node(portal).ok_or("Model was removed")?;
+            let agent = slate_doc::agent_chat::agent(node)
+                .ok_or("Choose a native model agent")?
+                .clone();
+            if self.tab().read_only || node.locked {
+                return Err("Model is read-only or locked".into());
+            }
+            if agent.session.is_empty() {
+                return Err("Choose a native model agent before sending".into());
+            }
+            let history = match agent.generator.preserve_history {
+                Some(true) => {
+                    // Ordinary Model hosts are not chat trains. Their optional
+                    // memory is the existing public checkpoint, quoted into the
+                    // fresh task; native model preservation is independent.
+                    let dir = self
+                        .agent_link_dir(portal, &workspace)
+                        .ok_or("Model history source is unavailable")?;
+                    let snapshot = self.agents.sources.history_snapshot(&dir)?;
+                    if snapshot.as_ref().is_some_and(|session| {
+                        !session.provider.is_empty() && session.provider != agent.provider
+                    }) {
+                        return Err("Model history belongs to a different provider".into());
+                    }
+                    // The task completion pump can observe this source before
+                    // the node's display/local cache reconciles. Its loaded
+                    // public checkpoint must not be shadowed by that cache.
+                    let turns = match snapshot {
+                        Some(session) => session.turns.clone(),
+                        None if self.agents.bindings.get(&portal) == Some(&agent.session) => {
+                            self.agent_all_turns(portal)
+                        }
+                        None => Vec::new(),
+                    };
+                    atlas_agent::checkpoint(&turns, agent.chat.end)?
+                        .iter()
+                        .filter(|turn| turn.role != "assistant" || !turn.text.trim().is_empty())
+                        .cloned()
+                        .collect()
+                }
+                Some(false) => Vec::new(),
+                None => {
+                    self.prepare_agent_train_send(portal, &workspace)
+                        .ok_or("Model history could not be prepared")?
+                        .1
+                }
+            };
+            let request = AgentRequest {
+                id: atlas_agent::request_id(),
+                prompt,
+                prompt_inputs_projected: true,
+                pending_prompt_projection: Some(atlas_agent::PromptProjection {
+                    authored: authored.clone(),
+                    separator: "\n\n".into(),
+                    static_instructions: String::new(),
+                }),
+                model: agent.model,
+                model_parameters: agent.model_parameters,
+                at: atlas_ai::context::now_secs(),
+                inputs,
+                history,
+                text_source: None,
+                image: None,
+                artifact: None,
+                image_history: None,
+                image_history_prefix: None,
+                collaborator: None,
+                output_dir: self.agent_output_dir(portal, &workspace, &agent.session),
+                oneshot: false,
+                policy: atlas_agent::TurnPolicy::Default,
+                relayed_from: None,
+                goal: None,
+            };
+            self.queue_model_task_request(portal, workspace, source_inputs, authored, request)
+        })();
+        if let Err(error) = result {
+            self.fail_agent_await(portal, error);
+        }
+        None
+    }
+
+    /// Task staging uses the ordinary provider submission and public transcript.
+    pub(crate) fn dispatch_model_task_request(
+        &mut self,
+        portal: NodeId,
+        request: AgentRequest,
+        workspace: &std::path::Path,
+        authored: &str,
+        deadline_unix_ms: u64,
+    ) -> bool {
+        if !self.submit_prepared_agent_request_until(
+            portal,
+            request.clone(),
+            workspace,
+            Some(deadline_unix_ms),
+        ) {
+            return false;
+        }
+        let turns = self
+            .agents
+            .local_turns
+            .entry(portal)
+            .or_insert_with(|| request.history.clone());
+        turns.push(AgentTurn {
+            role: "user".into(),
+            text: request.prompt.clone(),
+            at: request.at,
+        });
+        if self.agents.prompt(portal).unwrap_or_default() == authored {
+            self.agents.prompt_mut(portal).clear();
+            self.commit_instruction(portal);
+        }
+        true
+    }
+
+    pub(crate) fn poll_model_task_inputs(
+        &mut self,
+        portal: NodeId,
+        prep: &mut super::input_prep::InputPreparation,
+        request: &mut AgentRequest,
+    ) -> Result<bool, String> {
+        if !self.poll_agent_input_preparation(prep)? {
+            return Ok(false);
+        }
+        request.inputs = prep.inputs.clone();
+        self.capture_prepared_generator_inputs(portal, prep, request, false)
+    }
+
     pub(super) fn send_agent_prompt_prepared(
         &mut self,
         portal: NodeId,
@@ -37,6 +185,20 @@ impl SlateApp {
         origin: super::runtime::ChatSendOrigin,
         inputs: atlas_agent::InputSnapshot,
     ) -> Option<NodeId> {
+        if let super::runtime::ChatSendPurpose::HumanModelTask {
+            source_inputs,
+            authored,
+        } = &origin.purpose
+        {
+            return self.prepare_model_task_request(
+                portal,
+                prompt,
+                ws,
+                source_inputs.clone(),
+                authored.clone(),
+                inputs,
+            );
+        }
         if let Err(error) = self.validate_chat_train_send(portal) {
             self.fail_agent_await(portal, error);
             return None;
@@ -85,6 +247,8 @@ impl SlateApp {
             inputs,
             id: request_id,
             prompt,
+            prompt_inputs_projected: true,
+            pending_prompt_projection: None,
             at: atlas_ai::context::now_secs(),
             image: None,
             artifact: None,
@@ -236,6 +400,7 @@ mod native_tools_tests {
             "Inspect the wired Rhino model".into(),
             workspace,
             super::super::runtime::ChatSendOrigin {
+                purpose: super::super::runtime::ChatSendPurpose::Conversation,
                 typing_here: false,
                 relayed_from: None,
                 preserve_composer: false,

@@ -144,6 +144,90 @@ fn generator_creation_rejects_invalid_aspect_count_and_unknown_controls() {
 }
 
 #[test]
+fn drifted_image_count_capture_preserves_deferred_agent_witness_and_author() {
+    let mut h = host("scoped-count-drift-witness");
+    let created = h
+        .app
+        .prepare_targeted_command("board.objects.create_generator", &[], &args("openai-image"))
+        .unwrap();
+    let generator = created.created_ids()[0];
+    h.app
+        .finish_targeted_command(created, "Dot", true, "owner")
+        .unwrap();
+    let picked = h.base.join("picked.png");
+    image::RgbImage::new(8, 8).save(&picked).unwrap();
+    let item = h
+        .app
+        .doc_mut()
+        .add_item(picked, "picked.png", 1, 1, "picked");
+    h.app.patch_nodes(&[generator], |node| {
+        let NodeKind::Image(image) = &mut node.kind else {
+            panic!()
+        };
+        image.item = item;
+        let agent = image.agent.as_mut().unwrap();
+        agent.image.count = 2;
+        agent.generator.count = Some(1);
+    });
+    let before = h.app.doc().scene.nodes.clone();
+    let depth = h.app.tab().journal.undo_depth();
+    let captured = h
+        .app
+        .generation_request_with_prompt(generator, false, None)
+        .unwrap();
+    assert_eq!(captured.image.as_ref().unwrap().count, 2);
+    assert_eq!(
+        h.app.doc().scene.nodes,
+        before,
+        "request capture cannot invalidate witnessed commands"
+    );
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        depth,
+        "an agent preflight creates no Human journal step"
+    );
+    let prepared = h
+        .app
+        .prepare_targeted_command("portal.agent.run", &[generator.0.to_string()], &json!({}))
+        .unwrap();
+    h.app
+        .finish_targeted_command(prepared, "Dot", true, "owner")
+        .unwrap();
+    let NodeKind::Image(image) = &h.app.doc().scene.node(generator).unwrap().kind else {
+        panic!()
+    };
+    assert_eq!(
+        image.item,
+        slate_doc::ItemId::NONE,
+        "the original witnessed picked-image patch commits"
+    );
+    let agent = image.agent.as_ref().unwrap();
+    assert_eq!(agent.image.count, 2);
+    assert_eq!(
+        agent.generator.count,
+        Some(1),
+        "collaborator admission does not repair as Human"
+    );
+    assert_eq!(
+        h.app
+            .agents
+            .dispatched
+            .last()
+            .unwrap()
+            .1
+            .image
+            .as_ref()
+            .unwrap()
+            .count,
+        2
+    );
+    assert_eq!(
+        h.app.tab().journal.last_author(),
+        Some(&CmdAuthor::Agent("Dot".into()))
+    );
+}
+
+#[test]
 fn provider_run_overrides_aspect_and_count_while_preserving_seed() {
     let mut h = host("scoped-generator-run-settings");
     let created = h

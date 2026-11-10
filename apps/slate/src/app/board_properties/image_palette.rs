@@ -63,8 +63,14 @@ impl SlateApp {
     ) -> f32 {
         if self.slate_nesting()
             || !(matches!(node.kind, NodeKind::Image(_) | NodeKind::Portal(_))
-                || matches!(node.kind, NodeKind::Text(_)) && self.is_text_block(node.id))
+                || matches!(node.kind, NodeKind::Text(_))
+                    && self.generator_source_kind(node.id)
+                        == Some(crate::app::board_flow::PendingHost::Text))
             || self.agent_picture_draw_mode(node.id)
+            // The body must occlude the interior of the media shadow. Text
+            // without a solid fill otherwise exposes it behind its glyphs.
+            || matches!(&node.kind, NodeKind::Text(text) if node.opacity < 1.0
+                || text.fill.is_none_or(|fill| fill.0[3] < 255))
         {
             return 0.0;
         }

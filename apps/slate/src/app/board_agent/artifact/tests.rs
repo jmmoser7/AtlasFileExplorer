@@ -7,8 +7,18 @@ use slate_doc::scene::{ConnectorEnd, Side};
 
 #[path = "tests/approval.rs"]
 mod approval;
+#[path = "tests/composer_reset.rs"]
+mod composer_reset;
+#[path = "tests/count_composer.rs"]
+mod count_composer;
+#[path = "tests/dynamic_prompts.rs"]
+mod dynamic_prompts;
 #[path = "tests/feedback.rs"]
 mod feedback;
+#[path = "tests/first_save.rs"]
+mod first_save;
+#[path = "tests/followup_content.rs"]
+mod followup_content;
 #[path = "tests/graft_review.rs"]
 mod graft_review;
 #[path = "tests/grafts.rs"]
@@ -19,6 +29,10 @@ mod lineage;
 mod result_removal;
 #[path = "tests/revision_fixture.rs"]
 mod revision_fixture;
+#[path = "tests/subscription_scope.rs"]
+mod subscription_scope;
+#[path = "tests/terminal_failure.rs"]
+mod terminal_failure;
 pub(super) use revision_fixture::fixture_revision;
 
 pub(super) fn board(tag: &str) -> (Harness, NodeId) {

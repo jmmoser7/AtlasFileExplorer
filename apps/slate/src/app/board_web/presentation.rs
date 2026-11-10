@@ -297,6 +297,10 @@ impl SlateApp {
     ) {
         let fade = |c: Color32| c.gamma_multiply(alpha);
         let (headline, detail) = match state {
+            WebState::Unbound if self.is_artifact_node(id) && self.agent_failure_reason(id).is_some() => (
+                "Artifact generation failed".to_string(),
+                self.agent_failure_reason(id).unwrap().to_owned(),
+            ),
             WebState::Unbound if self.is_artifact_node(id) => (
                 "Interactive artifact".to_string(),
                 "Describe your dashboard in the generator below.".to_string(),

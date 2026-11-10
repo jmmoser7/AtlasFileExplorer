@@ -109,3 +109,93 @@ fn bounded_dialect_checks_types_required_enum_and_bounds_without_coercion() {
         "properties":{"count":{"type":"integer", "enum":[2]}}});
     validate_parameters(&numeric_enum, &json!({"count":2.0})).unwrap();
 }
+
+fn json_string_schema() -> serde_json::Value {
+    json!({"type":"object","additionalProperties":false,"required":["plan"],
+        "properties":{"plan":{"type":"string","contentMediaType":"application/json","maxLength":24576}}})
+}
+
+#[test]
+fn annotated_json_strings_have_a_local_byte_limit_and_require_json() {
+    let schema = json_string_schema();
+    validate_parameter_schema(&schema).unwrap();
+    for length in [4097, 24576] {
+        let encoded = format!("\"{}\"", "x".repeat(length - 2));
+        assert_eq!(encoded.len(), length);
+        validate_parameters(&schema, &json!({"plan":encoded})).unwrap();
+    }
+    for invalid in [
+        "Create a model".to_owned(),
+        "{\"kind\":\"mesh\"".to_owned(),
+        format!("\"{}\"", "x".repeat(24575)),
+        // Fewer than 24576 characters still exceeds the UTF-8 byte cap.
+        serde_json::to_string(&"é".repeat(12288)).unwrap(),
+    ] {
+        assert_eq!(
+            validate_parameters(&schema, &json!({"plan":invalid}))
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
+    }
+    let mut ordinary = schema.clone();
+    ordinary["properties"]["plan"]
+        .as_object_mut()
+        .unwrap()
+        .remove("contentMediaType");
+    assert_eq!(
+        validate_parameter_schema(&ordinary).unwrap_err().code,
+        ErrorCode::InvalidDescriptor
+    );
+    ordinary["properties"]["plan"]["maxLength"] = json!(4096);
+    assert!(validate_parameters(&ordinary, &json!({"plan":"x".repeat(4097)})).is_err());
+    validate_parameters(&ordinary, &json!({"plan":"x".repeat(4096)})).unwrap();
+}
+
+#[test]
+fn content_annotation_is_closed_and_does_not_enable_nested_schemas() {
+    for annotation in [
+        json!("text/plain"),
+        json!("Application/JSON"),
+        json!(true),
+        json!(null),
+    ] {
+        let mut schema = json_string_schema();
+        schema["properties"]["plan"]["contentMediaType"] = annotation;
+        assert!(validate_parameter_schema(&schema).is_err());
+    }
+    let mut nonstring = json_string_schema();
+    nonstring["properties"]["plan"]["type"] = json!("object");
+    assert!(validate_parameter_schema(&nonstring).is_err());
+    let mut oversize = json_string_schema();
+    oversize["properties"]["plan"]["maxLength"] = json!(24577);
+    assert!(validate_parameter_schema(&oversize).is_err());
+    let mut enum_schema = json_string_schema();
+    enum_schema["properties"]["plan"]["enum"] = json!(["not JSON"]);
+    assert!(validate_parameter_schema(&enum_schema).is_err());
+}
+
+#[test]
+fn annotated_json_keeps_the_exact_serialized_parameter_envelope_bound() {
+    let mut schema = json_string_schema();
+    let shape = schema["properties"]["plan"].clone();
+    schema["properties"]["second"] = shape.clone();
+    schema["properties"]["third"] = shape;
+    // Escaped quotes/backslashes are part of the outer parameter byte count.
+    let encoded = serde_json::to_string(&"\\\"".repeat(5000)).unwrap();
+    let one = json!({"plan":encoded});
+    assert!(serde_json::to_vec(&one).unwrap().len() > encoded.len());
+    validate_parameters(&schema, &one).unwrap();
+    let encoded = format!("\"{}\"", "x".repeat(24000));
+    let two = json!({"plan":encoded,"second":encoded});
+    assert!(serde_json::to_vec(&two).unwrap().len() < MAX_PARAMETER_BYTES);
+    validate_parameters(&schema, &two).unwrap();
+    let three = json!({"plan":encoded,"second":encoded,"third":encoded});
+    assert!(serde_json::to_vec(&three).unwrap().len() > MAX_PARAMETER_BYTES);
+    assert_eq!(
+        validate_parameters(&schema, &three).unwrap_err().code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(MAX_PARAMETER_STRING, 4096);
+    assert_eq!(MAX_PARAMETER_BYTES, 65536);
+}

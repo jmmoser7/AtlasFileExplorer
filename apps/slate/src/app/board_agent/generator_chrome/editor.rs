@@ -36,14 +36,10 @@ impl SlateApp {
         id: NodeId,
         width: f32,
     ) -> chrome::GeneratorLayout {
-        let prompt = self
-            .agents
-            .prompt(id)
-            .or_else(|| self.pending_generator_prompt(id))
-            .unwrap_or("");
-        let lines = tools::image_prompt_line_count(painter, prompt, width);
+        let prompt = self.agent_prompt_text(id);
+        let lines = tools::image_prompt_line_count(painter, &prompt, width);
         let data = self.generator_chrome_data(id);
-        let mut state = self.generator_presentation(id).activity.unwrap_or_default();
+        let mut state = self.generator_activity_state(id, self.generator_presentation(id).activity);
         let view = data.view(&mut state, self.agent_is_running(id));
         let count = self.result_outputs(id).len();
         chrome::generator_layout(
@@ -51,7 +47,7 @@ impl SlateApp {
             width,
             "Model",
             Some("Settings"),
-            chrome::GeneratorContent::new(lines, count, None, None, &view),
+            chrome::GeneratorContent::new(lines, count, self.agent_failure_reason(id), None, &view),
         )
     }
     pub(crate) fn bound_generator_height(
@@ -96,7 +92,7 @@ impl SlateApp {
             &text_history
         };
         let mut presentation = self.generator_presentation(id);
-        let mut state = presentation.activity.unwrap_or_default();
+        let mut state = self.generator_activity_state(id, presentation.activity);
         let agent = self
             .doc()
             .scene
@@ -129,7 +125,7 @@ impl SlateApp {
                 history,
                 selected_history: selected_model,
                 running: self.agent_is_running(id),
-                status: None,
+                status: self.agent_failure_reason(id),
                 approval: None,
                 approval_interactive: false,
                 chrome: view,
@@ -162,6 +158,9 @@ impl SlateApp {
                     transform * response.rect,
                 )
             });
+        }
+        if out.activity_fold.is_some() {
+            self.note_model_activity_fold(id);
         }
         self.restore_generator_presentation(id, out.presentation);
         if out.board_access {
@@ -223,7 +222,7 @@ impl SlateApp {
                 .and_then(slate_doc::agent_chat::agent)
                 .is_some()
         {
-            *self.agents.prompt_mut(id) = edit.prompt.clone();
+            self.edit_agent_prompt_text(id, edit.prompt.clone());
             out.prompt.changed = false;
             self.commit_instruction(id);
             self.board_sel = [id].into_iter().collect();

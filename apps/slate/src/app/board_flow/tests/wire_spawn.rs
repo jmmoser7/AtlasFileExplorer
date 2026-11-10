@@ -1,6 +1,92 @@
 //! Typed Image output shortcut preserves unrelated native grip and Text spawn routes.
 use super::*;
 
+#[test]
+fn primary_output_drag_from_an_open_native_agent_reaches_the_chooser_without_panning() {
+    for text in [false, true] {
+        let (mut h, generator) = generator_with_output("open-native-agent-output-drag");
+        h.app.set_board_tool(crate::app::board::BoardTool::Select);
+        let mut agent = slate_doc::agent_chat::agent(h.app.doc().scene.node(generator).unwrap())
+            .unwrap()
+            .clone();
+        agent.generator.preserve_history = Some(false);
+        h.app.delete_board_nodes(&[generator]);
+        let source = if text {
+            agent.view = PortalView::Text;
+            agent.provider = "ollama".into();
+            let mut body = slate_doc::scene::TextNode::agent_note(agent);
+            body.text = "Owned native text for review.".into();
+            body.fill = None;
+            let node = h.app.doc_mut().scene.build_node(
+                slate_doc::WorldRect::new(-325.0, -195.0, 650.0, 390.0),
+                NodeKind::Text(body),
+            );
+            let id = node.id;
+            h.app.add_nodes(vec![node]);
+            id
+        } else {
+            let id = place(&mut h, "ordinary-output.png", 0.0);
+            h.app.patch_nodes(&[id], |node| {
+                node.rect = slate_doc::WorldRect::new(-325.0, -195.0, 650.0, 390.0);
+                if let NodeKind::Image(image) = &mut node.kind {
+                    image.agent = Some(Box::new(agent.clone()));
+                }
+            });
+            id
+        };
+        h.app.board_sel = [source].into_iter().collect();
+        crate::app::tests::frame_on(&mut h, source, 0.66);
+        assert!(h
+            .app
+            .open_object_panel(crate::app::board_properties::Panel::Agent));
+        h.frame();
+        h.frame();
+        let xf = h.app.board_xf();
+        let node = h.app.doc().scene.node(source).unwrap();
+        let point = Pos2::from(h.app.wire_input_host(node).anchor(Side::Right, OUTPUT_T));
+        let start = xf.w2s(point);
+        let drop = start + egui::vec2(100.0, 120.0);
+        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(start)));
+        assert_eq!(
+            h.app.wire_grip_at(start, &h.app.board_xf()),
+            Some((source, Side::Right, OUTPUT_T))
+        );
+        let camera = h.app.tab().cam.offset;
+        h.frame_with(|input| {
+            input.events.push(egui::Event::PointerButton {
+                pos: start,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            })
+        });
+        assert_eq!(
+            h.app.shape_properties.panel,
+            Some(crate::app::board_properties::Panel::Agent),
+            "port press is not click-away"
+        );
+        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(drop)));
+        assert!(
+            matches!(h.app.board_drag, Some(BoardDrag::Wire(_))),
+            "real primary pointer movement starts the wire gesture"
+        );
+        assert_eq!(h.app.tab().cam.offset, camera);
+        h.frame_with(|input| {
+            input.events.push(egui::Event::PointerButton {
+                pos: drop,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            })
+        });
+        assert!(
+            h.app.agents.flow.menu.is_some(),
+            "dropping the output offers the real modality chooser"
+        );
+        assert_eq!(h.app.tab().cam.offset, camera);
+    }
+}
+
 fn label(shape: &egui::Shape, caption: &str) -> Option<Pos2> {
     match shape {
         egui::Shape::Text(text) if text.galley.text() == caption => {
@@ -73,6 +159,53 @@ fn output_chooser_creates_only_the_clicked_modality_with_no_automatic_run() {
         }
         assert!(h.app.board_sel.is_empty());
         assert!(h.app.shape_properties.panel.is_none());
+        assert!(h.app.agents.dispatched.is_empty());
+        assert_all_agent_inputs(&h, child);
+        assert!(!h.app.source_agent_dialogue_open(child));
+        assert!(!h.app.source_agent_inputs_visible(source));
+        h.app.board_undo();
+        assert!(h.app.doc().scene.node(child).is_none());
+        assert!(!h.app.source_agent_inputs_visible(child));
+        h.app.board_redo();
+        assert_all_agent_inputs(&h, child);
+        let saved = serde_json::to_vec(h.app.doc()).unwrap();
+        h.app.tab_mut().doc = serde_json::from_slice(&saved).unwrap();
+        assert_all_agent_inputs(&h, child);
+        assert!(!h.app.source_agent_inputs_visible(source));
+    }
+}
+
+fn assert_all_agent_inputs(h: &crate::app::tests::Harness, id: NodeId) {
+    let node = h.app.doc().scene.node(id).unwrap();
+    let inputs = h.app.wire_input_ports(node);
+    assert!(!inputs.is_empty());
+    let presented = h.app.presented_wire_ports(node);
+    for input in inputs {
+        assert!(h.app.source_agent_input_visible(id, input.slot));
+        assert!(
+            presented
+                .iter()
+                .any(|port| { port.side == Side::Left && (port.t - input.t).abs() < 0.001 }),
+            "missing {:?} on wire-created child",
+            input.slot
+        );
+    }
+}
+
+#[test]
+fn ordinary_source_output_spawn_activates_every_child_input_without_a_dialogue_or_run() {
+    for kind in ["image", "text", "artifact"] {
+        let (mut h, _) = generator_with_output(&format!("ordinary-wire-child-{kind}"));
+        let source = place(&mut h, "ordinary-source.png", -600.);
+        let detail = serde_json::json!({
+            "source": source.0, "kind": kind, "chooser": true, "at": [1400., 200.]
+        });
+        let before = h.app.doc().scene.nodes.len();
+        assert!(h.app.spawn_flow_node(Some(&detail.to_string())));
+        let child = h.app.doc().scene.nodes[before].id;
+        assert_all_agent_inputs(&h, child);
+        assert!(!h.app.source_agent_inputs_visible(source));
+        assert!(!h.app.source_agent_dialogue_open(child));
         assert!(h.app.agents.dispatched.is_empty());
     }
 }

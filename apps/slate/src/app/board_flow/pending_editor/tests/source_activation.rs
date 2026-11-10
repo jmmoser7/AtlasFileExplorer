@@ -180,20 +180,20 @@ fn real_input_wires_remain_inspectable_and_visibility_tracks_undo_and_redo() {
     assert!(h
         .app
         .source_agent_input_visible(target, atlas_agent::InputSlot::Prompt));
-    assert!(!h
+    assert!(h
         .app
         .source_agent_input_visible(target, atlas_agent::InputSlot::Media));
-    assert!(!h
+    assert!(h
         .app
         .source_agent_input_visible(target, atlas_agent::InputSlot::Style));
     let target_node = h.app.doc().scene.node(target).unwrap();
     let actual = h.app.presented_wire_ports(target_node);
     assert_eq!(
         actual.len(),
-        2,
-        "closed source shows only its real Prompt connection plus output"
+        4,
+        "an authored input implicitly activates every applicable grip plus output"
     );
-    assert_eq!(actual[0].t, agent_inputs::GENERATOR_PORTS[1].t);
+    assert_eq!(actual[0].t, agent_inputs::GENERATOR_PORTS[0].t);
     assert_eq!(
         actual[0].point,
         h.app
@@ -209,6 +209,12 @@ fn real_input_wires_remain_inspectable_and_visibility_tracks_undo_and_redo() {
     assert!(!h.app.source_agent_inputs_visible(target));
     h.app.board_redo();
     assert!(h.app.source_agent_inputs_visible(target));
+    let saved = serde_json::to_vec(h.app.doc()).unwrap();
+    h.app.tab_mut().doc = serde_json::from_slice(&saved).unwrap();
+    assert!(h
+        .app
+        .source_agent_input_visible(target, atlas_agent::InputSlot::Style));
+    assert!(!h.app.source_agent_inputs_visible(source));
     assert!(h.app.agents.dispatched.is_empty());
 }
 
@@ -253,8 +259,8 @@ fn actual_wire_snap_rejects_hidden_inputs_then_accepts_connected_and_expanded_sl
     );
     assert_eq!(
         h.app.wire_snap_target(media, picture_from),
-        None,
-        "one Prompt binding does not expose unused Media"
+        Some((target, Side::Left, media_t)),
+        "one typed Prompt input implicitly activates the unused Media grip"
     );
     h.app.board_sel = [target].into_iter().collect();
     assert!(h
@@ -268,5 +274,54 @@ fn actual_wire_snap_rejects_hidden_inputs_then_accepts_connected_and_expanded_sl
         h.app.wire_snap_target(prompt, words_from),
         Some((target, Side::Left, prompt_t))
     );
+    assert!(h.app.agents.dispatched.is_empty());
+}
+
+#[test]
+fn history_and_geometry_wires_do_not_implicitly_activate_generation_inputs() {
+    let mut h = prepare("simple-source-nongeneration-wires");
+    let source = super::super::tests::place(&mut h, "brief.txt", 0.);
+    let target = super::super::tests::place(&mut h, "target.png", 800.);
+    let wire = h
+        .app
+        .add_connector(
+            ConnectorEnd::Anchored {
+                node: source,
+                side: Side::Right,
+                t: agent_inputs::OUTPUT_T,
+            },
+            ConnectorEnd::Anchored {
+                node: target,
+                side: Side::Left,
+                t: agent_inputs::GENERATOR_PORTS[1].t,
+            },
+        )
+        .unwrap();
+    assert!(h
+        .app
+        .source_agent_input_visible(target, atlas_agent::InputSlot::Style));
+    h.app.patch_nodes(&[wire], |node| {
+        let NodeKind::Connector(connector) = &mut node.kind else {
+            panic!()
+        };
+        let binding = connector.binding.as_mut().unwrap();
+        binding.kind = agent_inputs::InputKind::Memory;
+        binding.slot = Some("generator_memory".into());
+    });
+    assert!(!h.app.source_agent_inputs_visible(target));
+    h.app.board_undo();
+    assert!(h
+        .app
+        .source_agent_input_visible(target, atlas_agent::InputSlot::Style));
+    h.app.board_redo();
+    assert!(!h.app.source_agent_inputs_visible(target));
+    h.app.patch_nodes(&[wire], |node| {
+        let NodeKind::Connector(connector) = &mut node.kind else {
+            panic!()
+        };
+        connector.binding = None;
+    });
+    assert!(!h.app.source_agent_inputs_visible(target));
+    assert!(!h.app.source_agent_inputs_visible(source));
     assert!(h.app.agents.dispatched.is_empty());
 }

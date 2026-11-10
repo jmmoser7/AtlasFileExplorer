@@ -68,17 +68,11 @@ impl SlateApp {
         } else {
             Vec::new()
         };
-        let tab = self.tab_mut();
-        tab.dirty = true;
-        let doc = &mut tab.doc;
-        let ok = tab.journal.commit_as(&mut doc.scene, cmds, author);
+        let ok = self.commit_scene_in(self.tab().id, cmds, author);
         if ok {
             self.restore_image_paint_focus(image_focus);
             self.remember_document_colors(colors);
             self.paint_layer_texture_cache.clear();
-            let tab = self.tab_mut();
-            tab.edits.push(BoardMark::Scene);
-            tab.edit_redo.clear();
         }
         self.note_scene_change();
         if ok && !mentions.is_empty() {
@@ -87,6 +81,28 @@ impl SlateApp {
         ok
     }
 
+    /// Witnessed journal commit for one workbook, without borrowing the visible tab.
+    pub(crate) fn commit_scene_in(
+        &mut self,
+        doc: u64,
+        cmds: Vec<SceneCmd>,
+        author: slate_doc::scene::CmdAuthor,
+    ) -> bool {
+        let Some(tab) = self
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.id == doc && !tab.read_only)
+        else {
+            return false;
+        };
+        tab.dirty = true;
+        let ok = tab.journal.commit_as(&mut tab.doc.scene, cmds, author);
+        if ok {
+            tab.edits.push(BoardMark::Scene);
+            tab.edit_redo.clear();
+        }
+        ok
+    }
     /// The scene journal may amend only while it owns the newest mixed step.
     pub(crate) fn can_amend_scene_step(&self) -> bool {
         let tab = self.tab();

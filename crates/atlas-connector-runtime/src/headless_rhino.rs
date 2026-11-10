@@ -1,6 +1,7 @@
 //! Closed Rhino SDK jobs, called on a worker after existing Session::begin admission.
 //! No connector transport, surface, source write-back or preview renderer is replaced.
 mod plan;
+mod plan_contract;
 mod session;
 mod worker;
 pub use plan::{GeometryOperation, GeometryPlan, Units};
@@ -23,7 +24,11 @@ pub fn command_descriptor() -> atlas_connector::CommandDescriptor {
             "type":"object", "additionalProperties":false,
             "required":["plan"],
             "properties":{
-                "plan":{"type":"string","minLength":1,"maxLength":4096}
+                "plan":{
+                    "type":"string","minLength":1,"maxLength":24576,
+                    "contentMediaType":"application/json",
+                    "description":plan_contract::description()
+                }
             }
         }),
     }

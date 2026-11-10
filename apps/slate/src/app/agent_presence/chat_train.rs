@@ -37,6 +37,11 @@ impl SlateApp {
     pub(crate) fn native_model_harness(provider: &str) -> bool {
         provider == "codex"
     }
+    /// Explicit human generation has a separate scoped transport from Board membership.
+    pub(crate) fn scoped_model_harness(provider: &str) -> bool {
+        Self::native_model_harness(provider)
+            || atlas_ai::runtime::subscription_provider(provider).is_some()
+    }
     fn chat_membership_can_run(&self, session: &str) -> bool {
         self.presence.agents.iter().any(|a| {
             a.profile.id == session
@@ -47,7 +52,24 @@ impl SlateApp {
         })
     }
 
-    pub(crate) fn validate_chat_train_send(&self, portal: NodeId) -> Result<(), String> {
+    pub(crate) fn validate_model_generator_count(&self, portal: NodeId) -> Result<(), String> {
+        if self.model_node_info(portal).is_some() {
+            if let Some(agent) = self
+                .doc()
+                .scene
+                .node(portal)
+                .and_then(slate_doc::agent_chat::agent)
+            {
+                if agent.generator.count.unwrap_or(agent.image.count).max(1) > 1 {
+                    return Err("Independent 3D alternatives are not supported yet. Set Count to 1 before sending.".into());
+                }
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn validate_model_generator_send(&self, portal: NodeId) -> Result<(), String> {
+        self.validate_model_generator_count(portal)?;
+        self.validate_subscription_source_choice(portal)?;
         if self.model_node_info(portal).is_some() {
             let agent = self
                 .doc()
@@ -55,7 +77,7 @@ impl SlateApp {
                 .node(portal)
                 .and_then(slate_doc::agent_chat::agent)
                 .ok_or("Choose a native model agent first")?;
-            if !Self::native_model_harness(&agent.provider) {
+            if !Self::scoped_model_harness(&agent.provider) {
                 return Err("This provider has no supported native model transport".into());
             }
             if !self
@@ -72,10 +94,14 @@ impl SlateApp {
                     "Choose an available model from the configured native agent catalog".into(),
                 );
             }
-            if self.attached_native_model(portal).is_none() {
+            if self.headless_model_agent_context(portal).is_none() {
                 return Err("Set up this model's supported headless binding before sending".into());
             }
         }
+        Ok(())
+    }
+    pub(crate) fn validate_chat_train_send(&self, portal: NodeId) -> Result<(), String> {
+        self.validate_model_generator_send(portal)?;
         if let Some((session, provider)) = self.agent_session_for(portal) {
             if provider == "codex"
                 && self.has_native_chat_context(portal, &session)

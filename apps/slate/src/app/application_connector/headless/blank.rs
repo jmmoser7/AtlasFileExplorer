@@ -18,6 +18,7 @@ struct Downstream {
     source_kind: slate_doc::agent_inputs::InputKind,
     provider: String,
     model: String,
+    parameters: std::collections::BTreeMap<String, String>,
     history: Option<slate_doc::agent_inputs::GeneratorMemoryPin>,
 }
 
@@ -43,16 +44,6 @@ impl SlateApp {
         at: Option<[f32; 2]>,
         from: Option<(slate_doc::scene::Side, f32)>,
     ) -> Result<(), String> {
-        let program = self.blank_model_program()?;
-        let model = self
-            .agents
-            .catalog(&program.id)
-            .iter()
-            .find(|model| model.is_default)
-            .or_else(|| self.agents.catalog(&program.id).first())
-            .ok_or("Choose an available native model before creating a downstream 3D builder")?
-            .id
-            .clone();
         let parent = self
             .doc()
             .scene
@@ -65,6 +56,10 @@ impl SlateApp {
             self.doc().item(item).map(|file| file.path.as_path())
         })
         .ok_or("The source has no compatible output")?;
+        let (program, model, parameters) =
+            self.blank_model_choice(source_kind == slate_doc::agent_inputs::InputKind::Images)?;
+        let model = model
+            .ok_or("Choose an available native model before creating a downstream 3D builder")?;
         let point = at.unwrap_or([parent.rect.x + parent.rect.w + 180., parent.rect.y + 48.]);
         if point
             .iter()
@@ -92,20 +87,83 @@ impl SlateApp {
                 source_kind,
                 provider: program.id,
                 model,
+                parameters,
                 history,
             }),
         )
     }
 
-    fn blank_model_program(&self) -> Result<atlas_ai::agent::AgentProvider, String> {
-        self.registered_agent_programs()
-            .iter()
-            .find(|program| Self::native_model_harness(&program.id))
+    fn blank_model_program(
+        &self,
+        requires_vision: bool,
+    ) -> Result<atlas_ai::agent::AgentProvider, String> {
+        let preferred = self.default_native_model();
+        let programs = self.registered_agent_programs();
+        let compatible = |program: &atlas_ai::agent::AgentProvider| {
+            Self::scoped_model_harness(&program.id)
+                && (atlas_ai::runtime::subscription_provider(&program.id).is_none()
+                    || self.agents.catalog(&program.id).iter().any(|model| {
+                        model.capabilities.is_some_and(|caps| {
+                            caps.supports(atlas_agent::OutputTask::Model, requires_vision)
+                        })
+                    }))
+        };
+        preferred
+            .as_ref()
+            .and_then(|(provider, _)| {
+                programs
+                    .iter()
+                    .find(|program| program.id == *provider && compatible(program))
+            })
+            .or_else(|| programs.iter().find(|program| compatible(program)))
             .cloned()
             .ok_or_else(|| {
                 "Set up a supported native model agent before creating a downstream 3D builder"
                     .into()
             })
+    }
+
+    /// Use the same compatible agentic preference and parameter owner as ordinary 3D.
+    fn blank_model_choice(
+        &self,
+        requires_vision: bool,
+    ) -> Result<
+        (
+            atlas_ai::agent::AgentProvider,
+            Option<String>,
+            std::collections::BTreeMap<String, String>,
+        ),
+        String,
+    > {
+        let program = self.blank_model_program(requires_vision)?;
+        let catalog = self
+            .agents
+            .catalog(atlas_ai::agent::model_catalog(&program.id));
+        let compatible = |entry: &&atlas_agent::AgentModel| {
+            atlas_ai::runtime::subscription_provider(&program.id).is_none()
+                || entry.capabilities.is_some_and(|caps| {
+                    caps.supports(atlas_agent::OutputTask::Model, requires_vision)
+                })
+        };
+        let model = self
+            .default_native_model()
+            .filter(|(provider, _)| provider == &program.id)
+            .and_then(|(_, model)| {
+                catalog
+                    .iter()
+                    .filter(compatible)
+                    .find(|entry| entry.id == model)
+            })
+            .or_else(|| {
+                catalog
+                    .iter()
+                    .filter(compatible)
+                    .find(|model| model.is_default)
+            })
+            .or_else(|| catalog.iter().filter(compatible).next())
+            .map(|model| model.id.clone());
+        let parameters = self.default_model_parameters(&program.id, model.as_deref().unwrap_or(""));
+        Ok((program, model, parameters))
     }
 
     fn start_blank_model(
@@ -155,16 +213,28 @@ impl SlateApp {
                 .registered_agent_programs()
                 .iter()
                 .find(|program| {
-                    program.id == link.provider && Self::native_model_harness(&program.id)
+                    program.id == link.provider && Self::scoped_model_harness(&program.id)
                 })
                 .ok_or("The chosen native model agent is no longer available")?;
-            if !self
+            let offered = self
                 .agents
                 .catalog(&link.provider)
                 .iter()
-                .any(|model| model.id == link.model)
-            {
-                return Err("The chosen native model is no longer available".into());
+                .find(|model| model.id == link.model)
+                .ok_or("The chosen native model is no longer available")?;
+            if atlas_ai::runtime::subscription_provider(&link.provider).is_some() {
+                if !offered.capabilities.is_some_and(|caps| {
+                    caps.supports(
+                        atlas_agent::OutputTask::Model,
+                        link.source_kind == slate_doc::agent_inputs::InputKind::Images,
+                    )
+                }) {
+                    return Err(
+                        "The chosen model no longer supports this native task and its inputs"
+                            .into(),
+                    );
+                }
+                offered.validate_parameters(&link.parameters)?;
             }
             let parent = self
                 .doc()
@@ -180,7 +250,17 @@ impl SlateApp {
             if current_kind != link.source_kind {
                 return Err("The model source output changed while the blank was prepared".into());
             }
-            self.configure_blank_model_agent(&mut node, program, Some(link.model.clone()));
+            let parameters = self.compatible_model_parameters(
+                &link.provider,
+                &link.model,
+                link.parameters.clone(),
+            );
+            self.configure_blank_model_agent(
+                &mut node,
+                program,
+                Some(link.model.clone()),
+                &parameters,
+            );
             if let Some(agent) = slate_doc::agent_chat::agent_mut(&mut node) {
                 agent.generator.preserve_history = Some(link.history.is_some());
                 agent.generator.history_source = link.history.as_ref().map(|_| link.source);
@@ -229,15 +309,8 @@ impl SlateApp {
                 .chain(memory)
                 .collect())
         } else {
-            if let Ok(program) = self.blank_model_program() {
-                let model = self
-                    .agents
-                    .catalog(&program.id)
-                    .iter()
-                    .find(|model| model.is_default)
-                    .or_else(|| self.agents.catalog(&program.id).first())
-                    .map(|model| model.id.clone());
-                self.configure_blank_model_agent(&mut node, &program, model);
+            if let Ok((program, model, parameters)) = self.blank_model_choice(false) {
+                self.configure_blank_model_agent(&mut node, &program, model, &parameters);
             }
             Ok(vec![node])
         }
@@ -248,6 +321,7 @@ impl SlateApp {
         node: &mut slate_doc::Node,
         program: &atlas_ai::agent::AgentProvider,
         model: Option<String>,
+        parameters: &std::collections::BTreeMap<String, String>,
     ) {
         let rect = node.rect;
         if let NodeKind::Image(image) = &mut node.kind {
@@ -260,6 +334,7 @@ impl SlateApp {
             agent.view = atlas_agent::PortalView::Chat;
             agent.chat.train = false;
             agent.model = model;
+            agent.model_parameters.clone_from(parameters);
         }
     }
 
@@ -332,16 +407,9 @@ impl SlateApp {
         // Native headless activation does not depend on an AI provider.
         // Unbound graph metadata retains native output history without a
         // fabricated provider or a full Agent presentation.
-        let after = if let Ok(program) = self.blank_model_program() {
-            let model = self
-                .agents
-                .catalog(&program.id)
-                .iter()
-                .find(|model| model.is_default)
-                .or_else(|| self.agents.catalog(&program.id).first())
-                .map(|model| model.id.clone());
+        let after = if let Ok((program, model, parameters)) = self.blank_model_choice(false) {
             let mut after = before.clone();
-            self.configure_blank_model_agent(&mut after, &program, model);
+            self.configure_blank_model_agent(&mut after, &program, model, &parameters);
             after
         } else {
             self.graph_settings_node(node)?

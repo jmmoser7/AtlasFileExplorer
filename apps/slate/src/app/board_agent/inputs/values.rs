@@ -62,6 +62,20 @@ impl SlateApp {
     ) -> Option<atlas_ai::agent::ContextItem> {
         #[cfg(test)]
         PROJECTED_NODES.with(|count| count.set(count.get() + 1));
+        // A model supplies its displayed geometry, even when an attached Chat
+        // agent has no image album. The existing capture pass renders its view
+        // and depth after the request freezes this current source reference.
+        if let Some(model) = self.model_node_info(node.id) {
+            return Some(atlas_ai::agent::ContextItem {
+                node: node.id.0,
+                text: String::new(),
+                images: vec![model.path.to_string_lossy().into_owned()],
+                outputs: Default::default(),
+                active: None,
+                depth: None,
+                slot: None,
+            });
+        }
         let mut value = None;
         let mut selected_blocks_document = false;
         if slate_doc::agent_chat::is_agent_node(node) {

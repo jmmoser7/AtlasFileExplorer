@@ -449,6 +449,7 @@ impl SlateApp {
             self.agents.sources.poll(&dir, None);
             live_dirs.insert(dir);
         }
+        self.retain_model_task_session_sources(&mut live_dirs);
         self.agents.sources.retain(&live_dirs);
         self.pump_agent_text_outputs();
     }

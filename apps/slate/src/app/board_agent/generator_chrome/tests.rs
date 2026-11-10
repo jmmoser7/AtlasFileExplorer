@@ -3,6 +3,8 @@ use crate::app::board_flow::tests::generator_with_output;
 use slate_doc::scene::{ConnectorEnd, Side};
 
 include!("tests/text_history.rs");
+#[path = "tests/dialogue_presentation.rs"]
+mod dialogue_presentation;
 
 #[test]
 fn parameters_dispatch_provider_ids_and_model_switch_drops_stale_values() {

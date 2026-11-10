@@ -20,6 +20,7 @@ mod permissions;
 pub use permissions::*;
 mod board_tools;
 mod catalog;
+mod image_batch;
 mod images;
 mod run;
 mod session;

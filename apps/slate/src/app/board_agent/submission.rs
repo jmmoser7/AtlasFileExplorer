@@ -11,6 +11,15 @@ impl SlateApp {
         request: AgentRequest,
         workspace: &std::path::Path,
     ) -> bool {
+        self.submit_prepared_agent_request_until(portal, request, workspace, None)
+    }
+    pub(super) fn submit_prepared_agent_request_until(
+        &mut self,
+        portal: NodeId,
+        request: AgentRequest,
+        workspace: &std::path::Path,
+        deadline_unix_ms: Option<u64>,
+    ) -> bool {
         let Some((session, provider)) = self.agent_session_for(portal) else {
             self.fail_agent_await(
                 portal,
@@ -20,9 +29,27 @@ impl SlateApp {
         };
         let protocol = request.validate_artifact_request().map_err(str::to_owned);
         let protocol = protocol.and_then(|()| {
-            if request.artifact.is_some() && !atlas_ai::runtime::linear_provider(&provider) {
+            if request.artifact.is_some() && !atlas_ai::runtime::artifact_provider(&provider) {
                 Err("Artifact generation requires an installed Cursor or Codex harness.".into())
             } else {
+                if request.artifact.is_some()
+                    && atlas_ai::runtime::subscription_provider(&provider).is_some()
+                    && request.model_parameters.get("effort").map(String::as_str) == Some("max")
+                {
+                    self.agents
+                        .catalog(atlas_ai::agent::model_catalog(&provider))
+                        .iter()
+                        .find(|model| {
+                            request
+                                .model
+                                .as_deref()
+                                .map_or(model.is_default, |id| id == model.id)
+                        })
+                        .ok_or(
+                            "Refresh this Dashboard's model catalog before requesting MAX effort",
+                        )?
+                        .validate_parameters(&request.model_parameters)?;
+                }
                 Ok(())
             }
         });
@@ -80,7 +107,11 @@ impl SlateApp {
                 req_at: request.at,
             },
         );
-        if provider == "codex" || provider == "ollama" || provider.starts_with("ollama/") {
+        if provider == "codex"
+            || provider == "ollama"
+            || provider.starts_with("ollama/")
+            || atlas_ai::runtime::subscription_provider(&provider).is_some()
+        {
             #[cfg(test)]
             self.agents.dispatched.push((portal, request.clone()));
             #[cfg(not(test))]
@@ -88,6 +119,45 @@ impl SlateApp {
                 let cwd = self
                     .agent_folder_for(portal)
                     .unwrap_or_else(|| workspace.to_path_buf());
+                let descriptor =
+                    (|| -> Result<Option<atlas_agent::helper::HelperLaunch>, String> {
+                        if atlas_ai::runtime::subscription_provider(&provider).is_none() {
+                            return Ok(None);
+                        }
+                        if request
+                            .collaborator
+                            .as_ref()
+                            .is_some_and(|route| route.is_model_task())
+                        {
+                            Ok(Some(atlas_agent::helper::HelperLaunch::Model(
+                                atlas_agent::collaborator::HostToolsLaunch::model_task_until(
+                                    std::env::current_exe().map_err(|e| e.to_string())?,
+                                    &dir,
+                                    workspace,
+                                    &request,
+                                    deadline_unix_ms
+                                        .ok_or("Model task is missing its admitted deadline")?,
+                                )?,
+                            )))
+                        } else if request.artifact.is_some() {
+                            Ok(Some(atlas_agent::helper::HelperLaunch::Artifact(
+                                atlas_agent::helper::ArtifactToolsLaunch::artifact(
+                                    std::env::current_exe().map_err(|e| e.to_string())?,
+                                    &dir,
+                                    &request,
+                                )?,
+                            )))
+                        } else {
+                            Ok(None)
+                        }
+                    })();
+                let host_tools = match descriptor {
+                    Ok(tools) => tools,
+                    Err(error) => {
+                        self.fail_agent_await(portal, error);
+                        return false;
+                    }
+                };
                 let workbook = self.tab().path.clone();
                 let runtime = self.agents.codex.entry(session.clone()).or_insert_with(|| {
                     atlas_ai::runtime::CodexLink::start_beside(
@@ -99,7 +169,7 @@ impl SlateApp {
                     )
                 });
                 if let Err(error) =
-                    runtime.send_with_access_snapshot(request, Some(access_snapshot))
+                    runtime.send_with_helper(request, Some(access_snapshot), host_tools)
                 {
                     self.fail_agent_await(portal, error);
                     return false;

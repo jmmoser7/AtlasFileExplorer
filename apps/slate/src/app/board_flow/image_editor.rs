@@ -62,6 +62,33 @@ impl SlateApp {
                 .is_some_and(|a| a.generator.preserve_history.unwrap_or(true))
         })
     }
+    /// Image chrome authors ImageSettings.count; request preparation is pure.
+    pub(crate) fn image_agent_count(&self, id: NodeId) -> Option<u8> {
+        Some(
+            slate_doc::agent_chat::agent(self.doc().scene.node(id)?)?
+                .image
+                .count
+                .clamp(1, 8),
+        )
+    }
+
+    /// Only explicit human admission repairs the shared mirror through the
+    /// journaled setter. Deferred collaborator preparation must keep witnesses.
+    pub(crate) fn reconcile_human_image_count(&mut self, id: NodeId) {
+        if self.generator_source_kind(id) != Some(PendingHost::Image) {
+            return;
+        }
+        let Some(node) = self.doc().scene.node(id) else {
+            return;
+        };
+        if node.locked || self.tab().read_only {
+            return;
+        }
+        if let Some(count) = self.image_agent_count(id) {
+            self.set_image_agent_count(id, count);
+        }
+    }
+
     pub(crate) fn set_image_agent_count(&mut self, id: NodeId, count: u8) -> bool {
         if self.tab().read_only {
             return false;
@@ -75,7 +102,11 @@ impl SlateApp {
             return false;
         };
         let count = count.clamp(1, 8);
-        if agent.image.count == count {
+        let unchanged = agent.image.count == count && agent.generator.count == Some(count);
+        if let Some(draft) = self.agents.flow.drafts.get_mut(&id) {
+            draft.count = count;
+        }
+        if unchanged {
             return false;
         }
         self.last_board_edit = None;

@@ -1,6 +1,73 @@
 use super::*;
 
 #[test]
+fn history_snapshot_distinguishes_pending_missing_loaded_and_unavailable() {
+    for (name, bytes) in [
+        ("missing", None),
+        (
+            "loaded",
+            Some(
+                serde_json::to_vec(&AgentSession {
+                    provider: "claude-code".into(),
+                    turns: vec![AgentTurn {
+                        role: "assistant".into(),
+                        text: "Saved public reply".into(),
+                        at: 1,
+                    }],
+                    ..Default::default()
+                })
+                .unwrap(),
+            ),
+        ),
+        ("invalid", Some(b"not JSON".to_vec())),
+    ] {
+        let workspace = temp_workspace(&format!("history-read-{name}"));
+        let dir = workspace.join("link");
+        std::fs::create_dir_all(&dir).unwrap();
+        if let Some(bytes) = bytes {
+            std::fs::write(dir.join("session.json"), bytes).unwrap();
+        }
+        let mut sources = AgentSources::default();
+        let mut link = AgentLink::new();
+        // Hold the actual work queue until the admission check has observed
+        // Pending, without timing assumptions about filesystem speed.
+        let (tx, rx) = crossbeam_channel::bounded(8);
+        link.tx = tx;
+        let latest = link.latest.clone();
+        let outputs = link.outputs.clone();
+        let place = link.place.clone();
+        let history = link.history_read.clone();
+        sources.links.insert(dir.clone(), link);
+        assert!(sources
+            .history_snapshot(&dir)
+            .unwrap_err()
+            .contains("still loading"));
+        let worker =
+            std::thread::spawn(move || super::worker::run(rx, latest, outputs, place, history));
+        let end = Instant::now() + Duration::from_secs(3);
+        let result = loop {
+            let result = sources.history_snapshot(&dir);
+            if !result
+                .as_ref()
+                .is_err_and(|error| error.contains("still loading"))
+            {
+                break result;
+            }
+            assert!(Instant::now() < end, "history read never settled");
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        match name {
+            "missing" => assert!(result.unwrap().is_none()),
+            "loaded" => assert_eq!(result.unwrap().unwrap().turns[0].text, "Saved public reply"),
+            _ => assert!(result.unwrap_err().contains("unavailable")),
+        }
+        drop(sources);
+        worker.join().unwrap();
+        let _ = std::fs::remove_dir_all(workspace);
+    }
+}
+
+#[test]
 fn prepared_delivery_keeps_one_source_worker_and_waits_until_released() {
     let workspace = temp_workspace("prepared_delivery");
     let dir = workspace.join("link");
@@ -61,7 +128,13 @@ fn artifact_polling_reserves_return_manifest_and_skips_generic_file_capture() {
     let latest = std::sync::Arc::new(std::sync::Mutex::new(None));
     let outputs = std::sync::Arc::new(std::sync::Mutex::new(None));
     let place = std::sync::Arc::new(std::sync::Mutex::new(None));
-    super::worker::run(rx, latest.clone(), outputs.clone(), place);
+    super::worker::run(
+        rx,
+        latest.clone(),
+        outputs.clone(),
+        place,
+        Default::default(),
+    );
     assert_eq!(latest.lock().unwrap().as_ref().unwrap().request, "run");
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(
@@ -220,6 +293,7 @@ fn streaming_snapshots_arrive_before_completion_without_fast_idle_polling() {
     let mut link = AgentLink {
         tx,
         latest: latest.clone(),
+        history_read: Default::default(),
         next_read: Some(Instant::now()),
         next_write: None,
         streaming: false,

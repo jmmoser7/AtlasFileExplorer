@@ -6,6 +6,9 @@ fn text_answer_origins_rebase_but_remote_and_absolute_history_keep_identity() {
     let from = std::env::temp_dir().join("origin-old/Board.slate");
     let to = std::env::temp_dir().join("origin-new/Board.slate");
     let mut agent = *PortalNode::unbound_agent("text", "codex").agent.unwrap();
+    agent.generator.owned_text_output = Some(SourceUri {
+        locator: "private/response.txt".into(),
+    });
     let absolute = std::env::temp_dir().join("absolute-history.json");
     agent.generator.archived_history = vec![
         SourceUri {
@@ -38,6 +41,21 @@ fn text_answer_origins_rebase_but_remote_and_absolute_history_keep_identity() {
     let NodeKind::Text(text) = &scene.nodes[0].kind else {
         panic!()
     };
+    assert_eq!(
+        scene::resolve_source(
+            Some(&to),
+            &text
+                .agent
+                .as_ref()
+                .unwrap()
+                .generator
+                .owned_text_output
+                .as_ref()
+                .unwrap()
+                .locator
+        ),
+        from.parent().unwrap().join("private/response.txt")
+    );
     assert_eq!(
         scene::resolve_source(Some(&to), &text.answers[0].origin.as_ref().unwrap().locator),
         from.parent().unwrap().join("private/answer.json")

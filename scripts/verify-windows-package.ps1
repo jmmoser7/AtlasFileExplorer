@@ -2,14 +2,17 @@
 param([Parameter(Mandatory)][string]$AppDirectory, [Parameter(Mandatory)][string]$ReleaseDirectory,
     [Parameter(Mandatory)][string]$Channel, [Parameter(Mandatory)][string]$Version)
 $ErrorActionPreference = 'Stop'
-if ($Channel -eq 'stable' -and -not (Test-Path -LiteralPath (Join-Path $AppDirectory 'HeadlessRhino.exe') -PathType Leaf)) {
-    throw 'Stable package is missing HeadlessRhino.exe.'
+foreach ($file in @('HeadlessRhino.exe', 'HeadlessRhino-README.md')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $AppDirectory $file) -PathType Leaf)) {
+        throw "Package is missing $file (required for stable and preview)."
+    }
 }
-if (Test-Path -LiteralPath (Join-Path $AppDirectory 'HeadlessRhino.exe')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $AppDirectory 'HeadlessRhino-README.md'))) {throw 'Packaged Rhino bridge is missing its installation/runtime notes.'}
-}
-foreach ($commercial in @('RhinoCommon.dll','RhinoCore.dll','Rhino.exe')) {
-    if (Test-Path -LiteralPath (Join-Path $AppDirectory $commercial)) {throw "Commercial Rhino installation binary must not be redistributed: $commercial"}
+# Include nested runtime/license directories in this check. Our own
+# HeadlessRhino.exe bridge is allowed; installed Rhino runtime binaries are not.
+foreach ($commercial in Get-ChildItem -LiteralPath $AppDirectory -File -Recurse -Force) {
+    if ($commercial.Name -match '^(Rhino.*|rhcommon.*)\.(dll|exe)$') {
+        throw "Commercial Rhino installation binary must not be redistributed: $($commercial.FullName)"
+    }
 }
 foreach ($file in @('slate.exe', 'native-file-atlas.exe', 'slate-video-worker.exe', 'pdfium.dll', 'runtime/node.exe', 'runtime/node_modules/npm/bin/npm-cli.js',
     'runtime/LICENSE', 'cursor-sidecar/index.mjs', 'cursor-sidecar/artifacts.mjs', 'cursor-sidecar/artifact-generation-v1.md', 'cursor-sidecar/board-link.mjs', 'cursor-sidecar/board-link-v1.md', 'cursor-sidecar/attachments.mjs', 'cursor-sidecar/models.mjs', 'cursor-sidecar/activity.mjs', 'cursor-sidecar/policy.mjs',

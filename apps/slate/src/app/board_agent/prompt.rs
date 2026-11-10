@@ -10,11 +10,27 @@ impl SlateApp {
     pub(crate) fn send_agent_prompt(&mut self, portal: NodeId) -> Option<NodeId> {
         self.send_agent_prompt_from(portal, None)
     }
+    /// Only registered human generator Run and its owned asynchronous setup
+    /// continuation call this. Relay/collaborator sends keep their own policy.
+    pub(crate) fn send_human_model_prompt(&mut self, portal: NodeId) -> Option<NodeId> {
+        self.send_agent_prompt_with_purpose(portal, None, true)
+    }
     pub(in super::super) fn send_agent_prompt_from(
         &mut self,
         portal: NodeId,
         relay: Option<(&str, &str)>,
     ) -> Option<NodeId> {
+        self.send_agent_prompt_with_purpose(portal, relay, false)
+    }
+    fn send_agent_prompt_with_purpose(
+        &mut self,
+        portal: NodeId,
+        relay: Option<(&str, &str)>,
+        human_model_task: bool,
+    ) -> Option<NodeId> {
+        if relay.is_none() && self.submit_pending_image(portal) {
+            return None;
+        }
         if self.pending_generator_host(portal) == Some(super::super::board_flow::PendingHost::Chat)
             && (self
                 .agents
@@ -125,15 +141,8 @@ impl SlateApp {
         let mut prompt = relay
             .map(|(text, _)| text.trim().to_owned())
             .unwrap_or_else(|| self.agents.prompt_mut(portal).trim().to_owned());
-        if prompt.is_empty() {
-            prompt = inputs
-                .wired
-                .iter()
-                .map(|v| v.text.as_str())
-                .filter(|v| !v.is_empty())
-                .collect::<Vec<_>>()
-                .join("\n\n");
-        }
+        let authored_prompt = prompt.clone();
+        prompt = Self::prompt_with_inputs(&inputs, &prompt);
 
         if prompt.is_empty() {
             prompt = self
@@ -158,6 +167,17 @@ impl SlateApp {
         };
         let composer = portal;
         let origin = ChatSendOrigin {
+            purpose: if human_model_task
+                && relay.is_none()
+                && self.model_node_info(portal).is_some()
+            {
+                super::runtime::ChatSendPurpose::HumanModelTask {
+                    source_inputs: inputs.clone(),
+                    authored: authored_prompt,
+                }
+            } else {
+                super::runtime::ChatSendPurpose::Conversation
+            },
             typing_here: relay.is_none() && self.agents.composing(composer),
             relayed_from: relay
                 .map(|(_, label)| label.to_owned())

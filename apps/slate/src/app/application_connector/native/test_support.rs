@@ -31,6 +31,10 @@ pub(crate) fn add_command(h: &mut Harness, node: NodeId, command: CommandDescrip
         .push(command);
 }
 impl Peer {
+    pub fn queued_actions(&self) -> usize {
+        self.actions.len()
+    }
+
     pub(in crate::app::application_connector) fn next_preparation(
         &self,
     ) -> Option<(BindingKey, PathBuf, String, Lease)> {

@@ -5,6 +5,8 @@ use atlas_agent::{
 };
 use slate_doc::scene::{artifact, artifact_mut, SceneCmd, SourceUri};
 
+mod completion;
+mod composer;
 mod editor;
 mod export;
 mod generation;
@@ -35,6 +37,7 @@ struct Preparing {
 #[derive(Clone)]
 struct Plan {
     guard: String,
+    accepted_batch: bool,
     authored_prompt: String,
     tab: u64,
     node: NodeId,

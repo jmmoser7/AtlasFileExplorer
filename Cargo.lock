@@ -413,8 +413,10 @@ dependencies = [
 name = "atlas-agent"
 version = "1.0.7"
 dependencies = [
+ "png 0.18.1",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -430,6 +432,7 @@ dependencies = [
  "atlas-packs",
  "atlas-segment",
  "atlas-shell",
+ "atlas-subscription",
  "chrono",
  "crossbeam-channel",
  "eframe",
@@ -590,6 +593,16 @@ dependencies = [
  "toml 0.8.23",
  "vector-ink",
  "windows 0.61.3",
+]
+
+[[package]]
+name = "atlas-subscription"
+version = "1.0.7"
+dependencies = [
+ "base64 0.22.1",
+ "atlas-agent",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]

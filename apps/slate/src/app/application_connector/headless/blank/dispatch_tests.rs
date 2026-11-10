@@ -1,3 +1,6 @@
+#[path = "model_preferences_tests.rs"]
+mod model_preferences_tests;
+
 use super::*;
 use atlas_commands::CommandId;
 
@@ -46,6 +49,54 @@ fn native_chooser_fixture(name: &str) -> (crate::app::tests::Harness, NodeId) {
             .preserve_history = Some(false)
     });
     (h, source)
+}
+
+#[test]
+fn downstream_model_creation_retains_all_inputs_across_undo_redo_and_reload() {
+    let (mut h, source) = native_chooser_fixture("downstream-model-input-activation");
+    let (_reply, rx) = crossbeam_channel::bounded(1);
+    EMPTY_PREPARATION_FOR_TEST.with(|fixture| {
+        *fixture.borrow_mut() = Some((rx, Cancellation::default(), crossbeam_channel::bounded(1).0))
+    });
+    assert!(h.app.spawn_flow_node(Some(
+        &serde_json::json!({"source": source.0, "kind": "model", "chooser": true}).to_string()
+    )));
+    let job = h.app.connectors.headless.blanks.pop().unwrap();
+    let path = h.base.join("downstream-empty.3dm");
+    std::fs::write(&path, b"prepared native model").unwrap();
+    let file = super::super::super::super::items::ReadyFile {
+        path,
+        size: 21,
+        mtime: 0,
+    };
+    let nodes = h.app.prepare_blank_model_nodes(&job, &file).unwrap();
+    let child = h
+        .app
+        .link_prepared_ready_media(file, nodes, slate_doc::scene::CmdAuthor::Human)
+        .unwrap();
+    let check = |h: &crate::app::tests::Harness| {
+        let node = h.app.doc().scene.node(child).unwrap();
+        let ports = h.app.wire_input_ports(node);
+        assert!(!ports.is_empty());
+        for port in ports {
+            assert!(h.app.source_agent_input_visible(child, port.slot));
+            assert!(h.app.presented_wire_ports(node).iter().any(|shown| {
+                shown.side == slate_doc::scene::Side::Left && (shown.t - port.t).abs() < 0.001
+            }));
+        }
+        assert!(!h.app.source_agent_dialogue_open(child));
+        assert!(!h.app.source_agent_inputs_visible(source));
+        assert!(h.app.agents.dispatched.is_empty());
+    };
+    check(&h);
+    h.app.board_undo();
+    assert!(h.app.doc().scene.node(child).is_none());
+    assert!(!h.app.source_agent_inputs_visible(child));
+    h.app.board_redo();
+    check(&h);
+    let saved = serde_json::to_vec(h.app.doc()).unwrap();
+    h.app.tab_mut().doc = serde_json::from_slice(&saved).unwrap();
+    check(&h);
 }
 
 #[test]

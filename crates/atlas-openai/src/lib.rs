@@ -21,6 +21,7 @@ pub const MODELS: [(&str, &str); 2] = [
     ("gpt-image-1-mini", "GPT Image 1 mini"),
 ];
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+mod image_response;
 
 /// A GPT Image size for the aspect. `gpt-image-2` takes flexible sizes; the
 /// older models only know the three standard ones.
@@ -162,22 +163,21 @@ pub fn model_label(id: &str) -> String {
 
 /// Decoded pictures from an Images API response, in order.
 pub fn decode(response: &Value) -> Result<Vec<Vec<u8>>, String> {
-    use base64::Engine;
     let items = response["data"]
         .as_array()
         .filter(|d| !d.is_empty())
         .ok_or("The OpenAI API returned no image.")?;
-    items
-        .iter()
-        .map(|item| {
-            let data = item["b64_json"]
-                .as_str()
-                .ok_or("The OpenAI API returned an image without data.")?;
-            base64::engine::general_purpose::STANDARD
-                .decode(data)
-                .map_err(|e| e.to_string())
-        })
-        .collect()
+    items.iter().map(decode_image).collect()
+}
+
+fn decode_image(item: &Value) -> Result<Vec<u8>, String> {
+    use base64::Engine;
+    let data = item["b64_json"]
+        .as_str()
+        .ok_or("The OpenAI API returned an image without data.")?;
+    base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|e| e.to_string())
 }
 
 pub struct Client {
@@ -265,35 +265,7 @@ impl Client {
             .map_err(api_error)?
             .ok_or("Generation stopped.")?;
         let response: Value = serde_json::from_slice(&body).map_err(|e| e.to_string())?;
-        std::fs::create_dir_all(&self.output_dir).map_err(|e| e.to_string())?;
-        let model = request
-            .model
-            .clone()
-            .filter(|m| !m.is_empty())
-            .unwrap_or_else(|| DEFAULT_MODEL.into());
-        for (index, bytes) in decode(&response)?.into_iter().enumerate() {
-            let id = format!("{}-{index}", request.id);
-            let dest = self.output_dir.join(format!("{id}.png"));
-            std::fs::write(&dest, bytes).map_err(|e| e.to_string())?;
-            session.bundle.images.push(ImageOutput {
-                id,
-                source: dest.to_string_lossy().into_owned(),
-                request: request.id.clone(),
-                prompt: request.prompt.clone(),
-                model: model.clone(),
-                task: if pictures(request).0.is_some() {
-                    "vary"
-                } else {
-                    "generate"
-                }
-                .into(),
-                live: String::new(),
-            });
-            changed(session);
-        }
-        session.status = AgentStatus::Idle;
-        changed(session);
-        Ok(())
+        self.accept_images(request, session, &response, changed)
     }
 }
 

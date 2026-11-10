@@ -2,6 +2,131 @@ use super::super::tests::{generator_with_output, place};
 use super::*;
 use slate_doc::image_paint::{layers_for_result, ImageResultId, PaintLayer, PaintLayerId};
 
+#[test]
+fn first_image_requests_capture_draft_parameters_for_imported_blank_and_wire_created_hosts() {
+    for host in ["imported", "blank", "wire-created"] {
+        for wired in [false, true] {
+            for preserve in [false, true] {
+                let (mut h, _) =
+                    generator_with_output(&format!("first-image-params-{host}-{wired}"));
+                let id = match host {
+                    "imported" => place(&mut h, "original.png", -900.0),
+                    "blank" => {
+                        let node = h.app.doc_mut().scene.build_node(
+                            slate_doc::WorldRect::new(20.0, 20.0, 640.0, 300.0),
+                            NodeKind::Image(slate_doc::scene::ImageNode::new(
+                                slate_doc::ItemId::NONE,
+                            )),
+                        );
+                        let id = node.id;
+                        h.app.add_nodes(vec![node]);
+                        id
+                    }
+                    _ => {
+                        let source = place(&mut h, "upstream.png", -900.0);
+                        let before = h.app.doc().scene.nodes.len();
+                        let detail = serde_json::json!({
+                            "source": source.0, "kind": "image", "provider": "comfy", "chooser": true
+                        });
+                        assert!(h.app.spawn_flow_node(Some(&detail.to_string())));
+                        h.app.doc().scene.nodes[before].id
+                    }
+                };
+                let mut draft = AgentDraft::new();
+                draft.preserve_history = preserve;
+                draft
+                    .model_parameters
+                    .insert("provider-effort".into(), "deep".into());
+                draft
+                    .model_parameters
+                    .insert("provider-speed".into(), "fast".into());
+                if wired {
+                    let source = place(&mut h, "prompt.txt", -600.0);
+                    let NodeKind::Image(image) = &h.app.doc().scene.node(source).unwrap().kind
+                    else {
+                        panic!("linked prompt document");
+                    };
+                    let item = image.item;
+                    h.app
+                        .cache_snippet(item, Some("Wired evening light".into()));
+                    let t = h
+                        .app
+                        .wire_input_ports(h.app.doc().scene.node(id).unwrap())
+                        .iter()
+                        .find(|port| port.slot == atlas_agent::InputSlot::Prompt)
+                        .unwrap()
+                        .t;
+                    let wire = h.app.build_connector(
+                        slate_doc::scene::ConnectorEnd::Anchored {
+                            node: source,
+                            side: Side::Right,
+                            t: 0.5,
+                        },
+                        slate_doc::scene::ConnectorEnd::Anchored {
+                            node: id,
+                            side: Side::Left,
+                            t,
+                        },
+                    );
+                    h.app.add_nodes(vec![wire]);
+                } else {
+                    draft.prompt = "Typed evening light".into();
+                }
+                assert!(h.app.submit_image_in_place(
+                    id,
+                    &draft,
+                    "comfy",
+                    "advertised-model",
+                    atlas_ai::agent::Aspect::Source,
+                ));
+                let request = &h
+                    .app
+                    .agents
+                    .dispatched
+                    .last()
+                    .filter(|(node, _)| *node == id)
+                    .expect("first image Send captures the real transport request")
+                    .1;
+                assert_eq!(request.model.as_deref(), Some("advertised-model"));
+                assert!(request.prompt_inputs_projected);
+                assert_eq!(
+                    request
+                        .prompt_with_history()
+                        .matches(if wired {
+                            "Wired evening light"
+                        } else {
+                            "Typed evening light"
+                        })
+                        .count(),
+                    1
+                );
+                assert_eq!(request.model_parameters, draft.model_parameters);
+                assert_eq!(
+                    request.prompt,
+                    if wired {
+                        "Wired evening light"
+                    } else {
+                        "Typed evening light"
+                    }
+                );
+                let captured = request.clone();
+                draft.model_parameters.clear();
+                h.app.patch_nodes(&[id], |node| {
+                    slate_doc::agent_chat::agent_mut(node)
+                        .unwrap()
+                        .model_parameters
+                        .clear();
+                });
+                assert_eq!(
+                    captured.model_parameters.len(),
+                    2,
+                    "submitted parameters are immutable"
+                );
+            }
+        }
+    }
+}
+
 impl SlateApp {
     pub(crate) fn submit_picked_image_for_test(&mut self, id: NodeId) -> bool {
         let mut draft = AgentDraft::new();

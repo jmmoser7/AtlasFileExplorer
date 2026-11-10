@@ -75,10 +75,14 @@ impl SlateApp {
                 animating = true;
             }
             match (&state, sidecar.as_ref()) {
-                (AgentAwait::Failed { .. }, _) => {}
                 (_, Some(AgentStatus::Error(e))) => {
-                    self.fail_agent_await(id, e.clone());
+                    let (reason, _) = classify_agent_failure(e.clone());
+                    if !matches!(&state, AgentAwait::Failed { reason: previous, .. } if *previous == reason)
+                    {
+                        self.fail_agent_await(id, e.clone());
+                    }
                 }
+                (AgentAwait::Failed { .. }, _) => {}
                 (
                     AgentAwait::Sent { req_at, .. } | AgentAwait::Thinking { req_at },
                     Some(AgentStatus::Thinking),
@@ -134,6 +138,9 @@ impl SlateApp {
             self.toast("Select an agent portal first.");
             return false;
         };
+        if self.submit_pending_media(id) {
+            return true;
+        }
         match self.prepare_headless_model_send(id) {
             Ok(true) => return true,
             Ok(false) => {}
@@ -142,7 +149,12 @@ impl SlateApp {
                 return false;
             }
         }
-        self.send_agent_prompt(id);
+        self.reconcile_human_image_count(id);
+        if self.model_node_info(id).is_some() {
+            self.send_human_model_prompt(id);
+        } else {
+            self.send_agent_prompt(id);
+        }
         true
     }
     pub(crate) fn toggle_selected_agent_provider(&mut self) -> bool {

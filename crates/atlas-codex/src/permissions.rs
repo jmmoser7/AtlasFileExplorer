@@ -118,44 +118,46 @@ mod board_permission_tests {
     use super::*;
     #[test]
     fn collaborator_filesystem_requires_separate_trusted_provider_permission() {
-        let request = AgentRequest {
-            collaborator: Some(atlas_agent::collaborator::BoardLinkSession {
-                session_id: "s".into(),
-                grant_id: "g".into(),
-                workspace_id: "w".into(),
-            }),
-            ..Default::default()
-        };
-        for configured in ["workspaceWrite", "dangerFullAccess"] {
-            for full_access in [false, true] {
-                let mut permissions = TurnPermissions {
-                    own: Some(Permissions {
-                        approval: json!("never"),
-                        sandbox: json!({"type":configured}),
-                    }),
-                    ..Default::default()
-                };
-                let filesystem = filesystem_policy(&request, full_access);
-                let restore = permissions.next(filesystem, full_access);
-                let params = turn_params(
-                    "t",
-                    vec![],
-                    "r",
-                    None,
-                    filesystem,
-                    full_access,
-                    restore.as_ref(),
-                );
-                assert_eq!(
-                    params["sandboxPolicy"],
-                    json!({"type":if full_access { "dangerFullAccess" } else { "readOnly" }})
-                );
-                assert_eq!(params["approvalPolicy"], "never");
-                assert_eq!(
-                    request.policy,
-                    TurnPolicy::Default,
-                    "board command policy remains distinct from model filesystem permissions"
-                );
+        for session_id in ["s", "model-task-explicit-human-run"] {
+            let request = AgentRequest {
+                collaborator: Some(atlas_agent::collaborator::BoardLinkSession {
+                    session_id: session_id.into(),
+                    grant_id: "g".into(),
+                    workspace_id: "w".into(),
+                }),
+                ..Default::default()
+            };
+            for configured in ["workspaceWrite", "dangerFullAccess"] {
+                for full_access in [false, true] {
+                    let mut permissions = TurnPermissions {
+                        own: Some(Permissions {
+                            approval: json!("never"),
+                            sandbox: json!({"type":configured}),
+                        }),
+                        ..Default::default()
+                    };
+                    let filesystem = filesystem_policy(&request, full_access);
+                    let restore = permissions.next(filesystem, full_access);
+                    let params = turn_params(
+                        "t",
+                        vec![],
+                        "r",
+                        None,
+                        filesystem,
+                        full_access,
+                        restore.as_ref(),
+                    );
+                    assert_eq!(
+                        params["sandboxPolicy"],
+                        json!({"type":if full_access { "dangerFullAccess" } else { "readOnly" }})
+                    );
+                    assert_eq!(params["approvalPolicy"], "never");
+                    assert_eq!(
+                        request.policy,
+                        TurnPolicy::Default,
+                        "board command policy remains distinct from model filesystem permissions"
+                    );
+                }
             }
         }
     }

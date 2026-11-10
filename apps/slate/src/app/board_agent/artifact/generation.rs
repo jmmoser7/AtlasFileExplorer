@@ -60,12 +60,16 @@ impl SlateApp {
                             branch.request.id =
                                 format!("{}-branch-{}-{result}", plan.request.id, job.branch);
                         }
-                        branch.request.prompt = agent_inputs::grafted_prompt(
-                            &plan.request.prompt,
-                            &inputs.inputs,
-                            &job.inputs,
-                            "\n\n",
-                        );
+                        if branch.request.prompt_inputs_projected
+                            && branch.request.pending_prompt_projection.is_none()
+                        {
+                            branch.request.prompt = agent_inputs::grafted_prompt(
+                                &plan.request.prompt,
+                                &inputs.inputs,
+                                &job.inputs,
+                                "\n\n",
+                            );
+                        }
                         branch.request.inputs = job.inputs.clone();
                         // An explicit batch always replays its immutable prefix;
                         // sibling requests never resume one mutable provider session.
@@ -114,9 +118,10 @@ impl SlateApp {
             .ok_or("Artifact is missing")?;
         let binding = artifact(&node).ok_or("Select an artifact")?;
         let agent = slate_doc::agent_chat::agent(&node).ok_or("Choose a harness")?;
-        if !atlas_ai::runtime::linear_provider(&agent.provider) {
-            return Err("Choose an installed Cursor or Codex harness for the artifact.".into());
+        if !atlas_ai::runtime::artifact_provider(&agent.provider) {
+            return Err("Choose an installed artifact-capable provider for the artifact.".into());
         }
+        self.validate_subscription_source_choice(id)?;
         let workspace = self
             .ai
             .config
@@ -167,6 +172,7 @@ impl SlateApp {
             );
         }
         let parent = content
+            .or_else(|| binding.revision.clone().map(|revision| (id, revision)))
             .as_ref()
             .map(|(source, rev)| self.artifact_reference(*source, rev))
             .transpose()?;
@@ -184,7 +190,8 @@ impl SlateApp {
                 .and_then(slate_doc::agent_chat::agent)
         });
         let resume =
-            agent.generator.preserve_history.is_none()
+            atlas_ai::runtime::subscription_provider(&agent.provider).is_none()
+                && agent.generator.preserve_history.is_none()
                 && memory.as_ref().is_some_and(|(source, pin)| {
                     source_agent.is_some_and(|a| a.provider == agent.provider)
                         && self.agents.sessions.get(source).is_some_and(|s| {
@@ -245,17 +252,9 @@ impl SlateApp {
             .prompt(id)
             .unwrap_or(&agent.instruction)
             .to_owned();
-        let mut prompt = authored_prompt.trim().to_owned();
-        if prompt.is_empty() {
-            prompt = inputs
-                .wired
-                .iter()
-                .filter(|v| v.port().takes_text())
-                .map(|v| v.text.as_str())
-                .collect::<Vec<_>>()
-                .join("\n\n");
-        }
-        if prompt.trim().is_empty() {
+        let dynamic = self.has_dynamic_prompt_inputs(&inputs);
+        let prompt = Self::prompt_with_inputs(&inputs, &authored_prompt);
+        if prompt.trim().is_empty() && !dynamic {
             return Err("Type feedback or connect a prompt first.".into());
         }
         let tables = inputs
@@ -273,6 +272,12 @@ impl SlateApp {
         let request = AgentRequest {
             id: atlas_ai::agent::request_id(),
             prompt,
+            prompt_inputs_projected: true,
+            pending_prompt_projection: dynamic.then(|| atlas_agent::PromptProjection {
+                authored: authored_prompt.clone(),
+                separator: "\n\n".into(),
+                static_instructions: String::new(),
+            }),
             model: agent.model.clone(),
             model_parameters: agent.model_parameters.clone(),
             at: atlas_ai::context::now_secs(),
@@ -284,6 +289,7 @@ impl SlateApp {
         Ok((
             Plan {
                 guard: self.artifact_batch_guard(id).unwrap_or_default(),
+                accepted_batch: false,
                 authored_prompt,
                 tab: self.tab().id,
                 node: id,

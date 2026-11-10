@@ -152,6 +152,11 @@ fn ordinary_chat_model_and_parameter_then_composer_send_bind_the_original_portal
             .events
             .push(egui::Event::Text("first question".into()))
     });
+    assert_eq!(
+        h.app.agent_prompt_text(id),
+        "first question",
+        "choice-only pending Chat drafts must not shadow the actual composer"
+    );
     key(&mut h, egui::Key::Enter, egui::Modifiers::SHIFT);
     assert!(
         h.app.agents.dispatched.is_empty(),

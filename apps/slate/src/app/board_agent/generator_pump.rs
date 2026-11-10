@@ -201,7 +201,7 @@ impl SlateApp {
     }
     /// All branches share one frozen set of dynamic source values. Successful
     /// captures remain frozen while another source is still loading.
-    pub(super) fn capture_prepared_generator_inputs(
+    pub(crate) fn capture_prepared_generator_inputs(
         &mut self,
         id: NodeId,
         prep: &mut super::input_prep::InputPreparation,
@@ -249,6 +249,7 @@ impl SlateApp {
             }
         }
         if self.is_text_block(id)
+            && request.pending_prompt_projection.is_none()
             && !old_prompt.is_empty()
             && request.prompt.starts_with(&old_prompt)
         {
@@ -353,6 +354,19 @@ impl SlateApp {
         }
         // A text block reads what was captured (a page's text), not what its
         // wires held when it was queued.
+        let projected = request.pending_prompt_projection.is_some();
+        request.resolve_pending_prompt_projection();
+        if projected {
+            let tab = self.tab().id;
+            if let Some(snapshot) =
+                self.agents
+                    .flow
+                    .text_answer_requests
+                    .get_mut(&(tab, id, request.id.clone()))
+            {
+                snapshot.question.clone_from(&request.prompt);
+            }
+        }
         if self.is_text_block(id) {
             if let Some(snapshot) =
                 self.agents
@@ -397,6 +411,12 @@ impl SlateApp {
         image_prefix: Option<u32>,
         creation_step: Option<slate_doc::scene::GroupToken>,
     ) {
+        if request.image.is_some() {
+            if let Err(error) = self.image_generation_binding(id) {
+                self.fail_agent_await(id, error);
+                return;
+            }
+        }
         let Some((session, provider)) = self.agent_session_for(id) else {
             return;
         };

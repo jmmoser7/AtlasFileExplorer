@@ -92,6 +92,129 @@ fn click(h: &mut Harness, point: Pos2) {
 }
 
 #[test]
+fn first_wire_created_image_run_and_send_bind_the_remembered_chatgpt_before_dispatch() {
+    for collapsed in [true, false] {
+        let (mut h, old, primary) = ready_generator("unbound-image-first-run", 680.0);
+        let prompt = h
+            .app
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .find_map(|node| matches!(node.kind, NodeKind::Text(_)).then_some(node.id))
+            .unwrap();
+        h.app.delete_board_nodes(&[old]);
+        h.app.set_agent_programs_for_test(&["codex"]);
+        h.app.settings.agent_image_model = Some(("codex-image".into(), String::new()));
+        let before = h.app.doc().scene.nodes.len();
+        assert!(h.app.spawn_flow_node(Some(
+            &serde_json::json!({
+                "source": primary.0, "kind": "image", "chooser": true, "at": [300.0, 100.0]
+            })
+            .to_string()
+        )));
+        let id = h.app.doc().scene.nodes[before].id;
+        let pending = slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap()).unwrap();
+        assert!(pending.provider.is_empty() && pending.session.is_empty());
+        let t = slate_doc::agent_inputs::input_ports(&h.app.doc().scene, id)
+            .iter()
+            .find(|port| port.slot == atlas_agent::InputSlot::Prompt)
+            .unwrap()
+            .t;
+        let wire = h.app.build_connector(
+            ConnectorEnd::Anchored {
+                node: prompt,
+                side: Side::Right,
+                t: 0.5,
+            },
+            ConnectorEnd::Anchored {
+                node: id,
+                side: Side::Left,
+                t,
+            },
+        );
+        h.app.add_nodes(vec![wire]);
+        h.app.patch_nodes(&[id], |node| {
+            node.rect.w = 680.0;
+            node.rect.h = 450.0;
+            let agent = slate_doc::agent_chat::agent_mut(node).unwrap();
+            agent.image.count = 2;
+            agent.generator.count = Some(2);
+        });
+        assert!(h
+            .app
+            .set_pending_generator_settings(id, Some(2), Some(false)));
+        h.app.board_sel = [id].into_iter().collect();
+        crate::app::tests::frame_on(&mut h, id, 1.0);
+        h.frame();
+        assert!(h.app.agents.dispatched.is_empty());
+        if collapsed {
+            let play = collapsed_play(&h, id);
+            click(&mut h, play);
+        } else {
+            // The composer uses this same registered Send command. No picker
+            // interaction or prebound fixture is used for the target.
+            assert!(h.app.dispatch(
+                &h.ctx.clone(),
+                atlas_commands::CommandId("portal.agent.send"),
+                None
+            ));
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while h.app.agents.dispatched.is_empty() && std::time::Instant::now() < deadline {
+            h.frame();
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert_eq!(
+            h.app.agents.dispatched.len(),
+            1,
+            "one accepted first send, collapsed={collapsed}"
+        );
+        let agent = slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap()).unwrap();
+        assert_eq!(agent.provider, "codex-image");
+        assert!(!agent.session.is_empty());
+        assert!(agent.model.is_none(), "Automatic remains Automatic");
+        let bundle = &agent.bundle.as_ref().unwrap().locator;
+        assert!(
+            bundle.contains(&agent.session),
+            "the request never uses the empty-session root"
+        );
+        let (target, request) = &h.app.agents.dispatched[0];
+        assert_eq!(*target, id);
+        assert!(request.image.is_some());
+        assert_eq!(request.image.as_ref().unwrap().count, 2);
+        assert_eq!(agent.generator.count, Some(2));
+        assert_eq!(request.model, None);
+        assert!(request.prompt.contains("evening light"));
+        assert_eq!(
+            request
+                .prompt_with_history()
+                .matches("evening light")
+                .count(),
+            1
+        );
+        assert_eq!(
+            request
+                .inputs
+                .on(atlas_agent::InputSlot::Media)
+                .next()
+                .unwrap()
+                .node,
+            primary.0
+        );
+        assert!(!h
+            .app
+            .ai
+            .config
+            .workspace_dir
+            .as_ref()
+            .unwrap()
+            .join(".atlas-ai/agent/request.json")
+            .exists());
+    }
+}
+
+#[test]
 fn collapsed_generate_click_dispatches_its_explicit_generator_once() {
     for (size, attached) in [(180.0, false), (680.0, true)] {
         let (mut h, id, primary) = ready_generator(&format!("collapsed-play-{size}"), size);

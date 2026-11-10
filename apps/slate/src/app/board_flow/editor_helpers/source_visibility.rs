@@ -9,9 +9,30 @@ impl SlateApp {
     }
 
     fn source_agent_uses_full_inputs(&self, id: NodeId) -> bool {
-        self.source_agent_dialogue_open(id) || self.doc().scene.node(id).is_some_and(|node| {
+        if self.source_agent_dialogue_open(id) || self.doc().scene.node(id).is_some_and(|node| {
             matches!(&node.kind, NodeKind::Portal(portal) if portal.kind == slate_doc::scene::PortalKind::Agent)
-        })
+        }) {
+            return true;
+        }
+        let Some(node) = self.doc().scene.node(id) else {
+            return false;
+        };
+        if self.generator_source_kind(id).is_none() {
+            return false;
+        }
+        self.refresh_connected_input_slots();
+        self.agents
+            .flow
+            .connected_inputs
+            .borrow()
+            .as_ref()
+            .is_some_and(|(_, targets)| {
+                targets.get(&id).is_some_and(|slots| {
+                    self.wire_input_ports(node)
+                        .iter()
+                        .any(|port| slots.contains(&port.slot))
+                })
+            })
     }
 
     fn refresh_connected_input_slots(&self) {
@@ -46,8 +67,8 @@ impl SlateApp {
         *cached = Some((generation, targets));
     }
 
-    /// Closing Agent retains actual connected slots without promoting the
-    /// source into a generator or revealing its unused input roles.
+    /// A typed generator input is implicit Agent activation, including saved
+    /// boards. Geometry and history-only connections do not activate inputs.
     pub(crate) fn source_agent_input_visible(
         &self,
         id: NodeId,

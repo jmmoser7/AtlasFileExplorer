@@ -67,7 +67,11 @@ impl AgentDraft {
     pub(super) fn from_node(node: &slate_doc::scene::Node) -> Self {
         let mut draft = Self::new();
         if let Some(agent) = slate_doc::agent_chat::agent(node) {
-            draft.count = agent.generator.count.unwrap_or(agent.image.count).max(1);
+            draft.count = if agent.view == PortalView::Images {
+                agent.image.count.clamp(1, 8)
+            } else {
+                agent.generator.count.unwrap_or(agent.image.count).max(1)
+            };
             draft.preserve_history = agent.generator.preserve_history.unwrap_or(false);
         }
         draft
@@ -127,6 +131,9 @@ pub(crate) struct FlowUi {
     /// Shared ephemeral generator menus and public activity, keyed by workbook.
     pub(crate) presentations:
         HashMap<(u64, NodeId), atlas_shell::selection_tools::generator::GeneratorPresentation>,
+    /// Per target: (current request, explicitly chosen activity fold). Ephemeral only.
+    pub(crate) model_activity_disclosures:
+        std::cell::RefCell<HashMap<(u64, NodeId), (String, bool)>>,
     pub(super) image_result_drag: Option<image_editor::ImageResultDrag>,
     pub(super) results: result_actions::ResultController,
     pub(super) menu: Option<FlowMenu>,

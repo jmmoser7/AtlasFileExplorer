@@ -25,6 +25,19 @@ impl ImageParams {
     pub fn images(&self) -> u8 {
         self.count.clamp(1, 8)
     }
+
+    /// A completed batch must account for every requested picture. Adapters
+    /// retain partial outputs before reporting this error; this never retries.
+    pub fn validate_output_count(&self, provider: &str, returned: usize) -> Result<(), String> {
+        let requested = usize::from(self.images());
+        if returned == requested {
+            Ok(())
+        } else {
+            Err(format!(
+                "{provider} returned {returned} images; {requested} were requested. Any returned images were kept. No additional generation was started."
+            ))
+        }
+    }
 }
 
 /// The shape a generated picture takes. Each engine maps it to its own sizes.
@@ -63,6 +76,24 @@ fn custom_dimension<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result
 #[cfg(test)]
 mod custom_tests {
     use super::*;
+    #[test]
+    fn completed_image_counts_use_the_same_bounds_as_generation() {
+        for (count, expected) in [(0, 1), (1, 1), (3, 3), (8, 8), (255, 8)] {
+            let params = ImageParams {
+                count,
+                ..Default::default()
+            };
+            assert!(params.validate_output_count("Provider", expected).is_ok());
+            let error = params
+                .validate_output_count("Provider", expected - 1)
+                .unwrap_err();
+            assert!(error.contains(&format!("{expected} were requested")));
+            assert!(params
+                .validate_output_count("Provider", expected + 1)
+                .is_err());
+        }
+    }
+
     #[test]
     fn legacy_presets_and_valid_custom_round_trip_with_strict_dimensions() {
         for aspect in Aspect::ALL {

@@ -64,10 +64,7 @@ pub(super) fn image_turn_with_inputs(
 
 /// The instruction a text block sends through the person's ChatGPT sign-in.
 pub fn oneshot_turn(request: &AgentRequest) -> String {
-    format!(
-        "Answer directly in this reply. Do not run commands, read or write files, or ask questions. Reply with only the requested text: no preamble, no headings, and no closing remarks. Any attached image is the picture the instruction refers to.\n\n{}",
-        if request.text_source.is_some() || !request.history.is_empty() || request.image_history.is_some() {request.prompt_with_history()} else {request.prompt.trim().to_owned()}
-    )
+    request.text_output_prompt()
 }
 
 /// The pictures one image run collects from `generated_images/<thread>`.
@@ -131,7 +128,15 @@ impl Pictures {
             }
             std::fs::create_dir_all(&self.dest).map_err(|e| e.to_string())?;
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("png");
-            let id = format!("{}-{}", request.id, self.found);
+            // Sequential passes share the public request. Each collected image
+            // gets its own stable slot rather than overwriting the first pass.
+            let index = session
+                .bundle
+                .images
+                .iter()
+                .filter(|image| image.request == request.id)
+                .count();
+            let id = format!("{}-{index}", request.id);
             let copy = self.dest.join(format!("{id}.{ext}"));
             std::fs::copy(&path, &copy).map_err(|e| e.to_string())?;
             self.seen.insert(path);
@@ -181,6 +186,21 @@ pub(super) fn picture_files(dir: &Path) -> Vec<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn projected_prompt_slot_words_reach_image_turn_once_with_both_history_modes() {
+        for preserve in [false, true] {
+            let request: AgentRequest = serde_json::from_value(json!({
+                "id":"r", "at":0, "prompt":"LINKED_SENTINEL, authored suffix",
+                "prompt_inputs_projected":true, "image":{"count":1}, "image_history":preserve,
+                "history":[{"role":"user","text":"Earlier conversation","at":0}],
+                "inputs":{"revision":"captured","context":[],"wired":[{"node":1,"text":"LINKED_SENTINEL","images":[],"slot":"prompt"}]}
+            })).unwrap();
+            let text = image_turn(&request);
+            assert_eq!(text.matches("LINKED_SENTINEL").count(), 1);
+            assert_eq!(text.contains("Earlier conversation"), preserve);
+        }
+    }
 
     #[test]
     fn attachment_order_and_role_manifest_handle_multiple_sources_and_styles() {

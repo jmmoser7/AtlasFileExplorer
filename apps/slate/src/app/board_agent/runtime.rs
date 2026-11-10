@@ -74,6 +74,8 @@ pub(crate) struct GeneratorInput {
 pub(crate) struct GeneratorView {
     pub inputs: Vec<GeneratorInput>,
     pub prompt: String,
+    /// Only authored Prompt-slot text, without image-region annotations.
+    pub wired_prompt: String,
     pub error: Option<String>,
     /// Explicit Media and Prompt wires are ready; current-image fallback is excluded.
     pub wired_image_and_prompt: bool,
@@ -117,8 +119,11 @@ pub(super) struct QueuedGeneration {
     pub(super) inputs: super::input_prep::InputPreparation,
 }
 
+pub(super) use super::chat_send::ChatSendPurpose;
+
 #[derive(Clone)]
 pub(super) struct ChatSendOrigin {
+    pub(super) purpose: ChatSendPurpose,
     pub(super) typing_here: bool,
     pub(super) relayed_from: Option<String>,
     pub(super) preserve_composer: bool,

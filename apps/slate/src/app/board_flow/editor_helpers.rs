@@ -106,6 +106,7 @@ impl SlateApp {
         };
         agent.instruction = draft.prompt.trim().to_owned();
         agent.model = (!model.is_empty()).then(|| model.to_owned());
+        agent.model_parameters.clone_from(&draft.model_parameters);
         agent.generator.preserve_history = Some(false);
         let mut after = before.clone();
         match &mut after.kind {
@@ -176,6 +177,7 @@ impl SlateApp {
         } else {
             "Ask for a description, a caption, or a rewrite"
         };
+        let mut projected = self.project_agent_prompt(source, &draft.prompt);
         let mut hidden = String::new();
         let key_masked = draft.key.as_ref().map(|k| "•".repeat(k.chars().count()));
         let prompt_text = match &key_masked {
@@ -183,7 +185,7 @@ impl SlateApp {
                 hidden.clone_from(masked);
                 &mut hidden
             }
-            None => &mut draft.prompt,
+            None => &mut projected,
         };
         let out = self.paint_image_agent_editor(
             ui,
@@ -220,8 +222,13 @@ impl SlateApp {
         if out.prompt.focused {
             self.web_release_keyboard();
         }
-        if pasting && out.prompt.changed {
-            absorb_key(&mut draft, &hidden);
+        if out.prompt.changed {
+            if pasting {
+                absorb_key(&mut draft, &hidden);
+            } else {
+                draft.prompt = self.authored_agent_prompt_edit(source, &projected, &draft.prompt);
+                self.sync_projected_prompt_cursor(ui.ctx(), source, &projected, &draft.prompt);
+            }
         }
         if let Some(mode) = out.mode {
             draft.kind = MODALITIES
@@ -333,6 +340,9 @@ impl SlateApp {
             .drafts
             .remove(&id)
             .unwrap_or_else(AgentDraft::new);
+        if image {
+            draft.count = self.image_agent_count(id).unwrap_or(1);
+        }
         let presentation = self.generator_presentation(id);
         draft.key = None;
         draft.model_open = presentation.model_open;
@@ -386,7 +396,7 @@ impl SlateApp {
         };
         let mut text = match &draft.key {
             Some(key) => "•".repeat(key.chars().count()),
-            None => self.agents.prompt_mut(id).clone(),
+            None => self.agent_prompt_text(id),
         };
         let modes = [kind.modality().label];
         let out = self.paint_image_agent_editor(
@@ -423,7 +433,13 @@ impl SlateApp {
             if pasting {
                 absorb_key(&mut draft, &text);
             } else {
-                *self.agents.prompt_mut(id) = text;
+                self.edit_agent_prompt_text(id, text.clone());
+                self.sync_projected_prompt_cursor(
+                    ui.ctx(),
+                    id,
+                    &text,
+                    self.agents.prompt(id).unwrap_or(""),
+                );
             }
         }
         if let Some((provider, model, _)) = out.model.and_then(|i| models.get(i)) {
@@ -431,18 +447,19 @@ impl SlateApp {
                 self.board_sel = [id].into_iter().collect();
                 self.dispatch(
                     ui.ctx(),
-                    atlas_commands::CommandId("portal.selected_model"),
+                    atlas_commands::CommandId("portal.agent.model"),
                     Some(model.clone()),
                 );
             } else {
                 self.set_flow_model(id, image, provider, model);
             }
         }
+        if let Some(count) = out.count {
+            self.set_image_agent_count(id, count);
+            draft.count = count.clamp(1, 8);
+        }
         let settings = {
             let mut s = image_settings;
-            if let Some(count) = out.count {
-                s.count = count.clamp(1, 8);
-            }
             if let Some(i) = out.aspect {
                 s.aspect = atlas_ai::agent::Aspect::ALL
                     .get(i)
@@ -460,7 +477,8 @@ impl SlateApp {
         if settings != image_settings && !self.tab().read_only {
             self.patch_nodes(&[id], |n| {
                 if let Some(a) = slate_doc::agent_chat::agent_mut(n) {
-                    a.image = settings;
+                    a.image.aspect = settings.aspect;
+                    a.image.seed = settings.seed;
                 }
             });
         }

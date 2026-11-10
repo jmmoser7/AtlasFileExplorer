@@ -13,6 +13,7 @@ members = [
     "crates/atlas-ai",
     "crates/atlas-agent",
     "crates/atlas-codex",
+    "crates/atlas-subscription",
     "crates/atlas-curl",
     "crates/atlas-ollama",
     "crates/atlas-comfy",
@@ -64,6 +65,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 url = "2"
 png = "0.18"
 sha2 = "0.10"
+base64 = "0.22"
 # Participant messaging: one TLS/WebSocket owner, no scene synchronization.
 rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 tungstenite = { version = "=0.28.0", default-features = false, features = ["handshake"] }
@@ -101,6 +103,7 @@ atlas-relay = { path = "crates/atlas-relay" }
 atlas-ai = { path = "crates/atlas-ai" }
 atlas-agent = { path = "crates/atlas-agent" }
 atlas-codex = { path = "crates/atlas-codex" }
+atlas-subscription = { path = "crates/atlas-subscription" }
 atlas-curl = { path = "crates/atlas-curl" }
 atlas-ollama = { path = "crates/atlas-ollama" }
 atlas-comfy = { path = "crates/atlas-comfy" }

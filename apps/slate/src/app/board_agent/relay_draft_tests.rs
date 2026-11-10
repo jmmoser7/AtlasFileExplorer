@@ -43,6 +43,7 @@ fn a_deferred_relay_preserves_new_human_edits_and_captures_its_original_sender()
             prompt: "Read this carefully".into(),
             workspace: h.base.clone(),
             origin: runtime::ChatSendOrigin {
+                purpose: runtime::ChatSendPurpose::Conversation,
                 typing_here: false,
                 relayed_from: Some("Dot".into()),
                 preserve_composer: true,
@@ -83,6 +84,7 @@ fn failed_input_preparation_keeps_the_human_draft_and_sends_nothing() {
             prompt: "Read this carefully".into(),
             workspace: h.base.clone(),
             origin: runtime::ChatSendOrigin {
+                purpose: runtime::ChatSendPurpose::Conversation,
                 typing_here: false,
                 relayed_from: Some("Dot".into()),
                 preserve_composer: true,

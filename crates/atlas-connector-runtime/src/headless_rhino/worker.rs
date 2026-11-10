@@ -6,7 +6,7 @@ use std::{
     fs,
     path::PathBuf,
     process::{Command, Stdio},
-    sync::Mutex,
+    sync::{Mutex, MutexGuard, TryLockError},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -103,11 +103,18 @@ impl HeadlessRhino {
         if cancel.is_cancelled() {
             return Err("Headless generation cancelled before launch".into());
         }
-        let _guard = RHINO_WORKER.try_lock().map_err(|_| {
-            "Rhino headless worker is busy; retry when the current job finishes".to_string()
-        })?;
         if self.timeout < Duration::from_secs(1) || self.timeout > Duration::from_secs(300) {
             return Err("Rhino timeout must be 1..300 seconds".into());
+        }
+        // One deadline includes waiting for the existing one-STA owner and the
+        // SDK run. Acquiring the worker never grants a fresh timeout period.
+        let deadline = Instant::now()
+            .checked_add(self.timeout)
+            .ok_or("Rhino deadline overflow")?;
+        let _guard = acquire_worker(&RHINO_WORKER, cancel, deadline, &mut progress)?;
+        progress("Rhino worker acquired; validating current task");
+        if cancel.is_cancelled() || Instant::now() >= deadline {
+            return Err("Rhino job cancelled or timed out before helper launch".into());
         }
         if !self.executable.is_absolute()
             || !self.executable.is_file()
@@ -163,10 +170,12 @@ impl HeadlessRhino {
             command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW; RhinoCore default is headless
         }
         progress("starting Rhino helper");
+        if cancel.is_cancelled() || Instant::now() >= deadline {
+            return Err("Rhino job cancelled or timed out before helper launch".into());
+        }
         let mut child = command
             .spawn()
             .map_err(|e| format!("Cannot launch Rhino helper: {e}"))?;
-        let start = Instant::now();
         let mut stopped = None;
         let mut seen = 0;
         let status = loop {
@@ -186,7 +195,7 @@ impl HeadlessRhino {
                     }
                 }
             }
-            let timed_out = start.elapsed() > self.timeout;
+            let timed_out = Instant::now() >= deadline;
             if (cancel.is_cancelled() || timed_out) && stopped.is_none() {
                 if let Err(e) = fs::write(job.join("stop"), []) {
                     let _ = child.kill();
@@ -253,6 +262,48 @@ impl HeadlessRhino {
     }
 }
 
+fn acquire_worker<'a>(
+    worker: &'a Mutex<()>,
+    cancel: &Cancellation,
+    deadline: Instant,
+    progress: &mut impl FnMut(&str),
+) -> Result<MutexGuard<'a, ()>, String> {
+    let mut waiting = false;
+    loop {
+        if cancel.is_cancelled() {
+            return Err(
+                "Rhino job cancelled while waiting for the shared worker; no helper launched"
+                    .into(),
+            );
+        }
+        if Instant::now() >= deadline {
+            return Err(
+                "Rhino job timed out waiting for the shared worker; no helper launched".into(),
+            );
+        }
+        match worker.try_lock() {
+            Ok(guard) => {
+                if cancel.is_cancelled() || Instant::now() >= deadline {
+                    return Err("Rhino job cancelled or timed out before worker admission".into());
+                }
+                return Ok(guard);
+            }
+            Err(TryLockError::Poisoned(_)) => {
+                return Err("The shared Rhino worker is unavailable after a worker failure".into())
+            }
+            Err(TryLockError::WouldBlock) => {
+                if !waiting {
+                    progress("waiting for the shared Rhino worker");
+                    waiting = true;
+                }
+            }
+        }
+        thread::sleep(
+            Duration::from_millis(25).min(deadline.saturating_duration_since(Instant::now())),
+        );
+    }
+}
+
 fn read_bounded(path: &std::path::Path, limit: u64) -> Result<Vec<u8>, String> {
     use std::io::Read;
     let file = fs::File::open(path).map_err(|e| e.to_string())?;
@@ -268,3 +319,6 @@ fn read_bounded(path: &std::path::Path, limit: u64) -> Result<Vec<u8>, String> {
     }
     Ok(bytes)
 }
+
+#[cfg(test)]
+mod tests;

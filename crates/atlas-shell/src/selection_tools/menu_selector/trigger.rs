@@ -83,7 +83,7 @@ pub(super) fn paint(
             detail.to_owned(),
             canvas_scale::font(11.0, zoom),
             theme.sub,
-            (suffix_rect.width() - (bolts as f32 * 10.0 + 8.0) * zoom).max(0.0),
+            (suffix_rect.width() - (bolts as f32 * 10.0 + 4.0) * zoom).max(0.0),
             1,
         )
         .paint_anchored(
@@ -113,12 +113,9 @@ pub(super) fn paint(
         }
     }
     if !capsule_style {
-        center.x = (if suffix_width > 0.0 {
-            label_right
-        } else {
-            text_bounds.right().min(label_rect.right())
-        } + 7.0 * zoom)
-            .min(rect.right() - 4.0 * zoom);
+        // Keep the caret adjacent to the next control even for short model
+        // captions without an effort suffix; its slot already reserves room.
+        center.x = (label_right + 7.0 * zoom).min(rect.right() - 4.0 * zoom);
         center.y = text_bounds.center().y;
     }
     if capsule_style {
@@ -152,6 +149,120 @@ pub(super) fn paint(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn effort_suffix_fits_short_values_without_moving_the_model_trigger_caret() {
+        const LABEL: &str = "Codex · A discovered model with a very long name";
+        for ppp in [1.0, 1.5, 2.0] {
+            for zoom in [0.75, 1.0, 2.5] {
+                for detail in ["Low", "Medium"] {
+                    for bolts in [0, 1, 2] {
+                        let ctx = egui::Context::default();
+                        canvas_text::install(&ctx);
+                        ctx.set_pixels_per_point(ppp);
+                        let rect = Rect::from_min_size(
+                            Pos2::new(80.25, 80.5),
+                            Vec2::new(120.0, 24.0) * zoom,
+                        );
+                        let output = ctx.run(
+                            egui::RawInput {
+                                screen_rect: Some(Rect::from_min_size(
+                                    Pos2::ZERO,
+                                    Vec2::splat(1600.0),
+                                )),
+                                ..Default::default()
+                            },
+                            |ctx| {
+                                egui::CentralPanel::default().show(ctx, |ui| {
+                                    paint(
+                                        ui,
+                                        rect,
+                                        LABEL,
+                                        zoom,
+                                        Palette::light(),
+                                        false,
+                                        false,
+                                        Some((detail, bolts)),
+                                        true,
+                                        false,
+                                        false,
+                                    );
+                                });
+                            },
+                        );
+                        let find_text = |source| {
+                            output
+                                .shapes
+                                .iter()
+                                .find_map(|shape| match &shape.shape {
+                                    egui::Shape::Text(text) if text.galley.text() == source => {
+                                        Some((text, shape.clip_rect))
+                                    }
+                                    _ => None,
+                                })
+                                .expect("the trigger paints its label and effort suffix")
+                        };
+                        let (suffix, clip) = find_text(detail);
+                        let painted = |text: &egui::epaint::TextShape| -> String {
+                            text.galley
+                                .rows
+                                .iter()
+                                .flat_map(|row| row.glyphs.iter())
+                                .map(|glyph| glyph.chr)
+                                .collect()
+                        };
+                        let witness = format!("{detail}, bolts={bolts}, zoom={zoom}, ppp={ppp}");
+                        assert!(!suffix.galley.elided, "short effort fits: {witness}");
+                        assert_eq!(painted(suffix), detail, "{witness}");
+                        assert!(
+                            clip.contains_rect(suffix.visual_bounding_rect()),
+                            "{witness}"
+                        );
+                        let (label, label_clip) = find_text(LABEL);
+                        let label_ink = label.visual_bounding_rect();
+                        let label_text = painted(label);
+                        assert!(
+                            label.galley.elided && label_text.ends_with('…'),
+                            "{witness}"
+                        );
+                        assert_eq!(label.galley.text(), LABEL, "full model identity: {witness}");
+                        // The fixed 120-unit trigger must also fit effort and
+                        // speed. Its remaining caption may elide inside the
+                        // provider name; the actual leading glyph still paints.
+                        assert!(
+                            label_text.starts_with('C')
+                                && LABEL.starts_with(label_text.trim_end_matches('…')),
+                            "valid leading caption and end ellipsis: {witness}, {label_text:?}"
+                        );
+                        assert!(
+                            label_clip.contains_rect(label_ink) && label_ink.left() >= rect.left(),
+                            "the first C keeps its ink buffer: {witness}, {label_ink:?}, {label_clip:?}"
+                        );
+                        assert!(
+                            label_ink.right() < suffix.visual_bounding_rect().left(),
+                            "caption and complete effort suffix remain separate: {witness}"
+                        );
+                        let caret = output
+                            .shapes
+                            .iter()
+                            .filter_map(|shape| {
+                                if let egui::Shape::LineSegment { points, .. } = &shape.shape {
+                                    Some(Rect::from_two_pos(points[0], points[1]))
+                                } else {
+                                    None
+                                }
+                            })
+                            .reduce(|a, b| a.union(b))
+                            .expect("two trailing caret arms paint");
+                        assert!(
+                            (caret.center().x - (rect.right() - 5.0 * zoom)).abs() < 0.01,
+                            "suffix keeps the existing caret datum: {witness}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn selector_ink_has_buffer_and_long_names_elide_at_canvas_zoom_and_dpi() {
@@ -259,6 +370,25 @@ mod tests {
                         text.0,
                     );
                     eprintln!("selector witness: {witness}");
+                    let caret = out
+                        .shapes
+                        .iter()
+                        .filter_map(|shape| match &shape.shape {
+                            egui::Shape::LineSegment { points, .. } => {
+                                Some(Rect::from_two_pos(points[0], points[1]))
+                            }
+                            _ => None,
+                        })
+                        .reduce(|a, b| a.union(b))
+                        .expect("the no-suffix trigger paints its trailing caret");
+                    assert!(
+                        (caret.center().x - (rect.right() - 5.0 * zoom)).abs() < 0.01,
+                        "short and elided captions share the trailing caret datum: {witness}"
+                    );
+                    assert!(
+                        ink.right() < caret.left(),
+                        "the existing caption ellipsis budget protects the caret: {witness}"
+                    );
                     assert!(
                         painted.starts_with('C'),
                         "the initial C is painted: {witness}"

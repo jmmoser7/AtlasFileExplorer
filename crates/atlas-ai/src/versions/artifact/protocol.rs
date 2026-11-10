@@ -34,7 +34,10 @@ pub fn artifact_checkpoint_is_head(
 pub fn validate_artifact_return(run: &ArtifactRun, link_dir: &Path) -> io::Result<()> {
     validate_prepared_artifact_run(run)?;
     let bytes = paths::checked_read(&link_dir.join("return.json"), 128 * 1024)?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes)?;
+    // External Windows tools may prefix UTF-8 JSON with one encoding marker.
+    // Only this return boundary accepts it; JSON and ownership remain strict.
+    let json = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
+    let value: serde_json::Value = serde_json::from_slice(json)?;
     let items = value["items"]
         .as_array()
         .ok_or_else(|| paths::bad("Artifact manifest has no returned entry"))?;

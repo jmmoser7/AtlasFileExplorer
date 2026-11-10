@@ -4,11 +4,16 @@ use super::*;
 impl SlateApp {
     /// Snapshot of the node when it's a placed 3D model.
     pub fn model_node_info(&self, id: NodeId) -> Option<ModelNodeInfo> {
-        let node = self.doc().scene.node(id)?;
+        self.model_node_info_in(self.tab().id, id)
+    }
+
+    pub(crate) fn model_node_info_in(&self, doc: u64, id: NodeId) -> Option<ModelNodeInfo> {
+        let tab = self.tabs.iter().find(|tab| tab.id == doc)?;
+        let node = tab.doc.scene.node(id)?;
         let NodeKind::Image(img) = &node.kind else {
             return None;
         };
-        let item = self.doc().item(img.item)?;
+        let item = tab.doc.item(img.item)?;
         let recognized = slate_doc::media_kind(&item.path) == slate_doc::MediaKind::Model
             || self.model3d.external.contains(&item.cache_key);
         if !recognized || item.cache_key.is_empty() {
@@ -17,7 +22,10 @@ impl SlateApp {
         Some(ModelNodeInfo {
             node: id,
             cache_key: item.cache_key.clone(),
-            path: self.item_path(img.item)?,
+            path: slate_doc::scene::resolve_source(
+                tab.path.as_deref(),
+                &item.path.to_string_lossy(),
+            ),
             cam: img.model,
             rect: node.rect,
         })

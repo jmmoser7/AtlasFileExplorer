@@ -18,12 +18,18 @@ impl SlateApp {
     /// The inputs an image generator reads now, in wire order. Cached until the
     /// scene or an upstream output changes.
     pub(crate) fn generator_view(&self, id: NodeId) -> std::rc::Rc<GeneratorView> {
-        let editing = self.text_edit.as_ref().map(|(node, text)| {
+        let editing = if self.text_edit.is_some() || self.text_doc_edit.is_some() {
             use std::hash::{Hash, Hasher};
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            (node, text).hash(&mut hasher);
-            hasher.finish()
-        });
+            self.text_edit.hash(&mut hasher);
+            self.text_doc_edit
+                .as_ref()
+                .map(|edit| (edit.node, edit.buffer.as_str()))
+                .hash(&mut hasher);
+            Some(hasher.finish())
+        } else {
+            None
+        };
         let key = (self.scene_gen, self.agents.output_epoch, editing);
         if let Some((cached, view)) = self.agents.generator_views.borrow().get(&id) {
             if *cached == key {
@@ -37,6 +43,10 @@ impl SlateApp {
             .insert(id, (key, view.clone()));
         view
     }
+    pub(crate) fn invalidate_generator_inputs(&self) {
+        self.agents.generator_views.borrow_mut().clear();
+    }
+
     fn resolve_generator(&self, id: NodeId) -> GeneratorView {
         use std::hash::{Hash, Hasher};
         let live = self
@@ -55,6 +65,7 @@ impl SlateApp {
             }
         };
         let mut view = GeneratorView {
+            wired_prompt: Self::prompt_with_inputs(&inputs, ""),
             wired_image_and_prompt: inputs
                 .on(atlas_agent::InputSlot::Media)
                 .any(|item| item.node != id.0 && !item.images.is_empty())
@@ -146,25 +157,7 @@ impl SlateApp {
     }
     /// Wired notes are the prompt. Typed text is added after them.
     fn generator_prompt(&mut self, id: NodeId) -> String {
-        let view = self.generator_view(id);
-        // The journaled prompt an image agent was submitted with, else a draft.
-        let authored = self
-            .doc()
-            .scene
-            .node(id)
-            .and_then(slate_doc::agent_chat::agent)
-            .map(|a| a.instruction.trim().to_string())
-            .unwrap_or_default();
-        let typed = if authored.is_empty() {
-            self.agents.prompt_mut(id).trim().to_string()
-        } else {
-            authored
-        };
-        let prompt = [view.prompt.as_str(), typed.as_str()]
-            .into_iter()
-            .filter(|p| !p.is_empty())
-            .collect::<Vec<_>>()
-            .join(", ");
+        let prompt = self.agent_prompt_text(id).trim().to_owned();
         if !prompt.is_empty() {
             return prompt;
         }
@@ -303,9 +296,12 @@ impl SlateApp {
             .as_ref()
             .map(|a| a.generator.clone())
             .unwrap_or_default();
-        let count = settings
-            .count
-            .unwrap_or_else(|| request.image.as_ref().map_or(1, |image| image.count))
+        let count = request
+            .image
+            .as_ref()
+            .map(|image| image.count)
+            .or(settings.count)
+            .unwrap_or(1)
             .max(1);
         let shared = slate_doc::agent_inputs::shared_generator_sources(&self.doc().scene, id);
         let jobs = match slate_doc::agent_inputs::plan_grafted_inputs_with_shared(
@@ -337,7 +333,10 @@ impl SlateApp {
             })
             .sum();
         if waiting + total > GENERATION_QUEUE {
-            let error = format!("{} graft branches exceed the generator's eight-job queue; reduce the inputs or wait.", jobs.len());
+            let error = format!(
+                "{} graft branches exceed the generator's eight-job queue; reduce the inputs or wait.",
+                jobs.len()
+            );
             self.fail_agent_await(id, error.clone());
             self.toast(error);
             return false;
@@ -426,8 +425,8 @@ impl SlateApp {
                 if branching {
                     branch_request.id = format!("{}-branch-{}-{result}", original_id, job.branch);
                     branch_request.oneshot = true;
-                    if branch_request.text_source.is_none()
-                        && branch_request.image_history.is_none()
+                    if branch_request.prompt_inputs_projected
+                        && branch_request.pending_prompt_projection.is_none()
                     {
                         branch_request.prompt = slate_doc::agent_inputs::grafted_prompt(
                             &branch_request.prompt,

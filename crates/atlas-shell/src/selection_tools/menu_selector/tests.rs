@@ -4,6 +4,8 @@ use super::*;
 mod generator_tests;
 #[path = "keyboard_tests.rs"]
 mod keyboard_tests;
+#[path = "row_value_tests.rs"]
+mod row_value_tests;
 
 struct Menu {
     ctx: egui::Context,

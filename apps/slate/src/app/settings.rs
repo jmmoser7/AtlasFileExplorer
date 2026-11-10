@@ -149,6 +149,12 @@ pub struct SlateSettings {
     pub agent_text_model: Option<(String, String)>,
     #[serde(default)]
     pub agent_artifact_model: Option<(String, String)>,
+    pub agent_chat_model: Option<(String, String)>,
+    /// Provider/model-specific advertised choices (effort, speed, etc.).
+    pub agent_model_parameters: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+    >,
     /// Preferences → Configure → Tools → Bumper cars. Off until turned on;
     /// while off, nodes keep their Bumper settings and nothing collides.
     pub optional_bumper_cars: bool,
@@ -184,6 +190,8 @@ impl Default for SlateSettings {
             agent_image_model: None,
             agent_text_model: None,
             agent_artifact_model: None,
+            agent_chat_model: None,
+            agent_model_parameters: Default::default(),
             optional_bumper_cars: false,
         }
     }

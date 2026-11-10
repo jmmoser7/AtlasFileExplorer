@@ -177,6 +177,9 @@ impl SlateApp {
     }
 
     fn stop_agent_at(&mut self, id: NodeId, expected_request: Option<&str>) -> bool {
+        if self.model_task_is_running(id) {
+            self.connector_stop_headless(id);
+        }
         if let Some(request) = expected_request
             .map(str::to_owned)
             .or_else(|| self.agents.requests.get(&id).cloned())
@@ -432,6 +435,6 @@ impl SlateApp {
                 a.model_parameters.clear();
             }
         });
-        self.remember_model(image, provider, model);
+        self.remember_source_model(id, provider, model, &Default::default());
     }
 }

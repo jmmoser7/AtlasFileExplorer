@@ -1,4 +1,42 @@
 #[test]
+fn projected_image_prompt_words_reach_api_once_with_both_history_modes() {
+    for preserve in [false, true] {
+        let request: atlas_agent::AgentRequest = serde_json::from_value(serde_json::json!({
+            "id":"r", "at":0, "prompt":"LINKED_SENTINEL, authored suffix",
+            "prompt_inputs_projected":true, "image":{"count":1}, "image_history":preserve,
+            "history":[{"role":"user","text":"Earlier conversation","at":0}],
+            "inputs":{"revision":"captured","context":[],"wired":[{"node":1,"text":"LINKED_SENTINEL","images":[],"slot":"prompt"}]}
+        })).unwrap();
+        let text = super::prompt(&request);
+        assert_eq!(text.matches("LINKED_SENTINEL").count(), 1);
+        assert_eq!(text.contains("Earlier conversation"), preserve);
+    }
+}
+
+#[test]
+fn linked_only_dynamic_instruction_is_canonical_before_api_request_construction() {
+    let mut request: atlas_agent::AgentRequest = serde_json::from_value(serde_json::json!({
+        "id":"r", "at":0, "prompt":"", "prompt_inputs_projected":true,
+        "pending_prompt_projection":{"authored":"","separator":", ","static_instructions":""},
+        "image":{"count":1}, "inputs":{"revision":"frozen","context":[],"wired":[
+            {"node":1,"text":"FROZEN_CURRENT_INSTRUCTION","images":[],"slot":"prompt"}
+        ]}
+    }))
+    .unwrap();
+    request.resolve_pending_prompt_projection();
+    assert_eq!(request.prompt, "FROZEN_CURRENT_INSTRUCTION");
+    assert!(request.pending_prompt_projection.is_none());
+    assert_eq!(
+        super::prompt(&request)
+            .matches("FROZEN_CURRENT_INSTRUCTION")
+            .count(),
+        1
+    );
+    let client = super::Client::new("unused-test-key".into(), std::path::PathBuf::new());
+    assert!(client.request(&request, 1).is_ok());
+}
+
+#[test]
 fn custom_ratio_is_rejected_before_building_an_api_request() {
     let client = super::Client::new("unused-test-key".into(), std::path::PathBuf::new());
     let request = atlas_agent::AgentRequest {

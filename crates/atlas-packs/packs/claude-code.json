@@ -1,0 +1,8 @@
+{
+  "id": "claude-code",
+  "title": "Claude Code",
+  "contract": "chat",
+  "contract_version": 1,
+  "install_note": "Install Claude Code, run claude auth login --claudeai, then reopen the chooser.",
+  "probe": { "kind": "custom", "id": "claude-code" }
+}

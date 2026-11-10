@@ -1,10 +1,12 @@
 //! Strict immutable artifact history. All entry points perform blocking I/O and
 //! must run on a worker. Publication never opens an ancestor for writing.
 mod bytes;
+mod execution;
 mod inputs;
 mod paths;
 mod protocol;
 mod validate;
+pub use execution::ArtifactExecutionScope;
 pub use inputs::{freeze_artifact_inputs, MAX_ARTIFACT_INPUT_BYTES};
 pub use protocol::{artifact_checkpoint_is_head, validate_artifact_return};
 

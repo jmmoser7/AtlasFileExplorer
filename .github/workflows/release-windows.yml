@@ -56,6 +56,8 @@ jobs:
           "ATLAS_RELEASE_CHANNEL=$channel" >> $env:GITHUB_ENV
       - name: Install pinned packaging tool
         run: dotnet tool install --global vpk --version 1.2.0
+      - name: Test package verification allowlist
+        run: ./scripts/tests/test_windows_package.ps1
       - name: Test real installation and coordinated upgrade
         run: ./scripts/test-windows-update.ps1
       - name: Test workspace on Windows
@@ -142,8 +144,16 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
+      - name: Require Linux CI success for the exact published source
+        timeout-minutes: 125
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {waitForLinuxCi} = require('./scripts/wait-linux-ci.cjs');
+            await waitForLinuxCi({github, context, core});
       - uses: actions/download-artifact@v4
         with:
           name: windows-${{ needs.build.outputs.channel }}

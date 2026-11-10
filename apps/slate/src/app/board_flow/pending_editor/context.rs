@@ -1,5 +1,6 @@
 //! Unsaved configuration for the original source, before its first explicit Send.
 use super::*;
+mod subscription;
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -136,19 +137,30 @@ impl SlateApp {
             PendingHost::Chat => self
                 .registered_agent_programs()
                 .iter()
-                .filter(|p| p.view == PortalView::Chat)
+                .filter(|p| {
+                    p.view == PortalView::Chat
+                        && atlas_ai::runtime::subscription_provider(&p.id).is_none()
+                })
                 .map(|p| p.id.as_str())
                 .collect(),
             PendingHost::Model => self
                 .registered_agent_programs()
                 .iter()
-                .filter(|p| Self::native_model_harness(&p.id))
+                .filter(|p| {
+                    Self::scoped_model_harness(&p.id)
+                        && (atlas_ai::runtime::subscription_provider(&p.id).is_none()
+                            || self.subscription_provider_inputs_available(id, &p.id))
+                })
                 .map(|p| p.id.as_str())
                 .collect(),
             PendingHost::Artifact => self
                 .registered_agent_programs()
                 .iter()
-                .filter(|p| atlas_ai::runtime::linear_provider(&p.id))
+                .filter(|p| {
+                    atlas_ai::runtime::artifact_provider(&p.id)
+                        && (atlas_ai::runtime::subscription_provider(&p.id).is_none()
+                            || self.subscription_provider_inputs_available(id, &p.id))
+                })
                 .map(|p| p.id.as_str())
                 .collect(),
             PendingHost::Image => [
@@ -163,6 +175,18 @@ impl SlateApp {
                 Some("ollama"),
                 has_codex.then_some("codex-text"),
                 Some("openai-text"),
+                (self.subscription_provider_inputs_available(id, "cursor-cli")
+                    && self
+                        .registered_agent_programs()
+                        .iter()
+                        .any(|p| p.id == "cursor-cli"))
+                .then_some("cursor-cli"),
+                (self.subscription_provider_inputs_available(id, "claude-code")
+                    && self
+                        .registered_agent_programs()
+                        .iter()
+                        .any(|p| p.id == "claude-code"))
+                .then_some("claude-code"),
             ]
             .into_iter()
             .flatten()
@@ -173,11 +197,12 @@ impl SlateApp {
             .collect()
     }
 
-    /// Initialize only the existing ephemeral draft, never a document binding.
+    /// Initialize the existing ephemeral draft from compatible machine preferences.
+    /// The historical name is retained for chat callers of this shared owner.
     pub(crate) fn prepare_pending_chat_choice(&mut self, id: NodeId) {
-        if self.pending_generator_host(id) != Some(PendingHost::Chat) {
+        let Some(kind) = self.pending_generator_host(id) else {
             return;
-        }
+        };
         let providers = self.pending_provider_options(id);
         let current = self
             .agents
@@ -185,12 +210,25 @@ impl SlateApp {
             .drafts
             .get(&id)
             .and_then(|d| d.choice.clone());
-        let provider = current
-            .as_ref()
-            .map(|(p, _)| p.as_str())
-            .filter(|p| providers.iter().any(|entry| entry.id == *p))
-            .or_else(|| providers.first().map(|p| p.id.as_str()));
-        let Some(provider) = provider.map(str::to_owned) else {
+        // Keep the element's provider ahead of later global preferences, but
+        // revalidate its model after asynchronous catalog discovery completes.
+        let current = current.filter(|(p, _)| {
+            providers.iter().any(|entry| entry.id == *p)
+                || (matches!(kind, PendingHost::Text | PendingHost::Model)
+                    && atlas_ai::runtime::subscription_provider(p).is_some()
+                    && self
+                        .registered_agent_programs()
+                        .iter()
+                        .any(|entry| entry.id == *p))
+        });
+        let preferred = self
+            .default_source_model(id)
+            .filter(|(p, _)| providers.iter().any(|entry| entry.id == *p));
+        let Some((provider, mut model)) = current
+            .clone()
+            .or(preferred)
+            .or_else(|| providers.first().map(|p| (p.id.clone(), String::new())))
+        else {
             if let Some(draft) = self.agents.flow.drafts.get_mut(&id) {
                 draft.choice = None;
                 draft.model_parameters.clear();
@@ -198,32 +236,45 @@ impl SlateApp {
             return;
         };
         let models = self.source_model_options(id, &provider);
-        let selected = current
-            .as_ref()
-            .filter(|(p, m)| p == &provider && models.iter().any(|(_, choice, _)| choice == m));
-        let model = selected
-            .map(|(_, m)| m.clone())
-            .or_else(|| {
-                let catalog = self
-                    .agents
-                    .catalog(atlas_ai::agent::model_catalog(&provider));
-                catalog
-                    .iter()
-                    .find(|m| m.is_default)
-                    .or_else(|| catalog.first())
-                    .map(|m| m.id.clone())
-            })
-            .unwrap_or_default();
-        let draft = self
+        let catalog = self
             .agents
-            .flow
-            .drafts
-            .entry(id)
-            .or_insert_with(AgentDraft::new);
-        if draft.choice.as_ref() != Some(&(provider.clone(), model.clone())) {
-            draft.choice = Some((provider, model));
-            draft.model_parameters.clear();
+            .catalog(atlas_ai::agent::model_catalog(&provider));
+        if !model.is_empty()
+            && !catalog.is_empty()
+            && !models.iter().any(|(_, id, _)| *id == model)
+            && atlas_ai::runtime::subscription_provider(&provider).is_none()
+        {
+            model.clear();
         }
+        if model.is_empty() && atlas_ai::runtime::subscription_provider(&provider).is_some() {
+            model = self
+                .subscription_default_model(id, &provider)
+                .unwrap_or_default();
+        } else if model.is_empty() && matches!(kind, PendingHost::Chat | PendingHost::Model) {
+            model = catalog
+                .iter()
+                .find(|m| m.is_default)
+                .or_else(|| catalog.first())
+                .map(|m| m.id.clone())
+                .unwrap_or_default();
+        }
+        let parameters = if current.as_ref() == Some(&(provider.clone(), model.clone())) {
+            if atlas_ai::runtime::subscription_provider(&provider).is_some() {
+                self.agents.flow.drafts[&id].model_parameters.clone()
+            } else {
+                self.compatible_model_parameters(
+                    &provider,
+                    &model,
+                    self.agents.flow.drafts[&id].model_parameters.clone(),
+                )
+            }
+        } else {
+            self.default_model_parameters(&provider, &model)
+        };
+        let initial = AgentDraft::from_node(self.doc().scene.node(id).unwrap());
+        let draft = self.agents.flow.drafts.entry(id).or_insert(initial);
+        draft.choice = Some((provider, model));
+        draft.model_parameters = parameters;
     }
 
     pub(crate) fn pending_generator_choice(
@@ -247,13 +298,19 @@ impl SlateApp {
             return false;
         }
         let custom_supported = self.custom_aspect_available(id, provider);
+        let model = if atlas_ai::runtime::subscription_provider(provider).is_some() {
+            self.subscription_default_model(id, provider)
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
         let draft = self
             .agents
             .flow
             .drafts
             .entry(id)
             .or_insert_with(AgentDraft::new);
-        draft.choice = Some((provider.into(), String::new()));
+        draft.choice = Some((provider.into(), model.clone()));
         draft.model_parameters.clear();
         if !atlas_ai::runtime::image_seed_supported(provider) {
             draft.seed = None;
@@ -261,6 +318,7 @@ impl SlateApp {
         if draft.aspect == atlas_ai::agent::Aspect::ALL.len() && !custom_supported {
             draft.aspect = 0;
         }
+        self.remember_source_model(id, provider, &model, &BTreeMap::new());
         true
     }
 
@@ -286,6 +344,7 @@ impl SlateApp {
             *selected = model.into();
         }
         draft.model_parameters.clear();
+        self.remember_source_model(id, &provider, model, &BTreeMap::new());
         true
     }
 
@@ -320,7 +379,11 @@ impl SlateApp {
             .drafts
             .entry(id)
             .or_insert_with(AgentDraft::new)
-            .model_parameters = selected;
+            .model_parameters = selected.clone();
+        if let Some((provider, model, _)) = self.pending_generator_choice(id) {
+            let (provider, model) = (provider.to_owned(), model.to_owned());
+            self.remember_source_model(id, &provider, &model, &selected);
+        }
         true
     }
 
@@ -333,12 +396,29 @@ impl SlateApp {
         let Some(kind) = self.generator_source_kind(id) else {
             return Vec::new();
         };
+        if self.generator_presentation(id).model_open {
+            self.note_program_chooser();
+        }
         if provider.is_empty() && kind == PendingHost::Chat {
             return Vec::new();
         }
         let catalog = atlas_ai::agent::model_catalog(provider);
         self.agents.want_catalog(catalog);
         let models = self.agents.catalog(catalog);
+        if atlas_ai::runtime::subscription_provider(provider).is_some() {
+            let Ok((task, vision)) = self.subscription_task_requirements(id) else {
+                return Vec::new();
+            };
+            return models
+                .iter()
+                .filter(|model| {
+                    model
+                        .capabilities
+                        .is_some_and(|caps| caps.supports(task, vision))
+                })
+                .map(|model| (provider.into(), model.id.clone(), model.name.clone()))
+                .collect();
+        }
         if matches!(kind, PendingHost::Model | PendingHost::Chat) {
             // Existing Codex dynamic-tool harness contract; never fixture IDs or an image fallback.
             return models

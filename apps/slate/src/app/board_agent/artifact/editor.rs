@@ -34,11 +34,7 @@ impl chrome::GeneratorHistory for ArtifactHistory<'_> {
 }
 
 fn model_label(provider: &str, model: Option<&str>) -> String {
-    let provider = match provider {
-        "codex" => "Codex",
-        "cursor" => "Cursor",
-        provider => provider,
-    };
+    let provider = atlas_ai::agent::provider_by_id(provider).display_name;
     format!("{provider} · {}", model.unwrap_or("default"))
 }
 
@@ -98,7 +94,7 @@ impl SlateApp {
         );
         let approval = self.agent_approval_description(id);
         let data = self.generator_chrome_data(id);
-        let mut state = self.generator_presentation(id).activity.unwrap_or_default();
+        let mut state = self.generator_activity_state(id, self.generator_presentation(id).activity);
         let view = data.view(&mut state, self.artifact_is_busy(id));
         chrome::generator_layout(
             painter.ctx(),
@@ -211,42 +207,26 @@ impl SlateApp {
             .into_iter()
             .map(|locator| locator.and_then(|locator| self.web_history_thumbnail(id, &locator)))
             .collect::<Vec<_>>();
+        let mut models = Vec::new();
+        let provider = self
+            .doc()
+            .scene
+            .node(id)
+            .and_then(slate_doc::agent_chat::agent)
+            .map(|agent| agent.provider.clone())
+            .unwrap_or_default();
+        // Provider has its own menu. Model choices are only the selected
+        // provider's eligible catalog, exactly as in the attached Text editor.
+        for (provider, model, name) in self.source_model_options(id, &provider) {
+            models.push((provider, (!model.is_empty()).then_some(model), name));
+        }
         let node = self.doc().scene.node(id).unwrap();
         let agent = slate_doc::agent_chat::agent(node).unwrap();
         let binding = artifact(node).unwrap();
-        let mut models = Vec::new();
-        for provider in ["codex", "cursor"] {
-            let available =
-                self.agents.programs.iter().any(|p| p.id == provider) || agent.provider == provider;
-            if !available {
-                continue;
-            }
-            models.push((provider.to_owned(), None, model_label(provider, None)));
-            for model in self.agents.catalog(provider) {
-                models.push((
-                    provider.to_owned(),
-                    Some(model.id.clone()),
-                    model_label(provider, Some(&model.name)),
-                ));
-            }
-        }
         let current = models
             .iter()
             .position(|(p, m, _)| p == &agent.provider && m == &agent.model)
-            .unwrap_or_else(|| {
-                // Keep the authored choice visible while its catalog is loading
-                // (or no longer advertises it), without changing that choice.
-                models.push((
-                    agent.provider.clone(),
-                    agent.model.clone(),
-                    current_model_label(
-                        &agent.provider,
-                        agent.model.as_deref(),
-                        self.agents.catalog(&agent.provider),
-                    ),
-                ));
-                models.len() - 1
-            });
+            .unwrap_or(0);
         let labels = models.iter().map(|m| m.2.as_str()).collect::<Vec<_>>();
         let mut prompt = self
             .agents
@@ -256,7 +236,7 @@ impl SlateApp {
         let presentation = self.generator_presentation(id);
         let mut model_open = presentation.model_open;
         let mut settings_open = presentation.settings_open;
-        let mut activity_state = presentation.activity.unwrap_or_default();
+        let mut activity_state = self.generator_activity_state(id, presentation.activity);
         let data = self.generator_chrome_data(id);
         let selection = self.result_selection(id);
         let history = ArtifactHistory(&revisions, visible.start, &thumbnails, &selection);
@@ -334,18 +314,7 @@ impl SlateApp {
             *self.agents.prompt_mut(id) = prompt.clone();
         }
         if let Some((provider, model)) = chosen_model {
-            self.patch_nodes(&[id], |node| {
-                if let Some(a) = slate_doc::agent_chat::agent_mut(node) {
-                    a.provider.clone_from(&provider);
-                    a.model.clone_from(&model);
-                    a.model_parameters.clear();
-                }
-            });
-            self.remember_flow_model(
-                crate::app::board_flow::SpawnKind::Artifact,
-                &provider,
-                model.as_deref().unwrap_or(""),
-            );
+            self.set_flow_model(id, false, &provider, model.as_deref().unwrap_or(""));
         }
         if let Some(revision) = chosen_revision {
             self.dispatch(

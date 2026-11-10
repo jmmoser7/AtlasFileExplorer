@@ -17,6 +17,7 @@ use slate_doc::SceneCmd;
 use super::super::SlateApp;
 use super::{AgentAwait, AgentRuntime};
 
+mod documents;
 mod process;
 mod queued_send;
 mod sessions;
@@ -117,6 +118,7 @@ impl SlateApp {
         } else {
             self.agents.life.parked.remove(&key);
         }
+        self.cancel_model_tasks_for_doc(key);
         for session in orphaned {
             self.stop_agent_session(&session);
         }
@@ -216,7 +218,7 @@ impl SlateApp {
     }
 
     /// A failure lands on the document that sent, even after a tab switch.
-    pub(super) fn fail_agent_await_in(&mut self, doc: u64, portal: NodeId, reason: String) {
+    pub(crate) fn fail_agent_await_in(&mut self, doc: u64, portal: NodeId, reason: String) {
         if self.agents.life.doc.is_none_or(|d| d == doc) {
             self.fail_agent_await(portal, reason);
             return;

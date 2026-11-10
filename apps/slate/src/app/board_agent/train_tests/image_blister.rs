@@ -51,12 +51,16 @@ fn generator_inputs_and_controls_live_in_the_selected_agent_blister() {
         h.frame();
     }
     let selected = painted_text(&mut h, None);
-    for expected in ["ComfyUI · Automatic", "Message…"] {
+    for expected in ["ComfyUI · Automatic", "a nice public park"] {
         assert!(
             selected.iter().any(|t| t == expected),
             "missing {expected:?} in selected Agent blister: {selected:?}"
         );
     }
+    assert!(
+        !selected.iter().any(|text| text == "Message…"),
+        "wired prompt replaces the empty composer placeholder: {selected:?}"
+    );
     let options = h
         .ctx
         .data(|data| data.get_temp::<Rect>(Id::new("painted-generator-options-hit")))

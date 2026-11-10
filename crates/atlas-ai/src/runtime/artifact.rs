@@ -1,5 +1,10 @@
 use atlas_agent::AgentRequest;
 
+/// Artifact eligibility is independent of general chat/project integration.
+pub fn artifact_provider(provider: &str) -> bool {
+    super::linear_provider(provider) || super::subscription_provider(provider).is_some()
+}
+
 /// Submit only prepared, owned artifact drafts to installed coding harnesses.
 /// The history owner performs filesystem validation; call from a worker before
 /// either an in-process Codex submission or a Cursor request.json write.
@@ -8,8 +13,8 @@ pub fn validate_artifact_submission(request: &AgentRequest, provider: &str) -> R
     let Some(run) = &request.artifact else {
         return Ok(());
     };
-    if !matches!(provider, "codex" | "cursor") {
-        return Err("Artifact generation requires an installed Cursor or Codex harness.".into());
+    if !artifact_provider(provider) {
+        return Err("Artifact generation requires an installed Cursor or Codex harness, or a supported subscription file transport.".into());
     }
     crate::versions::validate_prepared_artifact_run(run)
         .map_err(|e| format!("Artifact staging is unavailable: {e}"))

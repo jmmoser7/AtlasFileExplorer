@@ -1,7 +1,9 @@
 //! Scoped native requests share the existing application worker and source owner.
 use super::*;
+mod outcome;
 mod retention;
 mod types;
+pub(crate) use outcome::outcome_value;
 pub(crate) use types::*;
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -13,16 +15,24 @@ pub(crate) const NATIVE_TICKET_LIFETIME: Duration = Duration::from_secs(300);
 
 impl SlateApp {
     pub(crate) fn native_binding(&self, node: NodeId) -> Result<BindingSnapshot, String> {
+        self.native_binding_in(self.tab().id, node)
+    }
+
+    pub(in crate::app::application_connector) fn native_binding_in(
+        &self,
+        doc: u64,
+        node: NodeId,
+    ) -> Result<BindingSnapshot, String> {
         let session = self
             .connectors
             .sessions
-            .get(&(self.tab().id, node))
+            .get(&(doc, node))
             .ok_or("Activate Rhino for this model first")?;
         if !session.enabled || session.ended {
             return Err("Activate a current Rhino source before calling native tools".into());
         }
         if self
-            .model_node_info(node)
+            .model_node_info_in(doc, node)
             .is_none_or(|info| info.path != session.path)
         {
             return Err("The linked model changed since Rhino was bound".into());
@@ -42,7 +52,65 @@ impl SlateApp {
         operation: NativeOperation,
         lease: Lease,
     ) -> Result<NativeTicket, NativeOutcome> {
-        self.native_submit_caller(node, expected, Some((identity, autonomy)), operation, lease)
+        self.native_submit_caller(
+            self.tab().id,
+            node,
+            expected,
+            Some((identity, autonomy)),
+            None,
+            operation,
+            lease,
+        )
+    }
+
+    pub(in crate::app::application_connector) fn native_submit_model_task(
+        &mut self,
+        node: NodeId,
+        expected: &BindingSnapshot,
+        identity: AgentIdentity,
+        task: &ModelTaskPermit,
+        operation: NativeOperation,
+        lease: Lease,
+    ) -> Result<NativeTicket, NativeOutcome> {
+        self.native_submit_model_task_in(
+            self.tab().id,
+            node,
+            expected,
+            identity,
+            task,
+            operation,
+            lease,
+        )
+    }
+
+    pub(in crate::app::application_connector) fn native_submit_model_task_in(
+        &mut self,
+        doc: u64,
+        node: NodeId,
+        expected: &BindingSnapshot,
+        identity: AgentIdentity,
+        task: &ModelTaskPermit,
+        operation: NativeOperation,
+        lease: Lease,
+    ) -> Result<NativeTicket, NativeOutcome> {
+        if self.connectors.sessions.get(&(doc, node)).is_none_or(|s| {
+            s.descriptor
+                .as_ref()
+                .is_none_or(|d| d.mode != SurfaceMode::Headless)
+        }) {
+            return Err(NativeOutcome::not_dispatched(
+                "Model task requires its headless isolated worker",
+            ));
+        }
+        self.native_submit_caller(
+            doc,
+            node,
+            expected,
+            Some((identity, false)),
+            Some(task),
+            operation,
+            lease,
+        )
     }
 
     /// Human control adapters use the same source-bound ticket and receipt owner.
@@ -54,20 +122,36 @@ impl SlateApp {
         operation: NativeOperation,
         lease: Lease,
     ) -> Result<NativeTicket, NativeOutcome> {
-        self.native_submit_caller(node, expected, None, operation, lease)
+        self.native_submit_caller(self.tab().id, node, expected, None, None, operation, lease)
     }
 
     fn native_submit_caller(
         &mut self,
+        doc: u64,
         node: NodeId,
         expected: &BindingSnapshot,
         identity: Option<(AgentIdentity, bool)>,
+        task: Option<&ModelTaskPermit>,
         operation: NativeOperation,
         lease: Lease,
     ) -> Result<NativeTicket, NativeOutcome> {
         let current = self
-            .native_binding(node)
+            .native_binding_in(doc, node)
             .map_err(NativeOutcome::not_dispatched)?;
+        if let Some(task) = task {
+            let allowed = identity
+                .as_ref()
+                .is_some_and(|(identity, _)| task.authorizes(doc, node, identity, &current))
+                && match &operation {
+                    NativeOperation::Inspect | NativeOperation::Capture(_) => true,
+                    NativeOperation::Invoke { command, .. } => {
+                        command == atlas_connector_runtime::headless_rhino::GENERATE_COMMAND
+                    }
+                };
+            if !allowed {
+                return Err(NativeOutcome::not_dispatched("Model generation task expired, changed binding, or requested a different command"));
+            }
+        }
         if current.key() != expected.key()
             || current.binding.source.scope() != expected.binding.source.scope()
         {
@@ -89,7 +173,7 @@ impl SlateApp {
                 "Native receipt capacity is full; retain and reconcile existing outcomes",
             ));
         }
-        let session_key = (self.tab().id, node);
+        let session_key = (doc, node);
         let session = self.connectors.sessions.get_mut(&session_key).unwrap();
         if session.pending > 0 || !session.tickets.is_empty() {
             return Err(NativeOutcome::not_dispatched(
@@ -101,7 +185,16 @@ impl SlateApp {
             NativeOperation::Capture(_) => None,
             NativeOperation::Invoke { command, .. } => Some(command.as_str()),
         };
-        let mut permit = None;
+        let mut permit = task.map(|task| {
+            Box::new(DraftPermit {
+                identity: identity.as_ref().unwrap().0.clone(),
+                key: current.key(),
+                commands: vec![atlas_connector_runtime::headless_rhino::GENERATE_COMMAND.into()],
+                grant_id: format!("native-{}", atlas_agent::request_id()),
+                purpose: types::DraftPurpose::ModelTask,
+                task: Some(task.clone()),
+            })
+        });
         if let Some(command) = selected {
             let descriptor = current
                 .commands
@@ -120,7 +213,7 @@ impl SlateApp {
                 ));
             }
             if descriptor.effect == atlas_connector::CommandEffect::DraftMutation {
-                if identity.as_ref().is_some_and(|(_, autonomy)| !autonomy)
+                if identity.as_ref().is_some_and(|(_, autonomy)| !autonomy) && task.is_none()
                     || current.binding.mode != atlas_connector::SourceMode::IsolatedDraft
                 {
                     return Err(NativeOutcome::not_dispatched("Open an isolated Rhino copy and grant this collaborator mutation autonomy first"));
@@ -129,7 +222,11 @@ impl SlateApp {
                     .commands
                     .iter()
                     .filter(|c| {
-                        c.agent_allowed && c.effect == atlas_connector::CommandEffect::DraftMutation
+                        c.agent_allowed
+                            && c.effect == atlas_connector::CommandEffect::DraftMutation
+                            && (task.is_none()
+                                || c.id
+                                    == atlas_connector_runtime::headless_rhino::GENERATE_COMMAND)
                     })
                     .map(|c| c.id.clone())
                     .collect();
@@ -139,12 +236,21 @@ impl SlateApp {
                         key: current.key(),
                         commands,
                         grant_id: format!("native-{}", atlas_agent::request_id()),
+                        purpose: if task.is_some() {
+                            types::DraftPurpose::ModelTask
+                        } else {
+                            types::DraftPurpose::Collaborator
+                        },
+                        task: task.cloned(),
                     }));
                 }
             }
         }
         let id = format!("native-{}", atlas_agent::request_id());
-        let expires = std::time::Instant::now() + NATIVE_TICKET_LIFETIME;
+        let expires = task.map_or(std::time::Instant::now() + NATIVE_TICKET_LIFETIME, |task| {
+            task.expires
+                .min(std::time::Instant::now() + NATIVE_TICKET_LIFETIME)
+        });
         let (reply, result) = crossbeam_channel::bounded(1);
         let ticket = NativeTicket {
             id: id.clone(),
@@ -195,7 +301,16 @@ impl SlateApp {
         node: NodeId,
         ticket: &NativeTicket,
     ) -> Result<Option<Completion>, String> {
-        let key = (self.tab().id, node);
+        self.native_poll_in(self.tab().id, node, ticket)
+    }
+
+    pub(in crate::app::application_connector) fn native_poll_in(
+        &mut self,
+        doc: u64,
+        node: NodeId,
+        ticket: &NativeTicket,
+    ) -> Result<Option<Completion>, String> {
+        let key = (doc, node);
         let session = self
             .connectors
             .sessions

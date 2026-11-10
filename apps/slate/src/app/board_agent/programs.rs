@@ -46,6 +46,21 @@ impl SlateApp {
         }
         if let Some(programs) = self.ai.packs.poll_programs() {
             if !self.ai.packs.hold {
+                for provider in ["cursor-cli", "claude-code"] {
+                    if programs.iter().any(|p| p.id == provider) {
+                        if !self.agents.programs.iter().any(|p| p.id == provider)
+                            || self.agents.catalog_error(provider).is_some()
+                        {
+                            self.agents.refresh_catalog(provider);
+                        }
+                    } else {
+                        self.agents.models.remove(provider);
+                        self.agents.models_started.remove(provider);
+                        self.agents
+                            .models_error
+                            .insert(provider.into(), self.ai.packs.detail(provider).to_owned());
+                    }
+                }
                 self.agents.programs = programs;
             }
         }

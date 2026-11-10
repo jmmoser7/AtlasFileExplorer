@@ -16,6 +16,7 @@ impl SlateApp {
         let Some(kind) = self.pending_generator_host(id) else {
             return Vec::new();
         };
+        self.prepare_pending_chat_choice(id);
         let providers = self.pending_provider_options(id);
         let mut draft = self
             .agents
@@ -24,32 +25,13 @@ impl SlateApp {
             .get(&id)
             .cloned()
             .unwrap_or_else(|| AgentDraft::from_node(self.doc().scene.node(id).unwrap()));
-        draft.kind = if kind == PendingHost::Image {
-            SpawnKind::Image
-        } else {
-            SpawnKind::Text
+        draft.kind = match kind {
+            PendingHost::Image => SpawnKind::Image,
+            PendingHost::Artifact | PendingHost::Model | PendingHost::Chat => SpawnKind::Artifact,
+            PendingHost::Text => SpawnKind::Text,
         };
-        if draft
-            .choice
-            .as_ref()
-            .is_none_or(|(p, _)| !providers.iter().any(|provider| provider.id == *p))
-        {
-            draft.choice = providers.first().map(|p| (p.id.clone(), String::new()));
-            draft.model_parameters.clear();
-        }
         let provider = draft.choice.as_ref().map_or("", |(p, _)| p.as_str());
         let models = self.source_model_options(id, provider);
-        if kind == PendingHost::Model && draft.choice.as_ref().is_some_and(|(_, m)| m.is_empty()) {
-            if let Some(default) = self
-                .agents
-                .catalog(provider)
-                .iter()
-                .find(|m| m.is_default)
-                .or_else(|| self.agents.catalog(provider).first())
-            {
-                draft.choice = Some((provider.into(), default.id.clone()));
-            }
-        }
         let index = model_index(&models, draft.choice.as_ref());
         let presentation = self.generator_presentation(id);
         draft.model_open = presentation.model_open;
@@ -86,6 +68,7 @@ impl SlateApp {
                 PendingHost::Chat => "Message",
             }
         };
+        let mut projected = self.project_agent_prompt(id, &draft.prompt);
         let out = self.paint_image_agent_editor(
             ui,
             rect,
@@ -94,7 +77,7 @@ impl SlateApp {
                 modes: &[],
                 mode: 0,
                 image: kind == PendingHost::Image,
-                prompt: &mut draft.prompt,
+                prompt: &mut projected,
                 hint,
                 models: &labels,
                 model: index,
@@ -124,6 +107,10 @@ impl SlateApp {
             z,
             theme,
         );
+        if out.prompt.changed {
+            draft.prompt = self.authored_agent_prompt_edit(id, &projected, &draft.prompt);
+            self.sync_projected_prompt_cursor(ui.ctx(), id, &projected, &draft.prompt);
+        }
         // Shared picker actions update the same pending record while the prompt is borrowed.
         if let Some(updated) = self.agents.flow.drafts.get(&id) {
             draft.choice.clone_from(&updated.choice);
@@ -136,6 +123,7 @@ impl SlateApp {
         if let Some((provider, model, _)) = out.model.and_then(|i| models.get(i)) {
             draft.choice = Some((provider.clone(), model.clone()));
             draft.model_parameters.clear();
+            self.remember_source_model(id, provider, model, &Default::default());
         }
         if let Some(count) = out.count {
             draft.count = count.clamp(1, 8);
@@ -171,42 +159,121 @@ impl SlateApp {
         out.popups
     }
 
+    /// Collapsed Run and composer Send share the original first-bind owner.
+    pub(crate) fn submit_pending_image(&mut self, id: NodeId) -> bool {
+        if self.pending_generator_host(id) != Some(PendingHost::Image) {
+            return false;
+        }
+        self.submit_pending_media(id)
+    }
+
+    /// Explicit human Send resolves the pending modality's own saved choice.
+    pub(crate) fn submit_pending_media(&mut self, id: NodeId) -> bool {
+        let Some(kind @ (PendingHost::Image | PendingHost::Text)) = self.pending_generator_host(id)
+        else {
+            return false;
+        };
+        self.prepare_pending_chat_choice(id);
+        let mut draft = self
+            .agents
+            .flow
+            .drafts
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| AgentDraft::from_node(self.doc().scene.node(id).unwrap()));
+        let previous_request = self.agents.request_of(id).map(str::to_owned);
+        if let Some((_, provider, model)) = self.pending_submission_choice(id, &draft) {
+            if kind == PendingHost::Image {
+                let aspect = draft.image_aspect();
+                self.submit_image_in_place(id, &draft, &provider, &model, aspect);
+            } else if self.bind_pending_generator(id, kind, &draft, &provider, &model) {
+                *self.agents.prompt_mut(id) = draft.prompt.clone();
+                self.send_agent_prompt(id);
+            }
+        }
+        if (kind == PendingHost::Text && self.text_response_only(id))
+            || (draft.preserve_history && self.agents.request_of(id) != previous_request.as_deref())
+        {
+            draft.prompt.clear();
+        }
+        self.agents.flow.drafts.insert(id, draft);
+        true
+    }
+
+    fn pending_submission_choice(
+        &mut self,
+        id: NodeId,
+        draft: &AgentDraft,
+    ) -> Option<(PendingHost, String, String)> {
+        let kind = self.pending_generator_host(id)?;
+        if self.tab().read_only
+            || self.doc().scene.node(id).is_none_or(|n| n.locked)
+            || (self
+                .project_agent_prompt(id, &draft.prompt)
+                .trim()
+                .is_empty()
+                && !self.has_dynamic_prompt_source(id))
+        {
+            return None;
+        }
+        let (provider, model) = draft.choice.clone()?;
+        if !self
+            .pending_provider_options(id)
+            .iter()
+            .any(|p| p.id == provider)
+        {
+            return None;
+        }
+        if self.ai.packs.credential_present(&provider) == Some(false) {
+            self.dispatch_generator_provider(id, None, Some(provider));
+            return None;
+        }
+        if atlas_ai::runtime::subscription_provider(&provider).is_some() {
+            if !self
+                .source_model_options(id, &provider)
+                .iter()
+                .any(|(_, available, _)| available == &model)
+            {
+                let message = self
+                    .agents
+                    .catalog_error(&provider)
+                    .unwrap_or("Refresh this provider's model options before sending.")
+                    .to_owned();
+                self.toast(message);
+                return None;
+            }
+            let Some(selected) = self
+                .agents
+                .catalog(&provider)
+                .iter()
+                .find(|m| m.id == model)
+            else {
+                return None;
+            };
+            if let Err(error) = selected.validate_parameters(&draft.model_parameters) {
+                self.toast(error);
+                return None;
+            }
+        }
+        Some((kind, provider, model))
+    }
+
     fn submit_pending_generator(
         &mut self,
         ctx: &egui::Context,
         id: NodeId,
         draft: &mut AgentDraft,
     ) {
-        let Some(kind) = self.pending_generator_host(id) else {
+        let Some((kind, provider, model)) = self.pending_submission_choice(id, draft) else {
             return;
         };
-        if self.tab().read_only
-            || self.doc().scene.node(id).is_none_or(|n| n.locked)
-            || draft.prompt.trim().is_empty()
-        {
-            return;
-        }
-        let Some((provider, model)) = draft.choice.clone() else {
-            return;
-        };
-        if !self
-            .pending_provider_options(id)
-            .iter()
-            .any(|p| p.id == provider)
-        {
-            return;
-        }
-        if self.ai.packs.credential_present(&provider) == Some(false) {
-            self.dispatch_generator_provider(id, None, Some(provider));
-            return;
-        }
         if kind == PendingHost::Image {
             let aspect = draft.image_aspect();
             self.submit_image_in_place(id, draft, &provider, &model, aspect);
             return;
         }
         if kind == PendingHost::Model
-            && (!Self::native_model_harness(&provider)
+            && (!Self::scoped_model_harness(&provider)
                 || !self.agents.catalog(&provider).iter().any(|m| m.id == model))
         {
             self.toast("Choose an available model from the native agent catalog.");
@@ -329,7 +396,8 @@ impl SlateApp {
         agent.generator.preserve_history = Some(draft.preserve_history);
         agent.generator.count = Some(draft.count);
         agent.image.count = draft.count;
-        agent.generator.text_response_only = kind == PendingHost::Text;
+        let owned_text_output = self.is_owned_text_output(id);
+        agent.generator.text_response_only = kind == PendingHost::Text && !owned_text_output;
         let mut after = before.clone();
         match &mut after.kind {
             NodeKind::Text(text) => text.agent = Some(Box::new(agent)),

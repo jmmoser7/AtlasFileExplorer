@@ -1,5 +1,7 @@
 //! Transport guides and display normalization for provider-neutral requests.
 use super::*;
+mod external_paths;
+mod text;
 
 pub const CHAT_MARKER: &str = "\n\nSlate conversation:\n";
 pub const CHAT_GUIDE: &str = "For greetings and simple conversation, answer directly once without progress updates. File, dashboard, and placement guidance below applies only when the person's request involves that work; it is not a request to create files or perform a task.";
@@ -23,6 +25,7 @@ pub const ARTIFACT_MARKER: &str = "\n\nChanged documents:\n";
 pub const ARTIFACT_GENERATION_PROFILE: &str =
     include_str!("../../../docs/agent/cursor-sidecar/artifact-generation-v1.md");
 pub const ARTIFACT_GENERATION_MARKER: &str = "\n\nSlate artifact generation:\n";
+const ARTIFACT_INPUT_GUIDE: &str = "\nPrompt data marked text_supplied_inline is already supplied inline in the task prompt; its body is omitted from attachment metadata only to avoid repetition. The frozen-input manifest lists FILES ONLY: an empty file manifest does not mean inline text is blank or missing. Use the supplied data in the requested dashboard. Omit tool, debug and internal provenance notes from the dashboard unless the person asks for them.\n";
 
 /// Render provider-neutral instructions. Paths and request identity are quoted
 /// JSON data, so whitespace and quotes in a local folder are unambiguous.
@@ -36,7 +39,7 @@ pub fn artifact_generation_guide_in(request: &AgentRequest, link_dir: Option<&st
         .map(|dir| std::path::Path::new(dir).join("return.json"))
         .unwrap_or_else(|| "return.json beside session.json".into());
     let quoted = |value: &str| serde_json::to_string(value).unwrap_or_default();
-    ARTIFACT_GENERATION_PROFILE
+    let mut guide: String = ARTIFACT_GENERATION_PROFILE
         .split("{{")
         .enumerate()
         .map(|(index, part)| {
@@ -47,15 +50,19 @@ pub fn artifact_generation_guide_in(request: &AgentRequest, link_dir: Option<&st
                 return format!("{{{{{part}");
             };
             let value = match key {
-                "staging_output" => quoted(&output.to_string_lossy()),
-                "entry_path" => quoted(&output.join("index.html").to_string_lossy()),
-                "return_manifest" => quoted(&manifest.to_string_lossy()),
+                "staging_output" => quoted(&external_paths::external_tool_path(output)),
+                "entry_path" => quoted(&external_paths::external_tool_path(
+                    &output.join("index.html"),
+                )),
+                "return_manifest" => quoted(&external_paths::external_tool_path(&manifest)),
                 "request_id" => quoted(&request.id),
                 _ => format!("{{{{{key}}}}}"),
             };
             value + suffix
         })
-        .collect()
+        .collect();
+    guide.push_str(ARTIFACT_INPUT_GUIDE);
+    guide
 }
 
 /// The guide before deliverable manifests. Transcripts written with it still
@@ -228,7 +235,38 @@ impl AgentRequest {
     fn append_wired_inputs(&self, text: &mut String) {
         if !self.inputs.wired.is_empty() {
             text.push_str("\n\nSlate wired attachments (data):\n");
-            text.push_str(&serde_json::to_string(&self.inputs.wired).unwrap_or_default());
+            let projected_task = self.prompt_inputs_projected
+                && (self.artifact.is_some()
+                    || self
+                        .collaborator
+                        .as_ref()
+                        .is_some_and(|link| link.is_model_task()));
+            if projected_task {
+                let mut metadata = self.inputs.wired.clone();
+                for input in &mut metadata {
+                    if input.port() == InputSlot::Prompt {
+                        input.text.clear();
+                    }
+                }
+                if self.artifact.is_some() {
+                    let mut values = serde_json::to_value(&metadata).unwrap_or_default();
+                    if let Some(values) = values.as_array_mut() {
+                        for (value, original) in values.iter_mut().zip(&self.inputs.wired) {
+                            if original.port() == InputSlot::Prompt
+                                && !original.text.trim().is_empty()
+                            {
+                                value.as_object_mut().unwrap().remove("text");
+                                value["text_supplied_inline"] = serde_json::json!(true);
+                            }
+                        }
+                    }
+                    text.push_str(&serde_json::to_string(&values).unwrap_or_default());
+                } else {
+                    text.push_str(&serde_json::to_string(&metadata).unwrap_or_default());
+                }
+            } else {
+                text.push_str(&serde_json::to_string(&self.inputs.wired).unwrap_or_default());
+            }
         }
     }
 
@@ -247,7 +285,10 @@ impl AgentRequest {
             self.prompt
         )
         };
-        if self.text_source.is_some() || (self.image.is_some() && self.image_history.is_some()) {
+        if !self.prompt_inputs_projected
+            && (self.text_source.is_some()
+                || (self.image.is_some() && self.image_history.is_some()))
+        {
             let wired: Vec<&str> = self
                 .inputs
                 .on(InputSlot::Prompt)
@@ -347,99 +388,4 @@ fn strip_transport(text: &str) -> &str {
 #[cfg(test)]
 mod artifact_tests;
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn explicit_text_source_is_quoted_separately_and_only_active_history_is_replayed() {
-        let mut request = AgentRequest {
-            prompt: "Explain this passage".into(),
-            text_source: Some("A café & tea.".into()),
-            ..Default::default()
-        };
-        let off = request.prompt_with_history();
-        assert_eq!(request.prompt, "Explain this passage");
-        assert!(off.contains("Source text (quoted document data):\nA café & tea."));
-        assert!(!off.contains("Earlier private turn"));
-        request.inputs.wired.push(ContextItem {
-            node: 7,
-            text: "WIRED_DATA".into(),
-            slot: Some(InputSlot::Prompt),
-            images: Vec::new(),
-            outputs: Default::default(),
-            active: None,
-            depth: None,
-        });
-        let wired = request.prompt_with_history();
-        assert_eq!(wired.matches("WIRED_DATA").count(), 1);
-        assert_eq!(wired.matches("A café & tea.").count(), 1);
-        assert_eq!(request.prompt, "Explain this passage");
-        request.history.push(AgentTurn {
-            role: "user".into(),
-            text: "Earlier private turn".into(),
-            at: 0,
-        });
-        assert!(request
-            .prompt_with_history()
-            .contains("Earlier private turn"));
-        request.history.clear();
-        request.text_source = None;
-        assert_eq!(
-            request.prompt_with_history(),
-            "Explain this passage",
-            "legacy empty-source/history payload is unchanged"
-        );
-    }
-
-    #[test]
-    fn greetings_do_not_receive_file_or_dashboard_task_instructions() {
-        for prompt in ["Hi!", "hello", " Good evening. ", "thanks"] {
-            let request = AgentRequest {
-                prompt: prompt.into(),
-                ..Default::default()
-            };
-            let text = request.input_text();
-            assert!(text.contains("answer directly once without progress updates"));
-            assert!(!text.contains("return.json"));
-            assert!(!text.contains("application/slate-link+json"));
-            assert!(!text.contains("place.json"));
-            assert_eq!(display_prompt(&text), prompt);
-        }
-    }
-
-    #[test]
-    fn a_greeting_that_also_requests_file_work_retains_conditional_capabilities() {
-        let request = AgentRequest {
-            prompt: "Hi! Please make a dashboard.".into(),
-            ..Default::default()
-        };
-        let text = request.input_text();
-        assert!(text.contains("return.json"));
-        assert!(text.contains("guidance below applies only"));
-        assert_eq!(display_prompt(&text), request.prompt);
-    }
-
-    #[test]
-    fn wired_context_and_goal_turns_keep_their_task_guides_even_with_a_short_message() {
-        let mut request = AgentRequest {
-            prompt: "hello".into(),
-            ..Default::default()
-        };
-        request.inputs.wired.push(ContextItem {
-            node: 1,
-            text: "inspect this".into(),
-            images: vec![],
-            outputs: Default::default(),
-            active: None,
-            depth: None,
-            slot: None,
-        });
-        assert!(request.input_text().contains("return.json"));
-        request.inputs.wired.clear();
-        request.goal = Some(GoalTurn {
-            goal: "check work".into(),
-            claims: false,
-            in_reply: false,
-        });
-        assert!(request.input_text().contains(GOAL_MARKER));
-    }
-}
+mod tests;

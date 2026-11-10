@@ -1,66 +1,7 @@
+use super::completion::{guard_delta, trace};
 use super::*;
 
 impl SlateApp {
-    pub(super) fn artifact_batch_guard(&self, id: NodeId) -> Option<String> {
-        let node = self.doc().scene.node(id)?;
-        let agent = slate_doc::agent_chat::agent(node)?;
-        let source = match &node.kind {
-            NodeKind::Portal(portal) => &portal.source,
-            _ => return None,
-        };
-        let inputs: Vec<_> =
-            self.doc()
-                .scene
-                .nodes
-                .iter()
-                .filter_map(|node| {
-                    let NodeKind::Connector(conn) = &node.kind else {
-                        return None;
-                    };
-                    let binding = conn.binding.as_ref()?;
-                    (slate_doc::agent_inputs::endpoint_node(binding.target_end(conn)) == Some(id))
-                        .then(|| {
-                            (
-                                node.id,
-                                (
-                                    binding.kind,
-                                    &binding.output,
-                                    &binding.order,
-                                    binding.all_images,
-                                    &binding.slot,
-                                ),
-                                slate_doc::agent_inputs::endpoint_node(binding.source_end(conn)),
-                            )
-                        })
-                })
-                .collect();
-        let prompt = self.agents.prompt(id).unwrap_or(&agent.instruction).trim();
-        let captured = self.agent_input_snapshot(id).ok()?;
-        let values: Vec<_> = captured
-            .wired
-            .iter()
-            .map(|item| (item.node, &item.text, &item.images, &item.depth, item.slot))
-            .collect();
-        serde_json::to_string(&(
-            prompt,
-            inputs,
-            values,
-            source,
-            &artifact(node)?.revision,
-            &agent.provider,
-            &agent.model,
-            &agent.model_parameters,
-            (
-                agent.generator.count,
-                agent.generator.preserve_history,
-                &agent.generator.grafted_slots,
-                agent.generator.history_cut,
-            ),
-            node.locked,
-        ))
-        .ok()
-    }
-
     pub(crate) fn pump_artifact_generations(&mut self, ctx: &egui::Context) {
         let queued: Vec<_> = self.agents.artifact.queued.keys().copied().collect();
         for id in queued {
@@ -81,11 +22,27 @@ impl SlateApp {
                 continue;
             };
             if !self.artifact_target_current(plan.tab, id, &plan.previous)
-                || self.artifact_batch_guard(id).as_deref() != Some(plan.guard.as_str())
+                || self.artifact_plan_guard(&plan).as_deref() != Some(plan.guard.as_str())
             {
+                trace(
+                    "drop.prepare",
+                    plan.tab,
+                    id,
+                    &plan.request.id,
+                    "source-or-target-changed",
+                );
                 self.agents.artifact.queued.remove(&id);
+                self.fail_current_artifact_phase(plan.tab, id, &plan.request.id,
+                    "The artifact inputs or target changed during preparation. Run again with the current inputs.");
                 continue;
             }
+            trace(
+                "prepare.accepted",
+                plan.tab,
+                id,
+                &plan.request.id,
+                "queued-inputs",
+            );
             self.agents.requests.insert(id, plan.request.id.clone());
             self.agents.artifact.preparing.insert(
                 id,
@@ -111,6 +68,15 @@ impl SlateApp {
                 || !self.is_artifact_node(id)
                 || self.tab().read_only
             {
+                trace(
+                    "drop.prepare",
+                    pending.plan.tab,
+                    id,
+                    &pending.plan.request.id,
+                    "inactive-or-unavailable-target",
+                );
+                self.fail_current_artifact_phase(pending.plan.tab, id, &pending.plan.request.id,
+                    "The artifact target changed during preparation. Run again with the current target.");
                 continue;
             }
             if !pending.started && self.agents.artifact.active_workers < 2 {
@@ -186,6 +152,13 @@ impl SlateApp {
             match done {
                 WorkDone::Prepared(tab, id, request, result) => {
                     let result = *result;
+                    trace(
+                        "prepare.result",
+                        tab,
+                        id,
+                        &request,
+                        if result.is_ok() { "ok" } else { "error" },
+                    );
                     let expected = self
                         .agents
                         .artifact
@@ -206,54 +179,16 @@ impl SlateApp {
                             self.start_prepared_artifact(prepared)
                         }
                         Ok(prepared) => {
+                            trace("drop.target", tab, id, &request, "prepared-target-changed");
+                            self.fail_current_artifact_phase(tab, id, &request,
+                                "The artifact target changed before dispatch. Run again with the current target.");
                             discard_prepared(prepared);
                         }
-                        Err(error) => self.fail_agent_await(id, error),
+                        Err(error) => self.fail_current_artifact_phase(tab, id, &request, &error),
                     }
                 }
                 WorkDone::Published(tab, id, request, result) => {
-                    let matches = self.agents.artifact.running.get(&id).is_some_and(|r| {
-                        r.prepared.plan.request.id == request && r.prepared.plan.tab == tab
-                    });
-                    if !matches {
-                        continue;
-                    }
-                    let guard = self
-                        .agents
-                        .artifact
-                        .running
-                        .get(&id)
-                        .map(|r| r.prepared.plan.guard.clone());
-                    let current = self.artifact_batch_guard(id);
-                    self.agents.artifact.running.remove(&id);
-                    if guard != current {
-                        self.agents.artifact.queued.remove(&id);
-                        continue;
-                    }
-                    match result {
-                        Ok(pending) if self.artifact_target_current(tab, id, &pending.previous) => {
-                            self.agents.artifact.pending.insert(id, pending);
-                            if self.accept_artifact_output_from(id, true, None) {
-                                let next_guard = self.artifact_batch_guard(id).unwrap_or_default();
-                                let next_revision = self
-                                    .doc()
-                                    .scene
-                                    .node(id)
-                                    .and_then(artifact)
-                                    .and_then(|a| a.revision.clone());
-                                if let Some(queue) = self.agents.artifact.queued.get_mut(&id) {
-                                    for (plan, _) in queue {
-                                        plan.previous = next_revision.clone();
-                                        plan.guard = next_guard.clone();
-                                    }
-                                }
-                            } else {
-                                self.agents.artifact.queued.remove(&id);
-                            }
-                        }
-                        Ok(_) => {}
-                        Err(error) => self.fail_agent_await(id, error),
-                    }
+                    self.finish_artifact_publication(tab, id, request, result);
                 }
                 WorkDone::Picked(tab, id, token, expected, remove, lease, result) => {
                     let current = self.agents.artifact.picks.get(&id) == Some(&token);
@@ -314,17 +249,63 @@ impl SlateApp {
             let Some(running) = self.agents.artifact.running.get(&id) else {
                 continue;
             };
-            if !self.artifact_target_current(
-                running.prepared.plan.tab,
-                id,
-                &running.prepared.plan.previous,
-            ) {
+            let subscription =
+                atlas_ai::runtime::subscription_provider(&running.prepared.plan.provider).is_some();
+            let target_current = if subscription {
+                self.subscription_artifact_target_current(&running.prepared.plan)
+            } else {
+                self.artifact_target_current(
+                    running.prepared.plan.tab,
+                    id,
+                    &running.prepared.plan.previous,
+                )
+            };
+            if !target_current {
+                let plan = &running.prepared.plan;
+                if subscription
+                    && self
+                        .agent_runtime_in(plan.tab)
+                        .and_then(|runtime| runtime.request_of(id))
+                        == Some(plan.request.id.as_str())
+                {
+                    // Fence the exact session before removing its app witness.
+                    // Already-admitted writes may finish, but cannot publish.
+                    if let Some(runtime) = self.agents.codex.get(&plan.session) {
+                        runtime.stop_with_reason(
+                            "The artifact target changed; output remains staged.".into(),
+                        );
+                    }
+                }
+                trace(
+                    "drop.target",
+                    plan.tab,
+                    id,
+                    &plan.request.id,
+                    "running-target-changed",
+                );
+                let (tab, request) = (plan.tab, plan.request.id.clone());
                 self.agents.artifact.running.remove(&id);
+                let reason = if subscription {
+                    "The artifact target or model changed during generation. Run again with the current target."
+                } else {
+                    "The artifact target changed during generation. Run again with the current target."
+                };
+                self.fail_current_artifact_phase(tab, id, &request, reason);
                 continue;
             }
             if let Some(error) = self.agent_failure_reason(id).map(str::to_owned) {
                 if let Some(running) = self.agents.artifact.running.remove(&id) {
-                    discard_prepared(running.prepared);
+                    let plan = &running.prepared.plan;
+                    trace(
+                        "drop.failed",
+                        plan.tab,
+                        id,
+                        &plan.request.id,
+                        "existing-await-failure",
+                    );
+                    if !subscription {
+                        discard_prepared(running.prepared);
+                    }
                 }
                 self.toast(error);
                 ctx.request_repaint();
@@ -351,42 +332,7 @@ impl SlateApp {
             if session.status != AgentStatus::Idle {
                 continue;
             }
-            let running = self.agents.artifact.running.get_mut(&id).unwrap();
-            running.publishing = true;
-            let run = running.prepared.run.clone();
-            let plan = running.prepared.plan.clone();
-            let provenance = ArtifactProvenance {
-                prompt: plan.request.prompt.clone(),
-                provider: plan.provider.clone(),
-                model: plan
-                    .request
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| "provider-default".into()),
-                checkpoint: ArtifactCheckpoint {
-                    conversation: plan.session.clone(),
-                    through: session.turns.len(),
-                    turns: session.turns.clone(),
-                },
-                inputs: running.prepared.input_provenance.clone(),
-            };
-            let tx = self.artifact_work_tx();
-            self.agents.artifact.active_workers += 1;
-            std::thread::spawn(move || {
-                let result = (|| {
-                    validate_return(&plan, &run)?;
-                    let (reference, revision) =
-                        atlas_ai::versions::publish_artifact_revision(&run, provenance)
-                            .map_err(|e| e.to_string())?;
-                    Ok(Pending {
-                        tab: plan.tab,
-                        previous: plan.previous.clone(),
-                        reference,
-                        revision,
-                    })
-                })();
-                let _ = tx.send(WorkDone::Published(plan.tab, plan.node, request, result));
-            });
+            self.start_artifact_publication(id, &session);
         }
         if !self.agents.artifact.preparing.is_empty()
             || !self.agents.artifact.running.is_empty()
@@ -409,10 +355,17 @@ impl SlateApp {
                 .node(id)
                 .is_some_and(|n| !n.locked && artifact(n).is_some_and(|a| &a.revision == previous))
     }
-    fn start_prepared_artifact(&mut self, prepared: Prepared) {
+    fn start_prepared_artifact(&mut self, mut prepared: Prepared) {
         let plan = &prepared.plan;
         let id = plan.node;
-        if self.artifact_batch_guard(id).as_deref() != Some(plan.guard.as_str()) {
+        if self.artifact_plan_guard(&plan).as_deref() != Some(plan.guard.as_str()) {
+            trace(
+                "drop.dispatch",
+                plan.tab,
+                id,
+                &plan.request.id,
+                &guard_delta(&plan.guard, self.artifact_plan_guard(&plan).as_deref()),
+            );
             self.agents.artifact.queued.remove(&id);
             discard_prepared(prepared);
             self.fail_agent_await(id, "The artifact prompt or connected sources changed during preparation. Send the updated request again.".into());
@@ -448,7 +401,18 @@ impl SlateApp {
         };
         // The submitted request owns its immutable prompt. The editor may
         // already hold feedback for the next run while preparation finishes.
-        let instruction = plan.authored_prompt.clone();
+        let instruction = self
+            .agents
+            .prompt(id)
+            .or_else(|| {
+                self.doc()
+                    .scene
+                    .node(id)
+                    .and_then(slate_doc::agent_chat::agent)
+                    .map(|agent| agent.instruction.as_str())
+            })
+            .unwrap_or("")
+            .to_owned();
         self.patch_nodes(&[id], |node| {
             if let Some(a) = slate_doc::agent_chat::agent_mut(node) {
                 a.session.clone_from(&plan.session);
@@ -463,7 +427,35 @@ impl SlateApp {
         });
         let request = prepared.plan.request.clone();
         let ws = prepared.plan.workspace.clone();
+        let submitted = prepared.plan.authored_prompt.clone();
+        let clear_composer = !prepared.plan.accepted_batch
+            && self
+                .doc()
+                .scene
+                .node(id)
+                .and_then(slate_doc::agent_chat::agent)
+                .is_some_and(|agent| {
+                    agent.generator.preserve_history.unwrap_or(true)
+                        && self.agents.prompt(id).unwrap_or(&agent.instruction) == submitted
+                });
+        let running_guard = self
+            .artifact_batch_guard_with_prompt(id, Some(&submitted))
+            .unwrap_or_default();
         if self.submit_prepared_agent_request(id, request, &ws) {
+            trace(
+                "dispatch.accepted",
+                plan.tab,
+                id,
+                &plan.request.id,
+                "native-request",
+            );
+            prepared.plan.guard = running_guard;
+            prepared.plan.accepted_batch = true;
+            if let Some(queue) = self.agents.artifact.queued.get_mut(&id) {
+                for (sibling, _) in queue {
+                    sibling.accepted_batch = true;
+                }
+            }
             self.agents.artifact.running.insert(
                 id,
                 Running {
@@ -471,15 +463,27 @@ impl SlateApp {
                     publishing: false,
                 },
             );
+            if clear_composer {
+                self.agents.prompt_mut(id).clear();
+                self.clear_pending_generator_prompt(id);
+                self.patch_nodes(&[id], |node| {
+                    if let Some(agent) = slate_doc::agent_chat::agent_mut(node) {
+                        agent.instruction.clear();
+                    }
+                });
+                self.sync_instruction(id, "");
+            }
         } else {
+            trace(
+                "dispatch.failed",
+                plan.tab,
+                id,
+                &plan.request.id,
+                "submission-refused",
+            );
             discard_prepared(prepared);
         }
     }
-}
-
-fn validate_return(plan: &Plan, run: &ArtifactRun) -> Result<(), String> {
-    atlas_ai::versions::validate_artifact_return(run, &plan.link_dir)
-        .map_err(|error| error.to_string())
 }
 
 fn discard_prepared(prepared: Prepared) {

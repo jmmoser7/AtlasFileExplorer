@@ -51,6 +51,8 @@ pub fn providers() -> Vec<AgentProvider> {
 pub fn provider_by_id(id: &str) -> AgentProvider {
     let (name, launch) = match id {
         "cursor" => ("Cursor", LaunchKind::Cursor),
+        "cursor-cli" => ("Cursor", LaunchKind::None),
+        "claude-code" => ("Claude Code", LaunchKind::None),
         "codex" => ("Codex", LaunchKind::Codex),
         "ollama" => ("Ollama", LaunchKind::None),
         "local" => ("Local agent", LaunchKind::None),
@@ -129,6 +131,29 @@ pub struct AgentSources {
     outputs: std::collections::HashMap<PathBuf, std::sync::Arc<crate::outputs::LinkOutputs>>,
 }
 impl AgentSources {
+    /// Start/observe the existing worker's history read. Missing and pending
+    /// differ: a never-written conversation is empty, an unread one is not.
+    pub fn history_snapshot(
+        &mut self,
+        dir: &Path,
+    ) -> Result<Option<std::sync::Arc<AgentSession>>, String> {
+        let snapshot = self.poll(dir, None);
+        let state = self.links.get(dir).and_then(|link| {
+            link.history_read
+                .try_lock()
+                .ok()
+                .and_then(|state| state.clone())
+        });
+        match state {
+            Some(Err(error)) => Err(error),
+            Some(Ok(false)) => Ok(snapshot),
+            Some(Ok(true)) if snapshot.is_some() => Ok(snapshot),
+            _ => Err(
+                "Public conversation history is still loading. Send again when it has loaded."
+                    .into(),
+            ),
+        }
+    }
     /// Immutable already-loaded transcript for display-only checkpoint references.
     pub fn peek(&self, dir: &Path) -> Option<&AgentSession> {
         self.snapshots.get(dir).map(std::sync::Arc::as_ref)
@@ -196,6 +221,7 @@ impl AgentSources {
 pub struct AgentLink {
     tx: crossbeam_channel::Sender<LinkWork>,
     latest: std::sync::Arc<std::sync::Mutex<Option<AgentSession>>>,
+    history_read: std::sync::Arc<std::sync::Mutex<Option<Result<bool, String>>>>,
     next_read: Option<Instant>,
     next_write: Option<Instant>,
     streaming: bool,
@@ -217,14 +243,17 @@ impl AgentLink {
         let (tx, rx) = crossbeam_channel::bounded(8);
         let latest = std::sync::Arc::new(std::sync::Mutex::new(None));
         let result = latest.clone();
+        let history_read = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let history_out = history_read.clone();
         let outputs = std::sync::Arc::new(std::sync::Mutex::new(None));
         let outputs_out = outputs.clone();
         let place = std::sync::Arc::new(std::sync::Mutex::new(None));
         let place_out = place.clone();
-        std::thread::spawn(move || worker::run(rx, result, outputs_out, place_out));
+        std::thread::spawn(move || worker::run(rx, result, outputs_out, place_out, history_out));
         Self {
             tx,
             latest,
+            history_read,
             next_read: None,
             next_write: None,
             streaming: false,

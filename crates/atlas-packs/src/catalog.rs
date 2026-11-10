@@ -105,6 +105,12 @@ impl Catalog {
             .or_insert_with(|| format!("recorded {health:?} for {}", id.as_str()));
     }
 
+    /// A worker-resolved custom health result and its actionable diagnostic.
+    pub fn set_health_detail(&mut self, id: &PackId, health: PackHealth, detail: String) {
+        self.health.insert(id.clone(), health);
+        self.detail.insert(id.clone(), detail);
+    }
+
     pub fn health(&self, id: &PackId) -> PackHealth {
         self.health.get(id).copied().unwrap_or(PackHealth::Unknown)
     }

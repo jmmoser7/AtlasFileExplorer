@@ -1,7 +1,7 @@
 //! Capability review regressions. Provider output is explicitly synthetic.
 use super::*;
 
-fn start_prepared_fixture(h: &mut Harness, id: NodeId) -> Plan {
+pub(super) fn start_prepared_fixture(h: &mut Harness, id: NodeId) -> Plan {
     let mut pending = h
         .app
         .agents
@@ -54,7 +54,7 @@ fn start_prepared_fixture(h: &mut Harness, id: NodeId) -> Plan {
     plan
 }
 
-fn publish_fixture(h: &mut Harness, id: NodeId) -> ArtifactRevisionRef {
+pub(super) fn publish_fixture(h: &mut Harness, id: NodeId) -> ArtifactRevisionRef {
     let running = &h.app.agents.artifact.running[&id];
     let plan = running.prepared.plan.clone();
     let run = running.prepared.run.clone();
@@ -115,7 +115,7 @@ fn publish_fixture(h: &mut Harness, id: NodeId) -> ArtifactRevisionRef {
     reference
 }
 
-fn wire_prompt(h: &mut Harness, target: NodeId, text: &str) {
+fn wire_prompt(h: &mut Harness, target: NodeId, text: &str) -> NodeId {
     let source = crate::app::board_agent::test_support::note(h, Pos2::new(-300.0, 0.0), text);
     let port = agent_inputs::input_ports(&h.app.doc().scene, target)
         .iter()
@@ -135,6 +135,7 @@ fn wire_prompt(h: &mut Harness, target: NodeId, text: &str) {
         },
     );
     h.app.add_nodes(vec![wire]);
+    source
 }
 
 #[test]
@@ -173,14 +174,20 @@ fn gr1_wired_only_grafted_count_survives_prepare_start_and_publish_without_autho
 }
 
 #[test]
-fn gr1_actual_running_prompt_edit_rejects_publication() {
-    let (mut h, image) = board("gr1-running-prompt-edit");
+fn gr1_actual_running_wired_source_edit_rejects_publication() {
+    let (mut h, image) = board("gr1-running-wired-source-edit");
     let id = spawn(&mut h, image);
-    wire_prompt(&mut h, id, "Original wired instruction");
+    let source = wire_prompt(&mut h, id, "Original wired instruction");
     h.app.agents.prompts.remove(&id);
     assert!(h.app.queue_artifact_generation(id));
-    start_prepared_fixture(&mut h, id);
-    *h.app.agents.prompt_mut(id) = "A later authored instruction".into();
+    let submitted = start_prepared_fixture(&mut h, id);
+    assert_eq!(submitted.request.prompt, "Original wired instruction");
+    h.app.patch_nodes(&[source], |node| {
+        let NodeKind::Text(text) = &mut node.kind else {
+            panic!("wired source must be the real authored Text node")
+        };
+        text.text = "A later wired instruction".into();
+    });
     publish_fixture(&mut h, id);
     assert!(artifact(h.app.doc().scene.node(id).unwrap())
         .unwrap()
@@ -438,4 +445,31 @@ fn di17_delete_refuses_to_cut_a_locked_surviving_generator_before_canceling_work
     assert!(h.app.doc().scene.node(id).is_none());
     h.app.board_undo();
     assert_eq!(h.app.doc().scene.node(id).unwrap(), &before);
+}
+
+#[test]
+fn artifact_composer_and_prepared_provider_prompt_include_wired_and_authored_text_once() {
+    let (mut h, image) = board("wired-artifact-composer");
+    let id = spawn(&mut h, image);
+    wire_prompt(&mut h, id, "Use ocean colors");
+    h.app.patch_nodes(&[id], |node| {
+        let agent = slate_doc::agent_chat::agent_mut(node).unwrap();
+        agent.instruction = "Make a dashboard".into();
+    });
+    h.app.sync_instruction(id, "Make a dashboard");
+    assert_eq!(
+        h.app.agent_prompt_text(id),
+        "Use ocean colors\n\nMake a dashboard"
+    );
+    assert!(h.app.queue_artifact_generation(id));
+    let plan = start_prepared_fixture(&mut h, id);
+    assert_eq!(plan.request.prompt, "Use ocean colors\n\nMake a dashboard");
+    assert_eq!(plan.authored_prompt, "Make a dashboard");
+    assert_eq!(
+        slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
+            .unwrap()
+            .instruction,
+        ""
+    );
+    assert_eq!(h.app.agents.prompt(id), Some(""));
 }

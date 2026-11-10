@@ -187,6 +187,7 @@ impl SlateApp {
         agent.generator.preserve_history = Some(draft.preserve_history);
         agent.generator.count = Some(draft.count);
         agent.model = (!model.is_empty()).then(|| model.to_string());
+        agent.model_parameters.clone_from(&draft.model_parameters);
         agent.instruction = draft.prompt.trim().to_string();
         agent.image = ImageSettings {
             count: draft.count,
@@ -342,9 +343,13 @@ impl SlateApp {
 impl SlateApp {
     /// Run the agent a picture or note was summoned with, once.
     pub(crate) fn run_agent_media(&mut self, id: NodeId) {
+        if self.submit_pending_image(id) {
+            return;
+        }
         if self.is_text_block(id) {
             self.queue_text_block(id);
         } else {
+            self.reconcile_human_image_count(id);
             // Capture the shown result and its authored crop/layers before the
             // card releases an album pick to follow the next result.
             self.queue_generation(id);

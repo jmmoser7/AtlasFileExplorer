@@ -302,7 +302,9 @@ pub(super) fn paint(
                 } else {
                     12.0
                 },
-                (detail_rect.width() - 4.0 * zoom).max(0.0),
+                // This column already reserves the measured text width and
+                // its label gutter. An extra inset elides even short values.
+                detail_width,
                 value_color,
                 presentation,
             );

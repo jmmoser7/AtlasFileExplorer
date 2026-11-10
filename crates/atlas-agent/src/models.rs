@@ -10,6 +10,50 @@ pub struct AgentModel {
     pub parameters: Vec<ModelParameterDefinition>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub is_default: bool,
+    /// Verified model and transport features. Missing legacy metadata makes no
+    /// claim about a new task; adapters may supply only features they expose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<ModelCapabilities>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputTask {
+    Text,
+    Image,
+    Artifact,
+    Model,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelCapabilities {
+    pub text: bool,
+    pub vision: bool,
+    pub image_generation: bool,
+    pub artifact: bool,
+    pub model_tools: bool,
+}
+
+impl ModelCapabilities {
+    pub const fn text_only() -> Self {
+        Self {
+            text: true,
+            vision: false,
+            image_generation: false,
+            artifact: false,
+            model_tools: false,
+        }
+    }
+
+    pub fn supports(self, task: OutputTask, requires_vision: bool) -> bool {
+        (!requires_vision || self.vision)
+            && match task {
+                OutputTask::Text => self.text,
+                OutputTask::Image => self.image_generation,
+                OutputTask::Artifact => self.artifact,
+                OutputTask::Model => self.model_tools,
+            }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,6 +103,24 @@ impl AgentModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn vision_input_never_implies_image_generation_or_native_tools() {
+        let text = ModelCapabilities::text_only();
+        assert!(text.supports(OutputTask::Text, false));
+        assert!(!text.supports(OutputTask::Text, true));
+        for task in [OutputTask::Image, OutputTask::Artifact, OutputTask::Model] {
+            assert!(!text.supports(task, false));
+        }
+        let vision = ModelCapabilities {
+            vision: true,
+            ..text
+        };
+        assert!(vision.supports(OutputTask::Text, true));
+        assert!(!vision.supports(OutputTask::Image, false));
+        assert!(!vision.supports(OutputTask::Model, false));
+        let legacy: AgentModel = serde_json::from_str(r#"{"id":"old","name":"Old"}"#).unwrap();
+        assert!(legacy.capabilities.is_none());
+    }
     #[test]
     fn only_advertised_choices_are_accepted() {
         let model: AgentModel = serde_json::from_value(serde_json::json!({

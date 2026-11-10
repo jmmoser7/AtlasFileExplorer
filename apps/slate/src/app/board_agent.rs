@@ -58,6 +58,7 @@ mod generator_chrome;
 mod generator_pump;
 mod header_menu;
 mod input_prep;
+pub(crate) use input_prep::InputPreparation as TaskInputPreparation;
 mod inputs;
 pub(crate) use inputs::ScopedImageInput;
 mod interactive_text;
@@ -76,6 +77,7 @@ mod session;
 mod spawn;
 mod spawn_chrome;
 mod train;
+mod wired_prompt;
 
 use card_metrics::{
     agent_pick_columns, bundle_view, card_fold, chat_dot_center, collapsed_card_height,

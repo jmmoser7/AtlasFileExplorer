@@ -3,6 +3,7 @@ use super::*;
 use atlas_shell::selection_tools::generator::{self as chrome, activity};
 mod data;
 mod editor;
+mod model_activity;
 mod model_outputs;
 #[cfg(test)]
 mod parameter_default_tests;
@@ -12,6 +13,29 @@ mod text_outputs;
 mod text_reviews;
 
 impl SlateApp {
+    pub(super) fn generator_activity_state(
+        &self,
+        id: NodeId,
+        stored: Option<activity::ActivityState>,
+    ) -> activity::ActivityState {
+        let mut state = stored.unwrap_or_else(|| {
+            let mut state = activity::ActivityState::default();
+            let preserve = self
+                .doc()
+                .scene
+                .node(id)
+                .and_then(slate_doc::agent_chat::agent)
+                .map(|agent| agent.generator.preserve_history.unwrap_or(true))
+                .or_else(|| self.pending_generator_preserve(id));
+            if preserve == Some(true) {
+                state.fold = activity::CardFold::Partial;
+            }
+            state
+        });
+        self.disclose_model_activity(id, &mut state);
+        state
+    }
+
     pub(crate) fn set_generator_settings(&mut self, detail: Option<&str>) -> bool {
         #[derive(serde::Deserialize)]
         struct Choice {
@@ -84,6 +108,13 @@ impl SlateApp {
         count: Option<usize>,
         preserve: Option<bool>,
     ) {
+        if preserve == Some(true) {
+            let mut presentation = self.generator_presentation(id);
+            let mut state = self.generator_activity_state(id, presentation.activity);
+            state.fold = activity::CardFold::Partial;
+            presentation.activity = Some(state);
+            self.restore_generator_presentation(id, presentation);
+        }
         if self.set_pending_generator_settings(id, count, preserve) {
             return;
         }
@@ -113,9 +144,11 @@ impl SlateApp {
                 }
                 let image = self.image_palette_eligible(id);
                 let allowed = if self.is_artifact_node(id) {
-                    ["codex", "cursor"].contains(&provider.as_str())
+                    self.pending_provider_options(id)
+                        .iter()
+                        .any(|choice| choice.id == provider)
                 } else if self.model_node_info(id).is_some() {
-                    Self::native_model_harness(&provider)
+                    Self::scoped_model_harness(&provider)
                         && self.agents.programs.iter().any(|p| p.id == provider)
                 } else if self.bound_chat_generator_host(id) {
                     self.agents.programs.iter().any(|choice| {
@@ -134,7 +167,15 @@ impl SlateApp {
                         .any(|choice| choice.0 == provider)
                 };
                 if allowed {
-                    self.set_flow_model(id, image, &provider, "");
+                    let model = if self.is_artifact_node(id)
+                        && atlas_ai::runtime::subscription_provider(&provider).is_some()
+                    {
+                        self.subscription_default_model(id, &provider)
+                            .unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
+                    self.set_flow_model(id, image, &provider, &model);
                 }
             }
         }
@@ -373,6 +414,18 @@ impl SlateApp {
                 a.model_parameters.clone_from(&selected);
             }
         });
+        if let Some(agent) = self
+            .doc()
+            .scene
+            .node(choice.node)
+            .and_then(slate_doc::agent_chat::agent)
+        {
+            let (provider, model) = (
+                agent.provider.clone(),
+                agent.model.clone().unwrap_or_default(),
+            );
+            self.remember_source_model(choice.node, &provider, &model, &selected);
+        }
         self.last_board_edit = None;
         true
     }

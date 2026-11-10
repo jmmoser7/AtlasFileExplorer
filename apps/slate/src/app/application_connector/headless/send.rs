@@ -9,6 +9,11 @@ pub(super) struct PendingSend {
     lease: Lease,
     expires: std::time::Instant,
 }
+pub(super) struct SetupSend {
+    expected: slate_doc::scene::Node,
+    prompt: String,
+    expires: std::time::Instant,
+}
 impl PendingSend {
     pub(super) fn cancel(self) {
         self.lease.revoke();
@@ -19,7 +24,39 @@ impl SlateApp {
     /// Called only by the registered human Send action. Preview selection alone
     /// never reaches this path, and no membership/grant/checkpoint is created.
     pub(crate) fn prepare_headless_model_send(&mut self, node: NodeId) -> Result<bool, String> {
+        self.validate_model_generator_count(node)?;
         let key = (self.tab().id, node);
+        if self.model_node_info(node).is_none() {
+            return Ok(false);
+        }
+        if self.tab().read_only || self.doc().scene.node(node).is_none_or(|n| n.locked) {
+            return Err("Model is read-only or locked".into());
+        }
+        if !self.connectors.sessions.get(&key).is_some_and(|s| {
+            s.enabled
+                && !s.ended
+                && s.descriptor
+                    .as_ref()
+                    .is_some_and(|d| d.mode == SurfaceMode::Headless)
+        }) {
+            if !self.application_connector_eligible(node) {
+                return Err("Native model generation requires a supported Rhino model".into());
+            }
+            self.connector_activate_headless(node)?;
+        }
+        if self.connectors.sessions.get(&key).is_some_and(|s| {
+            s.path == self.model_node_info(node).unwrap().path && s.binding.is_none()
+        }) {
+            self.connectors.headless.setup_sends.insert(
+                key,
+                SetupSend {
+                    expected: self.doc().scene.node(node).unwrap().clone(),
+                    prompt: self.agents.prompt(node).unwrap_or_default().into(),
+                    expires: std::time::Instant::now() + Duration::from_secs(30),
+                },
+            );
+            return Ok(true);
+        }
         let Some(session) = self.connectors.sessions.get(&key).filter(|s| {
             s.descriptor
                 .as_ref()
@@ -83,6 +120,30 @@ impl SlateApp {
     }
 
     pub(super) fn pump_headless_sends(&mut self, ctx: &egui::Context) {
+        let setups = std::mem::take(&mut self.connectors.headless.setup_sends);
+        for (key, setup) in setups {
+            if self.at_home
+                || self.tab().id != key.0
+                || std::time::Instant::now() >= setup.expires
+                || self.doc().scene.node(key.1) != Some(&setup.expected)
+                || self.agents.prompt(key.1).unwrap_or_default() != setup.prompt
+            {
+                continue;
+            }
+            if self.native_binding(key.1).is_ok() {
+                self.send_human_model_prompt(key.1);
+            } else if let Some(error) = self
+                .connectors
+                .sessions
+                .get(&key)
+                .and_then(|s| s.failure.clone())
+            {
+                self.fail_agent_await(key.1, error);
+            } else {
+                self.connectors.headless.setup_sends.insert(key, setup);
+                ctx.request_repaint_after(Duration::from_millis(33));
+            }
+        }
         let pending = std::mem::take(&mut self.connectors.headless.sends);
         for (key, send) in pending {
             if self.at_home || self.tab().id != key.0 {
@@ -119,7 +180,7 @@ impl SlateApp {
             if ready && send.lease.publish() {
                 session.path = send.path; // Binding event already verified source/hash.
                                           // Ordinary send rechecks current provider/membership and memory cut.
-                self.send_agent_prompt(key.1);
+                self.send_human_model_prompt(key.1);
             } else {
                 self.connectors.headless.sends.insert(key, send);
             }

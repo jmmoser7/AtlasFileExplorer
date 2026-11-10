@@ -37,6 +37,11 @@ through Home/recents. Open tab layout is not restored by the updater.
 The public release feed needs no login, embedded tokens or separate server.
 Do not make the distribution repository private without providing an accessible
 replacement feed. GitHub Actions uses its scoped `GITHUB_TOKEN` to publish.
+Publication also requires a successful existing Linux `CI` workflow from a
+`main` push for the exact candidate commit SHA. Windows packaging waits up to
+two hours for that result; missing, failed, cancelled or timed-out checks block
+publication. Stable tags must point to a commit with that same verified main
+CI result. The Linux and Windows test commands remain independent and unchanged.
 
 ## Artifact reuse and promotion
 
@@ -74,6 +79,21 @@ Cursor's optional SDK installs on first configured use; Cursor/Codex accounts,
 external applications and Microsoft PowerPoint are not included. Core editing,
 viewing and export remain local and account-free.
 
+Stable and preview packages also include our `HeadlessRhino.exe` bridge and its
+runtime notes. Rhino-backed generation requires a separately installed and
+licensed Rhino 8 at `%ProgramFiles%\Rhino 8\System`, with .NET Framework 4.8
+available. The bridge loads RhinoCommon and native dependencies from that
+installation. Rhino binaries and licenses are never bundled. The bridge uses
+.NET Framework; the publisher's .NET 9 packaging tool is not its runtime.
+Reading cached geometry in existing `.3dm` files does not require Rhino.
+
+Claude Code and Cursor subscription connections require each user's native
+Windows CLI installation and vendor subscription login; the installer includes
+neither vendor CLI nor account credentials. Use the connection's installation
+and login instructions. Discovery checks the current user's PATH and standard
+profile installation folders, so another person's developer checkout or login
+is not required. WSL-only CLI installations are not supported by these connections.
+
 `atlas-update` owns update state, workers and installation coordination;
 `atlas-shell::updates` paints both apps' UI. The installed `current` folder is
 replaceable. Workbooks remain in their chosen locations and settings/cache remain
@@ -99,6 +119,15 @@ created from repository credentials, and signing alone does not guarantee that
 SmartScreen has established reputation for a new release.
 
 ## Verification
+
+Package verification requires both native helpers in every channel and rejects
+Rhino installation binaries anywhere in the staged payload. Packaging rebuilds
+`HeadlessRhino.exe`; record the actual packaged helper's SHA-256 and test that
+payload from an installation directory outside the checkout, including a real
+Rhino job on a licensed machine. A development helper's digest or successful
+source-tree run does not verify the packaged helper. Also check video decoding
+and subscription CLI discovery from the installed copy; CLI discovery needs no
+paid generation.
 
 ### Managed machines and trust
 

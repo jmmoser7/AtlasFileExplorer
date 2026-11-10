@@ -39,6 +39,45 @@ fn fixture() -> (Harness, NodeId, test_support::Peer, String) {
 }
 
 #[test]
+fn multiple_model_options_are_rejected_before_dispatch_or_native_preparation() {
+    let (mut h, node, peer, _session) = fixture();
+    let workspace = h.base.clone();
+    h.app
+        .ensure_chat_train_membership(node, &workspace, true)
+        .unwrap();
+    // This fixture does not promise a configured provider catalog. Restoring
+    // Count1 must preserve its existing admission gates, not bypass them.
+    let single_count_admission = h.app.validate_chat_train_send(node);
+    assert!(h.app.validate_model_generator_count(node).is_ok());
+    h.app.patch_nodes(&[node], |n| {
+        slate_doc::agent_chat::agent_mut(n).unwrap().generator.count = Some(3);
+    });
+    *h.app.agents.prompt_mut(node) = "Make three alternatives".into();
+    let native_actions = peer.queued_actions();
+    assert!(h
+        .app
+        .validate_chat_train_send(node)
+        .unwrap_err()
+        .contains("Set Count to 1"));
+    assert!(h
+        .app
+        .prepare_headless_model_send(node)
+        .unwrap_err()
+        .contains("Set Count to 1"));
+    h.app.board_sel = [node].into_iter().collect();
+    assert!(!h.app.send_selected_agent_prompt());
+    h.app.send_agent_prompt(node);
+    assert!(h.app.agents.dispatched.is_empty());
+    assert_eq!(peer.queued_actions(), native_actions);
+    assert!(!h.app.agent_is_running(node));
+    h.app.patch_nodes(&[node], |n| {
+        slate_doc::agent_chat::agent_mut(n).unwrap().generator.count = Some(1);
+    });
+    assert!(h.app.validate_model_generator_count(node).is_ok());
+    assert_eq!(h.app.validate_chat_train_send(node), single_count_admission);
+}
+
+#[test]
 fn attached_model_send_requires_explicit_access_and_preserves_revocation() {
     let (mut h, node, _peer, session) = fixture();
     let workspace = h.base.clone();

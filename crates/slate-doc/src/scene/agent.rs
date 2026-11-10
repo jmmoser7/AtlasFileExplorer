@@ -103,6 +103,10 @@ pub struct GeneratorSettings {
     /// explicit output nodes whose body is the generated text.
     #[serde(skip_serializing_if = "is_false")]
     pub text_response_only: bool,
+    /// Provenance of a Text output placeholder created by the output owner.
+    /// Ordinary linked/authored Text never acquires output ownership by being empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owned_text_output: Option<SourceUri>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub text_context: Vec<atlas_agent::AgentTurn>,
     /// Explicit Preserve OFF boundary; pending outcomes from older epochs never

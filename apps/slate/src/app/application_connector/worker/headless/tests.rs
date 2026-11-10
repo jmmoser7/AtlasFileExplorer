@@ -1,4 +1,60 @@
 use super::*;
+
+#[test]
+fn expired_task_after_native_handle_retains_receipt_as_unknown_and_cannot_publish() {
+    let receipt = atlas_connector::ReplyEnvelope {
+        session_id: "native-session".into(),
+        generation: 1,
+        request_id: "already-admitted".into(),
+        source: None,
+        outcome: ReplyBody::CommandResult {
+            value: serde_json::json!({"generated_objects":1}),
+            revision: Some("observed-native-revision".into()),
+        },
+    };
+    for result in [
+        Ok(receipt.clone()),
+        Err("native reply channel closed after admission".into()),
+    ] {
+        let expected = result.as_ref().ok().cloned();
+        let lease = Lease::new();
+        assert!(lease.claim());
+        lease.complete();
+        let outcome = finish_task_call(Some(false), &lease, result)
+            .err()
+            .expect("expired admitted task returns an outcome");
+        assert!(
+            outcome.unknown(),
+            "receipt retention must see actual post-admission uncertainty"
+        );
+        let NativeOutcome::OutcomeUnknown {
+            receipt: retained,
+            reason,
+        } = outcome
+        else {
+            panic!()
+        };
+        assert_eq!(retained.as_deref(), expected.as_ref());
+        assert!(reason.contains("no automatic replay or rollback"));
+        assert!(
+            !lease.live() && !lease.publish(),
+            "late native effects cannot become accepted output"
+        );
+    }
+    let lease = Lease::new();
+    assert!(lease.claim());
+    lease.complete();
+    assert_eq!(
+        finish_task_call(Some(true), &lease, Ok(receipt.clone()))
+            .ok()
+            .unwrap(),
+        receipt
+    );
+    assert!(
+        lease.publish(),
+        "a still-live task preserves ordinary successful publication"
+    );
+}
 #[test]
 #[ignore = "requires installed licensed Rhino 8 and the built SDK helper; takes about 35 seconds"]
 fn real_headless_generation_transfers_and_loads_native_preview() {

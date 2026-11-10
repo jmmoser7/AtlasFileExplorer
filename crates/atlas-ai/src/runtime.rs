@@ -1,9 +1,13 @@
 //! Process supervision. Vendor protocol stays in the renderer-free leaf crate.
 mod artifact;
+mod artifact_broker;
+mod engine;
+mod submission;
+use engine::Engine;
 mod image_history;
 mod models;
 use crate::agent::{atomic_write_json, AgentRequest, AgentSession, AgentStatus};
-pub use artifact::validate_artifact_submission;
+pub use artifact::{artifact_provider, validate_artifact_submission};
 use crossbeam_channel::{bounded, Sender};
 pub use models::{
     codex_executable, codex_models, codex_projects, comfy_models, cursor_models, image_models,
@@ -19,6 +23,17 @@ use std::{
 
 pub fn linear_provider(provider: &str) -> bool {
     matches!(provider, "codex" | "cursor")
+}
+
+/// Explicit subscription routes; the historical Cursor SDK route is separate.
+pub fn subscription_provider(provider: &str) -> Option<atlas_subscription::Provider> {
+    (crate::packs::leaf(provider) == Some("atlas-subscription"))
+        .then(|| atlas_subscription::provider(provider))
+        .flatten()
+}
+
+pub fn subscription_models(provider: &str) -> Result<Vec<atlas_agent::AgentModel>, String> {
+    atlas_subscription::models(subscription_provider(provider).ok_or("Unknown subscription route")?)
 }
 /// The existing Comfy Generate graph accepts ratio-driven latent dimensions.
 /// Other adapters currently expose only preset sizes, not arbitrary ratios.
@@ -75,17 +90,16 @@ pub fn read_conversation(provider: &str, cwd: &Path, id: &str) -> Result<AgentSe
     }
 }
 pub struct CodexLink {
-    tx: Sender<(AgentRequest, Option<crate::access::Snapshot>)>,
+    tx: Sender<(
+        AgentRequest,
+        Option<crate::access::Snapshot>,
+        Option<atlas_agent::helper::HelperLaunch>,
+    )>,
     steer_tx: std::sync::mpsc::SyncSender<atlas_codex::SteerCommand>,
     cancel: Arc<AtomicBool>,
+    cancel_reason: Arc<std::sync::Mutex<Option<String>>>,
+    current_request: Arc<std::sync::Mutex<String>>,
     preview: atlas_comfy::PreviewSink,
-}
-
-enum Engine {
-    Codex(Box<atlas_codex::Client>),
-    Ollama(atlas_ollama::Client),
-    Comfy(atlas_comfy::Client),
-    OpenAi(atlas_openai::Client),
 }
 
 /// Where a generator writes pictures. A saved workbook files them under
@@ -154,71 +168,6 @@ pub use atlas_openai::KEY_SLOT as OPENAI_KEY_SLOT;
 /// GPT Image models that stand in until the key's catalog arrives.
 pub use atlas_openai::{DEFAULT_TEXT_MODEL as OPENAI_TEXT_MODEL, MODELS as OPENAI_IMAGE_MODELS};
 
-impl Engine {
-    fn start(
-        provider: &str,
-        dir: &Path,
-        cwd: &Path,
-        cancel: &AtomicBool,
-        preview: &atlas_comfy::PreviewSink,
-        workbook: Option<&Path>,
-        board_image_workspace: Option<&Path>,
-    ) -> Result<Self, String> {
-        let leaf = crate::packs::leaf(provider);
-        if leaf == Some("atlas-ollama") {
-            return atlas_ollama::Client::start(provider.strip_prefix("ollama/"), cancel)
-                .map(Self::Ollama);
-        }
-        let (images, tag) = image_output_dir(workbook, provider, dir);
-        if leaf == Some("atlas-comfy") {
-            let mut client = atlas_comfy::Client::start(cancel)?;
-            client.set_output_dir(images, &tag);
-            client.set_preview_sink(preview.clone());
-            return Ok(Self::Comfy(client));
-        }
-        if leaf == Some("atlas-openai") {
-            let key = atlas_core::secrets::load(atlas_openai::KEY_SLOT)
-                .ok_or("Add an OpenAI API key to use OpenAI models.")?;
-            return Ok(Self::OpenAi(atlas_openai::Client::new(key, images)));
-        }
-        let executable =
-            codex_executable().ok_or("Install Codex or set CODEX_BIN, then send again.")?;
-        let previous = std::fs::read_to_string(dir.join("codex-thread.txt")).ok();
-        if provider == "codex-image" || provider == "codex-text" {
-            // Codex runs in the output folder, away from the person's
-            // projects; every run starts its own thread.
-            std::fs::create_dir_all(&images).map_err(|e| e.to_string())?;
-            let mut c = atlas_codex::Client::start(&executable, &images, None)?;
-            if provider == "codex-image" {
-                c.set_image_dir(images);
-            }
-            return Ok(Self::Codex(Box::new(c)));
-        }
-        let mut c = atlas_codex::Client::start(&executable, cwd, previous.as_deref())?;
-        c.set_approval_dir(dir);
-        c.set_board_cloud_guard(atlas_core::cloud::is_dehydrated);
-        if let Some(workspace) = board_image_workspace {
-            c.set_board_image_workspace(workspace);
-        }
-        std::fs::write(dir.join("codex-thread.txt"), c.thread_id()).map_err(|e| e.to_string())?;
-        Ok(Self::Codex(Box::new(c)))
-    }
-    fn run(
-        &mut self,
-        request: &AgentRequest,
-        session: &mut AgentSession,
-        stop: &AtomicBool,
-        steering: &std::sync::mpsc::Receiver<atlas_codex::SteerCommand>,
-        changed: impl FnMut(&AgentSession),
-    ) -> Result<(), String> {
-        match self {
-            Self::Codex(c) => c.run_with_steering(request, session, stop, Some(steering), changed),
-            Self::Ollama(c) => c.run(request, session, stop, changed),
-            Self::Comfy(c) => c.run(request, session, stop, changed),
-            Self::OpenAi(c) => c.run(request, session, stop, changed),
-        }
-    }
-}
 impl Drop for CodexLink {
     fn drop(&mut self) {
         self.cancel.store(true, Ordering::Relaxed);
@@ -242,10 +191,18 @@ impl CodexLink {
         workbook: Option<PathBuf>,
         board_image_workspace: Option<PathBuf>,
     ) -> Self {
-        let (tx, rx) = bounded::<(AgentRequest, Option<crate::access::Snapshot>)>(1);
+        let (tx, rx) = bounded::<(
+            AgentRequest,
+            Option<crate::access::Snapshot>,
+            Option<atlas_agent::helper::HelperLaunch>,
+        )>(1);
         let (steer_tx, steer_rx) = std::sync::mpsc::sync_channel::<atlas_codex::SteerCommand>(16);
         let cancel = Arc::new(AtomicBool::new(false));
         let stop = cancel.clone();
+        let cancel_reason = Arc::new(std::sync::Mutex::new(None::<String>));
+        let worker_reason = cancel_reason.clone();
+        let current_request = Arc::new(std::sync::Mutex::new(String::new()));
+        let worker_request = current_request.clone();
         let preview = atlas_comfy::PreviewSink::default();
         let frames = preview.clone();
         std::thread::spawn(move || {
@@ -266,7 +223,7 @@ impl CodexLink {
                     updated_at: 0,
                     bundle: Default::default(),
                 });
-            while let Ok((mut request, access_snapshot)) = rx.recv() {
+            while let Ok((mut request, access_snapshot, host_tools)) = rx.recv() {
                 image_history::prepare_request(&mut request);
                 session.request = request.id.clone();
                 session.activity.clear();
@@ -274,6 +231,9 @@ impl CodexLink {
 
                 let result = (|| -> Result<(), String> {
                     validate_artifact_submission(&request, &provider)?;
+                    if host_tools.is_some() && subscription_provider(&provider).is_none() {
+                        return Err("This helper route requires its subscription transport".into());
+                    }
                     validate_image_parameters(&provider, &request)?;
                     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
                     session.status = AgentStatus::Thinking;
@@ -314,6 +274,18 @@ impl CodexLink {
                                 .into(),
                         );
                     }
+                    let _artifact_broker = match host_tools.as_ref() {
+                        Some(atlas_agent::helper::HelperLaunch::Artifact(launch)) => {
+                            Some(artifact_broker::ArtifactBroker::start(
+                                launch,
+                                &request,
+                                &dir,
+                                stop.clone(),
+                                worker_request.clone(),
+                            )?)
+                        }
+                        _ => None,
+                    };
                     if client.is_none() {
                         client = Some(Engine::start(
                             &provider,
@@ -357,6 +329,7 @@ impl CodexLink {
                         &mut session,
                         &stop,
                         &steer_rx,
+                        host_tools.as_ref(),
                         |state| {
                             let _ = image_history::write_public(
                                 &dir.join("session.json"),
@@ -368,6 +341,17 @@ impl CodexLink {
                     record_image_sidecars(&session, &request);
                     Ok(())
                 })();
+                let result = result.map_err(|error| {
+                    if stop.load(Ordering::Relaxed) {
+                        worker_reason
+                            .lock()
+                            .ok()
+                            .and_then(|reason| reason.clone())
+                            .unwrap_or(error)
+                    } else {
+                        error
+                    }
+                });
                 if let Some(retained) = retained_image_turns {
                     session.turns = retained.turns;
                     session.conversation = retained.conversation;
@@ -387,6 +371,8 @@ impl CodexLink {
             tx,
             steer_tx,
             cancel,
+            cancel_reason,
+            current_request,
             preview,
         }
     }
@@ -394,22 +380,24 @@ impl CodexLink {
     pub fn preview(&self) -> Option<atlas_agent::ImagePreview> {
         self.preview.lock().ok()?.clone()
     }
-    pub fn send(&self, request: AgentRequest) -> Result<(), String> {
-        self.send_with_access_snapshot(request, None)
-    }
-    /// Keep the host-observed policy off request.json and retain it for this turn.
-    pub fn send_with_access_snapshot(
-        &self,
-        request: AgentRequest,
-        access: Option<crate::access::Snapshot>,
-    ) -> Result<(), String> {
-        request.validate_artifact_request()?;
-        self.cancel.store(false, Ordering::Relaxed);
-        self.tx
-            .try_send((request, access))
-            .map_err(|_| "The agent is busy. Wait or stop the current response.".into())
-    }
     pub fn stop(&self) {
+        if let Ok(mut current) = self.current_request.lock() {
+            current.clear();
+        }
+        if let Ok(mut reason) = self.cancel_reason.lock() {
+            *reason = None;
+        }
+        self.cancel.store(true, Ordering::Relaxed);
+    }
+
+    /// Host expiry/revocation is a failure cause, distinct from a human Stop.
+    pub fn stop_with_reason(&self, reason: String) {
+        if let Ok(mut current) = self.current_request.lock() {
+            current.clear();
+        }
+        if let Ok(mut cause) = self.cancel_reason.lock() {
+            *cause = Some(reason);
+        }
         self.cancel.store(true, Ordering::Relaxed);
     }
 

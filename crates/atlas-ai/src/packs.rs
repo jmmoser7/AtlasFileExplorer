@@ -281,6 +281,31 @@ fn probe_catalog(workspace: Option<&Path>, overrides: &[(String, PackHealth)]) -
     let mut catalog = Catalog::load(workspace);
     register_builtin(&mut catalog);
     catalog.probe_all();
+    for (id, provider) in [
+        ("cursor-cli", atlas_subscription::Provider::Cursor),
+        ("claude-code", atlas_subscription::Provider::ClaudeCode),
+    ] {
+        let (health, detail) = match atlas_subscription::discover(provider) {
+            Ok(found) if found.auth == atlas_subscription::AuthStatus::LoggedIn => (
+                PackHealth::Ok,
+                format!(
+                    "{} subscription sign-in verified with {}",
+                    provider.label(),
+                    found.executable.display()
+                ),
+            ),
+            Ok(_) => (
+                PackHealth::Missing,
+                format!(
+                    "Sign in to your {} subscription: {}",
+                    provider.label(),
+                    provider.login_command()
+                ),
+            ),
+            Err(error) => (PackHealth::Missing, error),
+        };
+        catalog.set_health_detail(&PackId::new(id), health, detail);
+    }
     for (id, health) in overrides {
         catalog.set_health(&PackId::new(id.as_str()), *health);
     }
@@ -364,7 +389,8 @@ fn named(catalog: &Catalog, id: &PackId, needs_key: bool) -> AgentProvider {
 /// Contract slot shared by every pack of a kind. A new vendor does not add a slot.
 pub fn contract_slot(pack_id: &str) -> Option<&'static str> {
     match pack_id {
-        "cursor" | "codex" | "codex-text" | "ollama" | "openai-text" => Some("chat"),
+        "cursor" | "cursor-cli" | "claude-code" | "codex" | "codex-text" | "ollama"
+        | "openai-text" => Some("chat"),
         id if id.starts_with("ollama/") => Some("chat"),
         "comfy" | "openai-image" | "codex-image" => Some("image"),
         "sam" => Some("segment"),
@@ -378,6 +404,7 @@ pub fn contract_slot(pack_id: &str) -> Option<&'static str> {
 pub fn leaf(pack_id: &str) -> Option<&'static str> {
     match pack_id {
         "cursor" => Some("cursor"),
+        "cursor-cli" | "claude-code" => Some("atlas-subscription"),
         "codex" | "codex-text" | "codex-image" => Some("atlas-codex"),
         "ollama" => Some("atlas-ollama"),
         id if id.starts_with("ollama/") => Some("atlas-ollama"),

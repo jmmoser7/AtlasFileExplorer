@@ -72,7 +72,14 @@ impl SlateApp {
             .find(|p| {
                 matches!(
                     *p,
-                    "codex" | "ollama" | "cursor" | "comfy" | "openai-image" | "openai-text"
+                    "codex"
+                        | "ollama"
+                        | "cursor"
+                        | "cursor-cli"
+                        | "claude-code"
+                        | "comfy"
+                        | "openai-image"
+                        | "openai-text"
                 ) && !self.agents.models_started.contains(*p)
             })
             .map(str::to_owned);
@@ -84,6 +91,9 @@ impl SlateApp {
                 let result = match provider.as_str() {
                     "codex" => atlas_ai::runtime::codex_models(),
                     "cursor" => atlas_ai::runtime::cursor_models(),
+                    "cursor-cli" | "claude-code" => {
+                        atlas_ai::runtime::subscription_models(&provider)
+                    }
                     "comfy" => atlas_ai::runtime::comfy_models(),
                     "openai-image" => atlas_ai::runtime::openai_image_models(),
                     "openai-text" => atlas_ai::runtime::openai_text_models(),
@@ -196,6 +206,12 @@ impl SlateApp {
                 }
             }
         });
+        self.remember_source_model(
+            id,
+            if local { "ollama" } else { &provider },
+            value,
+            &Default::default(),
+        );
         true
     }
     pub(super) fn refresh_agent_connection(&mut self) {

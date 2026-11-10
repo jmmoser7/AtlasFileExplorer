@@ -23,9 +23,12 @@ impl SlateApp {
             )
         });
         match primary {
-            Some(origin) => Some(
-                origin.is_some_and(|p| self.crop_owns_pointer(p) || self.property_grip_under(p)),
-            ),
+            Some(origin) => Some(origin.is_some_and(|p| {
+                self.crop_owns_pointer(p)
+                    || self.property_grip_under(p)
+                    || (self.board_tool == BoardTool::Select
+                        && self.wire_grip_at(p, &self.board_xf()).is_some())
+            })),
             None => click.then_some(false),
         }
     }

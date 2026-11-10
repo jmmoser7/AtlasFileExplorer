@@ -6,7 +6,9 @@ use super::*;
 use atlas_connector_runtime::headless_rhino::{parse_parameters, GENERATE_COMMAND};
 mod blank;
 mod catalog;
+mod publication;
 mod send;
+mod task;
 
 #[cfg(test)]
 thread_local! {
@@ -20,6 +22,8 @@ pub(super) struct HumanJobs {
     jobs: HashMap<(u64, NodeId), HumanJob>,
     blanks: Vec<blank::BlankJob>,
     sends: HashMap<(u64, NodeId), send::PendingSend>,
+    setup_sends: HashMap<(u64, NodeId), send::SetupSend>,
+    tasks: task::ModelTasks,
 }
 struct HumanJob {
     parameters: serde_json::Value,
@@ -139,6 +143,8 @@ impl SlateApp {
 
     pub(crate) fn connector_stop_headless(&mut self, node: NodeId) {
         let key = (self.tab().id, node);
+        self.cancel_model_task(key);
+        self.connectors.headless.setup_sends.remove(&key);
         if let Some(send) = self.connectors.headless.sends.remove(&key) {
             send.cancel();
         }
@@ -157,6 +163,7 @@ impl SlateApp {
 
     pub(super) fn pump_headless_models(&mut self, ctx: &egui::Context) {
         self.pump_headless_sends(ctx);
+        self.pump_model_tasks(ctx);
         self.pump_blank_models(ctx);
         let mut pending = std::mem::take(&mut self.connectors.headless.jobs);
         for (key, mut job) in pending.drain() {
@@ -251,89 +258,6 @@ impl SlateApp {
         if !self.connectors.headless.jobs.is_empty() {
             ctx.request_repaint_after(Duration::from_millis(33));
         }
-    }
-
-    /// Called only after the existing caller validation and Lease::publish win.
-    pub(crate) fn native_publish_headless_model(
-        &mut self,
-        node: NodeId,
-        completion: &Completion,
-    ) -> Result<(), String> {
-        let NativeOutcome::Completed {
-            result: NativeResult::Model {
-                path, size, mtime, ..
-            },
-        } = &completion.outcome
-        else {
-            return Ok(());
-        };
-        if self.tab().read_only || self.doc().scene.node(node).is_none_or(|n| n.locked) {
-            return Err("Model is read-only, locked or removed; prior output retained".into());
-        }
-        let binding = self.native_binding(node)?;
-        if binding.key() != completion.key
-            || completion.binding_after.as_ref() != Some(&binding.binding)
-            || !path.starts_with(atlas_core::index::data_dir().join("headless-rhino/models"))
-        {
-            return Err("Headless model source/generation changed before acceptance".into());
-        }
-        if self.connectors.sessions[&(self.tab().id, node)]
-            .descriptor
-            .as_ref()
-            .is_none_or(|s| s.mode != SurfaceMode::Headless)
-        {
-            return Err("This result is not from the headless adapter".into());
-        }
-        let item = self.item_for_ready_path(path, *size, *mtime);
-        let output = slate_doc::scene::ModelOutputRef {
-            id: completion.ticket.clone(),
-            source: slate_doc::SourceUri {
-                locator: slate_doc::scene::source_locator(self.tab().path.as_deref(), path),
-            },
-            size: *size,
-            mtime: *mtime,
-        };
-        if self
-            .doc()
-            .scene
-            .node(node)
-            .and_then(slate_doc::agent_chat::agent)
-            .is_some_and(|a| a.generator.model_outputs.len() >= 128)
-        {
-            return Err("Model revision catalog is full; create a new builder branch before generating more outputs".into());
-        }
-        let author = completion
-            .actor
-            .as_ref()
-            .map_or(slate_doc::scene::CmdAuthor::Human, |a| {
-                slate_doc::scene::CmdAuthor::Agent(a.agent.clone())
-            });
-        self.connectors.sessions[&(self.tab().id, node)]
-            .tx
-            .try_send(worker::Action::AcceptHeadless {
-                key: completion.key.clone(),
-                path: path.clone(),
-                revision: binding.binding.source.revision.clone(),
-            })
-            .map_err(|_| {
-                "Accepted model could not be queued for headless source synchronization"
-            })?;
-        self.patch_nodes_as(&[node], author, |n| {
-            if let slate_doc::scene::NodeKind::Image(image) = &mut n.kind {
-                image.item = item;
-            }
-            if let Some(agent) = slate_doc::agent_chat::agent_mut(n) {
-                agent.generator.model_outputs.push(output.clone());
-                agent.generator.shown_model = Some(output.id.clone());
-            }
-        });
-        self.model3d.live.remove(&node);
-        if let Some(session) = self.connectors.sessions.get_mut(&(self.tab().id, node)) {
-            session.path = path.clone();
-            session.status = "Verified headless model accepted".into();
-        }
-        self.unlock_model(node);
-        Ok(())
     }
 }
 

@@ -8,8 +8,42 @@ use slate_doc::scene::{ConnectorEnd, Crop, Side};
 mod album;
 #[path = "generator_tests/daisychain.rs"]
 mod daisychain;
+#[path = "generator_tests/graft_prompts.rs"]
+mod graft_prompts;
 #[path = "generator_tests/readiness.rs"]
 mod readiness;
+
+#[test]
+fn image_requests_reject_an_empty_binding_before_capture_and_again_before_dispatch() {
+    let (mut h, id) = generator_with_output("empty-image-binding-admission");
+    let captured = h.app.generation_request(id, false).unwrap();
+    h.app.patch_nodes(&[id], |node| {
+        let agent = slate_doc::agent_chat::agent_mut(node).unwrap();
+        agent.provider.clear();
+        agent.session.clear();
+        agent.bundle = None;
+    });
+    let failure = "Choose an image provider before running this generator.";
+    assert_eq!(h.app.generation_request(id, false).unwrap_err(), failure);
+    // Even a previously captured request cannot create an empty-session
+    // runtime if its target binding became invalid during preparation.
+    h.app.enqueue_generation(id, captured);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while h.app.agent_failure_reason(id).is_none() && Instant::now() < deadline {
+        h.app.pump_comfy_queue();
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(h.app.agents.dispatched.is_empty());
+    assert!(h.app.agents.request_of(id).is_none());
+    assert_eq!(h.app.agent_failure_reason(id), Some(failure));
+    assert!(
+        slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
+            .unwrap()
+            .bundle
+            .is_none()
+    );
+    assert!(!h.base.join(".atlas-ai/agent/request.json").exists());
+}
 
 #[test]
 fn generator_requests_capture_authored_model_parameters_at_submission() {

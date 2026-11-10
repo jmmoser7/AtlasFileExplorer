@@ -41,15 +41,21 @@ pub(super) fn node_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem>
             items.push(StripItem::Agent(true));
             return items;
         }
-        // A generated picture or text is media too; a picture takes photo
-        // filters like any placed image.
-        if nodes.len() == 1 && app.is_agent_media(nodes[0].id) {
-            if SlateApp::supports_image_paint(nodes[0].id, app) {
-                items.push(StripItem::Panel(Panel::Filter));
+        // Binding an agent does not turn its native media host into a Chat
+        // portal. Keep native tools below; only Chat presentation uses this
+        // generic strip (bundle affordances above remain shared).
+        if nodes.iter().all(|node| {
+            matches!(&node.kind, NodeKind::Portal(portal)
+                if portal.kind == slate_doc::scene::PortalKind::Agent)
+        }) {
+            if nodes.len() == 1 && app.is_agent_media(nodes[0].id) {
+                if SlateApp::supports_image_paint(nodes[0].id, app) {
+                    items.push(StripItem::Panel(Panel::Filter));
+                }
+                items.push(StripItem::Panel(Panel::Agent));
             }
-            items.push(StripItem::Panel(Panel::Agent));
+            return items;
         }
-        return items;
     }
     // Crosswires own their red styling and mid-span capsule (crosstalk D16).
     if nodes
@@ -108,7 +114,8 @@ pub(super) fn rectangular_blister(app: &SlateApp, nodes: &[Node], count: usize) 
         return false;
     }
     matches!(nodes, [node] if (matches!(node.kind, NodeKind::Portal(_) | NodeKind::Image(_) | NodeKind::Frame(_))
-        || matches!(node.kind, NodeKind::Text(_)) && app.is_text_block(node.id))
+        || matches!(node.kind, NodeKind::Text(_))
+            && app.generator_source_kind(node.id) == Some(crate::app::board_flow::PendingHost::Text))
         && !matches!(&node.kind, NodeKind::Portal(portal) if portal.kind == slate_doc::scene::PortalKind::Agent)
         && media_blister_fits(node,count))
 }
@@ -211,6 +218,15 @@ pub(super) fn live_property_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<S
 }
 
 impl SlateApp {
+    #[cfg(test)]
+    pub(crate) fn property_strip_signature_for_test(&self, ids: &[NodeId]) -> String {
+        let nodes = ids
+            .iter()
+            .filter_map(|id| self.doc().scene.node(*id).cloned())
+            .collect::<Vec<_>>();
+        format!("{:?}", live_property_strip_items(self, &nodes))
+    }
+
     /// The selected object's shared Agent control owns prompt/run interaction.
     #[cfg(test)]
     pub(crate) fn agent_property_controls_own(&self, id: NodeId) -> bool {

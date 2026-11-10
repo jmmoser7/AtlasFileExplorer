@@ -22,6 +22,8 @@ pub fn shipped_manifests() -> Vec<PackManifest> {
 
 const SHIPPED: &[&str] = &[
     include_str!("../packs/cursor.json"),
+    include_str!("../packs/cursor-cli.json"),
+    include_str!("../packs/claude-code.json"),
     include_str!("../packs/codex.json"),
     include_str!("../packs/ollama.json"),
     include_str!("../packs/comfy.json"),

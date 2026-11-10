@@ -2,11 +2,19 @@ mod common;
 use atlas_connector::*;
 use common::*;
 fn draft_session(version: ProtocolVersion, mode: SourceMode) -> Session {
+    draft_session_with_command(version, mode, MOCK_INSPECT_COMMAND)
+}
+fn draft_session_with_command(
+    version: ProtocolVersion,
+    mode: SourceMode,
+    command: &str,
+) -> Session {
     let mut hello = MockConnector::new(identity("alpha")).hello();
     hello.versions = vec![version];
     hello.commands[0].effect = CommandEffect::DraftMutation;
     hello.commands[0].agent_allowed = true;
     hello.commands[0].undo = UndoOwner::NativeApplication;
+    hello.commands[0].id = command.into();
     let (mut session, _) =
         Session::negotiate(&HostPolicy::default(), &hello, "test-session".into(), 1).unwrap();
     begin(
@@ -54,6 +62,78 @@ fn grant(session: &mut Session) {
             &[MOCK_INSPECT_COMMAND.into()],
         )
         .unwrap();
+}
+
+#[test]
+fn explicit_model_task_grant_is_not_workspace_autonomy_and_is_closed_and_revocable() {
+    let command = "org.slate.rhino.headless.generate";
+    let mut session = draft_session_with_command(V0_2, SourceMode::IsolatedDraft, command);
+    let call = |id: &str, agent: &str| {
+        let mut request = edit(id, agent, false);
+        request.operation = Operation::InvokeCommand {
+            command_id: command.into(),
+            parameters: serde_json::json!({}),
+        };
+        request
+    };
+    expect_error(
+        begin(&mut session, call("before", "model-worker")),
+        ErrorCode::AuthorityDenied,
+    );
+    expect_error(
+        session.grant_model_task_authority(
+            "scope",
+            "model-worker",
+            &source().scope(),
+            &[MOCK_WRITE_COMMAND.into()],
+        ),
+        ErrorCode::AuthorityDenied,
+    );
+    session
+        .grant_model_task_authority(
+            "scope",
+            "model-worker",
+            &source().scope(),
+            &[command.into()],
+        )
+        .unwrap();
+    expect_error(
+        begin(&mut session, call("foreign", "another-worker")),
+        ErrorCode::AuthorityDenied,
+    );
+    let mut stale = call("stale", "model-worker");
+    stale.source.as_mut().unwrap().revision = "different".into();
+    assert!(begin(&mut session, stale).is_err());
+    begin(&mut session, call("own", "model-worker")).unwrap();
+    session
+        .complete(
+            "own",
+            ReplyBody::CommandResult {
+                value: serde_json::json!({"ok":true}),
+                revision: Some(source().revision),
+            },
+        )
+        .unwrap();
+    assert!(session.revoke_draft_authority("scope"));
+    expect_error(
+        begin(&mut session, call("after", "model-worker")),
+        ErrorCode::AuthorityDenied,
+    );
+    for (version, mode) in [
+        (V0_1, SourceMode::IsolatedDraft),
+        (V0_2, SourceMode::Linked),
+    ] {
+        let mut session = draft_session_with_command(version, mode, command);
+        expect_error(
+            session.grant_model_task_authority(
+                "scope",
+                "model-worker",
+                &source().scope(),
+                &[command.into()],
+            ),
+            ErrorCode::AuthorityDenied,
+        );
+    }
 }
 #[test]
 fn grant_is_required_and_scoped_to_agent_command_and_draft() {

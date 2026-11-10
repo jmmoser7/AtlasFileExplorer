@@ -1,6 +1,16 @@
 //! Provider-neutral scoped board command bridge. Grants are machine-local authority.
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+mod budget;
+pub mod host_tools;
+pub use budget::tool_task_budget_seconds;
+// Compatibility name; both task kinds use the one policy above.
+pub use budget::tool_task_budget_seconds as model_task_budget_seconds;
+pub mod images;
+pub mod mailbox;
+pub mod tools;
+pub mod transport;
+pub use host_tools::HostToolsLaunch;
 
 pub const MAX_BOARD_MESSAGE_BYTES: u64 = 65_536;
 pub const MAX_BOARD_TARGETS: usize = 64;
@@ -20,6 +30,19 @@ pub struct BoardLinkSession {
 }
 
 impl BoardLinkSession {
+    /// Routing only, never authority. The host must retain a live typed permit.
+    pub fn is_model_task(&self) -> bool {
+        self.session_id.starts_with("model-task-")
+    }
+
+    pub fn transport_dir(&self, root: &std::path::Path) -> std::path::PathBuf {
+        if self.is_model_task() && self.validate().is_ok() {
+            root.join("model-tasks").join(&self.session_id)
+        } else {
+            root.to_path_buf()
+        }
+    }
+
     pub fn validate(&self) -> Result<(), &'static str> {
         if [&self.session_id, &self.grant_id, &self.workspace_id]
             .iter()
@@ -317,6 +340,9 @@ pub fn board_link_guide(request: &crate::AgentRequest, dir: &str) -> String {
     let Some(link) = &request.collaborator else {
         return String::new();
     };
+    if link.is_model_task() {
+        return format!("\n\nSlate explicit model generation task:\nUse slate_board_read with empty node_ids to inspect ONLY the submitted target and frozen wired inputs. Read the offered headless generator's command descriptor, then invoke board.model.connector.invoke on that exact target with command_id=org.slate.rhino.headless.generate and parameters.plan encoded exactly as its closed JSON grammar requires. This is a one-generation task, not free-running Board membership. There is no Board file-read, participant, relay, helper, arbitrary command or source-writeback authority. Provider filesystem permissions follow the existing user choice; this Slate task grants no additional provider filesystem permission. Use only the supplied direct attachments and declared model-source copies for this task. Task transport identity: {}. Request: {}. Link: {}.", serde_json::to_string(link).unwrap_or_default(), request.id, link.transport_dir(std::path::Path::new(dir)).display());
+    }
     let profile = include_str!("../../../docs/agent/cursor-sidecar/board-link-v1.md");
     let profile = profile
         .replace("{{max_actions}}", &MAX_TASK_ACTIONS.to_string())

@@ -297,14 +297,29 @@ mod tests {
         assert!(prep.pending(1));
         token.resolve(&Ok((1, 1)));
         prep.receive();
-        for _ in 0..100 {
+        let completed = prep.done.as_ref().unwrap().1.clone();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(200);
+        while prep.pending(1) {
+            let mut completion = crossbeam_channel::Select::new();
+            completion.recv(&completed);
+            let waiting = completion
+                .ready_timeout(deadline.saturating_duration_since(std::time::Instant::now()));
             prep.receive();
-            if !prep.pending(1) {
+            // Select readiness may be spurious; reuse the same total budget.
+            if waiting.is_err() || std::time::Instant::now() >= deadline {
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        assert!(!prep.pending(1));
+        assert!(
+            !prep.pending(1),
+            "resolved bake did not finish: token={:?}, active={}, queued={:?}, ready={:?}, completion_count={}",
+            token.result(),
+            prep.active,
+            prep.queue.iter().map(|work| work.key).collect::<Vec<_>>(),
+            prep.ready,
+            completed.len(),
+        );
+        assert_eq!(prep.result(1), Some(Some(&PathBuf::from("wait.png"))));
     }
 
     #[test]

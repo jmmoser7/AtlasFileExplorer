@@ -70,6 +70,7 @@ impl SlateApp {
         &mut self,
         key: (u64, NodeId),
     ) {
+        self.cancel_model_task(key);
         if let Some(mut session) = self.connectors.sessions.remove(&key) {
             for (_, entry) in session.tickets.drain() {
                 entry.lease.revoke();

@@ -255,6 +255,16 @@ fn dispatch(
     events: &Sender<Event>,
     request: &NativeRequest,
 ) -> Result<NativeOutcome, NativeOutcome> {
+    let task = match &request.caller {
+        NativeCaller::Agent {
+            permit: Some(permit),
+            ..
+        } if permit.model_task() => Some(permit.clone()),
+        _ => None,
+    };
+    if task.as_ref().is_some_and(|permit| !permit.live()) {
+        return Err(NativeOutcome::RevokedBeforeAdmission);
+    }
     let current = snapshot(draft, root, serial);
     if Instant::now() >= request.expires
         || current.key() != request.key
@@ -293,25 +303,38 @@ fn dispatch(
         {
             let permit = permit
                 .as_ref()
-                .filter(|p| *autonomy && p.valid_for(identity, &request.key, GENERATE_COMMAND))
+                .filter(|p| {
+                    (*autonomy || p.model_task())
+                        && p.valid_for(identity, &request.key, GENERATE_COMMAND)
+                })
                 .ok_or_else(|| {
                     NativeOutcome::not_dispatched(
                         "Headless mutation requires this actor's isolated draft permit",
                     )
                 })?;
-            draft
-                .session
-                .grant_draft_authority(
+            let grant = if permit.model_task() {
+                draft.session.grant_model_task_authority(
                     permit.grant_id(),
                     &identity.agent,
                     &request.expected,
                     permit.commands(),
                 )
-                .map_err(|error| NativeOutcome::Rejected { error })?;
+            } else {
+                draft.session.grant_draft_authority(
+                    permit.grant_id(),
+                    &identity.agent,
+                    &request.expected,
+                    permit.commands(),
+                )
+            };
+            grant.map_err(|error| NativeOutcome::Rejected { error })?;
             granted = Some(permit.grant_id().to_owned());
         }
     }
-    if !request.lease.claim() {
+    if task.as_ref().is_some_and(|permit| !permit.live()) || !request.lease.claim() {
+        if let Some(grant) = granted {
+            draft.session.revoke_draft_authority(&grant);
+        }
         return Err(NativeOutcome::RevokedBeforeAdmission);
     }
     let cancel = Cancellation::default();
@@ -319,9 +342,11 @@ fn dispatch(
     let lease = request.lease.clone();
     let done = Arc::new(AtomicBool::new(false));
     let watch_done = done.clone();
+    let watch_task = task.clone();
     let watcher = std::thread::spawn(move || {
         while !watch_done.load(Ordering::Acquire) {
-            if !lease.live() {
+            if !lease.live() || watch_task.as_ref().is_some_and(|permit| !permit.live()) {
+                lease.revoke();
                 watch_cancel.cancel();
                 break;
             }
@@ -339,6 +364,11 @@ fn dispatch(
         operation,
     };
     let result = draft.handle(envelope, &caller, &cancel, |message| {
+        // Runtime queue acquisition calls this before spawning the SDK helper.
+        // Mirror the same live leases synchronously, not only on watcher ticks.
+        if !request.lease.live() || task.as_ref().is_some_and(|permit| !permit.live()) {
+            cancel.cancel();
+        }
         let _ = events.try_send(Event::Progress(message.into()));
     });
     done.store(true, Ordering::Release);
@@ -346,7 +376,11 @@ fn dispatch(
     if let Some(grant) = granted {
         draft.session.revoke_draft_authority(&grant);
     }
-    let reply = result.map_err(NativeOutcome::not_dispatched)?;
+    let reply = finish_task_call(
+        task.as_ref().map(|permit| permit.live()),
+        &request.lease,
+        result,
+    )?;
     match reply.outcome {
         ReplyBody::Failure { error } => Ok(NativeOutcome::Rejected { error }),
         ReplyBody::OutcomeUnknown { ref reason } => Ok(NativeOutcome::OutcomeUnknown {
@@ -355,6 +389,15 @@ fn dispatch(
         }),
         body if matches!(&request.operation,NativeOperation::Invoke{command,..} if command==GENERATE_COMMAND) =>
         {
+            if task.is_some()
+                && !matches!(&body, ReplyBody::CommandResult { value, .. }
+                    if value["objects"].as_u64().is_some_and(|objects| objects > 0))
+            {
+                return Err(NativeOutcome::OutcomeUnknown {
+                    receipt: None,
+                    reason: "Native generation ran but returned no native geometry; prior output retained".into(),
+                });
+            }
             if !request.lease.live() {
                 return Err(NativeOutcome::not_dispatched(
                     "Headless authority revoked before artifact transfer",
@@ -428,3 +471,20 @@ fn dispatch(
 
 #[cfg(test)]
 mod tests;
+
+/// Called only after native dispatch. Revocation suppresses publication, never
+/// relabels an admitted native effect as not dispatched or claims rollback.
+fn finish_task_call(
+    task_live: Option<bool>,
+    lease: &Lease,
+    result: Result<atlas_connector::ReplyEnvelope, String>,
+) -> Result<atlas_connector::ReplyEnvelope, NativeOutcome> {
+    if task_live == Some(false) {
+        lease.revoke();
+        return Err(NativeOutcome::OutcomeUnknown {
+            receipt: result.ok().map(Box::new),
+            reason: "Model task ended after native dispatch and before output transfer; no automatic replay or rollback is claimed".into(),
+        });
+    }
+    result.map_err(NativeOutcome::not_dispatched)
+}

@@ -52,6 +52,13 @@ pub(crate) struct DraftPermit {
     pub(super) key: BindingKey,
     pub(super) commands: Vec<String>,
     pub(super) grant_id: String,
+    pub(super) purpose: DraftPurpose,
+    pub(super) task: Option<ModelTaskPermit>,
+}
+#[derive(Clone, Copy)]
+pub(super) enum DraftPurpose {
+    Collaborator,
+    ModelTask,
 }
 impl DraftPermit {
     pub(crate) fn valid_for(
@@ -69,6 +76,51 @@ impl DraftPermit {
     }
     pub(crate) fn commands(&self) -> &[String] {
         &self.commands
+    }
+    pub(crate) fn model_task(&self) -> bool {
+        matches!(self.purpose, DraftPurpose::ModelTask)
+    }
+    pub(crate) fn live(&self) -> bool {
+        self.task.as_ref().is_none_or(ModelTaskPermit::live)
+    }
+}
+
+/// Host-only purpose capability. An envelope/session name never creates this.
+/// Minted by the explicit Human Run coordinator, retained only for that request.
+#[derive(Clone)]
+pub(crate) struct ModelTaskPermit {
+    pub(in crate::app::application_connector) doc: u64,
+    pub(in crate::app::application_connector) node: slate_doc::NodeId,
+    pub(in crate::app::application_connector) identity: AgentIdentity,
+    pub(in crate::app::application_connector) binding: BindingSnapshot,
+    pub(in crate::app::application_connector) lease: Lease,
+    pub(in crate::app::application_connector) expires: Instant,
+    pub(in crate::app::application_connector) deadline_unix_ms: u64,
+    pub(in crate::app::application_connector) budget_seconds: u64,
+}
+impl ModelTaskPermit {
+    pub(crate) fn live(&self) -> bool {
+        self.lease.live() && Instant::now() < self.expires
+    }
+    pub(super) fn authorizes(
+        &self,
+        doc: u64,
+        node: slate_doc::NodeId,
+        identity: &AgentIdentity,
+        binding: &BindingSnapshot,
+    ) -> bool {
+        self.lease.live()
+            && Instant::now() < self.expires
+            && doc == self.doc
+            && node == self.node
+            && identity.agent == self.identity.agent
+            && identity.membership == self.identity.membership
+            && identity.request == self.identity.request
+            && identity.epoch == self.identity.epoch
+            && binding.key() == self.binding.key()
+            && binding.observation == self.binding.observation
+            && binding.binding.source.scope() == self.binding.binding.source.scope()
+            && binding.binding.mode == atlas_connector::SourceMode::IsolatedDraft
     }
 }
 #[derive(Clone)]

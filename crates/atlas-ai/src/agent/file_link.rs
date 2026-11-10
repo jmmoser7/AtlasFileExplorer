@@ -8,6 +8,7 @@ pub(super) struct FileAgentLink {
     last_fingerprint: u64,
     last_read_attempt: Option<Instant>,
     last_session_mtime: Option<SystemTime>,
+    pub(super) history_read: Option<Result<bool, String>>,
     readmes: BTreeMap<String, bool>,
 }
 
@@ -111,17 +112,43 @@ impl FileAgentLink {
         }
         self.last_read_attempt = Some(Instant::now());
 
-        let metadata = std::fs::metadata(path).ok()?;
+        let metadata = match std::fs::metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                self.history_read = Some(if error.kind() == std::io::ErrorKind::NotFound {
+                    Ok(false)
+                } else {
+                    Err(format!(
+                        "Public conversation history is unavailable: {error}"
+                    ))
+                });
+                return None;
+            }
+        };
         let mtime = metadata.modified().ok()?;
         if self.last_session_mtime == Some(mtime) {
             return None;
         }
         if metadata.len() > 16 * 1024 * 1024 {
+            self.history_read = Some(Err("Public conversation history exceeds 16 MB.".into()));
             self.last_session_mtime = Some(mtime);
             return Some(AgentSession { activity: Vec::new(), usage: None, approval:None, conversation: String::new(), artifacts: Vec::new(),request:String::new(),provider:String::new(),turns:vec![],updated_at:0,bundle:Default::default(),status:AgentStatus::Error("The sidecar session exceeds 16 MB. Archive its older turns in the source program.".into())});
         }
-        let text = std::fs::read_to_string(path).ok()?;
-        let mut session = serde_json::from_str::<AgentSession>(&text).ok()?;
+        let read = std::fs::read_to_string(path)
+            .map_err(|error| error.to_string())
+            .and_then(|text| {
+                serde_json::from_str::<AgentSession>(&text).map_err(|error| error.to_string())
+            });
+        let mut session = match read {
+            Ok(session) => session,
+            Err(error) => {
+                self.history_read = Some(Err(format!(
+                    "Public conversation history is unavailable: {error}"
+                )));
+                return None;
+            }
+        };
+        self.history_read = Some(Ok(true));
         // This blocking transport runs on the link worker. Retain only the
         // recent raw window, then reuse the one public-activity normalizer before
         // an immutable snapshot can reach the frame loop (at most 64 calls).

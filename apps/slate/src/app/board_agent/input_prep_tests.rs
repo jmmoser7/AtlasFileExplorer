@@ -316,6 +316,7 @@ fn stop_removes_a_chat_send_waiting_for_image_preparation() {
             prompt: "portrait".into(),
             workspace: h.base.clone(),
             origin: super::runtime::ChatSendOrigin {
+                purpose: super::runtime::ChatSendPurpose::Conversation,
                 typing_here: false,
                 relayed_from: None,
                 preserve_composer: false,

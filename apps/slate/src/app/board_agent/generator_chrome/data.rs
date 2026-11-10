@@ -11,6 +11,7 @@ pub(crate) struct GeneratorChromeData<'a> {
     pub(super) source_kind: Option<crate::app::board_flow::PendingHost>,
     pub(super) selected: Option<&'a BTreeMap<String, String>>,
     pub(super) session: Option<&'a AgentSession>,
+    failure: Option<&'a str>,
     pub(super) review_dialogue: Option<AgentSession>,
     pub(super) request: &'a str,
     pub(super) access: Option<chrome::access::AccessView>,
@@ -124,7 +125,7 @@ impl activity::ActivityEntries for GeneratorChromeData<'_> {
                     .iter()
                     .filter(|event| event.request == self.request)
                     .count()
-        })
+        }) + usize::from(self.failure.is_some())
     }
     fn is_user(&self, index: usize) -> bool {
         self.session()
@@ -138,6 +139,15 @@ impl activity::ActivityEntries for GeneratorChromeData<'_> {
             .is_some_and(|turn| turn.role == "user")
     }
     fn get(&self, index: usize) -> Option<activity::ActivityEntry<'_>> {
+        if index == activity::ActivityEntries::len(self).saturating_sub(1) {
+            if let Some(failure) = self.failure {
+                return Some(activity::ActivityEntry {
+                    id: "request-failure",
+                    label: "Error",
+                    text: failure,
+                });
+            }
+        }
         let session = self.session()?;
         let turns = session.turns.iter().filter(|turn| turn.role != "system");
         let count = turns.clone().count();
@@ -275,6 +285,7 @@ impl SlateApp {
             source_kind: self.generator_source_kind(id),
             selected: None,
             session,
+            failure: self.agent_failure_reason(id),
             review_dialogue,
             request: self
                 .agents
