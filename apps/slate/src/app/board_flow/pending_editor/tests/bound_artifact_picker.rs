@@ -1,6 +1,49 @@
 //! Exercise the shared menu on the already-bound Dashboard created by a wire.
 use super::*;
 
+fn dump_picker_geometry(h: &Harness, output: &egui::FullOutput, phase: &str) {
+    fn row(ctx: &egui::Context, shape: &egui::Shape, clip: Rect, phase: &str) {
+        match shape {
+            egui::Shape::Text(text)
+                if ["Provider", "Model", "Effort", "Medium", "High"]
+                    .contains(&text.galley.text()) =>
+            {
+                let bounds = text.visual_bounding_rect();
+                let _ = std::io::Write::write_fmt(
+                    &mut std::io::stderr(),
+                    format_args!(
+                        "picker geometry {phase}: label={:?}, bounds={bounds:?}, clip={clip:?}, hit={:?}\n",
+                        text.galley.text(), ctx.layer_id_at(bounds.center())
+                    ),
+                );
+            }
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    row(ctx, shape, clip, phase);
+                }
+            }
+            _ => {}
+        }
+    }
+    for shape in &output.shapes {
+        row(&h.ctx, &shape.shape, shape.clip_rect, phase);
+    }
+    let layers = h
+        .ctx
+        .memory(|memory| memory.layer_ids().collect::<Vec<_>>());
+    for layer in layers {
+        let area = egui::containers::AreaState::load(&h.ctx, layer.id).map(|area| area.rect());
+        let transform = h.ctx.layer_transform_to_global(layer).unwrap_or_default();
+        let _ = std::io::Write::write_fmt(
+            &mut std::io::stderr(),
+            format_args!(
+                "picker geometry {phase}: layer={layer:?}, area={area:?}, transform={transform:?}, screen={:?}, local_viewport={:?}\n",
+                h.ctx.screen_rect(), transform.inverse() * h.ctx.screen_rect()
+            ),
+        );
+    }
+}
+
 fn models(provider: &str, artifact: bool) -> Vec<atlas_agent::AgentModel> {
     ["default", "second"]
         .into_iter()
@@ -165,6 +208,7 @@ fn wired_bound_dashboard_shared_provider_and_model_clicks_bind_and_persist_subsc
             h.frame();
         }
         let mut output = h.frame_output(|_| {});
+        dump_picker_geometry(&h, &output, "before wheel");
         // Follow the shared bottom-edge picker test: wheel its visible rows,
         // then click only when the requested label is fully inside its clip.
         let visible = |output: &egui::FullOutput, label: &str| {
@@ -196,6 +240,7 @@ fn wired_bound_dashboard_shared_provider_and_model_clicks_bind_and_persist_subsc
         for _ in 0..12 {
             output = h.frame_output(|_| {});
         }
+        dump_picker_geometry(&h, &output, "after wheel");
         let high = visible(&output, "High").expect("selected model effort choice is fully visible");
         eprintln!(
             "High picker before click: provider={provider}, rect={high:?}, clip={:?}, layer={:?}, page={:?}",

@@ -44,15 +44,34 @@ fn refused_image_send_keeps_legacy_count_mirror_and_unsaved_count_draft() {
     h.app.agents.flow.drafts.insert(id, draft);
     let before = h.app.doc().scene.node(id).unwrap().clone();
     let agent = slate_doc::agent_chat::agent(&before).unwrap();
-    assert_eq!(agent.image.count, 1);
-    assert_eq!(agent.generator.count, None);
+    // Raw 0 is a valid legacy sentinel; the image request clamps it to 1.
+    // Refusal must preserve the actual stored values, without normalizing them.
+    let counts_before = (agent.image.count, agent.generator.count);
+    let effective_count_before = h.app.image_agent_count(id);
+    let draft_count_before = h.app.agents.flow.drafts[&id].count;
     assert!(matches!(&before.kind, NodeKind::Image(image) if !image.item.is_none()));
-    let depth = h.app.tab().journal.undo_depth();
+    let journal_before = (
+        h.app.tab().journal.undo_depth(),
+        h.app.tab().journal.top_token(),
+        h.app.tab().journal.last_author().cloned(),
+        h.app.tab().journal.can_redo(),
+    );
     h.app.tab_mut().read_only = true;
     h.app.run_agent_media(id);
     assert_eq!(h.app.doc().scene.node(id), Some(&before));
-    assert_eq!(h.app.tab().journal.undo_depth(), depth);
-    assert_eq!(h.app.agents.flow.drafts[&id].count, 4);
+    let agent = slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap()).unwrap();
+    assert_eq!((agent.image.count, agent.generator.count), counts_before);
+    assert_eq!(h.app.image_agent_count(id), effective_count_before);
+    assert_eq!(
+        (
+            h.app.tab().journal.undo_depth(),
+            h.app.tab().journal.top_token(),
+            h.app.tab().journal.last_author().cloned(),
+            h.app.tab().journal.can_redo(),
+        ),
+        journal_before
+    );
+    assert_eq!(h.app.agents.flow.drafts[&id].count, draft_count_before);
     assert!(h.app.agents.dispatched.is_empty());
     assert_eq!(h.app.generations_waiting(id), 0);
 }

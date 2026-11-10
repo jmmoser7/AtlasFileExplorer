@@ -72,6 +72,23 @@ fn wait_for_task(h: &mut Harness, node: NodeId) {
     );
 }
 
+fn acknowledge_task_stop(h: &mut Harness, node: NodeId, request: &str) {
+    // The test backend has no provider process to send its terminal Stop ACK.
+    // Keep the same current-request public-session transition as the runtime.
+    let (_, provider) = h.app.agent_session_for(node).unwrap();
+    h.app.set_agent_session_for_test(
+        node,
+        atlas_agent::AgentSession {
+            request: request.into(),
+            provider,
+            status: atlas_agent::AgentStatus::Idle,
+            ..Default::default()
+        },
+    );
+    h.app.agent_pump(&h.ctx);
+    assert!(!h.app.agent_is_running(node));
+}
+
 fn submit(h: &mut Harness, node: NodeId) {
     h.app.submit_pending_model_task_for_test(
         &h.ctx,
@@ -258,6 +275,7 @@ fn explicit_first_model_send_creates_task_without_general_board_membership_then_
     }
     assert!(h.app.stop_agent_request_at(node, &first.id));
     assert!(!h.app.model_task_is_running(node));
+    acknowledge_task_stop(&mut h, node, &first.id);
     for reopen in [false, true] {
         if reopen {
             h.app.tab_mut().doc = serde_json::from_slice(&saved).unwrap();
@@ -271,6 +289,7 @@ fn explicit_first_model_send_creates_task_without_general_board_membership_then_
         assert_ne!(request.collaborator, first.collaborator);
         assert!(!h.app.presence.has_live_agents(h.app.tab().id));
         assert!(h.app.stop_agent_request_at(node, &request.id));
+        acknowledge_task_stop(&mut h, node, &request.id);
     }
 }
 
