@@ -374,6 +374,11 @@ impl SlateApp {
         let Some(choice) = detail.and_then(|d| serde_json::from_str::<Choice>(d).ok()) else {
             return false;
         };
+        #[cfg(test)]
+        eprintln!(
+            "generator parameter writer reached: node={:?}, parameter={}, value={:?}",
+            choice.node, choice.parameter, choice.value
+        );
         if self.refuse_read_only_edit() {
             return false;
         }
@@ -437,13 +442,15 @@ impl SlateApp {
         access: Option<bool>,
     ) {
         if let Some((parameter, value)) = parameter {
-            self.dispatch(
+            let _ran = self.dispatch(
                 ctx,
                 atlas_commands::CommandId("portal.agent.model_parameter"),
                 Some(
                     serde_json::json!({"node":id,"parameter":parameter,"value":value}).to_string(),
                 ),
             );
+            #[cfg(test)]
+            eprintln!("registered generator parameter dispatch: node={id:?}, ran={_ran}");
         }
         if let Some(enabled) = access {
             self.dispatch(

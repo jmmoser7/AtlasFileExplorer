@@ -3,6 +3,7 @@ use super::*;
 use atlas_agent::collaborator::BoardCall;
 use serde_json::{json, Value};
 use std::io::Write;
+use std::path::Path;
 
 pub(super) struct Pending {
     pub(super) call: BoardCall,
@@ -102,9 +103,9 @@ pub(super) fn poll(
 }
 
 pub(super) fn finalize(
-    view: &PathBuf,
+    view: &Path,
     destination: &PathBuf,
-    workspace: &PathBuf,
+    workspace: &Path,
     permit: &ModelTaskPermit,
 ) -> Result<Value, String> {
     let live = || {

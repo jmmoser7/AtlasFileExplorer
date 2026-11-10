@@ -54,7 +54,7 @@ fn fixture(name: &str) -> (Harness, NodeId, test_support::Peer) {
 fn wait_for_task(h: &mut Harness, node: NodeId) {
     let end = Instant::now() + Duration::from_secs(3);
     while Instant::now() < end {
-        h.app.pump_model_tasks(&h.ctx);
+        h.app.maintain_application_connectors(&h.ctx);
         if h.app
             .connectors
             .headless
@@ -70,6 +70,23 @@ fn wait_for_task(h: &mut Harness, node: NodeId) {
         "human model task did not reach the ordinary provider submission: {:?}",
         h.app.agent_failure_reason(node)
     );
+}
+
+fn acknowledge_task_stop(h: &mut Harness, node: NodeId, request: &str) {
+    // The test backend has no provider process to send its terminal Stop ACK.
+    // Keep the same current-request public-session transition as the runtime.
+    let (_, provider) = h.app.agent_session_for(node).unwrap();
+    h.app.set_agent_session_for_test(
+        node,
+        atlas_agent::AgentSession {
+            request: request.into(),
+            provider,
+            status: atlas_agent::AgentStatus::Idle,
+            ..Default::default()
+        },
+    );
+    h.app.agent_pump(&h.ctx);
+    assert!(!h.app.agent_is_running(node));
 }
 
 fn submit(h: &mut Harness, node: NodeId) {
@@ -116,7 +133,7 @@ fn human_first_send_ensures_headless_setup_without_a_board_grant() {
         "Create a box"
     );
     assert!(h.app.presence.agents_empty());
-    assert!(h.app.attached_model_native_access(node).is_none());
+    assert_eq!(h.app.attached_model_native_access(node), Some(false));
 }
 
 #[test]
@@ -215,13 +232,20 @@ fn explicit_first_model_send_creates_task_without_general_board_membership_then_
         !h.app.model_task_is_running(node),
         "preview/setup and model selection grant no task"
     );
+    let source_path = match &h.app.doc().scene.node(node).unwrap().kind {
+        slate_doc::scene::NodeKind::Image(image) => &h.app.doc().item(image.item).unwrap().path,
+        _ => panic!("native fixture source"),
+    };
+    assert!(source_path.to_string_lossy().contains("model-task-"));
+    let before = serde_json::to_string(h.app.doc()).unwrap();
+    assert!(before.contains(&serde_json::to_string(source_path).unwrap()));
     submit(&mut h, node);
     let first = h.app.agents.dispatched.last().unwrap().1.clone();
     assert_eq!(first.prompt, "Create one box using the declared inputs.");
     assert_eq!(first.model.as_deref(), Some("native-task-model"));
     assert!(first.collaborator.as_ref().unwrap().is_model_task());
     assert!(!h.app.presence.has_live_agents(h.app.tab().id));
-    assert!(h.app.attached_model_native_access(node).is_none());
+    assert_eq!(h.app.attached_model_native_access(node), Some(false));
     assert!(
         h.app
             .validate_chat_train_send(node)
@@ -235,12 +259,23 @@ fn explicit_first_model_send_creates_task_without_general_board_membership_then_
     assert!(task.grant.readable_sources.is_empty() && task.grant.conversation_ids.is_empty());
     assert_eq!(task.grant.helper_limit, 0);
     let saved = serde_json::to_vec(h.app.doc()).unwrap();
-    assert!(
-        !String::from_utf8_lossy(&saved).contains("model-task-"),
-        "live task permits are never workbook state"
-    );
+    let saved_text = String::from_utf8_lossy(&saved);
+    let membership = first.collaborator.as_ref().unwrap();
+    let private_dir = task.dir.to_string_lossy();
+    for (field, value) in [
+        ("ephemeral session", membership.session_id.as_str()),
+        ("ephemeral grant", membership.grant_id.as_str()),
+        ("private transport folder", private_dir.as_ref()),
+    ] {
+        let exact_json_string = serde_json::to_string(value).unwrap();
+        assert!(
+            !saved_text.contains(&exact_json_string),
+            "live task {field} must never be workbook state"
+        );
+    }
     assert!(h.app.stop_agent_request_at(node, &first.id));
     assert!(!h.app.model_task_is_running(node));
+    acknowledge_task_stop(&mut h, node, &first.id);
     for reopen in [false, true] {
         if reopen {
             h.app.tab_mut().doc = serde_json::from_slice(&saved).unwrap();
@@ -254,6 +289,7 @@ fn explicit_first_model_send_creates_task_without_general_board_membership_then_
         assert_ne!(request.collaborator, first.collaborator);
         assert!(!h.app.presence.has_live_agents(h.app.tab().id));
         assert!(h.app.stop_agent_request_at(node, &request.id));
+        acknowledge_task_stop(&mut h, node, &request.id);
     }
 }
 
@@ -272,7 +308,7 @@ fn model_task_admits_only_own_closed_generation_and_carries_revocable_worker_pur
         }
         let mut identity = permit.identity.clone();
         identity.call = atlas_agent::request_id();
-        assert!(h.app.native_submit_model_task(node,&permit.binding,identity,&permit,crate::app::application_connector::native::NativeOperation::Inspect,Lease::new()).is_err(),"lower native boundary binds the exact Slate doc and node even if native bindings are cloned");
+        assert!(h.app.native_submit_model_task_in((h.app.tab().id,node),&permit.binding,identity,&permit,crate::app::application_connector::native::NativeOperation::Inspect,Lease::new()).is_err(),"lower native boundary binds the exact Slate doc and node even if native bindings are cloned");
         assert!(peer.next().is_none());
     }
     for wrong_request in [false, true] {
@@ -370,8 +406,8 @@ fn model_task_admits_only_own_closed_generation_and_carries_revocable_worker_pur
     identity.call = atlas_agent::request_id();
     assert!(h
         .app
-        .native_submit_model_task(
-            node,
+        .native_submit_model_task_in(
+            (h.app.tab().id, node),
             &task.permit.binding,
             identity,
             &task.permit,

@@ -61,12 +61,15 @@ pub(super) struct Diagnostics {
     tail: Arc<Mutex<Tail>>,
     reader: Arc<Mutex<String>>,
     stderr_done: mpsc::Receiver<()>,
+    stdout_done: mpsc::Receiver<()>,
+    stdout_finished: mpsc::SyncSender<()>,
 }
 impl Diagnostics {
     pub(super) fn new(executable: &Path, cwd: &Path, stderr: ChildStderr) -> Self {
         let tail = Arc::new(Mutex::new(Tail::default()));
         let capture = tail.clone();
         let (done, stderr_done) = mpsc::sync_channel(1);
+        let (stdout_finished, stdout_done) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
             let mut stderr = stderr;
             let mut buffer = [0; 1024];
@@ -92,6 +95,8 @@ impl Diagnostics {
             tail,
             reader: Default::default(),
             stderr_done,
+            stdout_done,
+            stdout_finished,
         }
     }
 
@@ -101,6 +106,7 @@ impl Diagnostics {
         tx: mpsc::SyncSender<Result<Value, String>>,
     ) {
         let state = self.reader.clone();
+        let done = self.stdout_finished.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(output).lines() {
                 let result = line
@@ -112,6 +118,7 @@ impl Diagnostics {
                     *state.lock().unwrap() = redact(error);
                 }
                 if tx.send(result).is_err() {
+                    let _ = done.send(());
                     return;
                 }
             }
@@ -119,12 +126,19 @@ impl Diagnostics {
             if state.is_empty() {
                 *state = "stdout reached EOF".into();
             }
+            drop(state);
+            let _ = done.send(());
         });
     }
 
     fn failure(&self, child: &mut Child, error: String) -> String {
-        // Only failed startup waits, and only briefly, for the child's final stderr.
-        let _ = self.stderr_done.recv_timeout(Duration::from_millis(100));
+        // An early stdin failure can precede either reader's final update.
+        // Both readers share the existing failed-startup diagnostic budget.
+        wait_for_readers(
+            &self.stderr_done,
+            &self.stdout_done,
+            Instant::now() + Duration::from_millis(100),
+        );
         let exit = match child.try_wait() {
             Ok(Some(status)) => format!("{status}"),
             Ok(None) => "still running".into(),
@@ -140,6 +154,16 @@ impl Diagnostics {
             self.reader.lock().unwrap(),
             if tail.is_empty() { "(empty)" } else { &tail }
         )
+    }
+}
+
+fn wait_for_readers(
+    stderr_done: &mpsc::Receiver<()>,
+    stdout_done: &mpsc::Receiver<()>,
+    deadline: Instant,
+) {
+    for done in [stderr_done, stdout_done] {
+        let _ = done.recv_timeout(deadline.saturating_duration_since(Instant::now()));
     }
 }
 
@@ -192,13 +216,45 @@ mod tests {
         let error = Client::probe(&executable, &cwd).unwrap_err();
         assert!(error.contains(&format!("executable={executable:?}")));
         assert!(error.contains(&format!("cwd={cwd:?}")));
-        assert!(error.contains("stdout reached EOF"));
+        assert!(error.contains("stdout reached EOF"), "{error}");
         assert!(
             error.contains("child=exit ") || error.contains("child=still running"),
             "{error}"
         );
         assert!(error.contains("stderr_tail="));
         assert!(error.contains("Unrecognized option"), "{error}");
+    }
+
+    #[test]
+    fn stderr_completion_does_not_skip_a_pending_stdout_update() {
+        let (stderr_finished, stderr_done) = mpsc::sync_channel(1);
+        let (stdout_finished, stdout_done) = mpsc::sync_channel(1);
+        let state = Arc::new(Mutex::new(String::new()));
+        let reader = state.clone();
+        stderr_finished.send(()).unwrap();
+        let writer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(10));
+            *reader.lock().unwrap() = "stdout reached EOF".into();
+            stdout_finished.send(()).unwrap();
+        });
+        wait_for_readers(
+            &stderr_done,
+            &stdout_done,
+            Instant::now() + Duration::from_millis(100),
+        );
+        assert_eq!(*state.lock().unwrap(), "stdout reached EOF");
+        writer.join().unwrap();
+    }
+
+    #[test]
+    fn reader_collection_keeps_the_original_shared_deadline() {
+        let (_stderr_finished, stderr_done) = mpsc::sync_channel(1);
+        let (_stdout_finished, stdout_done) = mpsc::sync_channel(1);
+        let deadline = Instant::now();
+        wait_for_readers(&stderr_done, &stdout_done, deadline);
+        // Neither stream has completed; collecting diagnostics must still return.
+        assert!(stderr_done.try_recv().is_err());
+        assert!(stdout_done.try_recv().is_err());
     }
 
     #[test]

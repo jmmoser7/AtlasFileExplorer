@@ -227,15 +227,10 @@ fn owned_text_first_and_bound_repeat_use_actual_shared_composer_after_save_reloa
 #[test]
 fn saved_owned_empty_text_with_legacy_review_flag_recovers_on_actual_bound_submit() {
     let (mut h, id, item) = fixture("owned-text-saved-incorrect-review-role");
-    h.app.prepare_pending_chat_choice(id);
-    let draft = h.app.agents.flow.drafts.get(&id).unwrap().clone();
-    assert!(h.app.bind_pending_generator(
-        id,
-        PendingHost::Text,
-        &draft,
-        "codex-text",
-        "discovered-native-id"
-    ));
+    let agent = slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap()).unwrap();
+    assert_eq!(agent.provider, "codex-text");
+    assert_eq!(agent.model.as_deref(), Some("discovered-native-id"));
+    assert!(!agent.session.is_empty());
     assert!(!h.app.text_response_only(id));
     h.app.patch_nodes(&[id], |node| {
         slate_doc::agent_chat::agent_mut(node)
@@ -323,6 +318,7 @@ fn exact_owned_source_classifier_never_promotes_unmarked_or_replaced_originals()
         h.app.activate_text_review_mode(id);
         assert!(h.app.text_response_only(id));
         *h.app.agents.prompt_mut(id) = "Question about original".into();
+        h.app.commit_instruction(id);
         h.app.board_sel = [id].into_iter().collect();
         assert!(h.app.dispatch(
             &h.ctx.clone(),

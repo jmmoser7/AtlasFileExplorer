@@ -358,13 +358,13 @@ impl SlateApp {
     fn start_prepared_artifact(&mut self, mut prepared: Prepared) {
         let plan = &prepared.plan;
         let id = plan.node;
-        if self.artifact_plan_guard(&plan).as_deref() != Some(plan.guard.as_str()) {
+        if self.artifact_plan_guard(plan).as_deref() != Some(plan.guard.as_str()) {
             trace(
                 "drop.dispatch",
                 plan.tab,
                 id,
                 &plan.request.id,
-                &guard_delta(&plan.guard, self.artifact_plan_guard(&plan).as_deref()),
+                &guard_delta(&plan.guard, self.artifact_plan_guard(plan).as_deref()),
             );
             self.agents.artifact.queued.remove(&id);
             discard_prepared(prepared);

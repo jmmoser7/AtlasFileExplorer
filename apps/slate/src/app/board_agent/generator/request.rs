@@ -1,6 +1,15 @@
 //! Captured image request; graph/history snapshots are fixed at Send.
 use super::*;
 impl SlateApp {
+    pub(crate) fn generation_bundle_manifest(&self, dir: &std::path::Path) -> slate_doc::SourceUri {
+        slate_doc::SourceUri {
+            locator: super::super::super::board_portal::source_locator(
+                self.tab().path.as_deref(),
+                &dir.join("session.json"),
+            ),
+        }
+    }
+
     pub(in crate::app::board_agent) fn image_generation_binding(
         &self,
         id: NodeId,

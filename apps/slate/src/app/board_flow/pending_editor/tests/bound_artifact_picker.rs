@@ -1,6 +1,84 @@
 //! Exercise the shared menu on the already-bound Dashboard created by a wire.
 use super::*;
 
+fn picker_label(
+    ctx: &egui::Context,
+    output: &egui::FullOutput,
+    label: &str,
+    layer: egui::LayerId,
+    popup: Rect,
+    fully_visible: bool,
+) -> Option<Rect> {
+    fn find(
+        shape: &egui::Shape,
+        clip: Rect,
+        label: &str,
+        accept: &impl Fn(Rect, Rect) -> Option<Rect>,
+    ) -> Option<Rect> {
+        match shape {
+            egui::Shape::Text(text) if text.galley.text() == label => {
+                accept(text.visual_bounding_rect(), clip)
+            }
+            egui::Shape::Vec(shapes) => shapes.iter().find_map(|s| find(s, clip, label, accept)),
+            _ => None,
+        }
+    }
+    let accept = |bounds: Rect, clip: Rect| {
+        let visible = bounds.intersect(clip).intersect(popup);
+        (visible.is_positive()
+            && (!fully_visible || visible.contains_rect(bounds))
+            && ctx.layer_id_at(visible.center()) == Some(layer))
+        .then_some(if fully_visible { bounds } else { visible })
+    };
+    output
+        .shapes
+        .iter()
+        .find_map(|shape| find(&shape.shape, shape.clip_rect, label, &accept))
+}
+
+fn dump_picker_geometry(h: &Harness, output: &egui::FullOutput, phase: &str) {
+    fn row(ctx: &egui::Context, shape: &egui::Shape, clip: Rect, phase: &str) {
+        match shape {
+            egui::Shape::Text(text)
+                if ["Provider", "Model", "Effort", "Medium", "High"]
+                    .contains(&text.galley.text()) =>
+            {
+                let bounds = text.visual_bounding_rect();
+                let _ = std::io::Write::write_fmt(
+                    &mut std::io::stderr(),
+                    format_args!(
+                        "picker geometry {phase}: label={:?}, bounds={bounds:?}, clip={clip:?}, hit={:?}\n",
+                        text.galley.text(), ctx.layer_id_at(bounds.center())
+                    ),
+                );
+            }
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    row(ctx, shape, clip, phase);
+                }
+            }
+            _ => {}
+        }
+    }
+    for shape in &output.shapes {
+        row(&h.ctx, &shape.shape, shape.clip_rect, phase);
+    }
+    let layers = h
+        .ctx
+        .memory(|memory| memory.layer_ids().collect::<Vec<_>>());
+    for layer in layers {
+        let area = egui::containers::AreaState::load(&h.ctx, layer.id).map(|area| area.rect());
+        let transform = h.ctx.layer_transform_to_global(layer).unwrap_or_default();
+        let _ = std::io::Write::write_fmt(
+            &mut std::io::stderr(),
+            format_args!(
+                "picker geometry {phase}: layer={layer:?}, area={area:?}, transform={transform:?}, screen={:?}, local_viewport={:?}\n",
+                h.ctx.screen_rect(), transform.inverse() * h.ctx.screen_rect()
+            ),
+        );
+    }
+}
+
 fn models(provider: &str, artifact: bool) -> Vec<atlas_agent::AgentModel> {
     ["default", "second"]
         .into_iter()
@@ -29,7 +107,6 @@ fn models(provider: &str, artifact: bool) -> Vec<atlas_agent::AgentModel> {
                 ],
                 default: Some("medium".into()),
             }],
-            ..Default::default()
         })
         .collect()
 }
@@ -161,14 +238,85 @@ fn wired_bound_dashboard_shared_provider_and_model_clicks_bind_and_persist_subsc
         assert_eq!(agent.session, session);
         let output = h.frame_output(|_| {});
         click(&mut h, text_rect(&output, "Effort").unwrap().center());
-        let output = h.frame_output(|_| {});
-        click(
-            &mut h,
-            text_rect(&output, "High")
-                .expect("selected model effort choice")
-                .center(),
+        // Match the shared picker's Area/layout stabilization protocol after navigation.
+        for _ in 0..3 {
+            h.frame();
+        }
+        let mut output = h.frame_output(|_| {});
+        dump_picker_geometry(&h, &output, "before wheel");
+        let navigation = text_rect(&output, "Provider").expect("actual picker navigation row");
+        let picker_layer = h.ctx.layer_id_at(navigation.center()).unwrap();
+        assert_eq!(
+            picker_layer.order,
+            atlas_shell::selection_tools::POPUP_ORDER
         );
+        let transform = h
+            .ctx
+            .layer_transform_to_global(picker_layer)
+            .unwrap_or_default();
+        let popup = transform
+            * egui::containers::AreaState::load(&h.ctx, picker_layer.id)
+                .expect("actual picker Area")
+                .rect();
+        assert!(popup.contains(navigation.center()));
+        assert!(h.ctx.screen_rect().contains_rect(popup));
+        let ctx = h.ctx.clone();
+        // Follow the shared bottom-edge picker test: wheel its visible rows,
+        // then click only when the requested label is fully inside its clip.
+        let visible = |output: &egui::FullOutput, label: &str| {
+            picker_label(&ctx, output, label, picker_layer, popup, true)
+        };
+        for _ in 0..80 {
+            if visible(&output, "High").is_some() {
+                break;
+            }
+            let point = ["Automatic", "Medium", "High"]
+                .into_iter()
+                .find_map(|label| {
+                    picker_label(&ctx, &output, label, picker_layer, popup, false)
+                        .map(|rect| rect.center())
+                })
+                .expect("the actual picker has a visible interactive parameter leaf");
+            assert!(popup.contains(point));
+            assert_eq!(h.ctx.layer_id_at(point), Some(picker_layer));
+            let _ = std::io::Write::write_fmt(
+                &mut std::io::stderr(),
+                format_args!(
+                    "picker wheel: point={point:?}, popup={popup:?}, layer={picker_layer:?}\n"
+                ),
+            );
+            output = h.frame_output(|input| {
+                input.events.push(egui::Event::PointerMoved(point));
+                input.events.push(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -120.0),
+                    modifiers: egui::Modifiers::NONE,
+                });
+            });
+        }
+        for _ in 0..12 {
+            output = h.frame_output(|_| {});
+        }
+        dump_picker_geometry(&h, &output, "after wheel");
+        let high = visible(&output, "High").expect("selected model effort choice is fully visible");
+        eprintln!(
+            "High picker before click: provider={provider}, rect={high:?}, clip={:?}, layer={:?}, page={:?}",
+            label_clip(&output, "High"),
+            h.ctx.layer_id_at(high.center()),
+            h.app.generator_presentation(target).picker_page,
+        );
+        assert_eq!(
+            h.ctx.layer_id_at(high.center()).map(|layer| layer.order),
+            Some(atlas_shell::selection_tools::POPUP_ORDER),
+            "the fully visible High choice owns its actual pointer hit"
+        );
+        assert_eq!(h.ctx.layer_id_at(high.center()), Some(picker_layer));
+        click(&mut h, high.center());
         let agent = slate_doc::agent_chat::agent(h.app.doc().scene.node(target).unwrap()).unwrap();
+        eprintln!(
+            "High picker after click: provider={}, model={:?}, parameters={:?}",
+            agent.provider, agent.model, agent.model_parameters
+        );
         assert_eq!(
             agent.provider, provider,
             "model and parameter selection never switches provider"

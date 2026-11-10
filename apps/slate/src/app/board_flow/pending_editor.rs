@@ -242,14 +242,11 @@ impl SlateApp {
                 self.toast(message);
                 return None;
             }
-            let Some(selected) = self
+            let selected = self
                 .agents
                 .catalog(&provider)
                 .iter()
-                .find(|m| m.id == model)
-            else {
-                return None;
-            };
+                .find(|m| m.id == model)?;
             if let Err(error) = selected.validate_parameters(&draft.model_parameters) {
                 self.toast(error);
                 return None;

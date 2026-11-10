@@ -1,6 +1,6 @@
 //! Cursor's documented ACP stdio protocol; only public answer chunks are shown.
 use crate::{payload::TextPayload, process::Process, progress::Progress, Provider};
-use atlas_agent::{helper::HelperLaunch, AgentModel, AgentRequest, AgentSession};
+use atlas_agent::{helper::HelperLaunch, AgentModel, AgentRequest};
 use serde_json::{json, Value};
 use std::{
     path::Path,
@@ -14,11 +14,14 @@ pub(crate) fn run(
     request: &AgentRequest,
     tools: Option<&HelperLaunch>,
     payload: &mut TextPayload,
-    session: &mut AgentSession,
-    answer: usize,
     stop: &AtomicBool,
-    changed: &mut impl FnMut(&AgentSession),
+    feedback: crate::RunFeedback<'_>,
 ) -> Result<(), String> {
+    let crate::RunFeedback {
+        session,
+        answer,
+        changed,
+    } = feedback;
     // One captured Model end time covers setup, tools and final response.
     let task_deadline = tools
         .map(|tools| {
@@ -56,8 +59,7 @@ pub(crate) fn run(
         }
         rpc(
             &mut process,
-            4,
-            "session/set_mode",
+            (4, "session/set_mode"),
             json!({"sessionId":id,"modeId":desired}),
             tools,
             stop,
@@ -70,8 +72,7 @@ pub(crate) fn run(
     {
         rpc(
             &mut process,
-            6,
-            "session/set_model",
+            (6, "session/set_model"),
             json!({"sessionId":id,"modelId":selected.id}),
             tools,
             stop,
@@ -159,8 +160,7 @@ fn initialize(
     let setup = Instant::now() + Duration::from_secs(45);
     let init = rpc(
         &mut process,
-        1,
-        "initialize",
+        (1, "initialize"),
         json!({"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"Slate","version":env!("CARGO_PKG_VERSION")}}),
         tools,
         stop,
@@ -169,8 +169,7 @@ fn initialize(
     )?;
     rpc(
         &mut process,
-        2,
-        "authenticate",
+        (2, "authenticate"),
         json!({"methodId":"cursor_login"}),
         tools,
         stop,
@@ -179,21 +178,19 @@ fn initialize(
     )?;
     let created = rpc(
         &mut process,
-        3,
-        "session/new",
+        (3, "session/new"),
         json!({"cwd":cwd,"mcpServers":crate::tool_client::cursor_config(tools)}),
         tools,
         stop,
         setup,
-        progress.as_deref_mut(),
+        progress,
     )?;
     Ok((process, init, created))
 }
 
 fn rpc(
     process: &mut Process,
-    id: u64,
-    method: &str,
+    (id, method): (u64, &str),
     params: Value,
     tools: Option<&HelperLaunch>,
     stop: &AtomicBool,
@@ -311,7 +308,7 @@ fn handle_request(
         );
     }
     let written = process.send(&json!({"jsonrpc":"2.0","id":id,"result":result}));
-    if let Some(progress) = progress.as_deref_mut() {
+    if let Some(progress) = progress {
         progress.note(
             if written.is_ok() {
                 "acp_reply_stdin_flushed"

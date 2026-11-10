@@ -59,7 +59,7 @@ impl SlateApp {
             .iter()
             .filter(compatible)
             .find(|model| model.is_default)
-            .or_else(|| catalog.iter().filter(compatible).next())
+            .or_else(|| catalog.iter().find(compatible))
             .map(|model| model.id.clone())
     }
     pub(crate) fn validate_subscription_source_choice(&self, id: NodeId) -> Result<(), String> {

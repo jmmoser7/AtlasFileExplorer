@@ -11,11 +11,11 @@ fn parameters_dispatch_provider_ids_and_model_switch_drops_stale_values() {
     let (mut h, id) = generator_with_output("generator-parameter-command");
     h.app.patch_nodes(&[id], |n| {
         let a = slate_doc::agent_chat::agent_mut(n).unwrap();
-        a.provider = "codex".into();
+        a.provider = "codex-image".into();
         a.model = Some("advertised".into());
     });
     h.app.agents.models.insert(
-        "codex".into(),
+        "codex-image".into(),
         vec![serde_json::from_value(serde_json::json!({
             "id":"advertised","name":"Advertised", "parameters":[
                 {"id":"effort","name":"Thought level","values":[{"value":"high","name":"High"}]}
@@ -34,7 +34,7 @@ fn parameters_dispatch_provider_ids_and_model_switch_drops_stale_values() {
         request.model_parameters.get("effort").map(String::as_str),
         Some("high")
     );
-    h.app.set_flow_model(id, true, "codex", "next");
+    h.app.set_flow_model(id, true, "codex-image", "next");
     assert!(
         slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
             .unwrap()

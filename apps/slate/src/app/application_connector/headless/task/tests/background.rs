@@ -65,8 +65,8 @@ fn inactive_workbook_admits_call_and_publishes_after_provider_idle_without_touch
     identity.call = request.id.clone();
     assert!(
         h.app
-            .native_submit_model_task(
-                node,
+            .native_submit_model_task_in(
+                (h.app.tab().id, node),
                 &permit.binding,
                 identity,
                 &permit,

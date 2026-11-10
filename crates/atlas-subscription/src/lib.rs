@@ -41,6 +41,12 @@ pub fn models(provider: Provider) -> Result<Vec<AgentModel>, String> {
     }
 }
 
+pub(crate) struct RunFeedback<'a> {
+    session: &'a mut AgentSession,
+    answer: usize,
+    changed: &'a mut dyn FnMut(&AgentSession),
+}
+
 pub struct Client {
     provider: Provider,
     executable: PathBuf,
@@ -132,10 +138,12 @@ impl Client {
                 request,
                 tools,
                 &mut payload,
-                session,
-                answer,
                 stop,
-                &mut changed,
+                RunFeedback {
+                    session: &mut *session,
+                    answer,
+                    changed: &mut changed,
+                },
             ),
             Provider::ClaudeCode => claude_cli::run(
                 &self.executable,
@@ -143,10 +151,12 @@ impl Client {
                 request,
                 tools,
                 &mut payload,
-                session,
-                answer,
                 stop,
-                &mut changed,
+                RunFeedback {
+                    session: &mut *session,
+                    answer,
+                    changed: &mut changed,
+                },
             ),
         };
         let result = result.map_err(|error| match tools {

@@ -113,7 +113,11 @@ impl SlateApp {
             || atlas_ai::runtime::subscription_provider(&provider).is_some()
         {
             #[cfg(test)]
-            self.agents.dispatched.push((portal, request.clone()));
+            {
+                // This test backend records the accepted submission without launching a helper.
+                let _ = deadline_unix_ms;
+                self.agents.dispatched.push((portal, request.clone()));
+            }
             #[cfg(not(test))]
             {
                 let cwd = self

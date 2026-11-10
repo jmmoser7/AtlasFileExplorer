@@ -15,6 +15,8 @@ fn invalid_artifact_manifest_stays_visible_until_explicit_retry_and_ignores_stal
             b"<html>staged</html>",
         )
         .unwrap();
+        // The synthetic provider boundary does not start the runtime that creates this parent.
+        std::fs::create_dir_all(&plan.link_dir).unwrap();
         atlas_ai::agent::atomic_write_json(
             &plan.link_dir.join("return.json"),
             &serde_json::json!({
@@ -63,7 +65,7 @@ fn invalid_artifact_manifest_stays_visible_until_explicit_retry_and_ignores_stal
             .unwrap();
         h.app.pump_artifact_generations(&h.ctx);
         assert!(!h.app.artifact_is_busy(id));
-        assert!(h.app.agents.artifact.pending.get(&id).is_none());
+        assert!(!h.app.agents.artifact.pending.contains_key(&id));
         assert!(artifact(h.app.doc().scene.node(id).unwrap())
             .unwrap()
             .revision

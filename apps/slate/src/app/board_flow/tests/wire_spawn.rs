@@ -112,6 +112,19 @@ fn output_chooser_creates_only_the_clicked_modality_with_no_automatic_run() {
                 .preserve_history = Some(false)
         });
         crate::app::tests::frame_on(&mut h, source, 0.35);
+        // The source's ordinary asynchronous aspect fit owns a separate undo.
+        // Settle it before measuring the chooser's one creation transaction.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while h.app.fitted_agent_image_for_test(source) != Some("img-1") {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the seed image finishes its initial fit"
+            );
+            h.frame();
+            std::thread::yield_now();
+        }
+        let source_before = h.app.doc().scene.node(source).unwrap().clone();
+        assert_eq!(source_before.rect.w, source_before.rect.h);
         let before = h.app.doc().scene.nodes.len();
         assert!(h
             .app
@@ -163,8 +176,31 @@ fn output_chooser_creates_only_the_clicked_modality_with_no_automatic_run() {
         assert_all_agent_inputs(&h, child);
         assert!(!h.app.source_agent_dialogue_open(child));
         assert!(!h.app.source_agent_inputs_visible(source));
+        assert_eq!(h.app.doc().scene.node(source), Some(&source_before));
+        let _ = std::io::Write::write_fmt(
+            &mut std::io::stderr(),
+            format_args!(
+                "chooser Undo before: modality={modality}, depth={}, top={:?}, creates_child={}, child={:?}, source={:?}\n",
+                h.app.tab().journal.undo_depth(),
+                h.app.tab().journal.top_token(),
+                h.app.tab().journal.top_creates_node(child, &slate_doc::scene::CmdAuthor::Human),
+                h.app.doc().scene.node(child).map(|n| (n.id, n.rect, std::mem::discriminant(&n.kind))),
+                h.app.doc().scene.node(source).map(|n| (n.id, n.rect, std::mem::discriminant(&n.kind))),
+            ),
+        );
         h.app.board_undo();
+        let _ = std::io::Write::write_fmt(
+            &mut std::io::stderr(),
+            format_args!(
+                "chooser Undo after: modality={modality}, depth={}, top={:?}, child={:?}, source={:?}\n",
+                h.app.tab().journal.undo_depth(),
+                h.app.tab().journal.top_token(),
+                h.app.doc().scene.node(child).map(|n| (n.id, n.rect, std::mem::discriminant(&n.kind))),
+                h.app.doc().scene.node(source).map(|n| (n.id, n.rect, std::mem::discriminant(&n.kind))),
+            ),
+        );
         assert!(h.app.doc().scene.node(child).is_none());
+        assert_eq!(h.app.doc().scene.node(source), Some(&source_before));
         assert!(!h.app.source_agent_inputs_visible(child));
         h.app.board_redo();
         assert_all_agent_inputs(&h, child);

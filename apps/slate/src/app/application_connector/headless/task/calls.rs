@@ -284,8 +284,7 @@ pub(super) fn start(
             identity.call = call.id.clone();
             let ticket = app
                 .native_submit_model_task_in(
-                    task.doc,
-                    task.node,
+                    (task.doc, task.node),
                     &task.permit.binding,
                     identity,
                     &task.permit,
