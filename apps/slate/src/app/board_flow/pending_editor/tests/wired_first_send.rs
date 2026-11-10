@@ -28,8 +28,9 @@ fn wire_created_text_registered_send_binds_its_remembered_model_before_dispatch(
         panic!()
     };
     let item = image.item;
-    h.app
-        .cache_snippet(item, Some("Describe the connected picture.".into()));
+    let instruction = "Describe the connected picture.";
+    std::fs::write(h.app.item_path(item).unwrap(), instruction).unwrap();
+    h.app.cache_snippet(item, Some(instruction.into()));
     let t = h
         .app
         .wire_input_ports(h.app.doc().scene.node(id).unwrap())
@@ -79,18 +80,36 @@ fn wire_created_text_registered_send_binds_its_remembered_model_before_dispatch(
             .owned_text_output
             .is_some()
     );
+    // Save/reload changes the preview's workbook-base identity. Let the same
+    // normal frames as the UI read the saved source before the explicit Send.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !h.app.prepare_document_card(item) && std::time::Instant::now() < deadline {
+        h.frame();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    assert!(h.app.prepare_document_card(item));
+    assert_eq!(h.app.cached_snippet(item), Some(instruction));
+    let instruction_path = h.app.item_path(item).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&instruction_path).unwrap(),
+        instruction
+    );
     h.app.board_sel = [id].into_iter().collect();
     assert!(h.app.dispatch(
         &h.ctx.clone(),
         atlas_commands::CommandId("portal.agent.send"),
         None
     ));
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while h.app.agents.dispatched.is_empty() && std::time::Instant::now() < deadline {
         h.app.pump_comfy_queue();
+        h.frame();
         std::thread::sleep(std::time::Duration::from_millis(2));
     }
     assert_eq!(h.app.agents.dispatched.len(), 1);
+    assert_eq!(
+        std::fs::read_to_string(&instruction_path).unwrap(),
+        instruction
+    );
     let agent = slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap()).unwrap();
     assert_eq!(agent.provider, "codex-text");
     assert!(!agent.session.is_empty());

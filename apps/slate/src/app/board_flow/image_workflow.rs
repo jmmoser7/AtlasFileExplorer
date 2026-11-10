@@ -349,7 +349,6 @@ impl SlateApp {
         if self.is_text_block(id) {
             self.queue_text_block(id);
         } else {
-            self.reconcile_human_image_count(id);
             // Capture the shown result and its authored crop/layers before the
             // card releases an album pick to follow the next result.
             let prepared = self.generation_request(id, false).and_then(|request| {
@@ -375,10 +374,23 @@ impl SlateApp {
             let Some(before) = self.doc().scene.node(id).cloned() else {
                 return;
             };
+            let count = request
+                .image
+                .as_ref()
+                .filter(|_| {
+                    self.generator_source_kind(id) == Some(PendingHost::Image)
+                        && !before.locked
+                        && !self.tab().read_only
+                })
+                .map(|image| image.count);
             let mut after = before.clone();
             // The first durable bundle reference completes this same Send,
             // rather than adding a later automatic undo step at dispatch.
             if let Some(agent) = slate_doc::agent_chat::agent_mut(&mut after) {
+                if let Some(count) = count {
+                    agent.image.count = count;
+                    agent.generator.count = Some(count);
+                }
                 if agent.bundle.is_none() {
                     agent.bundle.clone_from(&manifest);
                 }
@@ -399,6 +411,11 @@ impl SlateApp {
                 }])
             {
                 return;
+            }
+            if let Some(count) = count {
+                if let Some(draft) = self.agents.flow.drafts.get_mut(&id) {
+                    draft.count = count;
+                }
             }
             self.enqueue_prepared_generation(id, request, inputs);
         }

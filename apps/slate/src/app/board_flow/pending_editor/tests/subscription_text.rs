@@ -117,11 +117,12 @@ fn subscription_fixture(provider: &str) -> (Harness, NodeId) {
 fn subscription_text_uses_shared_first_send_and_projects_linked_source_once() {
     for provider in ["cursor-cli", "claude-code"] {
         let (mut h, target) = subscription_fixture(provider);
-        h.app.dispatch(
+        h.app.board_sel = [target].into_iter().collect();
+        assert!(h.app.dispatch(
             &h.ctx,
             atlas_commands::CommandId("portal.agent.send"),
             Some(serde_json::json!({"node":target}).to_string()),
-        );
+        ));
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while h.app.agents.dispatched.is_empty() && std::time::Instant::now() < deadline {
             h.app.pump_comfy_queue();

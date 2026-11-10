@@ -467,6 +467,13 @@ fn popup_selector(
                         }
                     }
                 });
+                #[cfg(test)]
+                if agent_datums && !scrolled.inner_rect.is_positive() {
+                    eprintln!(
+                        "empty picker scroll: opener={rect:?}, transform={to_global:?}, viewport={viewport:?}, popup={popup:?}, scroll={:?}, offset={:?}",
+                        scrolled.inner_rect, scrolled.state.offset
+                    );
+                }
                 generator::scroll::paint(
                     ui,
                     scroll_id,
@@ -486,7 +493,6 @@ fn popup_selector(
     crate::menu_wheel::claim(ui.ctx(), screen_rect);
     out
 }
-
 /// A configured model pack whose remaining requirement is a machine credential.
 pub fn needs_key_label(label: &str) -> bool {
     label.ends_with("· add API key")

@@ -35,6 +35,7 @@ fn fresh_wire_artifact_first_send_survives_same_path_save_and_cache_layout_befor
     assert!(!h.app.artifact_is_busy(id));
     *h.app.agents.prompt_mut(id) = "Make the supplied pie interactive.".into();
     h.app.commit_instruction(id);
+    h.app.board_sel = [id].into_iter().collect();
     assert!(h.app.dispatch(
         &h.ctx,
         atlas_commands::CommandId("portal.agent.send"),

@@ -215,6 +215,13 @@ fn explicit_first_model_send_creates_task_without_general_board_membership_then_
         !h.app.model_task_is_running(node),
         "preview/setup and model selection grant no task"
     );
+    let source_path = match &h.app.doc().scene.node(node).unwrap().kind {
+        slate_doc::scene::NodeKind::Image(image) => &h.app.doc().item(image.item).unwrap().path,
+        _ => panic!("native fixture source"),
+    };
+    assert!(source_path.to_string_lossy().contains("model-task-"));
+    let before = serde_json::to_string(h.app.doc()).unwrap();
+    assert!(before.contains(&serde_json::to_string(source_path).unwrap()));
     submit(&mut h, node);
     let first = h.app.agents.dispatched.last().unwrap().1.clone();
     assert_eq!(first.prompt, "Create one box using the declared inputs.");
@@ -235,10 +242,20 @@ fn explicit_first_model_send_creates_task_without_general_board_membership_then_
     assert!(task.grant.readable_sources.is_empty() && task.grant.conversation_ids.is_empty());
     assert_eq!(task.grant.helper_limit, 0);
     let saved = serde_json::to_vec(h.app.doc()).unwrap();
-    assert!(
-        !String::from_utf8_lossy(&saved).contains("model-task-"),
-        "live task permits are never workbook state"
-    );
+    let saved_text = String::from_utf8_lossy(&saved);
+    let membership = first.collaborator.as_ref().unwrap();
+    let private_dir = task.dir.to_string_lossy();
+    for (field, value) in [
+        ("ephemeral session", membership.session_id.as_str()),
+        ("ephemeral grant", membership.grant_id.as_str()),
+        ("private transport folder", private_dir.as_ref()),
+    ] {
+        let exact_json_string = serde_json::to_string(value).unwrap();
+        assert!(
+            !saved_text.contains(&exact_json_string),
+            "live task {field} must never be workbook state"
+        );
+    }
     assert!(h.app.stop_agent_request_at(node, &first.id));
     assert!(!h.app.model_task_is_running(node));
     for reopen in [false, true] {

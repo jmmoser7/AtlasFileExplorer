@@ -164,13 +164,49 @@ fn wired_bound_dashboard_shared_provider_and_model_clicks_bind_and_persist_subsc
         for _ in 0..3 {
             h.frame();
         }
-        let output = h.frame_output(|_| {});
-        let high = text_rect(&output, "High").expect("selected model effort choice");
+        let mut output = h.frame_output(|_| {});
+        // Follow the shared bottom-edge picker test: wheel its visible rows,
+        // then click only when the requested label is fully inside its clip.
+        let visible = |output: &egui::FullOutput, label: &str| {
+            text_rect(output, label).filter(|rect| label_clip(output, label).contains_rect(*rect))
+        };
+        for _ in 0..80 {
+            if visible(&output, "High").is_some() {
+                break;
+            }
+            let point = ["Medium", "Effort", "Model", "Provider"]
+                .into_iter()
+                .filter_map(|label| visible(&output, label))
+                .map(|rect| rect.center())
+                .find(|point| {
+                    h.ctx.layer_id_at(*point).is_some_and(|layer| {
+                        layer.order == atlas_shell::selection_tools::POPUP_ORDER
+                    })
+                })
+                .expect("the actual picker has a visible scroll region");
+            output = h.frame_output(|input| {
+                input.events.push(egui::Event::PointerMoved(point));
+                input.events.push(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -120.0),
+                    modifiers: egui::Modifiers::NONE,
+                });
+            });
+        }
+        for _ in 0..12 {
+            output = h.frame_output(|_| {});
+        }
+        let high = visible(&output, "High").expect("selected model effort choice is fully visible");
         eprintln!(
             "High picker before click: provider={provider}, rect={high:?}, clip={:?}, layer={:?}, page={:?}",
             label_clip(&output, "High"),
             h.ctx.layer_id_at(high.center()),
             h.app.generator_presentation(target).picker_page,
+        );
+        assert_eq!(
+            h.ctx.layer_id_at(high.center()).map(|layer| layer.order),
+            Some(atlas_shell::selection_tools::POPUP_ORDER),
+            "the fully visible High choice owns its actual pointer hit"
         );
         click(&mut h, high.center());
         let agent = slate_doc::agent_chat::agent(h.app.doc().scene.node(target).unwrap()).unwrap();

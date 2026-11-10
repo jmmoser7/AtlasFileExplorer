@@ -3,6 +3,61 @@ use super::*;
 use slate_doc::image_paint::{layers_for_result, ImageResultId, PaintLayer, PaintLayerId};
 
 #[test]
+fn image_send_normalizes_legacy_count_inside_its_single_undo_step() {
+    let (mut h, id) = generator_with_output("image-send-atomic-count-mirror");
+    h.app.pick_agent_result(id, 0);
+    h.app.patch_nodes(&[id], |node| {
+        slate_doc::agent_chat::agent_mut(node).unwrap().instruction = "retouch".into();
+    });
+    let mut draft = AgentDraft::new();
+    draft.count = 4;
+    h.app.agents.flow.drafts.insert(id, draft);
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    assert_eq!(
+        slate_doc::agent_chat::agent(&before)
+            .unwrap()
+            .generator
+            .count,
+        None
+    );
+    let depth = h.app.tab().journal.undo_depth();
+    h.app.run_agent_media(id);
+    let agent = slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap()).unwrap();
+    assert_eq!(agent.image.count, 1);
+    assert_eq!(agent.generator.count, Some(1));
+    assert_eq!(h.app.agents.flow.drafts[&id].count, 1);
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+    let tab = h.app.tab_mut();
+    assert!(tab.journal.undo(&mut tab.doc.scene));
+    assert_eq!(h.app.doc().scene.node(id), Some(&before));
+}
+
+#[test]
+fn refused_image_send_keeps_legacy_count_mirror_and_unsaved_count_draft() {
+    let (mut h, id) = generator_with_output("refused-image-send-count-mirror");
+    h.app.pick_agent_result(id, 0);
+    h.app.patch_nodes(&[id], |node| {
+        slate_doc::agent_chat::agent_mut(node).unwrap().instruction = "retouch".into();
+    });
+    let mut draft = AgentDraft::new();
+    draft.count = 4;
+    h.app.agents.flow.drafts.insert(id, draft);
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let agent = slate_doc::agent_chat::agent(&before).unwrap();
+    assert_eq!(agent.image.count, 1);
+    assert_eq!(agent.generator.count, None);
+    assert!(matches!(&before.kind, NodeKind::Image(image) if !image.item.is_none()));
+    let depth = h.app.tab().journal.undo_depth();
+    h.app.tab_mut().read_only = true;
+    h.app.run_agent_media(id);
+    assert_eq!(h.app.doc().scene.node(id), Some(&before));
+    assert_eq!(h.app.tab().journal.undo_depth(), depth);
+    assert_eq!(h.app.agents.flow.drafts[&id].count, 4);
+    assert!(h.app.agents.dispatched.is_empty());
+    assert_eq!(h.app.generations_waiting(id), 0);
+}
+
+#[test]
 fn first_image_requests_capture_draft_parameters_for_imported_blank_and_wire_created_hosts() {
     for host in ["imported", "blank", "wire-created"] {
         for wired in [false, true] {
