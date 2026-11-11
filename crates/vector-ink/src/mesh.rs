@@ -358,18 +358,33 @@ fn limit_chords(
     (out, out_widths, out_colors)
 }
 
+/// Coverage for the outer and inner vertices at one feathered strip station.
+pub const AA_STRIP_ALPHAS: [f32; 4] = [0.0, 1.0, 1.0, 0.0];
+
+const AA_STRIP_LINK: [u32; 18] = [0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6];
+
+/// Index order emitted for one contiguous feathered strip. Cached callers
+/// must check the mesh before dropping indices because dashes split strips.
+pub fn aa_strip_indices(vertex_count: usize) -> impl Iterator<Item = u32> {
+    (0..(vertex_count / 4).saturating_sub(1) as u32)
+        .flat_map(|station| AA_STRIP_LINK.map(|index| station * 4 + index))
+}
+
 fn emit_strip(mesh: &mut InkMesh, stations: &[Station], feather: f32, colors: Option<&[[f32; 4]]>) {
     // One fringe quad per station. Extra alpha rings overlap along the stroke
     // and stack into bright seams.
     for (i, station) in stations.iter().enumerate() {
         let base = mesh.vertices.len() as u32;
         let inset = (feather * 0.5).min(station.half);
-        for (side, amount, alpha) in [
-            (0, feather * 0.5, 0.0),
-            (0, -inset, 1.0),
-            (1, -inset, 1.0),
-            (1, feather * 0.5, 0.0),
-        ] {
+        for ((side, amount), alpha) in [
+            (0, feather * 0.5),
+            (0, -inset),
+            (1, -inset),
+            (1, feather * 0.5),
+        ]
+        .into_iter()
+        .zip(AA_STRIP_ALPHAS)
+        {
             let edge = station.edges[side];
             mesh.vertices.push(InkVertex {
                 pos: add(edge.pos, scale(edge.normal, amount)),
@@ -381,17 +396,7 @@ fn emit_strip(mesh: &mut InkMesh, stations: &[Station], feather: f32, colors: Op
         }
         if i > 0 {
             let prev = base - 4;
-            for (a, b, c) in [
-                (0, 1, 5),
-                (0, 5, 4),
-                (1, 2, 6),
-                (1, 6, 5),
-                (2, 3, 7),
-                (2, 7, 6),
-            ] {
-                mesh.indices
-                    .extend_from_slice(&[prev + a, prev + b, prev + c]);
-            }
+            mesh.indices.extend(AA_STRIP_LINK.map(|index| prev + index));
         }
     }
 }

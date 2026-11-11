@@ -1,6 +1,8 @@
 //! Flow-port presentation on the shared typed-port geometry.
 use super::*;
 use atlas_shell::selection_tools::hit_regions::PortPresentation;
+use eframe::egui::Vec2;
+use slate_doc::WorldRect;
 
 #[cfg(test)]
 mod tests;
@@ -69,30 +71,7 @@ impl SlateApp {
         id: slate_doc::NodeId,
         slot: atlas_agent::InputSlot,
     ) -> Option<usize> {
-        let agent = self
-            .doc()
-            .scene
-            .node(id)
-            .and_then(slate_doc::agent_chat::agent)?;
-        if !agent.generator.grafted_slots.contains(slot.id()) {
-            return None;
-        }
-        Some(
-            self.doc()
-                .scene
-                .nodes
-                .iter()
-                .filter(|node| {
-                    let slate_doc::scene::NodeKind::Connector(conn) = &node.kind else {
-                        return false;
-                    };
-                    conn.binding.as_ref().is_some_and(|binding| {
-                        binding.slot.as_deref() == Some(slot.id())
-                            && agent_inputs::endpoint_node(binding.target_end(conn)) == Some(id)
-                    })
-                })
-                .count(),
-        )
+        self.doc().scene.graft_input_count(id, slot.id())
     }
     pub(crate) fn flow_port_presentation(
         node: &slate_doc::scene::Node,
@@ -108,25 +87,57 @@ impl SlateApp {
         ctx: &egui::Context,
         xf: &BoardXf,
     ) -> bool {
-        if self.portal_capture_owns_viewport(node.id) || !self.source_agent_inputs_visible(node.id)
+        let wiring = matches!(self.board_drag, Some(BoardDrag::Wire(_)));
+        let near = ctx
+            .pointer_latest_pos()
+            .is_some_and(|p| xf.rect_w2s(node.rect).expand(PORT_REVEAL).contains(p));
+        if !(near || wiring || self.board_sel.contains(&node.id))
+            || node.hidden
+            || Self::flow_port_presentation(node, xf).is_none()
+            || self.portal_capture_owns_viewport(node.id)
+            || !self.source_agent_inputs_visible(node.id)
+            || self.wire_input_ports(node).is_empty()
         {
             return false;
         }
-        let ports = self.wire_input_ports(node);
-        if node.hidden || ports.is_empty() || Self::flow_port_presentation(node, xf).is_none() {
-            return false;
-        }
-        let host = self.wire_input_host(node);
-        if !host.offers_ports() {
-            return false;
-        }
-        let screen = xf.rect_w2s(node.rect);
-        let near = ctx
-            .pointer_latest_pos()
-            .is_some_and(|p| screen.expand(PORT_REVEAL).contains(p));
-        let wiring = matches!(self.board_drag, Some(BoardDrag::Wire(_)));
-        (near || wiring || self.board_sel.contains(&node.id))
+        self.wire_input_host(node).offers_ports()
             && (!self.agents.flow.hud_hidden(node.id) || wiring)
+    }
+
+    fn flow_port_candidates(
+        &self,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        pointer: Option<Pos2>,
+        wiring: bool,
+    ) -> Option<Vec<NodeId>> {
+        let bounds = self.current_connector_pick_bounds()?;
+        let scene = &self.doc().scene;
+        // The longest current port label is 13 ASCII glyphs. Allow two ems
+        // each plus the dot and label gap, including on zoomed-in hosts.
+        let region = if wiring {
+            Some(
+                painter
+                    .clip_rect()
+                    .expand((PORT_LABEL_PX * 26.0 + 16.0) * xf.z),
+            )
+        } else {
+            pointer.map(|pointer| Rect::from_center_size(pointer, Vec2::splat(2.0 * PORT_REVEAL)))
+        };
+        let mut ids = region.map_or_else(Vec::new, |region| {
+            let min = xf.s2w(region.min);
+            let max = xf.s2w(region.max);
+            scene.query_rect(WorldRect::new(min.x, min.y, max.x - min.x, max.y - min.y))
+        });
+        // Hover and history handles use the unrotated body, while typed
+        // anchors use the rotated host. Keep both geometries eligible.
+        if !self.board_sel.is_empty() || !bounds.rotated_flow_hosts.is_empty() {
+            ids.extend(self.board_sel.iter().copied());
+            ids.extend(bounds.rotated_flow_hosts.iter().copied());
+            ids.sort_unstable_by_key(|id| scene.index_of(*id));
+            ids.dedup();
+        }
+        Some(ids)
     }
 
     /// Typed ports of flow nodes the pointer is near, that are selected, or
@@ -136,8 +147,16 @@ impl SlateApp {
         let palette = self.palette();
         let roles = palette.agent_roles();
         let pointer = painter.ctx().pointer_latest_pos();
+        let wiring = matches!(self.board_drag, Some(BoardDrag::Wire(_)));
         let scene = &self.doc().scene;
-        for node in &scene.nodes {
+        let local = self.flow_port_candidates(painter, xf, pointer, wiring);
+        let indexed = local.iter().flatten().filter_map(|id| scene.node(*id));
+        let full = local
+            .is_none()
+            .then(|| scene.nodes.iter())
+            .into_iter()
+            .flatten();
+        for node in indexed.chain(full) {
             if let Some(kind) =
                 slate_doc::agent_chat::agent(node).and_then(|a| a.generator.input_source_kind)
             {
@@ -145,7 +164,7 @@ impl SlateApp {
                 if !node.hidden
                     && (self.board_sel.contains(&node.id)
                         || pointer.is_some_and(|p| body.contains(p))
-                        || matches!(self.board_drag, Some(BoardDrag::Wire(_))))
+                        || wiring)
                 {
                     if let (Some(site), Some(presentation)) = (
                         self.wire_host(node).ports().first().copied(),
@@ -171,10 +190,10 @@ impl SlateApp {
                 }
                 continue;
             }
-            let ports = self.wire_input_ports(node);
             if !self.flow_ports_visible(node, painter.ctx(), xf) {
                 continue;
             }
+            let ports = self.wire_input_ports(node);
             let Some(presentation) = Self::flow_port_presentation(node, xf) else {
                 continue;
             };

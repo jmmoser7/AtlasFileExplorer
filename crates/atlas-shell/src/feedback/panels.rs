@@ -44,6 +44,8 @@ pub(super) fn show(
     let width = (t.width - 2.0).min((area.width() - 2.0).max(1.0));
     let picker = hub.phase == FeedbackPhase::KindPicker;
     let bug = hub.kind == Some(FeedbackKind::Bug);
+    let sending = hub.send.pending();
+    let send_available = super::send::endpoint(app).is_some();
     let height = area.height().min(if picker { 300.0 } else { 560.0 });
     let default_pos = area.center() - Vec2::new(width, height) * 0.5;
     let dialog_pos = hub.dialog_pos.unwrap_or(default_pos);
@@ -103,26 +105,43 @@ pub(super) fn show(
                     if picker {
                         chooser(ui, p, hub);
                     } else {
-                        form(ui, p, hub, t, field, bug);
+                        ui.add_enabled_ui(!sending, |ui| form(ui, p, hub, t, field, bug));
                         ui.add_space(t.section_gap);
                         rule(ui, p);
                         ui.add_space(15.0);
                         ui.label(
-                            RichText::new("Saved locally with app details and any recorded steps.")
+                            RichText::new(if send_available {
+                                "Send shares your description, typed links, app name, and version. Attachments and recorded steps stay in your local report."
+                            } else {
+                                "Saved locally with app details and any recorded steps."
+                            })
                                 .size(12.0)
                                 .color(p.sub),
                         );
+                        if let Some(error) = &hub.send.error {
+                            ui.add_space(6.0);
+                            ui.label(RichText::new(error).color(p.ink));
+                        }
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
-                            if ui.button("Back").clicked() {
+                            if ui.add_enabled(!sending, egui::Button::new("Back")).clicked() {
                                 hub.phase = FeedbackPhase::KindPicker;
                             }
-                            let ready = !hub.description.trim().is_empty();
-                            let (save, email) = ui
+                            let ready = !sending && !hub.description.trim().is_empty();
+                            let (save, email, send) = ui
                                 .with_layout(
                                     egui::Layout::right_to_left(egui::Align::Center)
                                         .with_main_wrap(true),
                                     |ui| {
+                                        let send = send_available
+                                            && ui.add_enabled(
+                                                ready && !hub.screenshot_pending && hub.capture_rx.is_none(),
+                                                egui::Button::new(if sending {
+                                                    "Sending…"
+                                                } else {
+                                                    "Send anonymously"
+                                                }),
+                                            ).clicked();
                                         let save = ui
                                             .add_enabled(
                                                 ready,
@@ -135,11 +154,15 @@ pub(super) fn show(
                                         let email = ui
                                             .add_enabled(ready, egui::Button::new("Email…"))
                                             .clicked();
-                                        (save, email)
+                                        (save, email, send)
                                     },
                                 )
                                 .inner;
-                            if save || email {
+                            if send {
+                                if let Err(error) = super::send::start(ctx, hub, app, version) {
+                                    hub.send.error = Some(error);
+                                }
+                            } else if save || email {
                                 match super::ui::submit(hub, app, version) {
                                     Ok(dir) => {
                                         hub.set_last_bundle(dir.clone());
@@ -171,7 +194,7 @@ pub(super) fn show(
     if let Some(shown) = shown {
         hub.dialog_pos = Some(shown.response.rect.min + header_drag);
     }
-    if close {
+    if close && !sending {
         hub.phase = FeedbackPhase::Closed;
     }
     out

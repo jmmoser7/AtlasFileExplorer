@@ -120,20 +120,18 @@ impl SlateApp {
         })
     }
     pub(crate) fn agent_output_at(&self, screen: Pos2, xf: &BoardXf) -> Option<NodeId> {
-        self.doc()
-            .scene
-            .nodes
+        let scene = &self.doc().scene;
+        self.agent_topology()
+            .output_agents
             .iter()
             .rev()
+            .filter_map(|id| scene.node(*id))
             .find(|n| {
-                !n.hidden
-                    && !n.locked
-                    && slate_doc::agent_chat::agent(n)
-                        .is_some_and(|a| !a.chat.draft && !a.provider.is_empty())
-                    && !self.agent_in_choose_phase(n.id)
-                    && !self.agent_is_running(n.id)
+                !n.locked
                     && screen.distance(output_circle_center(xf.rect_w2s(n.rect), xf.z))
                         <= 7.0 * xf.z
+                    && !self.agent_in_choose_phase(n.id)
+                    && !self.agent_is_running(n.id)
             })
             .map(|n| n.id)
     }
@@ -149,15 +147,16 @@ impl SlateApp {
     }
     /// The streaming chat card whose Stop is under `screen`.
     pub(crate) fn agent_stop_at(&self, screen: Pos2, xf: &BoardXf) -> Option<NodeId> {
-        self.doc()
-            .scene
-            .nodes
+        let scene = &self.doc().scene;
+        self.agent_topology()
+            .output_agents
             .iter()
             .rev()
+            .filter_map(|id| scene.node(*id))
             .find(|n| {
-                self.agent_stop_shown(n)
-                    && screen.distance(output_circle_center(xf.rect_w2s(n.rect), xf.z))
-                        <= canvas_scale::px(STOP_REACH, xf.z)
+                screen.distance(output_circle_center(xf.rect_w2s(n.rect), xf.z))
+                    <= canvas_scale::px(STOP_REACH, xf.z)
+                    && self.agent_stop_shown(n)
             })
             .map(|n| n.id)
     }
@@ -200,26 +199,23 @@ impl SlateApp {
                 return true;
             }
             if !gesture && self.board_tool == super::super::board::BoardTool::Select {
-                let picker = self
-                    .doc()
-                    .scene
-                    .nodes
-                    .iter()
-                    .rev()
-                    .find(|n| {
-                        !n.hidden
-                            && !n.locked
-                            && slate_doc::agent_chat::agent(n).is_some_and(|_a| {
-                                self.agents.project_picker == Some(n.id)
-                                    || self
-                                        .agents
-                                        .chat_picker
-                                        .as_ref()
-                                        .is_some_and(|p| p.portal == n.id)
-                            })
-                            && xf.rect_w2s(n.rect).shrink(8.0 * xf.z).contains(pointer)
-                    })
-                    .map(|n| n.id);
+                let scene = &self.doc().scene;
+                let picker = [
+                    self.agents.project_picker,
+                    self.agents.chat_picker.as_ref().map(|picker| picker.portal),
+                ]
+                .into_iter()
+                .flatten()
+                .filter_map(|id| scene.index_of(id))
+                .filter(|&index| {
+                    let n = &scene.nodes[index];
+                    !n.hidden
+                        && !n.locked
+                        && slate_doc::agent_chat::agent(n).is_some()
+                        && xf.rect_w2s(n.rect).shrink(8.0 * xf.z).contains(pointer)
+                })
+                .max()
+                .map(|index| scene.nodes[index].id);
                 if let Some(id) = picker {
                     if ui.input(|i| i.pointer.primary_pressed()) {
                         self.board_sel = std::iter::once(id).collect();
@@ -398,47 +394,47 @@ impl SlateApp {
                 return true;
             }
         }
-        let ids: Vec<_> = self
-            .doc()
-            .scene
-            .nodes
+        let Some(pointer) = pointer else {
+            return false;
+        };
+        let pressed = ui.input(|i| i.pointer.primary_pressed());
+        let topology = self.agent_topology();
+        let scene = &self.doc().scene;
+        for n in topology
+            .output_agents
             .iter()
-            .filter(|n| !n.hidden && !n.locked)
-            .filter(|n| {
-                slate_doc::agent_chat::agent(n)
-                    .is_some_and(|a| !a.chat.draft && !a.provider.is_empty())
-            })
-            .map(|n| n.id)
-            .collect();
-        for id in ids {
-            if self.agent_in_choose_phase(id) {
+            .filter_map(|id| scene.node(*id))
+        {
+            if n.locked {
                 continue;
             }
-            let r = {
-                let n = self.doc().scene.node(id).unwrap();
-                xf.rect_w2s(n.rect)
-            };
+            let id = n.id;
+            let r = xf.rect_w2s(n.rect);
             let handle = output_circle_center(r, xf.z);
-            if self.agent_has_outputs(id) {
-                let docs = self.return_dot_at(ui.ctx(), id, xf).unwrap();
-                if pointer.is_some_and(|p| p.distance(docs) <= 10.0 * xf.z)
-                    && ui.input(|i| i.pointer.primary_pressed())
-                {
-                    self.agents.artifact_drag = Some((id, pointer.unwrap()));
-                    self.board_align_eat_press = true;
-                    return true;
-                }
+            // The return dot shares the header grip's x coordinate. Its
+            // transcript layout and output lookup matter only on a press.
+            let near_grip = pointer.distance(handle) <= 7.0 * xf.z;
+            let near_return = pressed && (pointer.x - handle.x).abs() <= 10.0 * xf.z;
+            if (!near_grip && !near_return) || self.agent_in_choose_phase(id) {
+                continue;
             }
-            if self.agent_is_running(id) {
+            if near_return
+                && self.agent_has_outputs(id)
+                && self
+                    .return_dot_at(ui.ctx(), id, xf)
+                    .is_some_and(|docs| pointer.distance(docs) <= 10.0 * xf.z)
+            {
+                self.agents.artifact_drag = Some((id, pointer));
+                self.board_align_eat_press = true;
+                return true;
+            }
+            if !near_grip || self.agent_is_running(id) {
                 continue;
             }
             let hit = Rect::from_center_size(handle, egui::vec2(8.0, 8.0) * xf.z);
-            if pointer.is_some_and(|p| p.distance(handle) <= 7.0 * xf.z) {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
-            }
-            if pointer.is_some_and(|p| hit.contains(p)) && ui.input(|i| i.pointer.primary_pressed())
-            {
-                self.agents.spawn_drag = Some((id, pointer.unwrap()));
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
+            if pressed && hit.contains(pointer) {
+                self.agents.spawn_drag = Some((id, pointer));
                 self.board_align_eat_press = true;
                 return true;
             }

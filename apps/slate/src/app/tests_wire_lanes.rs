@@ -86,6 +86,88 @@ fn route(h: &Harness, wire: NodeId) -> Vec<[f32; 2]> {
     }
 }
 
+#[test]
+fn indexed_pick_keeps_wire_taper_and_zoom_slop() {
+    let mut h = board("indexed_wire_pick");
+    h.app.board_wire_routing = WireRouting::Bezier;
+    let mut wire = h.app.build_connector(
+        ConnectorEnd::Free { point: [0.0, 0.0] },
+        ConnectorEnd::Free {
+            point: [600.0, 0.0],
+        },
+    );
+    let NodeKind::Connector(connector) = &mut wire.kind else {
+        panic!("a connector");
+    };
+    connector.stroke.width = 9.0;
+    connector.stroke.profile = slate_doc::scene::WidthProfile::Ends { tip: 2.5 };
+    wire.rect = WorldRect::default();
+    let id = h.app.add_nodes(vec![wire])[0];
+    let scene = &h.app.doc().scene;
+    assert!(scene.query_point(100.0, 0.0).is_empty());
+    let rebuilds = scene.spatial_rebuilds();
+    h.app.tab_mut().dirty = false;
+    h.app.sync_connector_rects();
+    assert!(!h.app.tab().dirty);
+    assert!(h.app.current_connector_pick_bounds().is_some());
+    assert!(h.app.doc().scene.query_point(100.0, 0.0).contains(&id));
+    assert_eq!(h.app.doc().scene.spatial_rebuilds(), rebuilds);
+    h.app.tab_mut().cam.z = 0.5;
+    assert_eq!(h.app.board_pick_node(3.0, 30.0), Some(id));
+    assert_eq!(h.app.board_pick_node(3.0, 55.0), None);
+}
+
+#[test]
+fn connector_bounds_refresh_when_a_missing_image_path_becomes_available() {
+    let mut h = board("connector_link_path_change");
+    h.app.board_wire_routing = WireRouting::Bezier;
+    let path = h.base.join("referenced.png");
+    let item = h.app.doc().planned_item_id(&path, 0);
+    let host = h.app.doc_mut().scene.build_node(
+        WorldRect::new(600.0, -80.0, 120.0, 200.0),
+        NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    let host = h.app.add_nodes(vec![host])[0];
+    let wire = h.app.build_connector(
+        ConnectorEnd::Free { point: [0.0, 0.0] },
+        ConnectorEnd::Anchored {
+            node: host,
+            side: Side::Left,
+            t: 0.5,
+        },
+    );
+    let id = h.app.add_nodes(vec![wire])[0];
+    h.app.sync_connector_rects();
+    let before = h.app.doc().scene.node(id).unwrap().rect;
+    assert_eq!(h.app.item_for_ready_path(&path, 1, 0), item);
+    h.app.sync_connector_rects();
+    let after = h.app.doc().scene.node(id).unwrap().rect;
+    assert_ne!(after, before);
+    let generation = h.app.doc().scene.scene_gen();
+    let unrelated = h.base.join("unrelated.png");
+    h.app.item_for_ready_path(&unrelated, 1, 0);
+    h.app.sync_connector_rects();
+    assert!(h.app.current_connector_pick_bounds().is_some());
+    assert_eq!(h.app.doc().scene.node(id).unwrap().rect, after);
+    assert_eq!(h.app.doc().scene.scene_gen(), generation);
+}
+
+#[test]
+fn square_route_cache_follows_live_host_motion() {
+    let mut h = board("cached_square_wire_motion");
+    let wire = fan_in(&mut h, &[(30.0, -130.0)])[0];
+    let before = route(&h, wire);
+    assert_eq!(route(&h, wire), before);
+    let NodeKind::Connector(connector) = &h.app.doc().scene.node(wire).unwrap().kind else {
+        panic!("a connector");
+    };
+    let source = slate_doc::agent_inputs::endpoint_node(&connector.a).unwrap();
+    h.app.doc_mut().scene.node_mut(source).unwrap().rect.x -= 100.0;
+    let moved = route(&h, wire);
+    assert!((moved[0][0] - (before[0][0] - 100.0)).abs() < 0.001);
+    assert_eq!(route(&h, wire), moved);
+}
+
 /// Where each wire meets the target's edge, along it, from the port centre.
 fn arrivals(h: &Harness, wires: &[NodeId]) -> Vec<f32> {
     wires

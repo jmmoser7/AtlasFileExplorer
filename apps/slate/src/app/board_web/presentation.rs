@@ -18,7 +18,8 @@ impl SlateApp {
         }
     }
 
-    /// Every web portal on the board, with the node rect each one occupies.
+    /// Whole-board inspection is reserved for explicit commands and tests.
+    #[cfg(test)]
     pub(super) fn web_portals(&self) -> Vec<(NodeId, PortalNode, slate_doc::scene::WorldRect)> {
         self.web_nodes()
             .map(|(node, portal)| {
@@ -29,6 +30,130 @@ impl SlateApp {
                 )
             })
             .collect()
+    }
+
+    pub(super) fn web_pump_portals(&self) -> Vec<(NodeId, PortalNode, slate_doc::WorldRect)> {
+        let mut demanded = self.web.painted.clone();
+        let view = (!self.at_home
+            && self.presenting.is_none()
+            && self.doc().view.active_view == slate_doc::ViewKind::Board)
+            .then(|| self.board_paint_view(self.canvas_rect).normalized());
+        demanded.extend(self.web.host_open.iter().copied());
+        demanded.extend(self.web.focused);
+        demanded.extend(self.portal_chrome.maximized);
+        demanded.extend(self.web.agent_focus_lease.as_ref().map(|(id, _)| *id));
+        demanded.extend(self.web.text_pending.iter().copied());
+        if self.board_sel.len() == 1 {
+            demanded.extend(self.board_sel.iter().copied());
+        }
+        self.web
+            .placements
+            .iter()
+            .filter_map(|&(id, bounds)| {
+                let in_view = view
+                    .zip(bounds)
+                    .is_some_and(|(view, bounds)| bounds.intersects(&view));
+                if !in_view && !demanded.contains(&id) {
+                    return None;
+                }
+                let (node, portal) = self.web_node(id)?;
+                Some((
+                    id,
+                    self.effective_web_portal(id, portal).into_owned(),
+                    node.rect,
+                ))
+            })
+            .collect()
+    }
+
+    pub(super) fn prune_web_views(&mut self) {
+        let revision = (self.tab().id, self.scene_gen, self.doc().scene.scene_gen());
+        if self.web.scene_revision == Some(revision) {
+            return;
+        }
+        self.web.scene_revision = Some(revision);
+        self.web.placements = self
+            .web_nodes()
+            .map(|(node, _)| (node.id, (!node.hidden).then(|| slate_doc::node_aabb(node))))
+            .collect();
+        let authored: HashSet<_> = self.web.placements.iter().map(|(id, _)| *id).collect();
+        let dropped: Vec<_> = self
+            .web
+            .views
+            .keys()
+            .copied()
+            .filter(|id| !authored.contains(id))
+            .collect();
+        for id in dropped {
+            if self.web.host_open.contains(&id) {
+                self.web.host.evict(id);
+                self.web.note_host(id, false);
+            }
+            self.web.views.remove(&id);
+            self.web.text_pending.remove(&id);
+        }
+        if self.web.focused.is_some_and(|id| !authored.contains(&id)) {
+            self.web_blur();
+        }
+    }
+
+    fn web_node(&self, id: NodeId) -> Option<(&Node, &PortalNode)> {
+        let node = self.doc().scene.node(id)?;
+        let NodeKind::Portal(portal) = &node.kind else {
+            return None;
+        };
+        (portal.kind == PortalKind::Web).then_some((node, portal))
+    }
+
+    pub(super) fn refresh_web_view_for_node(&mut self, id: NodeId) {
+        if let Some((_, portal)) = self.web_node(id) {
+            let portal = self.effective_web_portal(id, portal).into_owned();
+            self.refresh_web_view(id, &portal);
+        }
+    }
+
+    pub(super) fn refresh_web_view(&mut self, id: NodeId, portal: &PortalNode) -> bool {
+        let key = view_key(portal, &portal.web_ref());
+        if self.web.views.get(&id).is_some_and(|view| view.key == key) {
+            return false;
+        }
+        if self.web.focused == Some(id) {
+            self.web.reset_page_input();
+        }
+        if self.web.host_open.contains(&id) {
+            self.remember_web_visit(id);
+            self.web.host.evict(id);
+            self.web.note_host(id, false);
+        }
+        let locator = portal
+            .source
+            .as_ref()
+            .map_or("", |source| source.locator.as_str());
+        let mut view = WebView::new(key);
+        view.still_key = still_key_for(locator);
+        if let Some(old) = self.web.views.remove(&id) {
+            view.width_px = old.width_px;
+            view.height_px = old.height_px;
+            view.area_px = old.area_px;
+            view.anchor_px = old.anchor_px;
+            view.on_screen = old.on_screen;
+            view.was_on_screen = old.was_on_screen;
+            // A viewport change keeps the current source's last good image.
+            if old.still_key == view.still_key {
+                view.resume_url = old.resume_url;
+                view.poster = old.poster;
+                view.poster_at = old.poster_at;
+                view.poster_wall = old.poster_wall;
+                view.poster_bytes = old.poster_bytes;
+                view.poster_size = old.poster_size;
+                view.poster_fresh = old.poster_fresh;
+                view.cached_text = old.cached_text;
+                view.cached_text_at = old.cached_text_at;
+                view.text_miss = old.text_miss;
+            }
+        }
+        self.web.views.insert(id, view);
+        true
     }
 
     pub(super) fn authored_web_portals(
@@ -103,7 +228,6 @@ impl SlateApp {
         let effective = self.effective_web_portal(node.id, portal);
         let portal = effective.as_ref();
         let srect = xf.rect_w2s(node.rect);
-        self.note_web_geometry(node.id, srect, ui.clip_rect(), ui.ctx().pixels_per_point());
         let collapsed = self.portal_chrome_collapsed(node.id);
         let mut layout = layout_portal_chrome(
             srect,
@@ -151,6 +275,9 @@ impl SlateApp {
     ) {
         let effective = self.effective_web_portal(node.id, portal);
         let portal = effective.as_ref();
+        if self.refresh_web_view(node.id, portal) {
+            ui.ctx().request_repaint();
+        }
         let alpha = node.opacity.clamp(0.0, 1.0);
         let fade = |c: Color32| c.gamma_multiply(alpha);
         let state = self.web.state(node.id);
@@ -171,12 +298,14 @@ impl SlateApp {
             scrollbar_css,
             scrollbar_color,
         );
-        self.note_web_geometry(
+        if self.note_web_geometry(
             node.id,
             layout.frame,
             ui.clip_rect(),
             ui.ctx().pixels_per_point(),
-        );
+        ) {
+            ui.ctx().request_repaint();
+        }
 
         self.paint_portal_frame_fill(painter, layout, fade(rgba32(portal.fill)));
 

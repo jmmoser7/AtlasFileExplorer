@@ -2,6 +2,43 @@
 use super::*;
 
 impl SlateApp {
+    fn transform_candidates(&self, screen: Pos2, xf: &BoardXf, body: Option<NodeId>) -> Vec<&Node> {
+        let scene = &self.doc().scene;
+        let world = xf.s2w(screen);
+        let reach = board_handles::chrome_outer_reach(xf.z) / xf.z;
+        let pad = reach
+            + world
+                .to_vec2()
+                .abs()
+                .max(xf.offset.abs())
+                .max_elem()
+                .max(1.0)
+                * f32::EPSILON
+                * 8.0;
+        let area = slate_doc::WorldRect::new(world.x - pad, world.y - pad, pad * 2.0, pad * 2.0);
+        let mut candidates: Vec<_> = scene
+            .query_rect(area)
+            .into_iter()
+            .filter_map(|id| scene.index_of(id))
+            .collect();
+        // A buried selected host can move its cage and header arbitrarily
+        // far. Include selected grips and the exact hit even beyond this box.
+        candidates.extend(
+            self.board_sel
+                .iter()
+                .copied()
+                .chain(body)
+                .filter_map(|id| scene.index_of(id)),
+        );
+        candidates.sort_unstable();
+        candidates.dedup();
+        candidates
+            .into_iter()
+            .rev()
+            .map(|index| &scene.nodes[index])
+            .collect()
+    }
+
     /// The topmost selected host whose corner grip is under `screen`, with
     /// the polyline vertex that grip sets. Corner grips ride the segments
     /// and curve grips sit on the vertices, so where their reaches overlap
@@ -49,11 +86,8 @@ impl SlateApp {
                 board_handles::chrome_pick(screen, &geom, self.selection_allows_rotation())?;
             Self::interaction_corner(&geom, hit).map(|p| p.distance(screen))
         });
-        self.doc()
-            .scene
-            .nodes
-            .iter()
-            .rev()
+        self.transform_candidates(screen, &xf, body)
+            .into_iter()
             .scan(false, |covered, node| {
                 if *covered {
                     return None;
@@ -135,7 +169,7 @@ impl SlateApp {
             }
         }
         let mut best: Option<(&Node, board_handles::BoardHitTarget, Option<Pos2>)> = None;
-        for n in self.doc().scene.nodes.iter().rev() {
+        for n in self.transform_candidates(screen, &xf, body) {
             // Other selected members' compact cages cannot steal this body.
             // The actual host keeps its own transform and body arbitration.
             if group_interior && self.board_sel.contains(&n.id) && body != Some(n.id) {
@@ -321,12 +355,7 @@ impl SlateApp {
         xf: &BoardXf,
     ) -> Option<egui::Rect> {
         self.interaction_covering_nodes(node, xf)?;
-        let index = self
-            .doc()
-            .scene
-            .nodes
-            .iter()
-            .position(|n| n.id == node.id)?;
+        let index = self.doc().scene.index_of(node.id)?;
         let bounds = egui::Rect::from_points(&geom.control_corners);
         let size = Vec2::new((bounds.width() - 36.0).clamp(70.0, 130.0), 20.0);
         for gap in [3.0, 23.0, 43.0] {

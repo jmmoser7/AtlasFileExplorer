@@ -127,7 +127,10 @@ impl SlateApp {
 
     fn wired_views_for_model(&self, model: NodeId) -> Vec<WiredViewEntry> {
         let mut out = Vec::new();
-        for node in &self.doc().scene.nodes {
+        for wire in self.agent_incoming_wire_ids(model) {
+            let Some(node) = self.doc().scene.node(wire) else {
+                continue;
+            };
             let NodeKind::Connector(conn) = &node.kind else {
                 continue;
             };

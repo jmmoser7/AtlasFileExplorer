@@ -305,21 +305,18 @@ impl SlateApp {
             .map(|(id, _)| *id)
     }
     pub(crate) fn context_auto_under(&self, screen: Pos2, xf: &BoardXf) -> Option<NodeId> {
-        self.doc()
-            .scene
-            .nodes
+        let scene = &self.doc().scene;
+        self.agents
+            .context_auto
             .iter()
-            .rev()
-            .find(|n| {
-                if n.hidden || n.locked || !self.agent_context_handles_visible(n.id) {
-                    return false;
-                }
-                let Some(p) = self.agents.context_auto.get(&n.id).copied() else {
-                    return false;
-                };
-                screen.distance(p) <= 10.0 * xf.z
+            .filter(|(_, point)| screen.distance(**point) <= 10.0 * xf.z)
+            .filter_map(|(&id, _)| scene.index_of(id))
+            .filter(|&index| {
+                let node = &scene.nodes[index];
+                !node.hidden && !node.locked && self.agent_context_handles_visible(node.id)
             })
-            .map(|n| n.id)
+            .max()
+            .map(|index| scene.nodes[index].id)
     }
     /// What the human context handle holds: the card's pocketed context.
     pub(super) fn agent_pocket_blurb(&self, id: NodeId) -> String {
@@ -341,26 +338,24 @@ impl SlateApp {
         lines.join("\n")
     }
     pub(crate) fn agent_artifact_at(&self, point: Pos2, xf: &BoardXf) -> Option<(NodeId, bool)> {
-        for n in self
-            .doc()
-            .scene
-            .nodes
+        let scene = &self.doc().scene;
+        self.agents
+            .context_auto
             .iter()
-            .rev()
-            .filter(|n| !n.hidden && !n.locked && self.agent_context_handles_visible(n.id))
-        {
-            let left = self.agents.context_auto.get(&n.id);
-            if let Some(left) = left {
-                if point.distance(*left) <= 10.0 * xf.z {
-                    return Some((n.id, false));
-                }
-            }
-            if let Some(right) = self.agents.return_dot.get(&n.id).copied() {
-                if point.distance(right) <= 10.0 * xf.z {
-                    return Some((n.id, true));
-                }
-            }
-        }
-        None
+            .map(|(&id, &center)| (id, center, false))
+            .chain(
+                self.agents
+                    .return_dot
+                    .iter()
+                    .map(|(&id, &center)| (id, center, true)),
+            )
+            .filter(|(_, center, _)| point.distance(*center) <= 10.0 * xf.z)
+            .filter_map(|(id, _, returned)| Some((scene.index_of(id)?, returned)))
+            .filter(|&(index, _)| {
+                let n = &scene.nodes[index];
+                !n.hidden && !n.locked && self.agent_context_handles_visible(n.id)
+            })
+            .max_by_key(|&(index, returned)| (index, !returned))
+            .map(|(index, returned)| (scene.nodes[index].id, returned))
     }
 }

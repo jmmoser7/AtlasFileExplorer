@@ -2738,6 +2738,8 @@ pub struct Scene {
     /// Derived lookup only; vector order remains the authored z-order.
     #[serde(skip)]
     node_positions: RefCell<NodePositions>,
+    #[serde(skip)]
+    pub(crate) graft_cache: RefCell<crate::wire::SceneGraftCache>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -2941,6 +2943,26 @@ impl Scene {
         let idx = self.index_of(id)?;
         self.bump_gen();
         Some(&mut self.nodes[idx])
+    }
+
+    /// Updates derived connector bounds without recording an authored edit.
+    /// Keep the spatial index warm when only a few endpoints have moved.
+    pub fn set_derived_connector_rects(&mut self, rects: Vec<(NodeId, WorldRect)>) {
+        // A first sync or a routing change can move every wire. Let the next
+        // query rebuild once instead of repeatedly editing crowded cells.
+        if rects.len() > 64 {
+            self.spatial.get_mut().invalidate();
+        }
+        for (id, rect) in rects {
+            let Some(index) = self.index_of(id) else {
+                continue;
+            };
+            let node = &mut self.nodes[index];
+            if matches!(node.kind, NodeKind::Connector(_)) && node.rect != rect {
+                node.rect = rect;
+                self.note_bounds_replaced(index);
+            }
+        }
     }
 
     pub fn index_of(&self, id: NodeId) -> Option<usize> {
@@ -3232,19 +3254,7 @@ impl Scene {
                     return false;
                 };
                 self.nodes[index] = (**after).clone();
-                self.bump_gen();
-                if spatial_current {
-                    let mut idx = self.spatial.borrow_mut();
-                    if idx.replace_bounds(index as u32, after) {
-                        idx.stamp(self.scene_gen);
-                    } else {
-                        idx.invalidate();
-                        drop(idx);
-                        self.node_positions.borrow_mut().len = usize::MAX;
-                    }
-                } else {
-                    self.spatial.borrow_mut().invalidate();
-                }
+                self.note_bounds_replaced(index);
                 true
             }
             SceneCmd::LayerNodeAdd {
@@ -3315,6 +3325,20 @@ impl Scene {
                 }
                 true
             }
+        }
+    }
+
+    fn note_bounds_replaced(&mut self, index: usize) {
+        let previous_gen = self.scene_gen;
+        self.bump_gen();
+        let spatial = self.spatial.get_mut();
+        if !spatial.is_current(previous_gen) || spatial.len() != self.nodes.len() {
+            spatial.invalidate();
+        } else if spatial.replace_bounds(index as u32, &self.nodes[index]) {
+            spatial.stamp(self.scene_gen);
+        } else {
+            spatial.invalidate();
+            self.node_positions.get_mut().len = usize::MAX;
         }
     }
 

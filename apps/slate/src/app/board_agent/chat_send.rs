@@ -57,8 +57,19 @@ impl SlateApp {
                         }
                         None => Vec::new(),
                     };
+                    let turns = if turns.is_empty() {
+                        slate_doc::agent_inputs::generator_memory_snapshot_checked(
+                            &self.doc().scene,
+                            portal,
+                        )?
+                        .map(|pin| pin.turns)
+                        .unwrap_or_default()
+                    } else {
+                        turns
+                    };
                     atlas_agent::checkpoint(&turns, agent.chat.end)?
                         .iter()
+                        .filter(|turn| matches!(turn.role.as_str(), "user" | "assistant"))
                         .filter(|turn| turn.role != "assistant" || !turn.text.trim().is_empty())
                         .cloned()
                         .collect()

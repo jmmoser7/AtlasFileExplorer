@@ -145,6 +145,7 @@ impl SlateApp {
         };
         let content = agent_inputs::artifact_content_parent(graph, id);
         let incoming_memory = agent_inputs::artifact_memory_source(graph, id);
+        let generator_memory = agent_inputs::generator_memory_snapshot_checked(graph, id)?;
         let memory = match agent.generator.preserve_history {
             Some(false) => None,
             Some(true) if !agent.generator.history_cut => binding
@@ -165,7 +166,8 @@ impl SlateApp {
             _ => incoming_memory.clone(),
         };
         if edge_count(InputKind::Artifact) > usize::from(content.is_some())
-            || edge_count(InputKind::Memory) > usize::from(incoming_memory.is_some())
+            || edge_count(InputKind::Memory)
+                > usize::from(incoming_memory.is_some() || generator_memory.is_some())
         {
             return Err(
                 "The artifact has an invalid or ambiguous content/memory connection.".into(),
@@ -183,6 +185,20 @@ impl SlateApp {
                     .map(|reference| (reference, pin.through))
             })
             .transpose()?;
+        let history = generator_memory
+            .filter(|_| {
+                memory_ref.is_none()
+                    && agent.generator.preserve_history != Some(false)
+                    && !agent.generator.history_cut
+            })
+            .map(|pin| pin.turns)
+            .unwrap_or_default();
+        if history
+            .iter()
+            .any(|turn| !matches!(turn.role.as_str(), "user" | "assistant"))
+        {
+            return Err("Only public user and assistant messages can be carried.".into());
+        }
         let source_agent = memory.as_ref().and_then(|(source, _)| {
             self.doc()
                 .scene
@@ -280,6 +296,7 @@ impl SlateApp {
             }),
             model: agent.model.clone(),
             model_parameters: agent.model_parameters.clone(),
+            history,
             at: atlas_ai::context::now_secs(),
             ..Default::default()
         };

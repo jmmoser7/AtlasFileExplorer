@@ -184,7 +184,14 @@ impl Request {
     /// Start the request with stdout piped for the caller to read.
     pub fn spawn(&self) -> Result<Child, Failure> {
         let config = self.config()?;
+        Self::spawn_config(&config, false)
+    }
+
+    fn spawn_config(config: &str, ignore_user_config: bool) -> Result<Child, Failure> {
         let mut command = Command::new(if cfg!(windows) { "curl.exe" } else { "curl" });
+        if ignore_user_config {
+            command.arg("-q");
+        }
         hidden(&mut command)
             .args(["-K", "-"])
             .stdin(Stdio::piped())

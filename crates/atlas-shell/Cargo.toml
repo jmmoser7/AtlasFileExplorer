@@ -10,6 +10,7 @@ ui-tuner = []
 
 [dependencies]
 atlas-core = { workspace = true }
+atlas-curl = { workspace = true }
 atlas-update = { workspace = true }
 chrono = { workspace = true }
 crossbeam-channel = { workspace = true }
@@ -21,6 +22,7 @@ rfd = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
 vector-ink = { workspace = true }
 
 [dev-dependencies]

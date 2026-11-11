@@ -1,0 +1,21 @@
+name = "slate-suggestion-intake"
+main = "worker.mjs"
+compatibility_date = "2025-12-01"
+workers_dev = true
+preview_urls = false
+
+[vars]
+BROWSER_ORIGIN = "https://jmmoser7.github.io"
+GITHUB_OWNER = "jmmoser7"
+GITHUB_REPO = "slate-agent-feedback"
+GITHUB_REPOSITORY_ID = ""
+GITHUB_APP_CLIENT_ID = ""
+GITHUB_APP_INSTALLATION_ID = ""
+
+[observability]
+enabled = false
+
+[[ratelimits]]
+name = "SUGGESTION_RATE_LIMIT"
+namespace_id = "11011"
+simple = { limit = 8, period = 60 }

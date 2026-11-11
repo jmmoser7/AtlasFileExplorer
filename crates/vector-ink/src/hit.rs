@@ -98,6 +98,9 @@ fn hit_stroke_outline_exact(
 /// segment between the last vertex of one and the first of the next — that
 /// ghost often leaves the node's AABB (classically a line toward the origin).
 pub fn hit_stroke(path: &BezPath, style: &StrokeStyle, point: [f32; 2], slop: f32) -> bool {
+    if !outline_might_hit(path, style, [style.cap; 2], None, point, slop) {
+        return false;
+    }
     CachedStrokeHit::new(path, style).is_some_and(|cached| cached.hit(point, slop))
 }
 

@@ -14,7 +14,7 @@ pub(crate) use grip_hits::wire_ports_fit;
 mod canvas_settings;
 mod creation;
 mod painting;
-pub(crate) use painting::paint_route_preview;
+pub(crate) use painting::{paint_route_preview, WireRouteCache};
 
 use super::board::{rgba32, BoardXf};
 use super::{board_path, SlateApp};
@@ -24,13 +24,15 @@ use slate_doc::scene::{
     Scene, SceneCmd, Side, Stroke, StrokeCap, StrokeJoin, WidthProfile, WireDisplay, WorldRect,
 };
 use slate_doc::wire::{
-    connector_aabb_routed, filleted_polyline, retreat_off_hosts, scene_wire_obstacles,
-    ConnectorPath, OrthoLane, PathCmd, WireRouting, ORTHO_CORNER_RADIUS,
+    filleted_polyline, retreat_off_hosts, ConnectorPath, PathCmd, SceneWireRouting, WireRouting,
+    ORTHO_CORNER_RADIUS,
 };
 use slate_doc::WireHost;
-use slate_doc::{connector_anchor_on, NodeId};
+use slate_doc::{ItemId, NodeId, SlateDoc};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 use vector_ink::kurbo::BezPath;
 
 /// Press-hit radius on the node side of a grip at zoom ≥ 1, and the full
@@ -40,6 +42,30 @@ pub const GRIP_HIT_PX: f32 = 8.0;
 pub const WIRE_SNAP_PX: f32 = 14.0;
 /// Connector stroke pick width (click select / right-click).
 pub const CONNECTOR_PICK_PX: f32 = 8.0;
+/// Revision and reach of the authored routes represented by the Scene index.
+pub(crate) struct ConnectorPickBounds {
+    pub scene_gen: u64,
+    pub item_paths_revision: u64,
+    pub has_complex_body: bool,
+    pub rotated_flow_hosts: Vec<NodeId>,
+    pub dock_strips: Vec<NodeId>,
+    pub max_reach: f32,
+    image_item_paths: HashMap<ItemId, Option<PathBuf>>,
+}
+
+impl ConnectorPickBounds {
+    fn referenced_paths_unchanged(&self, doc: &SlateDoc) -> bool {
+        let mut current = HashMap::new();
+        for item in &doc.items {
+            if self.image_item_paths.contains_key(&item.id) {
+                current.entry(item.id).or_insert(item.path.as_path());
+            }
+        }
+        self.image_item_paths
+            .iter()
+            .all(|(id, path)| path.as_deref() == current.get(id).copied())
+    }
+}
 /// Faint wires render at 40% opacity (matches the artifact writer).
 const FAINT_OPACITY: f32 = 0.4;
 /// Connector label font size in world units (matches the artifact's
@@ -51,6 +77,7 @@ const CONNECTOR_LABEL_SIZE: f32 = 14.0;
 pub struct GripHover {
     pub node: NodeId,
     pub hovered: Option<Side>,
+    pub t: f32,
 }
 
 /// A live wire gesture (registered as `CancelLayer::ActiveOperation`).
@@ -79,11 +106,6 @@ pub struct WireDrag {
 #[cfg(test)]
 pub(crate) fn grip_point(rect: WorldRect, side: Side) -> Pos2 {
     let p = WireHost::from_rect(rect).anchor(side, 0.5);
-    Pos2::new(p[0], p[1])
-}
-
-fn port_point(node: &Node, side: Side, t: f32) -> Pos2 {
-    let p = connector_anchor_on(node, side, t);
     Pos2::new(p[0], p[1])
 }
 
@@ -149,56 +171,43 @@ pub(crate) fn connector_cache_key(
 ) -> u64 {
     let mut h = DefaultHasher::new();
     std::mem::discriminant(&routing).hash(&mut h);
-    for p in path.points() {
+    std::mem::discriminant(path).hash(&mut h);
+    let cubic;
+    let points = match path {
+        ConnectorPath::Bezier(b) => {
+            cubic = [b.p0, b.c1, b.c2, b.p3];
+            &cubic[..]
+        }
+        ConnectorPath::Orthogonal(points) => points.as_slice(),
+    };
+    for p in points {
         p[0].to_bits().hash(&mut h);
         p[1].to_bits().hash(&mut h);
     }
-    format!("{stroke:?}{display:?}").hash(&mut h);
+    board_path::hash_stroke(&mut h, stroke);
+    std::mem::discriminant(&display).hash(&mut h);
     bucket.hash(&mut h);
     h.finish()
 }
 
-/// Borrowed geometry for one point pick. The route and its stroke retreat
-/// share the same current hosts; this never copies or edits the scene.
-pub(crate) struct WirePickGeometry<'a> {
-    pub accepts: &'a dyn Fn(&Node) -> bool,
-    pub host_of: &'a dyn Fn(NodeId) -> Option<WireHost>,
-}
-
-/// Connector pick respecting the same transient exclusions as body picks.
-pub(crate) fn hit_connector_filtered(
-    scene: &Scene,
-    id: NodeId,
+/// Exact stroke pick for a route through the current host poses.
+pub(crate) fn hit_connector(
+    path: ConnectorPath,
     conn: &ConnectorNode,
     point: [f32; 2],
     zoom: f32,
-    routing: WireRouting,
-    geometry: &WirePickGeometry<'_>,
+    host_of: impl Fn(NodeId) -> Option<WireHost>,
 ) -> bool {
-    let [wx, wy] = point;
-    if wire_blocked_by_node(scene, wx, wy, zoom, geometry.accepts) {
-        return false;
-    }
-    let Some(path) = slate_doc::wire::connector_route_in_scene_with_hosts(
-        scene,
-        Some(id),
-        &conn.a,
-        &conn.b,
-        conn.effective_routing(routing),
-        geometry.host_of,
-    ) else {
-        return false;
-    };
-    let (path, stroke) = drawn_connector_with_hosts(path, conn, geometry.host_of);
+    let (path, stroke) = drawn_connector_with_hosts(path, conn, host_of);
     let kurbo = connector_path_kurbo(&path);
     let style = board_path::stroke_style_world(&stroke, zoom);
     let slop = CONNECTOR_PICK_PX / zoom.max(atlas_core::display::SLATE_BOARD.min);
-    vector_ink::hit_stroke(&kurbo, &style, [wx, wy], slop)
+    vector_ink::hit_stroke(&kurbo, &style, point, slop)
 }
 
 /// The pointer is on a node (or within the wire's own pick slop of one).
 /// That node wins; the wire underneath must not.
-fn wire_blocked_by_node(
+pub(crate) fn wire_blocked_by_node(
     scene: &Scene,
     wx: f32,
     wy: f32,
@@ -206,17 +215,30 @@ fn wire_blocked_by_node(
     accepts: &dyn Fn(&Node) -> bool,
 ) -> bool {
     let slop = CONNECTOR_PICK_PX / zoom.max(atlas_core::display::SLATE_BOARD.min);
-    scene.nodes.iter().any(|n| {
-        if !accepts(n) || n.hidden || n.is_frame() || matches!(n.kind, NodeKind::Connector(_)) {
-            return false;
-        }
-        let r = n.rect;
-        WorldRect::new(r.x - slop, r.y - slop, r.w + slop * 2.0, r.h + slop * 2.0).contains_rotated(
-            wx,
-            wy,
-            n.rotation_deg,
-        )
-    })
+    let pad = slop * std::f32::consts::SQRT_2;
+    scene
+        .query_rect(WorldRect::new(wx - pad, wy - pad, pad * 2.0, pad * 2.0))
+        .into_iter()
+        .filter_map(|id| scene.node(id))
+        .any(|n| {
+            if n.hidden || n.is_frame() || matches!(n.kind, NodeKind::Connector(_)) || !accepts(n) {
+                return false;
+            }
+            let r = n.rect;
+            WorldRect::new(r.x - slop, r.y - slop, r.w + slop * 2.0, r.h + slop * 2.0)
+                .contains_rotated(wx, wy, n.rotation_deg)
+        })
+}
+
+fn connector_pick_reach(conn: &ConnectorNode) -> f32 {
+    let stroke = connector_drawn_stroke(conn.stroke);
+    let taper = match stroke.profile {
+        WidthProfile::Uniform => 1.0,
+        WidthProfile::Taper { start, end } => start.abs().max(end.abs()),
+        WidthProfile::Ends { tip } => tip.abs().max(1.0),
+    };
+    // Half width for the host retreat, then the widest stroke's hit radius.
+    stroke.width * 0.5 * (1.0 + taper)
 }
 
 #[cfg(test)]
@@ -329,13 +351,16 @@ impl SlateApp {
     /// `port`, so the press belongs to that body. A slide frame or other
     /// container around both does not block.
     fn body_claims_press(&self, owner: NodeId, world: Pos2, port: [f32; 2]) -> bool {
-        let nodes = &self.doc().scene.nodes;
-        let Some(index) = nodes.iter().position(|n| n.id == owner) else {
+        let scene = &self.doc().scene;
+        let Some(index) = scene.index_of(owner) else {
             return false;
         };
-        let host = &nodes[index];
         let z = self.board_xf().z;
-        nodes.iter().enumerate().any(|(i, m)| {
+        scene.query_point(world.x, world.y).into_iter().any(|id| {
+            let Some(i) = scene.index_of(id) else {
+                return false;
+            };
+            let m = &scene.nodes[i];
             m.id != owner
                 && !m.hidden
                 && !m.is_frame()
@@ -345,7 +370,7 @@ impl SlateApp {
                 && self.wire_host(m).is_area()
                 && (i > index
                     || !self.doc().outline_queries().node_outlines_overlap(
-                        host.id,
+                        owner,
                         m.id,
                         0.25 / z.max(0.001),
                     ))
@@ -362,7 +387,23 @@ impl SlateApp {
         if self.selection_bounds_claim_press(w) {
             return None;
         }
-        for n in self.doc().scene.nodes.iter().rev() {
+        let scene = &self.doc().scene;
+        let manual_context = self.agent_manual_context_at(screen, xf);
+        // The last painted manual-context dot can be outside its card.
+        let local = manual_context
+            .is_none()
+            .then(|| self.wire_grip_candidates(w, xf));
+        let indexed = local
+            .iter()
+            .flatten()
+            .rev()
+            .filter_map(|id| scene.node(*id));
+        let full = local
+            .is_none()
+            .then(|| scene.nodes.iter().rev())
+            .into_iter()
+            .flatten();
+        for n in indexed.chain(full) {
             if n.hidden
                 || matches!(n.kind, NodeKind::Connector(_))
                 || self.board_selected_frame_owner(n.id).is_some()
@@ -392,7 +433,7 @@ impl SlateApp {
                             return Some((n.id, side, 0.5));
                         }
                     }
-                    if let Some(id) = self.agent_manual_context_at(screen, xf) {
+                    if let Some(id) = manual_context {
                         let port = self
                             .doc()
                             .scene
@@ -450,10 +491,11 @@ impl SlateApp {
     pub(crate) fn update_wire_grips(&mut self, pointer: Option<Pos2>, xf: &BoardXf) {
         self.wire_grips = None;
         let Some(p) = pointer else { return };
-        if let Some((node, side, _)) = self.wire_grip_at(p, xf) {
+        if let Some((node, side, t)) = self.wire_grip_at(p, xf) {
             self.wire_grips = Some(GripHover {
                 node,
                 hovered: Some(side),
+                t,
             });
         }
     }
@@ -496,7 +538,7 @@ impl SlateApp {
         if progress <= 0.001 {
             return;
         }
-        let edge = xf.w2s(port_point(node, side, 0.5));
+        let edge = xf.w2s(self.wire_port_point(node, side, grips.t));
         let Some(presentation) =
             atlas_shell::selection_tools::hit_regions::PortPresentation::ordinary(
                 node.rect.w.min(node.rect.h) * xf.z,
@@ -506,7 +548,7 @@ impl SlateApp {
             return;
         };
         let r = presentation.radius;
-        let normal = self.wire_host(node).outward(side, 0.5);
+        let normal = self.wire_host(node).outward(side, grips.t);
         let center = edge + egui::vec2(normal[0], normal[1]) * (r * (progress - 1.0));
         painter.circle_filled(center, r, self.palette().accent.gamma_multiply(0.45));
     }
@@ -663,53 +705,101 @@ impl SlateApp {
 
     // ----- derived rect sync -----
 
+    pub(crate) fn current_connector_pick_bounds(&self) -> Option<&ConnectorPickBounds> {
+        self.connector_pick_bounds.as_ref().filter(|bounds| {
+            self.connector_sync_gen == self.scene_gen
+                && bounds.scene_gen == self.doc().scene.scene_gen()
+                && bounds.item_paths_revision == self.doc().item_paths_revision()
+        })
+    }
+
     /// Keep connector `Node.rect`s equal to their derived curve AABB so
     /// marquee/hit systems keep working. Runs only when the scene content
     /// generation moved (journal commits / undo / redo / tab switch), never
     /// per frame for all connectors (Art. II). Derived-cache write: not a
     /// journaled mutation and does not dirty the workbook by itself.
     pub(crate) fn sync_connector_rects(&mut self) {
-        if self.connector_sync_gen == self.scene_gen {
+        let item_paths_revision = self.doc().item_paths_revision();
+        if self.connector_sync_gen == self.scene_gen
+            && self.connector_pick_bounds.as_ref().is_some_and(|bounds| {
+                bounds.item_paths_revision == item_paths_revision
+                    || (bounds.scene_gen == self.doc().scene.scene_gen()
+                        && bounds.referenced_paths_unchanged(self.doc()))
+            })
+        {
+            if let Some(bounds) = self.connector_pick_bounds.as_mut() {
+                bounds.item_paths_revision = item_paths_revision;
+            }
             return;
         }
+        let _span = atlas_core::session_log::span("slate.board.connector_sync");
         self.connector_sync_gen = self.scene_gen;
         let routing = self.board_wire_routing;
         let scene = &self.doc().scene;
-        if !scene
-            .nodes
-            .iter()
-            .any(|n| matches!(n.kind, NodeKind::Connector(_)))
-        {
-            return;
-        }
-        let obstacles = scene_wire_obstacles(scene);
-        let lanes = slate_doc::scene_ortho_lanes(scene);
-        let updates: Vec<(NodeId, WorldRect)> = scene
-            .nodes
-            .iter()
-            .filter_map(|n| {
-                let NodeKind::Connector(c) = &n.kind else {
-                    return None;
-                };
-                let aabb = connector_aabb_routed(
-                    c,
-                    |id| scene.node(id).map(|n| self.wire_host(n)),
-                    routing,
-                    &obstacles,
-                    lanes.get(&n.id).copied().unwrap_or_default(),
-                )?;
-                (aabb != n.rect).then_some((n.id, aabb))
-            })
-            .collect();
-        if updates.is_empty() {
-            return;
-        }
-        let tab = self.tab_mut();
-        for (id, rect) in updates {
-            if let Some(n) = tab.doc.scene.node_mut(id) {
-                n.rect = rect;
+        let routes = SceneWireRouting::default();
+        let mut max_reach = 0.0_f32;
+        let mut has_complex_body = false;
+        let mut rotated_flow_hosts = Vec::new();
+        let mut dock_strips = Vec::new();
+        let mut image_item_paths = HashMap::new();
+        let mut updates = Vec::new();
+        for node in &scene.nodes {
+            let NodeKind::Connector(conn) = &node.kind else {
+                if let NodeKind::Image(image) = &node.kind {
+                    image_item_paths.entry(image.item).or_insert(None);
+                }
+                if matches!(node.kind, NodeKind::DockStrip(_)) {
+                    dock_strips.push(node.id);
+                }
+                has_complex_body |= matches!(node.kind, NodeKind::Shape(_))
+                    || (node.is_frame() && node.rotation_deg != 0.0);
+                if node.rotation_deg != 0.0
+                    && matches!(
+                        node.kind,
+                        NodeKind::Image(_) | NodeKind::Portal(_) | NodeKind::Text(_)
+                    )
+                {
+                    rotated_flow_hosts.push(node.id);
+                }
+                continue;
+            };
+            max_reach = max_reach.max(connector_pick_reach(conn));
+            let path = routes.route(
+                scene,
+                Some(node.id),
+                &conn.a,
+                &conn.b,
+                conn.effective_routing(routing),
+                |id| scene.node(id).map(|host| self.wire_host(host)),
+            );
+            if let Some(rect) = path
+                .map(|path| path.aabb())
+                .filter(|rect| *rect != node.rect)
+            {
+                updates.push((node.id, rect));
             }
         }
+        // Linked paths affect wire roles only for placed image nodes. An
+        // imported result that has yet to be placed cannot move these sites.
+        // Keep missing references too, in case an import makes one resolve.
+        for item in &self.doc().items {
+            if let Some(path @ None) = image_item_paths.get_mut(&item.id) {
+                *path = Some(item.path.clone());
+            }
+        }
+        self.tab_mut()
+            .doc
+            .scene
+            .set_derived_connector_rects(updates);
+        self.connector_pick_bounds = Some(ConnectorPickBounds {
+            scene_gen: self.doc().scene.scene_gen(),
+            item_paths_revision,
+            has_complex_body,
+            rotated_flow_hosts,
+            dock_strips,
+            max_reach,
+            image_item_paths,
+        });
     }
 
     // ----- label editing -----

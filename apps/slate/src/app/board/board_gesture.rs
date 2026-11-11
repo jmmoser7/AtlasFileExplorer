@@ -317,6 +317,9 @@ impl SlateApp {
 
     /// A selected Frame owns its body's input until selection is released.
     pub(crate) fn board_selected_frame_at(&self, screen: Pos2, xf: &BoardXf) -> bool {
+        if !self.has_selected_board_frame() {
+            return false;
+        }
         let world = xf.s2w(screen);
         self.board_pick_node(world.x, world.y).is_some_and(|id| {
             self.board_sel.contains(&id) && self.doc().scene.node(id).is_some_and(Node::is_frame)
@@ -329,17 +332,37 @@ impl SlateApp {
         y: f32,
         include_locked: bool,
     ) -> Option<NodeId> {
-        board_path::board_pick_node_filtered(
-            &self.doc().scene,
+        let scene = &self.doc().scene;
+        let zoom = self.tab().cam.z;
+        let indexed = self
+            .current_connector_pick_bounds()
+            .filter(|bounds| bounds.max_reach <= super::super::settings::STROKE_WIDTH_MAX * 2.0);
+        let ids = indexed.map(|bounds| {
+            let reach =
+                bounds.max_reach + super::super::board_wire::CONNECTOR_PICK_PX / zoom.max(ZOOM_MIN);
+            let pad = reach + (x.abs().max(y.abs()) + reach).max(1.0) * f32::EPSILON * 8.0;
+            scene.query_rect(WorldRect::new(x - pad, y - pad, 2.0 * pad, 2.0 * pad))
+        });
+        let candidates =
+            indexed
+                .zip(ids.as_deref())
+                .map(|(bounds, ids)| board_path::BoardPickCandidates {
+                    ids,
+                    scan_bodies: bounds.has_complex_body,
+                    scan_wires: !self.presence.agents_empty(),
+                });
+        board_path::board_pick_node_with_routes(
+            scene,
             [x, y],
-            self.tab().cam.z,
+            zoom,
             include_locked,
-            self.board_wire_routing,
+            candidates,
             |node| {
                 !self.presence.holds_node(node.id)
                     && (include_locked || self.board_selected_frame_owner(node.id).is_none())
             },
             |id| self.visible_wire_host(id),
+            |id, conn| self.connector_path_visible(id, conn),
         )
     }
 

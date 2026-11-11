@@ -699,7 +699,7 @@ pub struct ModelSpace {
     /// Shared recency of each CPU/GPU poster pair.
     poster_residency: posters::Residency,
     /// Nodes whose poster needs (re)generation once mesh + GL are ready.
-    want_poster: std::collections::HashSet<ModelNodeKey>,
+    want_poster: HashMap<ModelNodeKey, u64>,
     /// Bounds by cache key (kept even after CPU mesh eviction — needed to
     /// resolve auto-fit cameras cheaply, e.g. for artifact export).
     pub bounds: HashMap<String, ([f32; 3], [f32; 3])>,
@@ -790,7 +790,7 @@ impl Default for ModelSpace {
             live: HashMap::new(),
             posters: HashMap::new(),
             poster_residency: posters::Residency::default(),
-            want_poster: std::collections::HashSet::new(),
+            want_poster: HashMap::new(),
             bounds: HashMap::new(),
             model_hashes: HashMap::new(),
             parse_tx,
@@ -1073,6 +1073,7 @@ impl ModelSpace {
 
     fn engine(&mut self, gl: &Arc<glow::Context>) -> Option<&ModelEngine> {
         if matches!(self.engine, EngineSlot::Untried) {
+            let _span = atlas_core::session_log::span("slate.model3d.engine");
             self.engine = match ModelEngine::new(gl.clone()) {
                 Some(e) => EngineSlot::Ready(Box::new(e)),
                 None => EngineSlot::Failed,
@@ -1101,6 +1102,7 @@ impl ModelSpace {
         let EngineSlot::Ready(engine) = &self.engine else {
             return false;
         };
+        let _span = atlas_core::session_log::span("slate.model3d.upload_mesh");
         match engine.upload(&model) {
             Some(gpu) => {
                 self.gpu.insert(
@@ -1441,19 +1443,25 @@ impl SlateApp {
 
     /// Per-frame upkeep: parse results, auto-lock, eviction, repaint ticks.
     pub fn model3d_frame(&mut self, ctx: &egui::Context) {
-        self.maintain_application_connectors(ctx);
-        self.poll_media_links(ctx);
-        self.pump_production_session(ctx);
+        {
+            let _span = atlas_core::session_log::span("slate.model3d.links");
+            self.maintain_application_connectors(ctx);
+            self.poll_media_links(ctx);
+            self.pump_production_session(ctx);
+        }
         if self.model3d.drain_parses() | self.model3d.drain_sniffs() {
             ctx.request_repaint();
         }
         self.queue_executable_sniffs();
-        self.maintain_enscape();
-        self.maintain_view_drop();
-        self.maintain_view_drop_preview(ctx);
-        self.maintain_model_shot_pending();
-        self.maintain_portal_capture(ctx);
-        self.maintain_view_wire_cache();
+        {
+            let _span = atlas_core::session_log::span("slate.model3d.capture");
+            self.maintain_enscape();
+            self.maintain_view_drop();
+            self.maintain_view_drop_preview(ctx);
+            self.maintain_model_shot_pending();
+            self.maintain_portal_capture(ctx);
+            self.maintain_view_wire_cache();
+        }
         if self.tick_model_view_tweens() {
             ctx.request_repaint();
         }
@@ -1511,16 +1519,19 @@ impl SlateApp {
         // Regenerate posters requested by the paint pass (mesh may have
         // finished parsing this frame).
         if self.gl.is_some() && !self.model3d.want_poster.is_empty() {
+            let _span = atlas_core::session_log::span("slate.model3d.posters");
             let doc = self.tab().id;
-            let wanted: Vec<ModelNodeKey> = self
+            let view = self.board_paint_view(self.canvas_rect);
+            let wanted: Vec<_> = self
                 .model3d
                 .want_poster
                 .iter()
-                .filter(|(queued_doc, _)| *queued_doc == doc)
-                .copied()
+                .filter_map(|(&key, &requested_at)| (key.0 == doc).then_some((key, requested_at)))
                 .collect();
-            for key @ (_, id) in wanted {
-                if self.model3d.live.contains_key(&id) {
+            for (key @ (_, id), requested_at) in wanted {
+                if !self.model_poster_visible(id, &view, requested_at)
+                    || self.model3d.live.contains_key(&id)
+                {
                     self.model3d.want_poster.remove(&key);
                     continue;
                 }
@@ -1546,12 +1557,35 @@ impl SlateApp {
             ctx.request_repaint();
         }
 
-        self.model3d.evict();
+        {
+            let _span = atlas_core::session_log::span("slate.model3d.evict");
+            self.model3d.evict();
+        }
 
         if !self.model3d.live.is_empty() {
             // Keep ticking so the auto-lock countdown fires without input.
             ctx.request_repaint_after(Duration::from_millis(500));
         }
+    }
+
+    fn model_poster_visible(
+        &self,
+        id: NodeId,
+        board: &slate_doc::WorldRect,
+        requested_at: u64,
+    ) -> bool {
+        let board_visible =
+            !self.at_home && self.doc().view.active_view == slate_doc::ViewKind::Board;
+        // These views use their own transform. Require fresh clipped paint
+        // demand so a slide or camera change can retire stale requests.
+        let other_view = requested_at.wrapping_add(1) == self.frame_no
+            && (self.presenting.is_some()
+                || self.frame_presentation.open(false)
+                || self.portal_chrome.maximized == Some(id));
+        self.doc().scene.node(id).is_some_and(|node| {
+            !node.hidden
+                && (other_view || (board_visible && slate_doc::node_aabb(node).intersects(board)))
+        })
     }
 
     /// Texture for a live viewport, re-drawn on the GPU (no readback) when

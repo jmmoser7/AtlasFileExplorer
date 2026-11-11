@@ -228,8 +228,8 @@ impl SlateApp {
         let palette = self.palette();
         let rail_color = palette.sub.gamma_multiply(self.rail_opacity());
         let mut cache = self.agents.rail_cache.borrow_mut();
-        let revision = (self.scene_gen, self.doc().scene.scene_gen());
-        if cache.0 != revision || cache.1.is_empty() {
+        let revision = Some((self.tab().id, self.scene_gen, self.doc().scene.scene_gen()));
+        if cache.0 != revision {
             *cache = (
                 revision,
                 slate_doc::agent_chat::history_rails(&self.doc().scene),

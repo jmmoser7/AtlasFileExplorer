@@ -108,7 +108,7 @@ impl Conversion {
             stats.borrow().is_some().then(|| Self {
                 started: Instant::now(),
                 vertices: mesh.vertices.len(),
-                indices: mesh.indices.len(),
+                indices: mesh.index_count(),
             })
         })
     }

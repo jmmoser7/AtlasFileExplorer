@@ -72,7 +72,7 @@ pub struct WireSnap {
 }
 
 /// Pose a connector end resolves against. Built from a [`Node`] at paint time.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WireHost {
     pub rect: WorldRect,
     pub rotation_deg: f32,
@@ -103,13 +103,13 @@ pub fn is_open_shape(node: &Node) -> bool {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum HostKind {
     Oriented { ellipse: bool },
     Open(OpenStroke),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct OpenStroke {
     pts: Vec<[f32; 2]>,
     cum: Vec<f32>,

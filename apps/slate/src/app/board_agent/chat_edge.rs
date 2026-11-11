@@ -38,13 +38,20 @@ impl SlateApp {
     /// The pointer is in some chat card's bottom resize band.
     pub(crate) fn pointer_in_chat_bottom_band(&self, screen: Pos2, xf: &BoardXf) -> bool {
         let band = chat_bottom_band(xf.z);
-        self.doc().scene.nodes.iter().rev().any(|n| {
-            if n.hidden || !is_chat_card(n) {
-                return false;
-            }
-            let r = xf.rect_w2s(n.rect);
-            screen.x >= r.left() && screen.x <= r.right() && (screen.y - r.bottom()).abs() <= band
-        })
+        let scene = &self.doc().scene;
+        self.agent_topology()
+            .cards
+            .iter()
+            .filter_map(|(id, _)| scene.node(*id))
+            .any(|n| {
+                if n.hidden || !is_chat_card(n) {
+                    return false;
+                }
+                let r = xf.rect_w2s(n.rect);
+                screen.x >= r.left()
+                    && screen.x <= r.right()
+                    && (screen.y - r.bottom()).abs() <= band
+            })
     }
 
     /// South-edge resize for a chat card, wider than the generic edge band.
@@ -56,7 +63,14 @@ impl SlateApp {
     ) -> Option<(NodeId, super::super::board_handles::BoardHitTarget)> {
         let band = chat_bottom_band(xf.z);
         let corner = canvas_scale::hit_px(super::super::board_handles::CORNER_HIT_PX, xf.z);
-        for n in self.doc().scene.nodes.iter().rev() {
+        let scene = &self.doc().scene;
+        for n in self
+            .agent_topology()
+            .cards
+            .iter()
+            .rev()
+            .filter_map(|(id, _)| scene.node(*id))
+        {
             if n.hidden || !is_chat_card(n) {
                 continue;
             }

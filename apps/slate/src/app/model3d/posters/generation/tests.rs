@@ -130,7 +130,7 @@ fn a_second_queued_node_completes_without_gl_or_another_decode_request() {
     );
     let document = h.app.tab().id;
     for node in &nodes {
-        h.app.model3d.want_poster.insert((document, *node));
+        h.app.model3d.want_poster.insert((document, *node), 0);
     }
     let slot = h.app.next_preview_slot;
     assert!(h.app.gl.is_none());
@@ -142,4 +142,33 @@ fn a_second_queued_node_completes_without_gl_or_another_decode_request() {
     assert!(h.app.model3d.models.is_empty());
     assert_eq!(h.app.model3d.gl_counts(), (0, 0, 0));
     assert_eq!(h.app.model3d.poster_pixels.len(), 1);
+}
+
+#[test]
+fn presentation_poster_demand_survives_the_board_camera_only_while_painted() {
+    let mut h = Harness::new("presentation-poster-demand");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    let frame = h.seed_frame(None);
+    h.app.patch_nodes(&[frame], |node| {
+        node.rect.x = 4_600.0;
+        node.rect.y = 4_775.0;
+    });
+    let source = h.base.join("slide-model.obj");
+    std::fs::write(&source, "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n").unwrap();
+    let item = h.app.add_paths(&[source])[0];
+    h.app
+        .place_items_on_board(&[item], egui::pos2(5_000.0, 5_000.0));
+    let model = h.app.doc().scene.nodes.last().unwrap().id;
+    assert!(h.app.doc().scene.members_of(frame).contains(&model));
+    let camera = slate_doc::WorldRect::new(0.0, 0.0, 100.0, 100.0);
+    h.app.frame_no = 10;
+
+    assert!(!h.app.model_poster_visible(model, &camera, 9));
+    h.app.start_present(Some(frame));
+    assert!(h.app.presenting.is_some());
+    assert!(h.app.model_poster_visible(model, &camera, 9));
+    assert!(!h.app.model_poster_visible(model, &camera, 8));
+    h.app.stop_present();
+    assert!(!h.app.model_poster_visible(model, &camera, 9));
 }

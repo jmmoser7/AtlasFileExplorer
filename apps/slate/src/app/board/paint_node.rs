@@ -21,8 +21,6 @@ impl SlateApp {
         let alpha = node.opacity.clamp(0.0, 1.0);
         let fade = |c: Color32| c.gamma_multiply(alpha);
         let rotated = node.rotation_deg.abs() > 0.01;
-        let outline_world = node.rect.corners_rotated(node.rotation_deg);
-        let outline_s: Vec<Pos2> = outline_world.map(|(x, y)| xf.w2s(Pos2::new(x, y))).to_vec();
         let attached_frame = chrome && node.is_frame() && self.frame_presentation.attached(node.id);
         let surface = (chrome && !attached_frame)
             .then(|| self.media_host_surface(painter.ctx(), xf, node))
@@ -408,7 +406,13 @@ impl SlateApp {
                     self.paint_hosted_text(painter, xf, node, s.text.as_ref(), srect, &fade);
                 }
             }
-            NodeKind::Text(_) => self.paint_text_node(ui, painter, xf, node, &outline_s, chrome),
+            NodeKind::Text(_) => {
+                let outline = node
+                    .rect
+                    .corners_rotated(node.rotation_deg)
+                    .map(|(x, y)| xf.w2s(Pos2::new(x, y)));
+                self.paint_text_node(ui, painter, xf, node, &outline, chrome);
+            }
             NodeKind::Connector(conn) => {
                 // Derived bezier through the path-mesh cache; Faint = 40%,
                 // arrowheads + label match the artifact (see board_wire.rs).

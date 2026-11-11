@@ -30,6 +30,9 @@ impl SlateApp {
         screen: Pos2,
         xf: &BoardXf,
     ) -> Option<(NodeId, Side)> {
+        if self.agent_topology().coding_cards.is_empty() {
+            return None;
+        }
         let world = xf.s2w(screen);
         for node in self.doc().scene.nodes.iter().rev().filter(|n| !n.hidden) {
             if self.portal_capture_owns_viewport(node.id) {

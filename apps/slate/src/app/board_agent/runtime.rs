@@ -234,12 +234,16 @@ pub struct AgentRuntime {
     pub(super) fit_revision: Option<FitRevision>,
     pub(super) fit_keys: HashMap<NodeId, u64>,
     pub(super) title_widths: HashMap<NodeId, f32>,
-    pub(super) rail_cache:
-        std::cell::RefCell<((u64, u64), Vec<slate_doc::agent_chat::HistoryRail>)>,
+    pub(super) rail_cache: std::cell::RefCell<(
+        Option<(u64, u64, u64)>,
+        Vec<slate_doc::agent_chat::HistoryRail>,
+    )>,
     pub(super) bindings: HashMap<NodeId, String>,
     pub(super) context_selection: HashMap<String, Vec<NodeId>>,
     pub(super) requests: HashMap<NodeId, String>,
     pub(super) context_tick: Option<Instant>,
+    pub(super) context_publications: super::session::ContextPublications,
+    pub(super) topology: std::cell::RefCell<Option<std::rc::Rc<super::context::AgentTopology>>>,
     pub(super) codex: HashMap<String, atlas_ai::runtime::CodexLink>,
     pub(super) programs: Vec<atlas_ai::agent::AgentProvider>,
     pub(super) programs_started: bool,

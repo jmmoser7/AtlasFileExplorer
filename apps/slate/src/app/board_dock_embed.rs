@@ -100,18 +100,24 @@ impl SlateApp {
     }
 
     pub(crate) fn dock_embed_node_at(&self, wx: f32, wy: f32) -> Option<NodeId> {
-        for n in self.doc().scene.nodes.iter().rev() {
-            if n.hidden {
-                continue;
-            }
-            if !matches!(n.kind, NodeKind::DockStrip(_)) {
-                continue;
-            }
-            if n.rect.contains(wx, wy) {
-                return Some(n.id);
-            }
+        let scene = &self.doc().scene;
+        let under = |n: &&Node| !n.hidden && n.rect.contains(wx, wy);
+        if let Some(bounds) = self.current_connector_pick_bounds() {
+            return bounds
+                .dock_strips
+                .iter()
+                .rev()
+                .filter_map(|id| scene.node(*id))
+                .find(under)
+                .map(|n| n.id);
         }
-        None
+        scene
+            .nodes
+            .iter()
+            .rev()
+            .filter(|n| matches!(n.kind, NodeKind::DockStrip(_)))
+            .find(under)
+            .map(|n| n.id)
     }
 
     pub(crate) fn dock_embed_tool_at(
@@ -120,31 +126,20 @@ impl SlateApp {
         xf: &BoardXf,
         screen: Pos2,
     ) -> Option<(NodeId, String)> {
-        let tokens = dock_tokens();
         let world = xf.s2w(screen);
-        for n in self.doc().scene.nodes.iter().rev() {
-            if n.hidden {
-                continue;
-            }
-            let NodeKind::DockStrip(strip) = &n.kind else {
-                continue;
-            };
-            if !n.rect.contains(world.x, world.y) {
-                continue;
-            }
-            if strip.palette_id == "tool.tags" {
-                return tags::hit(self, ctx, xf.rect_w2s(n.rect), strip, screen)
-                    .map(|action| (n.id, action));
-            }
-            let items = palette_strip_items(self, &strip.palette_id, &strip.visible);
-            let layout = measure_canvas_strip(ctx, &items, &tokens);
-            let dest = xf.rect_w2s(n.rect);
-            if let Some(id) = dock::icon_strip_hit(dest, &layout, &tokens, screen) {
-                return Some((n.id, id.to_owned()));
-            }
+        let id = self.dock_embed_node_at(world.x, world.y)?;
+        let n = self.doc().scene.node(id)?;
+        let NodeKind::DockStrip(strip) = &n.kind else {
             return None;
+        };
+        let dest = xf.rect_w2s(n.rect);
+        if strip.palette_id == "tool.tags" {
+            return tags::hit(self, ctx, dest, strip, screen).map(|action| (id, action));
         }
-        None
+        let tokens = dock_tokens();
+        let items = palette_strip_items(self, &strip.palette_id, &strip.visible);
+        let layout = measure_canvas_strip(ctx, &items, &tokens);
+        dock::icon_strip_hit(dest, &layout, &tokens, screen).map(|tool| (id, tool.to_owned()))
     }
 
     /// Painted card + fillet in screen space (selection / hover must match).

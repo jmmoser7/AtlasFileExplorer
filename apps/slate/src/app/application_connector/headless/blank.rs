@@ -16,9 +16,8 @@ struct Downstream {
     source: NodeId,
     from: (slate_doc::scene::Side, f32),
     source_kind: slate_doc::agent_inputs::InputKind,
-    provider: String,
-    model: String,
-    parameters: std::collections::BTreeMap<String, String>,
+    requires_vision: bool,
+    choice: Option<BlankModelChoice>,
     history: Option<slate_doc::agent_inputs::GeneratorMemoryPin>,
 }
 
@@ -42,8 +41,8 @@ impl SlateApp {
         )
     }
 
-    /// Only a chosen downstream builder requires an admitted native agent.
-    /// Root New 3D remains usable as an ordinary local model without an agent.
+    /// A blank model is local media. An available compatible model choice can
+    /// be retained, while an unconfigured child gets its choice on Agent open.
     pub(crate) fn connector_new_headless_from(
         &mut self,
         source: NodeId,
@@ -62,10 +61,12 @@ impl SlateApp {
             self.doc().item(item).map(|file| file.path.as_path())
         })
         .ok_or("The source has no compatible output")?;
-        let (program, model, parameters) =
-            self.blank_model_choice(source_kind == slate_doc::agent_inputs::InputKind::Images)?;
-        let model = model
-            .ok_or("Choose an available native model before creating a downstream 3D builder")?;
+        let requires_vision = source_kind == slate_doc::agent_inputs::InputKind::Images
+            || slate_doc::agent_inputs::is_web_page(&self.doc().scene, source);
+        let choice = self
+            .blank_model_choice(requires_vision)
+            .ok()
+            .filter(|(_, model, _)| model.is_some());
         let point = at.unwrap_or([parent.rect.x + parent.rect.w + 180., parent.rect.y + 48.]);
         if point
             .iter()
@@ -73,17 +74,9 @@ impl SlateApp {
         {
             return Err("Model placement must use finite board coordinates".into());
         }
-        let history = if self.image_history_preserved(source) {
-            Some(slate_doc::agent_inputs::GeneratorMemoryPin {
-                source_revision: slate_doc::agent_chat::agent(parent)
-                    .map_or(String::new(), |agent| agent.session.clone()),
-                turns: self.public_image_history(source)?,
-            })
-        } else {
-            None
-        };
+        let history = self.downstream_generator_history(source)?;
         self.start_blank_model(
-            WorldRect::new(point[0], point[1] - 48., 640., 480.),
+            WorldRect::new(point[0], point[1], 640., 480.),
             Some(Downstream {
                 source,
                 from: from.unwrap_or((
@@ -91,9 +84,8 @@ impl SlateApp {
                     slate_doc::agent_inputs::OUTPUT_T,
                 )),
                 source_kind,
-                provider: program.id,
-                model,
-                parameters,
+                requires_vision,
+                choice,
                 history,
             }),
         )
@@ -173,12 +165,13 @@ impl SlateApp {
         if !self.connectors.headless.blanks.is_empty() {
             return Err("An empty 3D model is already being created".into());
         }
+        let from_wire = downstream.is_some();
         #[cfg(not(test))]
-        let (rx, cancel, accepted) = worker::create_empty_headless();
+        let (rx, cancel, accepted) = worker::create_empty_headless(from_wire);
         #[cfg(test)]
         let (rx, cancel, accepted) = EMPTY_PREPARATION_FOR_TEST
             .with(|fixture| fixture.borrow_mut().take())
-            .unwrap_or_else(worker::create_empty_headless);
+            .unwrap_or_else(|| worker::create_empty_headless(from_wire));
         self.connectors.headless.blanks.push(BlankJob {
             tab: self.tab().id,
             rect,
@@ -187,7 +180,9 @@ impl SlateApp {
             accepted,
             downstream,
         });
-        self.toast("Creating an empty Rhino model headlessly");
+        if !from_wire {
+            self.toast("Creating an empty Rhino model headlessly");
+        }
         Ok(())
     }
 
@@ -205,33 +200,6 @@ impl SlateApp {
         let mut scratch = self.doc().scene.node_preparation();
         let mut node = self.prepare_ready_media_node(&mut scratch, job.rect, file);
         if let Some(link) = &job.downstream {
-            let program = self
-                .registered_agent_programs()
-                .iter()
-                .find(|program| {
-                    program.id == link.provider && Self::scoped_model_harness(&program.id)
-                })
-                .ok_or("The chosen native model agent is no longer available")?;
-            let offered = self
-                .agents
-                .catalog(&link.provider)
-                .iter()
-                .find(|model| model.id == link.model)
-                .ok_or("The chosen native model is no longer available")?;
-            if atlas_ai::runtime::subscription_provider(&link.provider).is_some() {
-                if !offered.capabilities.is_some_and(|caps| {
-                    caps.supports(
-                        atlas_agent::OutputTask::Model,
-                        link.source_kind == slate_doc::agent_inputs::InputKind::Images,
-                    )
-                }) {
-                    return Err(
-                        "The chosen model no longer supports this native task and its inputs"
-                            .into(),
-                    );
-                }
-                offered.validate_parameters(&link.parameters)?;
-            }
             let parent = self
                 .doc()
                 .scene
@@ -243,32 +211,26 @@ impl SlateApp {
                     self.doc().item(item).map(|file| file.path.as_path())
                 })
                 .ok_or("The model source has no compatible output")?;
-            if current_kind != link.source_kind {
+            let requires_vision = current_kind == slate_doc::agent_inputs::InputKind::Images
+                || slate_doc::agent_inputs::is_web_page(&self.doc().scene, link.source);
+            if current_kind != link.source_kind || requires_vision != link.requires_vision {
                 return Err("The model source output changed while the blank was prepared".into());
             }
-            let parameters = self.compatible_model_parameters(
-                &link.provider,
-                &link.model,
-                link.parameters.clone(),
-            );
-            self.configure_blank_model_agent(
-                &mut node,
-                program,
-                Some(link.model.clone()),
-                &parameters,
-            );
+            self.configure_downstream_blank_model(&mut node, link)?;
             if let Some(agent) = slate_doc::agent_chat::agent_mut(&mut node) {
                 agent.generator.preserve_history = Some(link.history.is_some());
                 agent.generator.history_source = link.history.as_ref().map(|_| link.source);
                 agent.generator.inherited_turn_count = Some(0);
             }
-            let mut endpoints = slate_doc::Scene::default();
-            endpoints.nodes = vec![parent.clone(), node.clone()];
-            let port =
-                slate_doc::agent_inputs::default_port(&endpoints, node.id, link.source, &|item| {
-                    self.doc().item(item).map(|file| file.path.as_path())
-                })
-                .ok_or("The model has no compatible input for this source")?;
+            let port = slate_doc::agent_inputs::default_port_for(
+                &self.doc().scene,
+                &node,
+                parent.id,
+                &|item| self.doc().item(item).map(|file| file.path.as_path()),
+            )
+            .ok_or("The model has no compatible input for this source")?;
+            let site = self.wire_input_host(&node).anchor(Side::Left, port.t);
+            node.rect.y -= site[1] - node.rect.y;
             let template = self.connector_template_bound(
                 ConnectorEnd::Anchored {
                     node: link.source,
@@ -310,6 +272,46 @@ impl SlateApp {
             }
             Ok(vec![node])
         }
+    }
+
+    fn configure_downstream_blank_model(
+        &self,
+        node: &mut slate_doc::Node,
+        link: &Downstream,
+    ) -> Result<(), String> {
+        let Some((selected, Some(model), parameters)) = &link.choice else {
+            if let NodeKind::Image(image) = &mut node.kind {
+                image.agent = Some(Box::new(slate_doc::scene::AgentPortalRef::unbound(
+                    atlas_agent::PortalView::Chat,
+                )));
+            }
+            return Ok(());
+        };
+        let provider = &selected.id;
+        let program = self
+            .registered_agent_programs()
+            .iter()
+            .find(|program| program.id == *provider && Self::scoped_model_harness(provider))
+            .ok_or("The chosen native model agent is no longer available")?;
+        let offered = self
+            .agents
+            .catalog(atlas_ai::agent::model_catalog(provider))
+            .iter()
+            .find(|entry| entry.id == *model)
+            .ok_or("The chosen native model is no longer available")?;
+        if atlas_ai::runtime::subscription_provider(provider).is_some() {
+            if !offered.capabilities.is_some_and(|caps| {
+                caps.supports(atlas_agent::OutputTask::Model, link.requires_vision)
+            }) {
+                return Err(
+                    "The chosen model no longer supports this native task and its inputs".into(),
+                );
+            }
+            offered.validate_parameters(parameters)?;
+        }
+        let parameters = self.compatible_model_parameters(provider, model, parameters.clone());
+        self.configure_blank_model_agent(node, program, Some(model.clone()), &parameters);
+        Ok(())
     }
 
     fn configure_blank_model_agent(
@@ -358,9 +360,6 @@ impl SlateApp {
                     match result {
                         Ok(node) => {
                             let _ = job.accepted.send(true);
-                            if let Err(error) = self.connector_activate_headless(node) {
-                                self.toast(error);
-                            }
                             if let Some(link) = job.downstream {
                                 self.board_sel.remove(&link.source);
                                 self.board_sel.remove(&node);
@@ -368,6 +367,9 @@ impl SlateApp {
                                     self.shape_properties.panel = None;
                                 }
                             } else {
+                                if let Err(error) = self.connector_activate_headless(node) {
+                                    self.toast(error);
+                                }
                                 self.board_sel.clear();
                                 self.board_sel.insert(node);
                             }

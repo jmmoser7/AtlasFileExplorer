@@ -14,7 +14,21 @@ impl SlateApp {
         reveal: bool,
         z: f32,
     ) {
-        if self.generator_history_open(id) {
+        let strip_id = Id::new(("agent-picture", id.0));
+        if self.generator_history_open(id)
+            || atlas_shell::home::album_result_layout(
+                ui.ctx(),
+                strip_id,
+                placement,
+                &[],
+                images.len(),
+                focus,
+                reveal,
+                z,
+                2,
+            )
+            .is_none()
+        {
             self.remember_result_strip(id, body, Rect::NOTHING, z);
             return;
         }
@@ -55,7 +69,7 @@ impl SlateApp {
                 .collect();
             let interaction = atlas_shell::home::album_result_strip(
                 ui,
-                Id::new(("agent-picture", id.0)),
+                strip_id,
                 placement,
                 &squares,
                 &runs,

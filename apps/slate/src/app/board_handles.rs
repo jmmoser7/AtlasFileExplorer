@@ -98,6 +98,7 @@ mod adaptive;
 mod crop;
 #[cfg(test)]
 pub use adaptive::body_geometry_distance;
+pub(crate) use adaptive::chrome_outer_reach;
 pub use adaptive::{body_pick, chrome_bounds, chrome_pick, paint_control_frame, set_control_frame};
 #[cfg(test)]
 pub use crop::{crop_handle_at, CROP_ARM_PX, CROP_BAR_THICK_PX, CROP_HIT_PAD_PX};

@@ -77,17 +77,31 @@ impl SlateApp {
             } else {
                 Vec::new()
             };
-        {
-            let scene = &mut self.doc_mut().scene;
-            for a in &afters {
-                if let Some(n) = scene.node_mut(a.id) {
-                    *n = a.clone();
-                }
-            }
-        }
         let colors = super::super::board_color::committed_colors(
             befores.iter().zip(&afters).map(|(b, a)| (Some(b), a)),
         );
+        let cmds: Vec<SceneCmd> = befores
+            .into_iter()
+            .zip(&afters)
+            .map(|(before, after)| SceneCmd::Patch {
+                before: Box::new(before),
+                after: Box::new(after.clone()),
+            })
+            .collect();
+        {
+            let scene = &mut self.doc_mut().scene;
+            if cmds.len() == 1 {
+                scene.apply(&cmds[0]);
+            } else {
+                // Large selections can touch most buckets. Rebuild once on
+                // the next query instead of editing those buckets per node.
+                for after in &afters {
+                    if let Some(node) = scene.node_mut(after.id) {
+                        node.clone_from(after);
+                    }
+                }
+            }
+        }
         let first = afters[0].id;
         let coalesce = self.can_amend_scene_step()
             && matches!(
@@ -100,14 +114,6 @@ impl SlateApp {
             && tab.journal.last_author() == Some(&author)
             && tab.journal.amend_last_patch(&afters[0]);
         if !amended {
-            let cmds: Vec<SceneCmd> = befores
-                .into_iter()
-                .zip(afters.iter())
-                .map(|(b, a)| SceneCmd::Patch {
-                    before: Box::new(b),
-                    after: Box::new(a.clone()),
-                })
-                .collect();
             tab.journal.record_as(cmds, author);
             tab.edits.push(BoardMark::Scene);
             tab.edit_redo.clear();

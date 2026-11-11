@@ -80,7 +80,18 @@ impl SlateApp {
     /// display and measure live on its selection strip.
     pub(super) fn model_status_hints(&mut self, ui: &mut egui::Ui, xf: &BoardXf) {
         let pointer = ui.ctx().pointer_latest_pos();
-        for info in self.model_nodes() {
+        let scene = &self.doc().scene;
+        let mut candidates: Vec<_> = self.model3d.live.keys().copied().collect();
+        if let Some(point) = pointer.filter(|point| self.canvas_rect.contains(*point)) {
+            let world = xf.s2w(point);
+            candidates.extend(scene.query_point(world.x, world.y));
+        }
+        candidates.sort_unstable_by_key(|id| scene.index_of(*id));
+        candidates.dedup();
+        for id in candidates {
+            let Some(info) = self.model_node_info(id) else {
+                continue;
+            };
             // Hidden nodes show no chrome either.
             if self.doc().scene.node(info.node).is_none_or(|n| n.hidden) {
                 continue;

@@ -82,29 +82,24 @@ impl SlateApp {
     }
 
     /// Queue poster generation for a locked node (paint pass found none).
-    pub fn request_model_poster(&mut self, id: NodeId) {
-        if self.gl.is_none() {
+    pub(crate) fn request_model_poster(&mut self, info: &ModelNodeInfo) {
+        if self.gl.is_none()
+            || self.model3d.external.contains(&info.cache_key)
+            || !self.model3d.poster_needs_generation(info)
+            || !self.model3d.admit_model_poster(info)
+        {
             return;
         }
-        if let Some(info) = self.model_node_info(id) {
-            if self.model3d.external.contains(&info.cache_key) {
-                return;
-            }
-            if !self.model3d.poster_needs_generation(&info) {
-                return;
-            }
-            if !self.model3d.admit_model_poster(&info) {
-                return;
-            }
+        self.model3d
+            .request_poster_model(&info.cache_key, &info.path);
+        let blocked = matches!(
+            self.model3d.models.get(&info.cache_key).map(|e| &e.state),
+            Some(ModelState::Failed(_) | ModelState::External(_))
+        );
+        if !blocked {
             self.model3d
-                .request_poster_model(&info.cache_key, &info.path);
-            let blocked = matches!(
-                self.model3d.models.get(&info.cache_key).map(|e| &e.state),
-                Some(ModelState::Failed(_) | ModelState::External(_))
-            );
-            if !blocked {
-                self.model3d.want_poster.insert((self.tab().id, id));
-            }
+                .want_poster
+                .insert((self.tab().id, info.node), self.frame_no);
         }
     }
 }

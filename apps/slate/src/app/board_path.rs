@@ -50,7 +50,7 @@ const MIN_PATH_BOUNDS: f32 = 8.0;
 // FIFO misses on every frame of a 257-path board. The entry limit separately
 // bounds metadata, including empty meshes, while allowing 10k stroke+fill pairs.
 const CACHE_BYTES: usize = 64 * 1024 * 1024;
-const CACHE_ENTRIES: usize = 32_768;
+const CACHE_ENTRIES: usize = 49_152;
 
 mod cache;
 pub use cache::PathMeshCache;
@@ -571,7 +571,7 @@ impl EraseSeal {
     }
 }
 
-fn hash_stroke(h: &mut impl Hasher, stroke: &Stroke) {
+pub(crate) fn hash_stroke(h: &mut impl Hasher, stroke: &Stroke) {
     hash_f32(h, stroke.width);
     stroke.color.0.hash(h);
     (stroke.dash as u8).hash(h);
@@ -1165,9 +1165,10 @@ pub fn marquee_hits_node(
 }
 
 use picking::brush_dab_disc;
-pub use picking::{board_pick_node, board_pick_node_filtered, hit_path_node};
+pub use picking::{board_pick_node, hit_path_node};
 #[cfg(test)]
 pub use picking::{board_pick_node_ex, board_pick_node_routed};
+pub(crate) use picking::{board_pick_node_with_routes, BoardPickCandidates};
 
 #[cfg(test)]
 pub fn default_draw_stroke(accent: Rgba) -> Stroke {

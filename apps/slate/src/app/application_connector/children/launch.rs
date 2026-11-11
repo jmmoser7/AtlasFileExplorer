@@ -233,6 +233,44 @@ mod tests {
             can_detach: true,
         }
     }
+
+    #[test]
+    fn companion_placement_follows_its_own_tab_and_current_scene() {
+        let (mut h, parent, _peer) = fixture("surface-placement-liveness");
+        let reference =
+            ApplicationSurface::new(parent, "grasshopper", "org.slate.rhino.grasshopper_show")
+                .unwrap();
+        let node = h.app.doc().scene.node_preparation().build_node(
+            slate_doc::WorldRect::new(0.0, 0.0, 960.0, 600.0),
+            NodeKind::Portal(reference.portal("Grasshopper")),
+        );
+        let node = h.app.add_nodes(vec![node])[0];
+        let key = (h.app.tab().id, parent, "grasshopper".into());
+        h.app
+            .connectors
+            .children
+            .entry(key.clone())
+            .or_default()
+            .node = Some(node);
+
+        h.app.new_tab();
+        h.app.maintain_application_surfaces();
+        assert_eq!(h.app.connectors.children[&key].node, Some(node));
+        h.app.switch_tab(0);
+        h.app.maintain_application_surfaces();
+        assert_eq!(h.app.connectors.children[&key].node, Some(node));
+
+        h.app.patch_nodes(&[node], |n| n.hidden = true);
+        h.app.maintain_application_surfaces();
+        assert_eq!(h.app.connectors.children[&key].node, None);
+
+        h.app.patch_nodes(&[node], |n| n.hidden = false);
+        h.app.connectors.children.get_mut(&key).unwrap().node = Some(node);
+        h.app.delete_board_nodes_now(&[node]);
+        h.app.maintain_application_surfaces();
+        assert_eq!(h.app.connectors.children[&key].node, None);
+    }
+
     #[test]
     fn unresolved_companion_discovery_is_cached_per_worker_without_losing_queue_retry() {
         let (mut h, parent, peer) = fixture("surface-negative-discovery");

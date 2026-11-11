@@ -1,24 +1,13 @@
 //! Existing live rendering and model steering on the generator owner.
 use super::*;
 impl SlateApp {
-    fn live_generators(&self) -> Vec<NodeId> {
-        self.doc()
-            .scene
-            .nodes
-            .iter()
-            .filter(|n| {
-                slate_doc::agent_chat::agent(n)
-                    .is_some_and(|a| atlas_ai::agent::local_image_engine(&a.provider) && a.live)
-            })
-            .map(|n| n.id)
-            .collect()
-    }
     /// Live re-renders whenever a wired input changes: the camera of a wired
     /// model, a prompt, a source image, or the checkpoint. Latest wins.
     pub(in crate::app::board_agent) fn pump_live_generators(&mut self) {
         use std::hash::{Hash, Hasher};
         self.release_steering();
-        for id in self.live_generators() {
+        let topology = self.agent_topology();
+        for &id in &topology.live_generators {
             if self.agent_is_running(id) || self.generations_waiting(id) > 0 {
                 continue;
             }

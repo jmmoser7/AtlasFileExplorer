@@ -53,6 +53,13 @@ pub(in crate::app::board_agent) struct KnownImageImports {
 }
 
 impl KnownImageImports {
+    pub(in crate::app::board_agent) fn note_candidates(&mut self, ordered: &[NodeId]) {
+        let next = ordered.partition_point(|node| node.0 <= self.cursor);
+        for &node in ordered[next..].iter().take(PENDING) {
+            self.note_candidate(node);
+        }
+    }
+
     /// Fed by the existing portal walk; keep the next bounded range of IDs.
     /// No second scene/session-cache walk or per-frame whole-corpus vector.
     pub(in crate::app::board_agent) fn note_candidate(&mut self, node: NodeId) {

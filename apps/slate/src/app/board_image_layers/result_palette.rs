@@ -209,6 +209,9 @@ impl SlateApp {
         host_alpha: f32,
         _z: f32,
     ) {
+        if img.paint_layers.is_empty() && img.result_layers.is_empty() {
+            return;
+        }
         let Some(result) = self.image_result_id(host.id) else {
             return;
         };

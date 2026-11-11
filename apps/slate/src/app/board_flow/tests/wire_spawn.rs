@@ -247,6 +247,34 @@ fn ordinary_source_output_spawn_activates_every_child_input_without_a_dialogue_o
 }
 
 #[test]
+fn blank_dashboard_wire_chooses_a_typed_input_and_leaves_the_child_idle() {
+    let (mut h, _) = generator_with_output("blank-dashboard-wire");
+    let image = place(&mut h, "source.png", -600.);
+    let before = h.app.doc().scene.nodes.len();
+    assert!(h.app.spawn_flow_node(Some(
+        &serde_json::json!({"source": image.0, "kind": "artifact", "chooser": true}).to_string()
+    )));
+    let dashboard = h.app.doc().scene.nodes[before].id;
+    for kind in ["image", "text"] {
+        let before = h.app.doc().scene.nodes.len();
+        assert!(h.app.spawn_flow_node(Some(
+            &serde_json::json!({
+                "source": dashboard.0, "kind": kind, "chooser": true,
+                "prompt": "This belongs to an explicit Send.",
+            })
+            .to_string()
+        )));
+        let child = &h.app.doc().scene.nodes[before];
+        let agent = slate_doc::agent_chat::agent(child).unwrap();
+        assert!(agent.instruction.is_empty());
+        assert_eq!(wire_into(&h, child.id).unwrap().1, "prompt");
+        assert_all_agent_inputs(&h, child.id);
+        assert!(!h.app.source_agent_dialogue_open(child.id));
+        assert!(h.app.agents.dispatched.is_empty());
+    }
+}
+
+#[test]
 fn a_dropped_output_wire_offers_text_and_the_text_block_describes_the_picture() {
     let (mut h, generator) = generator_with_output("flow_text");
     h.app.patch_nodes(&[generator], |node| {

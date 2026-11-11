@@ -3,6 +3,38 @@ use super::*;
 use atlas_shell::selection_tools::hit_regions::{self, Domain, Field};
 
 impl SlateApp {
+    pub(super) fn wire_grip_candidates(&self, world: Pos2, xf: &BoardXf) -> Vec<NodeId> {
+        let z = xf.z;
+        let wire = hit_regions::wire_reach(f32::MAX, hit_regions::TYPED_PORT_RADIUS * z)
+            .map_or(0.0, hit_regions::wire_outer_reach);
+        let rotate = hit_regions::ROTATE_OFFSET + hit_regions::ROTATE_REACH;
+        // Compact controls may extend diagonally from the authored corners.
+        let chrome = std::f32::consts::FRAC_1_SQRT_2 * hit_regions::COMPACT_FRAME
+            + hit_regions::ROTATE_OFFSET
+            + hit_regions::cursor_reach(hit_regions::ROTATE_REACH, 0.0);
+        let pad = wire
+            .max(chrome)
+            .max(atlas_shell::canvas_scale::hit_px(rotate, z))
+            / z;
+        let scene = &self.doc().scene;
+        let mut ids = scene.query_rect(WorldRect::new(
+            world.x - pad,
+            world.y - pad,
+            pad * 2.0,
+            pad * 2.0,
+        ));
+        // An overlapped single selection can project its control frame past
+        // both its authored box and the ordinary compact-control margin.
+        if self.board_sel.len() == 1 {
+            let selected = *self.board_sel.iter().next().unwrap();
+            if !ids.contains(&selected) && scene.node(selected).is_some() {
+                ids.push(selected);
+                ids.sort_unstable_by_key(|id| scene.index_of(*id));
+            }
+        }
+        ids
+    }
+
     pub(super) fn wire_host_overlaps_lower(&self, node: &Node, xf: &BoardXf) -> bool {
         let scene = &self.doc().scene;
         let Some(index) = scene.index_of(node.id) else {

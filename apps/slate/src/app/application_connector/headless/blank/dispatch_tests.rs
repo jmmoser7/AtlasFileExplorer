@@ -30,6 +30,74 @@ fn actual_native_activation_without_ai_program_keeps_native_session_and_unbound_
     assert!(!h.app.source_agent_inputs_visible(node));
     assert!(h.app.agents.dispatched.is_empty());
 }
+
+#[test]
+fn ordinary_text_wire_creates_a_closed_native_model_without_a_cached_provider() {
+    let mut h = crate::app::tests::Harness::new("downstream-model-cold-catalog");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+    h.app.set_agent_programs_for_test(&[]);
+    let source = crate::app::board_flow::tests::place(&mut h, "notes.txt", 0.);
+    let before = h.app.doc().scene.nodes.len();
+    let (reply, rx) = crossbeam_channel::bounded(1);
+    let (accepted, admission) = crossbeam_channel::bounded(1);
+    EMPTY_PREPARATION_FOR_TEST
+        .with(|fixture| *fixture.borrow_mut() = Some((rx, Cancellation::default(), accepted)));
+    assert!(h.app.dispatch(
+        &h.ctx,
+        CommandId("portal.agent.spawn"),
+        Some(
+            serde_json::json!({
+                "source": source.0,
+                "kind": "model",
+                "chooser": true,
+                "at": [1400., 200.],
+            })
+            .to_string()
+        )
+    ));
+    let bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/empty-meters.3dm"
+    ));
+    let path = h.base.join("native-empty.3dm");
+    std::fs::write(&path, bytes).unwrap();
+    assert!(matches!(
+        model_preview::load_preview(&path, bytes),
+        Err(model_preview::LoadError::Empty(reason)) if reason.starts_with("Empty model.")
+    ));
+    reply
+        .send(Ok(super::super::super::super::items::ReadyFile {
+            path,
+            size: bytes.len() as u64,
+            mtime: 0,
+        }))
+        .unwrap();
+    h.app.pump_blank_models(&h.ctx);
+    assert_eq!(admission.try_recv(), Ok(true));
+    let [node, wire] = &h.app.doc().scene.nodes[before..] else {
+        panic!("the blank model and data wire are committed together");
+    };
+    let NodeKind::Connector(wire) = &wire.kind else {
+        panic!("typed connector");
+    };
+    let binding = wire.binding.as_ref().unwrap();
+    assert_eq!(binding.slot.as_deref(), Some("prompt"));
+    assert_eq!(
+        h.app.wire_end_point(binding.target_end(wire)),
+        Some(egui::pos2(1400., 200.))
+    );
+    assert!(h.app.model_node_info(node.id).is_some());
+    assert!(h.app.source_agent_inputs_visible(node.id));
+    assert!(!h.app.source_agent_dialogue_open(node.id));
+    assert!(!h.app.board_sel.contains(&node.id));
+    assert!(h.app.connectors.sessions.is_empty());
+    assert!(h.app.agents.dispatched.is_empty());
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.nodes.len(), before);
+}
+
 fn native_chooser_fixture(name: &str) -> (crate::app::tests::Harness, NodeId) {
     let (mut h, source) = crate::app::board_flow::tests::generator_with_output(name);
     h.app.set_agent_programs_for_test(&["comfy", "codex"]);

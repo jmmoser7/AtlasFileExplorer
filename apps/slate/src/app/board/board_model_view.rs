@@ -93,6 +93,7 @@ impl SlateApp {
         if self.paint_application_connector(ui, painter, node_id, srect) {
             return;
         }
+        let info = self.model_node_info(node_id);
         let tint = Color32::WHITE.gamma_multiply(alpha);
         let live = self.model3d.live.contains_key(&node_id);
         let adjust = self.model_adjust_for_paint(node_id);
@@ -116,13 +117,16 @@ impl SlateApp {
         let rendered = if live && !awaiting_slot {
             live_tex
         } else {
-            let poster = self
-                .model_node_info(node_id)
-                .and_then(|info| self.model_poster_texture(ui.ctx(), &info, &adjust));
-            if poster.is_none() && !live {
-                self.request_model_poster(node_id);
-            }
-            poster.map(|t| t.id())
+            info.as_ref().and_then(|info| {
+                let poster = self.model_poster_texture(ui.ctx(), info, &adjust);
+                if poster.is_none()
+                    && !live
+                    && Rect::from_points(outline).intersects(painter.clip_rect())
+                {
+                    self.request_model_poster(info);
+                }
+                poster.map(|t| t.id())
+            })
         };
         let render_ready = rendered.is_some();
 
@@ -131,7 +135,7 @@ impl SlateApp {
         let parse_progress = if render_ready {
             None
         } else {
-            self.model_node_info(node_id)
+            info.as_ref()
                 .and_then(|info| self.model_parse_progress(&info.cache_key))
         };
 
@@ -139,7 +143,7 @@ impl SlateApp {
         // (atlas-core extracts the preview image embedded in .3dm files).
         let tex = rendered
             .or_else(|| {
-                self.model_node_info(node_id).and_then(|info| {
+                info.as_ref().and_then(|info| {
                     self.model3d
                         .external
                         .contains(&info.cache_key)
@@ -174,8 +178,8 @@ impl SlateApp {
                 // Distinguish "still working" from "this file has no meshes"
                 // (the load bar overlay below carries the working state).
                 if parse_progress.is_none() {
-                    let msg = self
-                        .model_node_info(node_id)
+                    let msg = info
+                        .as_ref()
                         .and_then(|info| {
                             self.model_failure(&info.cache_key)
                                 .map(|msg| atlas_shell::widgets::trunc(msg, 120))

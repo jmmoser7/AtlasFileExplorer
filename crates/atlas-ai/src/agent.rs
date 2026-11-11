@@ -101,7 +101,7 @@ enum LinkWork {
 /// retain this handle until an old watcher has relinquished its authority.
 #[derive(Clone)]
 pub struct AgentRequestSender {
-    tx: crossbeam_channel::Sender<LinkWork>,
+    tx: std::sync::Arc<worker::LinkWorker>,
     dir: PathBuf,
     request: AgentRequest,
 }
@@ -122,8 +122,8 @@ impl AgentRequestSender {
     }
 }
 
-/// One worker and shared immutable snapshot per linked source, regardless of how
-/// many cards project it. The caller's NodeIds never become runtime identities.
+/// One mailbox and shared immutable snapshot per linked source, regardless of
+/// how many cards project it. The caller's NodeIds never become runtime identities.
 #[derive(Default)]
 pub struct AgentSources {
     links: std::collections::HashMap<PathBuf, AgentLink>,
@@ -137,7 +137,7 @@ impl AgentSources {
         &mut self,
         dir: &Path,
     ) -> Result<Option<std::sync::Arc<AgentSession>>, String> {
-        let snapshot = self.poll(dir, None);
+        let snapshot = self.poll_with_priority(dir, None, true);
         let state = self.links.get(dir).and_then(|link| {
             link.history_read
                 .try_lock()
@@ -201,11 +201,22 @@ impl AgentSources {
         dir: &Path,
         context: Option<&AgentContext>,
     ) -> Option<std::sync::Arc<AgentSession>> {
+        self.poll_with_priority(dir, context, false)
+    }
+
+    fn poll_with_priority(
+        &mut self,
+        dir: &Path,
+        context: Option<&AgentContext>,
+        targeted: bool,
+    ) -> Option<std::sync::Arc<AgentSession>> {
         let link = self.links.entry(dir.into()).or_default();
         if let Some(context) = context {
             link.tick_write_context_in(dir, context);
         }
-        if let Some(session) = link.tick_read_session_file(&dir.join("session.json")) {
+        if let Some(session) =
+            link.tick_read_session_file_with_priority(&dir.join("session.json"), targeted)
+        {
             self.snapshots
                 .insert(dir.into(), std::sync::Arc::new(session));
         }
@@ -219,7 +230,7 @@ impl AgentSources {
 
 /// The UI only exchanges small messages. All filesystem work stays on a worker.
 pub struct AgentLink {
-    tx: crossbeam_channel::Sender<LinkWork>,
+    tx: std::sync::Arc<worker::LinkWorker>,
     latest: std::sync::Arc<std::sync::Mutex<Option<AgentSession>>>,
     history_read: std::sync::Arc<std::sync::Mutex<Option<Result<bool, String>>>>,
     next_read: Option<Instant>,
@@ -240,16 +251,21 @@ impl Default for AgentLink {
 }
 impl AgentLink {
     pub fn new() -> Self {
-        let (tx, rx) = crossbeam_channel::bounded(8);
+        Self::with_scheduler(worker::ready_queue())
+    }
+
+    fn with_scheduler(ready: worker::ReadyQueue) -> Self {
         let latest = std::sync::Arc::new(std::sync::Mutex::new(None));
-        let result = latest.clone();
         let history_read = std::sync::Arc::new(std::sync::Mutex::new(None));
-        let history_out = history_read.clone();
         let outputs = std::sync::Arc::new(std::sync::Mutex::new(None));
-        let outputs_out = outputs.clone();
         let place = std::sync::Arc::new(std::sync::Mutex::new(None));
-        let place_out = place.clone();
-        std::thread::spawn(move || worker::run(rx, result, outputs_out, place_out, history_out));
+        let tx = worker::LinkWorker::new(
+            ready,
+            latest.clone(),
+            outputs.clone(),
+            place.clone(),
+            history_read.clone(),
+        );
         Self {
             tx,
             latest,
@@ -313,14 +329,28 @@ impl AgentLink {
         self.tick_read_session_file(&agent_dir(ws, id).join("session.json"))
     }
     pub fn tick_read_session_file(&mut self, path: &Path) -> Option<AgentSession> {
+        self.tick_read_session_file_with_priority(path, false)
+    }
+
+    fn tick_read_session_file_with_priority(
+        &mut self,
+        path: &Path,
+        targeted: bool,
+    ) -> Option<AgentSession> {
         let interval = if self.streaming {
             STREAM_READ_INTERVAL
         } else {
             READ_INTERVAL
         };
+        let foreground = targeted || self.streaming || self.awaited.is_some();
         if self.next_read.is_none_or(|t| t.elapsed() >= interval) {
             self.next_read = Some(Instant::now());
-            let _ = self.tx.try_send(LinkWork::Read(path.into()));
+            let _ = self.tx.enqueue(LinkWork::Read(path.into()), foreground);
+        } else if foreground {
+            // A timed background read already in the queue can satisfy this
+            // demand. Promote it in place instead of bypassing FIFO or adding
+            // another filesystem read to the same source.
+            self.tx.prioritize_read(path);
         }
         let update = self.latest.try_lock().ok()?.take();
         if let Some(session) = &update {

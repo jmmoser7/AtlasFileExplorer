@@ -149,16 +149,17 @@ impl SlateApp {
         }
     }
     pub(super) fn maintain_application_surfaces(&mut self) {
-        let active = (!self.at_home).then(|| self.tab().id);
+        if self.connectors.children.is_empty() {
+            return;
+        }
         let focused = self.contents_focused();
-        let live: std::collections::HashSet<_> = self
-            .doc()
-            .scene
-            .nodes
-            .iter()
-            .filter(|n| !n.hidden)
-            .map(|n| n.id)
-            .collect();
+        let tab = self
+            .tabs
+            .get(self.active_tab)
+            .or_else(|| self.tabs.last())
+            .unwrap_or(&self.fallback_tab);
+        let active = (!self.at_home).then_some(tab.id);
+        let scene = &tab.doc.scene;
         for ((tab, parent, surface), child) in &mut self.connectors.children {
             let session = self.connectors.sessions.get(&(*tab, *parent));
             let epoch = session
@@ -178,12 +179,14 @@ impl SlateApp {
                 child.worker = None;
                 child.last_query = None;
             }
-            let visible = active == Some(*tab)
-                && source_alive
+            let on_active_tab = active == Some(*tab);
+            let placed = on_active_tab
                 && child
                     .node
-                    .is_some_and(|id| live.contains(&id) && focused == Some(id));
-            if active != Some(*tab) || focused != Some(*parent) {
+                    .and_then(|id| scene.node(id))
+                    .is_some_and(|node| !node.hidden);
+            let visible = placed && source_alive && child.node == focused;
+            if !on_active_tab || focused != Some(*parent) {
                 child.launch.cancel();
                 child.launch_node = None;
                 child.waiting_launch = None;
@@ -195,7 +198,7 @@ impl SlateApp {
                     }
                 }
             }
-            if active == Some(*tab) && child.node.is_some_and(|n| !live.contains(&n)) {
+            if on_active_tab && !placed {
                 child.node = None;
             }
         }

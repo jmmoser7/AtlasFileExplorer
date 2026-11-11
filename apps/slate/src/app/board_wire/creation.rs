@@ -1,6 +1,7 @@
 //! Extracted adapter on the existing owner.
 use super::*;
 use slate_doc::agent_inputs;
+use slate_doc::wire::{connector_aabb_routed, scene_wire_obstacles, OrthoLane};
 
 #[cfg(test)]
 mod tests;

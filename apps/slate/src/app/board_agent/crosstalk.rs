@@ -982,13 +982,14 @@ impl SlateApp {
     /// Once a frame from `agent_pump`: offer finished replies, relay accepted
     /// ones when the partner can take them, and pause on failure or silence.
     pub(crate) fn pump_crosstalk(&mut self, ctx: &egui::Context) {
-        let chains = xt::chains(&self.doc().scene);
+        let topology = self.agent_topology();
+        let chains = &topology.crosstalk_chains;
         self.agents
             .crosstalk
             .runs
             .retain(|chain, _| chains.contains(chain));
         let mut active = false;
-        for chain in chains {
+        for chain in chains.iter().cloned() {
             let Some((_, owner)) =
                 xt::owner(&self.doc().scene, &chain).map(|(n, x)| (n.id, x.clone()))
             else {
@@ -1496,8 +1497,13 @@ impl SlateApp {
         // Ports: quiet at rest, revealed within PORT_REVEAL of the circle
         // itself or during a crosstalk drag, filled red once wired.
         let scene = &self.doc().scene;
+        let topology = self.agent_topology();
         let mut wired: HashSet<(NodeId, Side)> = HashSet::new();
-        for n in scene.nodes.iter().filter(|n| !n.hidden) {
+        for n in topology
+            .crosstalk_wires
+            .iter()
+            .filter_map(|id| scene.node(*id))
+        {
             if let (NodeKind::Connector(c), Some(_)) = (&n.kind, xt::crosstalk(n)) {
                 for end in [&c.a, &c.b] {
                     if let ConnectorEnd::Anchored { node, side, .. } = end {
@@ -1506,10 +1512,10 @@ impl SlateApp {
                 }
             }
         }
-        for n in scene
-            .nodes
+        for n in topology
+            .coding_cards
             .iter()
-            .filter(|n| !n.hidden && xt::is_coding_card(n))
+            .filter_map(|id| scene.node(*id))
         {
             if self.agent_in_choose_phase(n.id) || self.portal_capture_owns_viewport(n.id) {
                 continue;
@@ -1538,7 +1544,11 @@ impl SlateApp {
         // A blister at every crosswire's mid-span, older wires included; the
         // open one is a capsule the wire runs through (user, 28 September 2026).
         let mut blisters: Vec<Blister> = Vec::new();
-        for n in scene.nodes.iter().filter(|n| !n.hidden) {
+        for n in topology
+            .crosstalk_wires
+            .iter()
+            .filter_map(|id| scene.node(*id))
+        {
             let (NodeKind::Connector(c), Some(x)) = (&n.kind, xt::crosstalk(n)) else {
                 continue;
             };
@@ -2713,6 +2723,7 @@ mod tests {
     #[test]
     fn deleting_a_crosswire_ends_the_crosstalk_and_undo_restores_it() {
         let mut p = started("xt_delete");
+        let chain = chain(&p.h);
         let owner =
             p.h.app
                 .doc()
@@ -2730,6 +2741,14 @@ mod tests {
                 .node(owner)
                 .expect("the wire stays, hidden");
         assert!(node.hidden && xt::crosstalk(node).unwrap().ended);
+        assert_eq!(p.h.app.agent_topology().crosstalk_chains, [chain.clone()]);
+        p.h.app
+            .agents
+            .crosstalk
+            .runs
+            .insert(chain.clone(), Run::new(0, None));
+        p.h.app.pump_crosstalk(&egui::Context::default());
+        assert!(!p.h.app.agents.crosstalk.runs.contains_key(&chain));
         assert_eq!(status(&p.h), "Stopped by you");
         p.h.app.board_undo();
         assert!(!p.h.app.doc().scene.node(owner).unwrap().hidden);

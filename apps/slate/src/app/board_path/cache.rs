@@ -169,6 +169,15 @@ impl PathMeshCache {
         key: u64,
         build: impl FnOnce() -> InkMesh,
     ) -> Shared<CachedInkMesh> {
+        self.get_or_build_stroke(node_id, key, || CachedInkMesh::from(build()))
+    }
+
+    pub(crate) fn get_or_build_stroke(
+        &mut self,
+        node_id: NodeId,
+        key: u64,
+        build: impl FnOnce() -> CachedInkMesh,
+    ) -> Shared<CachedInkMesh> {
         let key = (node_id, key, false);
         if let Some(CachedGeometry::Stroke(c)) = self.get(key) {
             return c;
@@ -176,7 +185,7 @@ impl PathMeshCache {
         self.tess_misses = self.tess_misses.saturating_add(1);
         #[cfg(test)]
         let probe_started = self.probe_started();
-        let cached = Shared::new(CachedInkMesh::from(build()));
+        let cached = Shared::new(build());
         #[cfg(test)]
         self.probe_built(
             key,

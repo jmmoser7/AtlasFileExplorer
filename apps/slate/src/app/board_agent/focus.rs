@@ -9,23 +9,31 @@ impl SlateApp {
             return false;
         };
         let world = xf.s2w(p);
-        // The index strip under an album browses it as well.
-        let on_strip = self.doc().scene.nodes.iter().any(|n| {
-            let count = self.agent_images(n.id).len();
-            !n.hidden
-                && count > 1
-                && self.image_wheel(n.id) == ImageWheel::Album
-                && atlas_shell::home::album_strip_rect(
-                    self.result_strip_placement(n.id, xf.rect_w2s(n.rect)),
-                    count,
-                    xf.z,
-                )
-                .contains(p)
-        });
-        on_strip
-            || self
-                .doc()
-                .scene
+        let scene = &self.doc().scene;
+        let mut body_may_own_wheel = false;
+        for &id in &self.agent_topology().image_generators {
+            let Some(node) = scene.node(id).filter(|node| !node.hidden) else {
+                continue;
+            };
+            let on_body = node.rect.contains(world.x, world.y);
+            let body = self.result_strip_placement(id, xf.rect_w2s(node.rect));
+            let near_strip =
+                atlas_shell::home::album_strip_rect(body, usize::MAX, xf.z).contains(p);
+            if !on_body && !near_strip {
+                continue;
+            }
+            let wheel = self.image_wheel(id);
+            if near_strip
+                && wheel == ImageWheel::Album
+                && atlas_shell::home::album_strip_rect(body, self.agent_images(id).len(), xf.z)
+                    .contains(p)
+            {
+                return true;
+            }
+            body_may_own_wheel |= on_body && wheel != ImageWheel::Board;
+        }
+        body_may_own_wheel
+            && scene
                 .nodes
                 .iter()
                 .rev()
@@ -51,11 +59,11 @@ impl SlateApp {
             } else {
                 ImageWheel::Board
             }
-        } else if self.agent_images(id).len() > 1
-            && (!matches!(
-                self.doc().scene.node(id).map(|n| &n.kind),
-                Some(NodeKind::Image(_))
-            ) || (self.board_sel.len() == 1 && self.board_sel.contains(&id)))
+        } else if (!matches!(
+            self.doc().scene.node(id).map(|n| &n.kind),
+            Some(NodeKind::Image(_))
+        ) || (self.board_sel.len() == 1 && self.board_sel.contains(&id)))
+            && self.agent_images(id).len() > 1
         {
             ImageWheel::Album
         } else {

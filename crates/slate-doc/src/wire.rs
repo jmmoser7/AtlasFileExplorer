@@ -21,9 +21,10 @@ use vector_ink::rails::{nested_rails, ConnectionZone, LaneSpacing};
 
 #[path = "wire_scene_route.rs"]
 mod scene_route;
+pub(crate) use scene_route::SceneGraftCache;
 pub use scene_route::{
     connector_aabb, connector_aabb_routed, connector_route_in_scene,
-    connector_route_in_scene_with_hosts, scene_wire_hosts,
+    connector_route_in_scene_with_hosts, scene_wire_hosts, SceneWireRouting,
 };
 
 /// Authored connector routing. The session preference is only the creation

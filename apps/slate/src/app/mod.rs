@@ -700,6 +700,8 @@ pub struct SlateApp {
     pub(crate) hide_ghosts: Vec<(slate_doc::scene::Node, Instant)>,
     /// Scene generation the connector AABBs were last synced for.
     pub(crate) connector_sync_gen: u64,
+    connector_pick_bounds: Option<board_wire::ConnectorPickBounds>,
+    wire_route_cache: std::cell::RefCell<board_wire::WireRouteCache>,
     /// Live ortho-constrained drag: (world origin, snapped axis) for the
     /// hash-tick feedback; cleared every frame.
     pub(crate) ortho_feedback: Option<(egui::Pos2, egui::Vec2)>,
@@ -1054,6 +1056,8 @@ impl SlateApp {
             board_empty_menu: None,
             hide_ghosts: Vec::new(),
             connector_sync_gen: 0,
+            connector_pick_bounds: None,
+            wire_route_cache: Default::default(),
             ortho_feedback: None,
             zoom_armed: false,
             zoom_marquee: None,

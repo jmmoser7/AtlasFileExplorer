@@ -22,6 +22,15 @@ pub(super) fn layer(image: NodeId) -> egui::LayerId {
 }
 
 impl SlateApp {
+    pub(crate) fn prepared_media_chrome_host(&self) -> Option<NodeId> {
+        self.shape_properties
+            .last_chrome
+            .as_ref()?
+            .media
+            .filter(|prepared| prepared.tab == self.tab().id)
+            .map(|prepared| prepared.host)
+    }
+
     /// Adapt the one shell silhouette to the node's actual model and port sites.
     /// Image-backed media and rectangular portals inherit the same notch policy.
     pub(crate) fn media_host_surface(

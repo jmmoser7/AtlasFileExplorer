@@ -279,6 +279,7 @@ impl SlateApp {
         // Connector AABBs follow their endpoints; synced once per scene
         // generation (journal commits / undo / redo), never per frame.
         self.sync_connector_rects();
+        let input_span = atlas_core::session_log::span("slate.board.input");
         let palette = self.palette();
         self.paint_carried_history_view(ui.ctx());
         let modal_capture = ui.ctx().memory(|memory| memory.top_modal_layer().is_some());
@@ -355,18 +356,26 @@ impl SlateApp {
         let palette_wheel = frame_presentation_captures
             || dock_nav.canvas_wheel()
             || (other_toolbar_captures && !dock_nav.wheel_scrolls);
-        let over_agent_card = self.pointer_over_agent_card(&xf, pointer);
-        let over_image_album = !frame_body_input && self.pointer_over_image_album(&xf, pointer);
+        // Nested content retains egui's scroll feel. Board camera zoom and
+        // Shift-pan consume raw wheel input in its arrival frame.
+        let ((scroll, shift), camera_scroll) =
+            ui.input(|i| (Self::board_wheel_input(i), i.raw_scroll_delta));
+        let wheel_pending = scroll != 0.0 || camera_scroll != Vec2::ZERO;
+        let over_agent_card = wheel_pending && self.pointer_over_agent_card(&xf, pointer);
+        let over_image_album =
+            wheel_pending && !frame_body_input && self.pointer_over_image_album(&xf, pointer);
         // The project list and an overflowing card the person sized scroll.
         // Every other agent card still zooms the board.
         // An open navigable menu scrolls itself (P0.10).
-        let card_scrolls = !frame_presentation_captures
+        let card_scrolls = wheel_pending
+            && !frame_presentation_captures
             && ((!frame_body_input
                 && (self.pointer_over_project_picker(&xf, pointer)
                     || self.pointer_over_scrolling_agent_card(ui.ctx(), &xf, pointer)))
                 || atlas_shell::menu_wheel::wheel_owned(ui.ctx()));
         // --- camera ---
-        if !card_scrolls
+        if wheel_pending
+            && !card_scrolls
             && !presence_capture
             && (!over_image_album || frame_presentation_captures)
             && (resp.hovered()
@@ -376,50 +385,44 @@ impl SlateApp {
                 || palette_wheel)
             && !external_capture
         {
-            // Nested content retains egui's scroll feel. Board camera zoom
-            // and Shift-pan consume raw wheel input in its arrival frame.
-            let ((scroll, shift), camera_scroll) =
-                ui.input(|i| (Self::board_wheel_input(i), i.raw_scroll_delta));
-            if scroll != 0.0 || camera_scroll != Vec2::ZERO {
-                // Scroll over an unlocked 3D viewport zooms the model, not
-                // the board (Rhino wheel semantics while live).
-                let live_model = (!frame_presentation_captures)
-                    .then(|| wp.and_then(|w| self.live_model_at(w.x, w.y)))
-                    .flatten();
-                let sheet_scrolled = !frame_presentation_captures
-                    && !frame_body_input
-                    && live_model.is_none()
-                    && wp.is_some_and(|w| self.scroll_sheet(w, scroll, shift));
-                if let Some(id) = live_model {
-                    if scroll != 0.0 {
-                        self.model_scroll(id, scroll);
-                    }
-                } else if !sheet_scrolled && shift {
-                    let pan_scroll = camera_scroll.x + camera_scroll.y;
-                    if pan_scroll != 0.0 {
-                        let zc = self.tab().cam.z;
-                        self.tab_mut().cam.offset.x -= pan_scroll / zc;
-                        canvas_nav = true;
-                    }
-                } else if !sheet_scrolled && camera_scroll.y != 0.0 {
-                    if let Some(p) = pointer {
-                        self.board_zoom_at(
-                            p,
-                            atlas_core::display::SLATE_BOARD.wheel_factor(camera_scroll.y),
-                        );
-                        canvas_nav = true;
-                    }
+            // Scroll over an unlocked 3D viewport zooms the model, not
+            // the board (Rhino wheel semantics while live).
+            let live_model = (!frame_presentation_captures)
+                .then(|| wp.and_then(|w| self.live_model_at(w.x, w.y)))
+                .flatten();
+            let sheet_scrolled = !frame_presentation_captures
+                && !frame_body_input
+                && live_model.is_none()
+                && wp.is_some_and(|w| self.scroll_sheet(w, scroll, shift));
+            if let Some(id) = live_model {
+                if scroll != 0.0 {
+                    self.model_scroll(id, scroll);
                 }
-                if over_agent_card && !card_scrolls && live_model.is_none() {
-                    ui.ctx().input_mut(|i| {
-                        i.smooth_scroll_delta.y = 0.0;
-                        i.raw_scroll_delta.y = 0.0;
-                        if shift {
-                            i.smooth_scroll_delta.x = 0.0;
-                            i.raw_scroll_delta.x = 0.0;
-                        }
-                    });
+            } else if !sheet_scrolled && shift {
+                let pan_scroll = camera_scroll.x + camera_scroll.y;
+                if pan_scroll != 0.0 {
+                    let zc = self.tab().cam.z;
+                    self.tab_mut().cam.offset.x -= pan_scroll / zc;
+                    canvas_nav = true;
                 }
+            } else if !sheet_scrolled && camera_scroll.y != 0.0 {
+                if let Some(p) = pointer {
+                    self.board_zoom_at(
+                        p,
+                        atlas_core::display::SLATE_BOARD.wheel_factor(camera_scroll.y),
+                    );
+                    canvas_nav = true;
+                }
+            }
+            if over_agent_card && !card_scrolls && live_model.is_none() {
+                ui.ctx().input_mut(|i| {
+                    i.smooth_scroll_delta.y = 0.0;
+                    i.raw_scroll_delta.y = 0.0;
+                    if shift {
+                        i.smooth_scroll_delta.x = 0.0;
+                        i.raw_scroll_delta.x = 0.0;
+                    }
+                });
             }
         }
         let space = ui.input(|i| i.key_down(egui::Key::Space));
@@ -1258,6 +1261,8 @@ impl SlateApp {
         }
 
         brush_prof::lap("input");
+        drop(input_span);
+        let hover_span = atlas_core::session_log::span("slate.board.hover");
         // Hover cursors / rotate zones. Selection is not required.
         self.board_hover_hit = None;
         self.board_hover_node = None;
@@ -1292,6 +1297,7 @@ impl SlateApp {
         self.tick_hover_preview(hover_target, dt, ui.ctx());
         self.tick_image_segment_hover(ui, &xf, hover_live && !align_hovered, pointer, wp);
         brush_prof::lap("hover");
+        drop(hover_span);
 
         // Adjustment previews must show authored color/stroke without selection tint.
         // One painter also fades wire/line endpoint fills, not just their outlines.
@@ -1380,21 +1386,23 @@ impl SlateApp {
         }
         // Wires sit on the frame plate, then every other node paints over
         // them. A wire meets its host at the edge and does not cross that face.
-        for n in nodes
-            .iter()
-            .filter(|n| matches!(n.kind, NodeKind::Connector(_)))
         {
-            self.paint_board_node(ui, &painter, &xf, n, true);
+            let _wires = atlas_core::session_log::span("slate.board.wires");
+            self.paint_board_connectors(ui, &painter, &xf, &nodes);
         }
         self.paint_wire_grips(&selection_painter, &xf);
         self.paint_agent_history_rails(&painter, &xf);
         brush_prof::lap("collect");
-        board_path::tiles::paint_rest(self, ui, &painter, &xf, rect, &nodes);
+        {
+            let _content = atlas_core::session_log::span("slate.board.content");
+            board_path::tiles::paint_rest(self, ui, &painter, &xf, rect, &nodes);
+        }
         self.paint_fading_curves(ui, &painter, &xf);
         self.paint_presence_proposals(ui, &painter, &xf, None);
         self.paint_presence(&painter, &xf);
         drop(_nodes_span);
         brush_prof::lap("nodes");
+        let _tail = atlas_core::session_log::span("slate.board.overlays");
         self.paint_deck(ui.ctx(), &painter, &xf, palette.accent);
         self.paint_frame_presentation_marks(&painter, &xf);
         // Ctrl+H feedback: just-hidden nodes ghost out over 150 ms.

@@ -219,7 +219,10 @@ impl SlateApp {
         }
         use slate_doc::agent_inputs::{endpoint_node, InputKind};
         let mut wires = Vec::new();
-        for node in &self.doc().scene.nodes {
+        for wire in self.agent_incoming_wire_ids(id) {
+            let Some(node) = self.doc().scene.node(wire) else {
+                continue;
+            };
             let NodeKind::Connector(conn) = &node.kind else {
                 continue;
             };

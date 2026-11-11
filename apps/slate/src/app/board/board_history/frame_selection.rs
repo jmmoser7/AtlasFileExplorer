@@ -2,10 +2,16 @@
 use super::*;
 
 impl SlateApp {
+    pub(crate) fn has_selected_board_frame(&self) -> bool {
+        self.board_sel
+            .iter()
+            .any(|id| self.doc().scene.node(*id).is_some_and(Node::is_frame))
+    }
+
     /// Selected Frames temporarily own their hosted nodes for selection and
     /// manipulation. No authored group, lock, or membership is written.
     pub(crate) fn board_selected_frame_owner(&self, id: NodeId) -> Option<NodeId> {
-        if self.board_sel.is_empty() {
+        if !self.has_selected_board_frame() {
             return None;
         }
         self.doc().scene.frame_of(id).filter(|owner| {
@@ -27,11 +33,7 @@ impl SlateApp {
     }
 
     pub(crate) fn collapse_frame_selection(&mut self) {
-        if !self
-            .board_sel
-            .iter()
-            .any(|id| self.doc().scene.node(*id).is_some_and(Node::is_frame))
-        {
+        if !self.has_selected_board_frame() {
             return;
         }
         self.board_sel = self.board_selection_roots().into_iter().collect();

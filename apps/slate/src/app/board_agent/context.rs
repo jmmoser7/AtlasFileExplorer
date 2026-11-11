@@ -1,8 +1,113 @@
 //! Context pocket, retract, and fork.
 
 use super::*;
+use atlas_ai::agent::PortalView;
+
+pub(super) struct AgentTopology {
+    revision: (u64, u64, u64),
+    pub(super) cards: Vec<(NodeId, Option<slate_doc::scene::AgentPortalRef>)>,
+    pub(super) card_ids: HashSet<NodeId>,
+    pub(super) image_generators: Vec<NodeId>,
+    pub(super) output_agents: Vec<NodeId>,
+    pub(super) coding_cards: Vec<NodeId>,
+    pub(super) crosstalk_wires: Vec<NodeId>,
+    pub(super) crosstalk_chains: Vec<String>,
+    pub(super) live_generators: Vec<NodeId>,
+    pub(super) local_images: Vec<NodeId>,
+    pub(super) non_train_sessions: HashSet<String>,
+    pub(super) rejoin_candidates: Vec<NodeId>,
+    pub(super) shown_text: Vec<String>,
+    pub(super) incoming: slate_doc::agent_inputs::IncomingWires,
+    parents: HashSet<NodeId>,
+}
 
 impl SlateApp {
+    pub(super) fn agent_topology(&self) -> std::rc::Rc<AgentTopology> {
+        let scene = &self.doc().scene;
+        let revision = (self.tab().id, self.scene_gen, scene.scene_gen());
+        let mut cache = self.agents.topology.borrow_mut();
+        if let Some(topology) = cache.as_ref().filter(|entry| entry.revision == revision) {
+            return topology.clone();
+        }
+        let mut topology = AgentTopology {
+            revision,
+            cards: Vec::new(),
+            card_ids: HashSet::new(),
+            image_generators: Vec::new(),
+            output_agents: Vec::new(),
+            coding_cards: Vec::new(),
+            crosstalk_wires: Vec::new(),
+            crosstalk_chains: Vec::new(),
+            live_generators: Vec::new(),
+            local_images: Vec::new(),
+            non_train_sessions: HashSet::new(),
+            rejoin_candidates: Vec::new(),
+            shown_text: Vec::new(),
+            incoming: Default::default(),
+            parents: HashSet::new(),
+        };
+        for node in &scene.nodes {
+            topology.incoming.record(node);
+            if !node.hidden && slate_doc::crosstalk::is_coding_card(node) {
+                topology.coding_cards.push(node.id);
+            }
+            if let Some(wire) = slate_doc::crosstalk::crosstalk(node) {
+                if !node.hidden {
+                    topology.crosstalk_wires.push(node.id);
+                }
+                // Hidden owners still end the chain and retire its run.
+                if wire.is_owner() {
+                    topology.crosstalk_chains.push(wire.chain.clone());
+                }
+            }
+            let agent = slate_doc::agent_chat::agent(node);
+            if let Some(agent) = agent {
+                if agent.view == PortalView::Images {
+                    topology.image_generators.push(node.id);
+                }
+                if !node.hidden && !agent.chat.draft && !agent.provider.is_empty() {
+                    topology.output_agents.push(node.id);
+                }
+                if !agent.chat.train {
+                    topology.non_train_sessions.insert(agent.session.clone());
+                }
+                if let Some(parent) = agent.chat.parent {
+                    topology.parents.insert(parent);
+                }
+                if agent.live && atlas_ai::agent::local_image_engine(&agent.provider) {
+                    topology.live_generators.push(node.id);
+                }
+                if matches!(agent.provider.as_str(), "codex" | "cursor")
+                    && agent.view == PortalView::Chat
+                    && agent.channel.is_some()
+                {
+                    topology.rejoin_candidates.push(node.id);
+                }
+                if let Some(reference) = &agent.generator.shown_text {
+                    topology.shown_text.push(reference.source.locator.clone());
+                }
+            }
+            if slate_doc::agent_chat::is_agent_node(node) {
+                topology.cards.push((node.id, agent.cloned()));
+                topology.card_ids.insert(node.id);
+                if agent.is_some_and(|agent| atlas_ai::agent::local_image_engine(&agent.provider)) {
+                    topology.local_images.push(node.id);
+                }
+            }
+        }
+        topology.local_images.sort_unstable();
+        let topology = std::rc::Rc::new(topology);
+        *cache = Some(topology.clone());
+        topology
+    }
+
+    pub(crate) fn agent_incoming_wire_ids(&self, target: NodeId) -> Vec<NodeId> {
+        self.agent_topology()
+            .incoming
+            .candidate_ids(target)
+            .to_vec()
+    }
+
     pub(crate) fn begin_context_retract(&mut self, portals: &[NodeId]) {
         self.retract_context(portals, &HashSet::new());
     }
@@ -235,20 +340,10 @@ impl SlateApp {
         }
     }
     pub(super) fn agent_has_child(&self, id: NodeId) -> bool {
-        self.doc()
-            .scene
-            .nodes
-            .iter()
-            .any(|n| slate_doc::agent_chat::agent(n).is_some_and(|a| a.chat.parent == Some(id)))
+        self.agent_topology().parents.contains(&id)
     }
     pub(super) fn agent_linear_terminal(&self, id: NodeId) -> bool {
-        self.agent_linear(id)
-            && !self
-                .doc()
-                .scene
-                .nodes
-                .iter()
-                .any(|n| slate_doc::agent_chat::agent(n).is_some_and(|a| a.chat.parent == Some(id)))
+        self.agent_linear(id) && !self.agent_has_child(id)
     }
     pub(super) fn agent_linear(&self, id: NodeId) -> bool {
         self.doc()

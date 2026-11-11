@@ -26,6 +26,7 @@ mod trim;
 
 pub use hit::CachedStrokeHit;
 pub use kurbo;
+pub use mesh::{aa_strip_indices, AA_STRIP_ALPHAS};
 
 /// Line cap style for open stroke ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

@@ -1,7 +1,7 @@
 # Slate website
 
 A small static GitHub Pages site for downloads, documentation and suggestions.
-No npm dependencies, third-party fonts, tracking or server-side services.
+It has no npm dependencies, third-party fonts, or tracking.
 
 ## Preview and check
 
@@ -32,7 +32,13 @@ Download URLs follow the latest stable release, so no version needs to be
 changed when publishing a new Windows build. Preview uses the existing
 `preview` release tag. Both installers include Slate and File Atlas.
 
-Suggestions open a prefilled GitHub issue for the visitor to review and submit
-with their own account. The form does not automatically publish or send anything.
-The no-JavaScript form also works. Existing in-app reports remain local bundles.
+Set the repository Actions variable `SLATE_SUGGESTION_ENDPOINT` to the public
+HTTPS `/suggestions` endpoint of the private intake relay. For a local site
+build, the same environment variable supplies the endpoint. Allow the website
+origin `https://jmmoser7.github.io` in the relay's CORS configuration. The URL
+is public. GitHub credentials belong in the relay's secret store.
+
+The form submits directly to the relay, which creates a private issue without
+requiring the visitor to sign in. An unconfigured build shows the form with
+sending disabled. Local report files saved in Slate are shared separately.
 

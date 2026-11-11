@@ -1,5 +1,7 @@
 //! Shared scene-aware route and bounds, including authored memory traces.
 use super::*;
+use std::cell::OnceCell;
+use std::sync::Arc;
 
 /// Visible-node host lookup for both interpreters.
 pub fn scene_wire_hosts(scene: &Scene) -> impl Fn(NodeId) -> Option<WireHost> + '_ {
@@ -34,87 +36,166 @@ pub fn connector_route_in_scene_with_hosts(
     routing: WireRouting,
     host_of: impl Fn(NodeId) -> Option<WireHost>,
 ) -> Option<ConnectorPath> {
-    if let Some(Node {
-        kind: NodeKind::Connector(conn),
-        ..
-    }) = connector_id.and_then(|id| scene.node(id))
-    {
-        if let Some(path) = memory_route(conn, &host_of) {
-            return Some(path);
-        }
-    }
-    let obstacles = scene_wire_obstacles(scene);
-    let lane = match (routing, connector_id) {
-        (WireRouting::Orthogonal, Some(id)) => scene_ortho_lanes(scene)
-            .get(&id)
-            .copied()
-            .unwrap_or_default(),
-        _ => OrthoLane::default(),
-    };
-    let graft = connector_id.and_then(|id| graft_offset(scene, id));
-    connector_route(
-        a,
-        b,
-        |id| {
-            let mut host = host_of(id)?;
-            if let Some((target, offset)) = graft.filter(|(target, _)| *target == id) {
-                let _ = target;
-                let angle = host.rotation_deg.to_radians();
-                host.rect.x -= offset * angle.sin();
-                host.rect.y += offset * angle.cos();
-            }
-            Some(host)
-        },
-        routing,
-        &obstacles,
-        if graft.is_some() {
-            OrthoLane::default()
-        } else {
-            lane
-        },
-    )
+    SceneWireRouting::default().route(scene, connector_id, a, b, routing, host_of)
 }
 
-fn graft_offset(scene: &Scene, connector: NodeId) -> Option<(NodeId, f32)> {
-    use crate::agent_inputs::endpoint_node;
-    let NodeKind::Connector(conn) = &scene.node(connector)?.kind else {
-        return None;
-    };
-    let binding = conn.binding.as_ref()?;
-    let target = endpoint_node(binding.target_end(conn))?;
-    let slot = binding.slot.as_deref()?;
-    let agent = crate::agent_chat::agent(scene.node(target)?)?;
-    if !agent.generator.grafted_slots.contains(slot) {
-        return None;
+/// Shared authored routing inputs for a single scene revision. Only square
+/// wires use the obstacle and lane tables.
+#[derive(Default)]
+pub struct SceneWireRouting {
+    obstacles: OnceCell<Vec<WireObstacle>>,
+    lanes: OnceCell<HashMap<NodeId, OrthoLane>>,
+}
+
+impl SceneWireRouting {
+    pub fn route(
+        &self,
+        scene: &Scene,
+        connector_id: Option<NodeId>,
+        a: &ConnectorEnd,
+        b: &ConnectorEnd,
+        routing: WireRouting,
+        host_of: impl Fn(NodeId) -> Option<WireHost>,
+    ) -> Option<ConnectorPath> {
+        let connector = connector_id.and_then(|id| match &scene.node(id)?.kind {
+            NodeKind::Connector(conn) => Some((id, conn)),
+            _ => None,
+        });
+        if let Some((_, conn)) = connector {
+            if let Some(path) = memory_route(conn, &host_of) {
+                return Some(path);
+            }
+        }
+        let obstacles = match routing {
+            WireRouting::Bezier => &[][..],
+            WireRouting::Orthogonal => self
+                .obstacles
+                .get_or_init(|| scene_wire_obstacles(scene))
+                .as_slice(),
+        };
+        let graft = connector.and_then(|(id, conn)| {
+            conn.binding.as_ref()?.slot.as_ref()?;
+            scene.with_graft_terminals(|index| index.offsets.get(&id).copied())
+        });
+        let lane = match (routing, connector_id, graft) {
+            (WireRouting::Orthogonal, Some(id), None) => self
+                .lanes
+                .get_or_init(|| scene_ortho_lanes(scene))
+                .get(&id)
+                .copied()
+                .unwrap_or_default(),
+            _ => OrthoLane::default(),
+        };
+        connector_route(
+            a,
+            b,
+            |id| {
+                let mut host = host_of(id)?;
+                if let Some((_, offset)) = graft.filter(|(target, _)| *target == id) {
+                    let angle = host.rotation_deg.to_radians();
+                    host.rect.x -= offset * angle.sin();
+                    host.rect.y += offset * angle.cos();
+                }
+                Some(host)
+            },
+            routing,
+            obstacles,
+            lane,
+        )
     }
-    let mut wires: Vec<_> = scene
-        .nodes
-        .iter()
-        .filter_map(|node| {
-            let NodeKind::Connector(conn) = &node.kind else {
-                return None;
+}
+
+/// Authored graft groups do not depend on camera, host previews or renderer.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SceneGraftCache {
+    revision: Option<(u64, usize)>,
+    index: Arc<GraftTerminals>,
+}
+
+#[derive(Debug, Default)]
+struct GraftTerminals {
+    counts: HashMap<NodeId, HashMap<String, usize>>,
+    offsets: HashMap<NodeId, (NodeId, f32)>,
+}
+
+impl Scene {
+    fn with_graft_terminals<T>(&self, f: impl FnOnce(&GraftTerminals) -> T) -> T {
+        let revision = (self.scene_gen(), self.nodes.len());
+        let mut cache = self.graft_cache.borrow_mut();
+        if cache.revision != Some(revision) {
+            *cache = SceneGraftCache {
+                revision: Some(revision),
+                index: Arc::new(GraftTerminals::build(self)),
             };
-            let binding = conn.binding.as_ref()?;
-            (endpoint_node(binding.target_end(conn)) == Some(target)
-                && binding.slot.as_deref() == Some(slot))
-            .then(|| {
-                (
-                    if binding.order.is_empty() {
-                        vec![node.id.0]
-                    } else {
-                        binding.order.clone()
-                    },
+        }
+        f(&cache.index)
+    }
+
+    /// A grafted input's authored fan size, including hidden wires.
+    pub fn graft_input_count(&self, target: NodeId, slot: &str) -> Option<usize> {
+        self.with_graft_terminals(|index| index.counts.get(&target)?.get(slot).copied())
+    }
+}
+
+impl GraftTerminals {
+    fn build(scene: &Scene) -> Self {
+        let mut groups: HashMap<_, Vec<(&[u64], NodeId)>> = scene
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                Some((
                     node.id,
-                )
+                    &crate::agent_chat::agent(node)?.generator.grafted_slots,
+                ))
             })
-        })
-        .collect();
-    wires.sort();
-    let index = wires.iter().position(|(_, id)| *id == connector)?;
-    Some((
-        target,
-        crate::wire_host::graft_terminal_offset(index, wires.len()),
-    ))
+            .flat_map(|(id, slots)| {
+                slots
+                    .iter()
+                    .map(move |slot| ((id, slot.as_str()), Vec::new()))
+            })
+            .collect();
+        if groups.is_empty() {
+            return Self::default();
+        }
+        for node in &scene.nodes {
+            let NodeKind::Connector(conn) = &node.kind else {
+                continue;
+            };
+            let Some(binding) = &conn.binding else {
+                continue;
+            };
+            let (Some(target), Some(slot)) = (
+                crate::agent_inputs::endpoint_node(binding.target_end(conn)),
+                binding.slot.as_deref(),
+            ) else {
+                continue;
+            };
+            let Some(wires) = groups.get_mut(&(target, slot)) else {
+                continue;
+            };
+            let order = if binding.order.is_empty() {
+                std::slice::from_ref(&node.id.0)
+            } else {
+                binding.order.as_slice()
+            };
+            wires.push((order, node.id));
+        }
+        let mut index = Self::default();
+        for ((target, slot), mut wires) in groups {
+            wires.sort_unstable();
+            let count = wires.len();
+            index
+                .counts
+                .entry(target)
+                .or_default()
+                .insert(slot.to_owned(), count);
+            for (ordinal, (_, id)) in wires.into_iter().enumerate() {
+                let offset = crate::wire_host::graft_terminal_offset(ordinal, count);
+                index.offsets.insert(id, (target, offset));
+            }
+        }
+        index
+    }
 }
 
 /// AABB of the derived route (connector `Node.rect` stays equal to this).
@@ -272,6 +353,86 @@ mod tests {
                     .flatten()
             });
         assert!(path.is_none());
+    }
+
+    #[test]
+    fn graft_terminals_share_order_and_follow_scene_edits() {
+        use crate::agent_inputs::{InputKind, WireBinding};
+        let (mut scene, _, target, a, b) = hosts();
+        let mut agent = crate::scene::AgentPortalRef::unbound(atlas_agent::PortalView::Images);
+        agent.generator.grafted_slots.insert("media".into());
+        let target_node = scene.node_mut(target).unwrap();
+        let NodeKind::Image(image) = &mut target_node.kind else {
+            panic!("image host");
+        };
+        image.agent = Some(Box::new(agent));
+        let add_wire = |scene: &mut Scene, order, input_b| {
+            let (from, to) = if input_b { (a, b) } else { (b, a) };
+            add(
+                scene,
+                WorldRect::default(),
+                NodeKind::Connector(ConnectorNode {
+                    a: from,
+                    b: to,
+                    stroke: Stroke::none(),
+                    color: None,
+                    routing: None,
+                    arrow_a: false,
+                    arrow_b: false,
+                    label: None,
+                    display: Default::default(),
+                    crosstalk: None,
+                    binding: Some(WireBinding {
+                        input_b,
+                        kind: InputKind::Images,
+                        output: None,
+                        order,
+                        all_images: false,
+                        consumed: false,
+                        slot: Some("media".into()),
+                    }),
+                }),
+            )
+        };
+        let late = add_wire(&mut scene, Vec::new(), true);
+        let early = add_wire(&mut scene, vec![1], false);
+        scene.node_mut(late).unwrap().hidden = true;
+        let anchor = scene_wire_hosts(&scene)(target)
+            .unwrap()
+            .anchor(Side::Left, 0.5);
+        let target_y = |scene: &Scene, id| {
+            let NodeKind::Connector(conn) = &scene.node(id).unwrap().kind else {
+                panic!("connector");
+            };
+            let path =
+                connector_route_in_scene(scene, Some(id), &conn.a, &conn.b, WireRouting::Bezier)
+                    .unwrap();
+            if conn.binding.as_ref().unwrap().input_b {
+                path.end()[1]
+            } else {
+                path.start()[1]
+            }
+        };
+        assert_eq!(scene.graft_input_count(target, "media"), Some(2));
+        assert_eq!(target_y(&scene, early), anchor[1] - 2.0);
+        assert_eq!(target_y(&scene, late), anchor[1] + 2.0);
+
+        let before = scene.node(target).unwrap().clone();
+        let mut after = before.clone();
+        crate::agent_chat::agent_mut(&mut after)
+            .unwrap()
+            .generator
+            .grafted_slots
+            .clear();
+        let edit = SceneCmd::Patch {
+            before: Box::new(before),
+            after: Box::new(after),
+        };
+        assert!(scene.apply(&edit));
+        assert_eq!(scene.graft_input_count(target, "media"), None);
+        assert_eq!(target_y(&scene, early), anchor[1]);
+        assert!(scene.apply(&edit.inverted()));
+        assert_eq!(target_y(&scene, early), anchor[1] - 2.0);
     }
 
     #[test]

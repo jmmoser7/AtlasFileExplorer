@@ -55,7 +55,6 @@ impl SlateApp {
         let z = xf.z;
         let images = self.agent_images(id);
         let shown = self.agent_shown_index(id);
-        let view = self.generator_view(id);
         let picked = matches!(&node.kind, NodeKind::Image(i) if !i.item.is_none());
         let hovered = ui
             .ctx()
@@ -152,6 +151,7 @@ impl SlateApp {
         }
         let running = self.agent_is_running(id);
         let waiting = self.generations_waiting(id);
+        let progress = running || waiting > 0;
         if running {
             self.paint_generation_preview(painter, id, body, z);
             ui.ctx().request_repaint_after(Duration::from_millis(100));
@@ -169,7 +169,8 @@ impl SlateApp {
                 reveal,
                 z,
             );
-            if running || waiting > 0 {
+            if progress {
+                let view = self.generator_view(id);
                 self.paint_run_progress(
                     ui,
                     painter,
@@ -193,7 +194,9 @@ impl SlateApp {
         }
         let previews = agent.provider == "comfy";
         if hud {
-            self.paint_run_progress(ui, painter, id, body, z, view.task().working(), previews);
+            let view = progress.then(|| self.generator_view(id));
+            let working = view.as_ref().map_or("", |view| view.task().working());
+            self.paint_run_progress(ui, painter, id, body, z, working, previews);
         }
         self.paint_agent_album_strip(
             ui,
@@ -208,6 +211,7 @@ impl SlateApp {
         if !reveal || !legible {
             return;
         }
+        let view = self.generator_view(id);
         let text_top = self.paint_generator_chips(ui, painter, id, body, &view, z);
         let ink = self.palette().overlay();
         let failure = match self.agents.awaiting.get(&id) {

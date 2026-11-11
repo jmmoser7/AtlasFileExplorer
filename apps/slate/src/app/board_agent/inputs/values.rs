@@ -41,7 +41,7 @@ impl SlateApp {
                 check_source,
             );
         }
-        slate_doc::agent_inputs::snapshot_with_value_source(
+        self.agent_topology().incoming.snapshot_with_value_source(
             self.doc(),
             id,
             AgentContextScope::Selection,

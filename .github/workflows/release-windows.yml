@@ -17,6 +17,8 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      SLATE_SUGGESTION_ENDPOINT: ${{ vars.SLATE_SUGGESTION_ENDPOINT }}
     outputs:
       version: ${{ steps.version.outputs.version }}
       channel: ${{ steps.version.outputs.channel }}

@@ -78,14 +78,18 @@ impl SlateApp {
     }
 
     fn selected_polygon_layouts(&self, xf: &BoardXf) -> Vec<(Vec<Pos2>, Vec<SidesGlyph>)> {
-        self.doc()
-            .scene
-            .nodes
+        let scene = &self.doc().scene;
+        let mut selected: Vec<_> = self
+            .board_sel
             .iter()
-            .rev()
-            .filter(|n| self.board_sel.contains(&n.id))
-            .filter_map(|n| self.polygon_sides_layout(n, xf))
-            .collect()
+            .filter_map(|id| {
+                let index = scene.index_of(*id)?;
+                self.polygon_sides_layout(&scene.nodes[index], xf)
+                    .map(|layout| (index, layout))
+            })
+            .collect();
+        selected.sort_unstable_by_key(|(index, _)| std::cmp::Reverse(*index));
+        selected.into_iter().map(|(_, layout)| layout).collect()
     }
 
     /// The +/− under `screen`, shown or not: pointing at one reveals it.

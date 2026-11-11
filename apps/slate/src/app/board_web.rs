@@ -38,6 +38,7 @@ pub use input::WebInput;
 mod package;
 mod presentation;
 mod scheduler;
+mod source_polls;
 
 mod control;
 mod table_links;
@@ -373,9 +374,6 @@ fn default_host() -> Box<dyn WebHost> {
 // ---------------------------------------------------------------------------
 
 struct WebView {
-    /// Bumped whenever the locator or viewport changes, so a capture that was
-    /// already in flight is discarded rather than painted (Art. II.3).
-    generation: u64,
     /// Locator + viewport the current derived state belongs to.
     key: String,
     state: WebState,
@@ -401,18 +399,16 @@ struct WebView {
     /// Last painted rect in client physical pixels, for pop-up placement.
     anchor_px: Option<PxRect>,
     on_screen: bool,
+    was_on_screen: bool,
     live: bool,
     last_focus: Option<Instant>,
     /// Last time we asked the host for a captured frame. Even "no frame yet"
     /// should not become a zero-delay polling loop.
     last_frame_probe: Option<Instant>,
-    last_poll: Option<Instant>,
     source_mtime: Option<SystemTime>,
     /// Local source changed while this portal still holds a pool slot — reload
     /// on the next admit rather than waiting for eviction (D21).
     reload_pending: bool,
-    /// A metadata probe is in flight; do not spawn another.
-    poll_inflight: bool,
     /// Last off-thread existence probe. `None` means not yet answered.
     source_exists: Option<bool>,
     /// In-page URL last seen while this portal was live. Survives pool
@@ -424,7 +420,6 @@ struct WebView {
 impl WebView {
     fn new(key: String) -> Self {
         Self {
-            generation: 0,
             key,
             state: WebState::Unknown,
             poster: None,
@@ -443,30 +438,27 @@ impl WebView {
             area_px: 0.0,
             anchor_px: None,
             on_screen: false,
+            was_on_screen: false,
             live: false,
             last_focus: None,
             last_frame_probe: None,
-            last_poll: None,
             source_mtime: None,
             reload_pending: false,
-            poll_inflight: false,
             source_exists: None,
             resume_url: None,
         }
     }
 }
 
-/// One local-source probe result. Generation-tagged so a rebind discards it.
-struct SourcePoll {
-    id: NodeId,
-    generation: u64,
-    exists: bool,
-    mtime: Option<SystemTime>,
-}
-
 /// Board-wide web portal state. One per app, not per portal.
 pub struct WebRuntime {
     views: HashMap<NodeId, WebView>,
+    /// Geometry painted since the previous pump, including presentation.
+    painted: HashSet<NodeId>,
+    scene_revision: Option<(u64, u64, u64)>,
+    /// Authored order doubles as the live pool's tie breaker. Hidden
+    /// placements can still appear in the worklist to retire a host.
+    placements: Vec<(NodeId, Option<slate_doc::WorldRect>)>,
     /// Origins the human has permitted this session, keyed `scheme://host`.
     /// Never journaled and never written into the `.slate`: a workbook you
     /// receive must not arrive already trusting a host (D26, D32).
@@ -494,7 +486,6 @@ pub struct WebRuntime {
     pointer_down: u8,
     pointer_sample: Option<input::PointerSample>,
     host: Box<dyn WebHost>,
-    next_generation: u64,
     /// Texture uploads already spent this frame (D29).
     uploads_this_frame: usize,
     /// Portals with a frame waiting for an upload slot.
@@ -504,8 +495,7 @@ pub struct WebRuntime {
     last_page_input: Option<Instant>,
     /// Off-thread local-source probes (Art. II.2 — never `metadata` on the
     /// frame loop; a share can take seconds).
-    poll_tx: crossbeam_channel::Sender<SourcePoll>,
-    poll_rx: crossbeam_channel::Receiver<SourcePoll>,
+    source_polls: source_polls::SourcePolls,
     /// Bounded off-thread table refresh and cached dashboard scripts.
     link_cache: table_links::TableLinks,
     controls: control::Controls,
@@ -531,9 +521,11 @@ pub struct WebRuntime {
 
 impl Default for WebRuntime {
     fn default() -> Self {
-        let (poll_tx, poll_rx) = crossbeam_channel::unbounded();
         Self {
             views: HashMap::new(),
+            painted: HashSet::new(),
+            scene_revision: None,
+            placements: Vec::new(),
             consent: HashSet::new(),
             consent_file: None,
             saved_consent: HashMap::new(),
@@ -546,12 +538,10 @@ impl Default for WebRuntime {
             pointer_down: 0,
             pointer_sample: None,
             host: default_host(),
-            next_generation: 1,
             uploads_this_frame: 0,
             backlog: Vec::new(),
             last_page_input: None,
-            poll_tx,
-            poll_rx,
+            source_polls: source_polls::SourcePolls::default(),
             link_cache: table_links::TableLinks::default(),
             controls: control::Controls::default(),
             text_pending: HashSet::new(),
@@ -678,12 +668,6 @@ impl WebRuntime {
     /// How many webviews currently hold a pool slot.
     pub fn live_count(&self) -> usize {
         self.views.values().filter(|v| v.live).count()
-    }
-
-    fn generation(&mut self) -> u64 {
-        let g = self.next_generation;
-        self.next_generation = self.next_generation.wrapping_add(1).max(1);
-        g
     }
 }
 
@@ -1049,89 +1033,49 @@ impl SlateApp {
         self.web.uploads_this_frame = 0;
         self.web.pixel_ms = 0.0;
         self.web.host_ms = 0.0;
-        self.drain_source_polls();
+        self.web.source_polls.drain();
         self.drain_web_stills(ctx);
         self.pump_dashboard_controls(ctx);
-        let portals = self.web_portals();
+        let portals = {
+            let _span = atlas_core::session_log::span("slate.web.worklist");
+            self.prune_web_views();
+            self.web_pump_portals()
+        };
         if portals.is_empty() {
-            if !self.web.views.is_empty() {
-                let stale: Vec<NodeId> = self.web.views.keys().copied().collect();
-                for id in stale {
-                    self.web.host.evict(id);
-                    self.web.note_host(id, false);
-                    self.web.views.remove(&id);
-                }
-                self.web_blur();
-            }
+            self.web.painted.clear();
             return;
         }
 
-        let live_ids: HashSet<NodeId> = portals.iter().map(|(id, _, _)| *id).collect();
-        let dropped: Vec<NodeId> = self
-            .web
-            .views
-            .keys()
-            .copied()
-            .filter(|id| !live_ids.contains(id))
-            .collect();
-        for id in dropped {
-            self.web.host.evict(id);
-            self.web.note_host(id, false);
-            self.web.views.remove(&id);
+        {
+            let _span = atlas_core::session_log::span("slate.web.host_init");
+            self.ensure_web_host(ctx);
         }
-        if self.web.focused.is_some_and(|id| !live_ids.contains(&id)) {
-            self.web_blur();
-        }
-
-        self.ensure_web_host(ctx);
         let workbook = self.tab().path.clone();
         let host_ok = self.web.host.available();
         let mut candidates = Vec::with_capacity(portals.len());
 
+        let state_span = atlas_core::session_log::span("slate.web.state");
         for (id, portal, _rect) in &portals {
-            let web = portal.web_ref();
-            let key = view_key(portal, &web);
-            let regenerate = self.web.views.get(id).is_none_or(|v| v.key != key);
-            if regenerate {
-                if self.web.focused == Some(*id) {
-                    self.web.reset_page_input();
-                }
-                self.remember_web_visit(*id);
-                let locator = portal
-                    .source
+            let regenerate = self.refresh_web_view(*id, portal);
+            let focused = self.web.focused == Some(*id);
+            let maximized = self.portal_chrome.maximized == Some(*id);
+            let pinned = self.web.host.holds_popup(*id)
+                || self
+                    .web
+                    .agent_focus_lease
                     .as_ref()
-                    .map(|s| s.locator.as_str())
-                    .unwrap_or_default();
-                let resume = self.web.views.get(id).and_then(|v| {
-                    v.key
-                        .starts_with(&format!("{locator}|"))
-                        .then(|| v.resume_url.clone())
-                        .flatten()
-                });
-                let generation = self.web.generation();
-                self.web.host.evict(*id);
-                let mut view = WebView::new(key);
-                view.generation = generation;
-                view.resume_url = resume;
-                view.still_key = still_key_for(locator);
-                // Viewport changes restart the host, not the last good image.
-                // A different source must never inherit another page's poster.
-                if let Some(old) = self.web.views.get_mut(id) {
-                    if old.key.starts_with(&format!("{locator}|")) {
-                        view.poster = old.poster.take();
-                        view.poster_at = old.poster_at;
-                        view.poster_wall = old.poster_wall;
-                        view.poster_bytes = old.poster_bytes;
-                        view.poster_size = old.poster_size;
-                        view.poster_fresh = old.poster_fresh;
-                        view.cached_text = old.cached_text.take();
-                        view.cached_text_at = old.cached_text_at;
-                        view.text_miss = old.text_miss;
-                    }
-                }
-                self.web.views.insert(*id, view);
-            }
-            if !self.web.stills.is_off()
+                    .is_some_and(|(owner, _)| owner == id);
+            let demanded = focused
+                || maximized
+                || pinned
+                || self.web.text_pending.contains(id)
+                || self
+                    .web
+                    .views
+                    .get(id)
+                    .is_some_and(|v| v.on_screen || v.live);
+            if (demanded || regenerate)
+                && !self.web.stills.is_off()
                 && self.web.views.get(id).is_some_and(|v| {
                     v.poster.is_none() && !v.still_requested && !v.still_key.is_empty()
                 })
@@ -1142,7 +1086,7 @@ impl SlateApp {
                     v.still_requested = true;
                 }
             }
-            if self.portal_chrome.maximized == Some(*id) {
+            if maximized {
                 let screen = ctx.screen_rect();
                 let collapsed = self.portal_chrome_collapsed(*id);
                 let corner = self
@@ -1164,29 +1108,29 @@ impl SlateApp {
                 }
             }
             let (state, renderable) =
-                self.resolve_web_state(*id, portal, workbook.as_deref(), host_ok);
+                self.resolve_web_state(ctx, *id, portal, workbook.as_deref(), host_ok, demanded);
             let view = self.web.views.get_mut(id).expect("view inserted above");
             // A portal that already has pixels keeps saying `poster` rather
             // than regressing to `unknown` while it waits for its slot.
             view.state = state;
+            if !view.on_screen && !pinned {
+                continue;
+            }
             candidates.push(Candidate {
                 id: *id,
                 height_px: view.height_px,
                 area_px: view.area_px,
                 on_screen: view.on_screen,
-                focused: self.web.focused == Some(*id),
+                focused,
                 last_focus: view.last_focus,
                 renderable,
                 was_live: view.live,
-                pinned: self.web.host.holds_popup(*id)
-                    || self
-                        .web
-                        .agent_focus_lease
-                        .as_ref()
-                        .is_some_and(|(owner, _)| owner == id),
+                pinned,
             });
         }
+        drop(state_span);
 
+        let admit_span = atlas_core::session_log::span("slate.web.admit");
         let admitted = admit(&candidates, LIVE_POOL);
         let admitted_set: HashSet<NodeId> = admitted.iter().copied().collect();
         let host_started = Instant::now();
@@ -1226,13 +1170,21 @@ impl SlateApp {
             }
         }
         self.web.host_ms += host_started.elapsed().as_secs_f32() * 1000.0;
+        drop(admit_span);
 
-        self.pump_web_pixels(ctx, admitted);
+        {
+            let _span = atlas_core::session_log::span("slate.web.pixels");
+            self.pump_web_pixels(ctx, admitted);
+        }
         // Painting renews visibility. A culled/hidden portal must not keep a
         // stale on-screen flag (and browser slot) forever.
-        for view in self.web.views.values_mut() {
-            view.on_screen = false;
+        for (id, _, _) in portals {
+            if let Some(view) = self.web.views.get_mut(&id) {
+                view.was_on_screen = view.on_screen;
+                view.on_screen = false;
+            }
         }
+        self.web.painted.clear();
     }
 
     /// Exact source-key thumbnails retain independent textures as live posters change.
@@ -1373,33 +1325,15 @@ impl SlateApp {
         self.web.still_inbox = later;
     }
 
-    /// Apply finished local-source probes. Generation-tagged so a rebind that
-    /// happened while the worker was out is discarded rather than painted.
-    fn drain_source_polls(&mut self) {
-        while let Ok(poll) = self.web.poll_rx.try_recv() {
-            let Some(v) = self.web.views.get_mut(&poll.id) else {
-                continue;
-            };
-            if v.generation != poll.generation {
-                continue;
-            }
-            v.poll_inflight = false;
-            v.source_exists = Some(poll.exists);
-            let changed = v.source_mtime.is_some() && v.source_mtime != poll.mtime;
-            v.source_mtime = poll.mtime;
-            if changed {
-                v.reload_pending = true;
-            }
-        }
-    }
-
     /// What state a portal is in right now, and whether it is worth a webview.
     fn resolve_web_state(
         &mut self,
+        ctx: &egui::Context,
         id: NodeId,
         portal: &PortalNode,
         workbook: Option<&Path>,
         host_ok: bool,
+        demanded: bool,
     ) -> (WebState, bool) {
         let Some(source) = portal.source.as_ref() else {
             return (WebState::Unbound, false);
@@ -1439,30 +1373,17 @@ impl SlateApp {
             // Local staleness is a worker-interval poll, never a per-frame
             // `metadata` (Art. II.2) — a share can take seconds and would freeze
             // the window. `Missing` keeps the last poster and names the path.
-            let due = self
-                .web
-                .views
-                .get(&id)
-                .and_then(|v| v.last_poll)
-                .is_none_or(|t| t.elapsed().as_secs_f32() >= POLL_SECS);
-            let inflight = self.web.views.get(&id).is_some_and(|v| v.poll_inflight);
-            if due && !inflight {
+            if demanded {
                 let path = resolve_web_source(workbook, &locator);
-                let generation = self.web.views.get(&id).map(|v| v.generation).unwrap_or(0);
-                let tx = self.web.poll_tx.clone();
-                if let Some(v) = self.web.views.get_mut(&id) {
-                    v.last_poll = Some(Instant::now());
-                    v.poll_inflight = true;
+                if let Some(stamp) = self.web.source_polls.request(ctx, path) {
+                    if let Some(view) = self.web.views.get_mut(&id) {
+                        view.reload_pending |=
+                            view.source_mtime.is_some() && view.source_mtime != stamp.mtime;
+                        view.source_exists = Some(stamp.exists);
+                        view.source_mtime = stamp.mtime;
+                    }
                 }
-                std::thread::spawn(move || {
-                    let probe = std::fs::metadata(&path).ok();
-                    let _ = tx.send(SourcePoll {
-                        id,
-                        generation,
-                        exists: probe.is_some(),
-                        mtime: probe.and_then(|m| m.modified().ok()),
-                    });
-                });
+                ctx.request_repaint_after(Duration::from_secs_f32(POLL_SECS));
             }
             if self.web.views.get(&id).and_then(|v| v.source_exists) == Some(false) {
                 return (WebState::Missing { locator }, false);
@@ -1756,17 +1677,31 @@ impl SlateApp {
 
     /// Record what the board just painted, so the next pump's admission has
     /// real on-screen sizes to sort by.
-    pub(crate) fn note_web_geometry(&mut self, id: NodeId, srect: Rect, clip: Rect, ppp: f32) {
-        if let Some(v) = self.web.views.get_mut(&id) {
-            let ppp = ppp.max(0.01);
-            v.width_px = srect.width() * ppp;
-            v.height_px = srect.height() * ppp;
-            v.area_px = v.width_px * v.height_px;
-            v.on_screen = clip.intersects(srect);
-            if v.on_screen {
-                v.anchor_px = Some(physical_rect(srect.intersect(clip), ppp));
-            }
+    pub(crate) fn note_web_geometry(
+        &mut self,
+        id: NodeId,
+        srect: Rect,
+        clip: Rect,
+        ppp: f32,
+    ) -> bool {
+        let visible = clip.intersects(srect);
+        if visible && !self.web.views.contains_key(&id) {
+            self.refresh_web_view_for_node(id);
         }
+        let Some(view) = self.web.views.get_mut(&id) else {
+            return false;
+        };
+        let ppp = ppp.max(0.01);
+        view.width_px = srect.width() * ppp;
+        view.height_px = srect.height() * ppp;
+        view.area_px = view.width_px * view.height_px;
+        let newly_visible = visible && !view.was_on_screen && !view.on_screen;
+        view.on_screen = visible;
+        if visible {
+            view.anchor_px = Some(physical_rect(srect.intersect(clip), ppp));
+            self.web.painted.insert(id);
+        }
+        newly_visible
     }
 
     /// Take input focus (D22). Rendering is unaffected — this is only about
@@ -1983,6 +1918,7 @@ impl SlateApp {
         dir: &std::path::Path,
         capture_id: Option<&str>,
     ) -> Result<Option<PathBuf>, String> {
+        self.refresh_web_view_for_node(id);
         self.absorb_cached_captures();
         let live = self
             .web
@@ -2013,6 +1949,7 @@ impl SlateApp {
     /// or a failed read returns the last capture, marked stale.
     pub(crate) fn read_web_text(&mut self, id: NodeId) -> Result<Option<String>, String> {
         const MAX_CHARS: usize = 30_000;
+        self.refresh_web_view_for_node(id);
         self.absorb_cached_captures();
         if let Some(read) = self.web.host.take_text(id) {
             self.web.text_pending.remove(&id);
@@ -3463,6 +3400,54 @@ mod tests {
             app.web.views[&id].poster.is_none(),
             "rebind cannot show the old source"
         );
+    }
+
+    #[test]
+    fn offscreen_web_is_parked_until_visible_or_explicitly_requested() {
+        let ctx = egui::Context::default();
+        let mut app = SlateApp::with_ctx(&ctx, None);
+        app.leave_home();
+        app.ensure_work_tab();
+        app.paste_web_url("https://example.com/nearby", Pos2::ZERO);
+        let nearby = app.doc().scene.nodes.last().unwrap().id;
+        app.paste_web_url("https://example.com/parked", egui::pos2(5000.0, 0.0));
+        let parked = app.doc().scene.nodes.last().unwrap().id;
+        app.board_sel.clear();
+
+        app.web_pump(&ctx);
+        assert!(app.web.views.contains_key(&nearby));
+        assert!(!app.web.views.contains_key(&parked));
+
+        app.refresh_web_view_for_node(parked);
+        app.upload_poster(&ctx, parked, egui::ColorImage::new([8, 8], Color32::BLUE));
+        let poster = app.web.views[&parked].poster.as_ref().unwrap().id();
+        app.web_pump(&ctx);
+        assert_eq!(app.web.views[&parked].poster.as_ref().unwrap().id(), poster);
+        assert_eq!(app.web_pump_portals().len(), 1);
+
+        app.web.text_pending.insert(parked);
+        assert_eq!(
+            app.web_pump_portals()
+                .into_iter()
+                .map(|(id, _, _)| id)
+                .collect::<Vec<_>>(),
+            vec![nearby, parked]
+        );
+        app.web.text_pending.remove(&parked);
+
+        app.tab_mut().cam.offset.x = 5000.0;
+        let visible = app.web_pump_portals();
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].0, parked);
+        app.web_pump(&ctx);
+        assert_eq!(app.web.views[&parked].poster.as_ref().unwrap().id(), poster);
+
+        app.patch_nodes(&[parked], |node| node.hidden = true);
+        app.web_pump(&ctx);
+        assert!(app.web_pump_portals().is_empty());
+        app.patch_nodes(&[nearby], |node| node.rect.x += 5000.0);
+        app.web_pump(&ctx);
+        assert_eq!(app.web_pump_portals()[0].0, nearby);
     }
 
     fn candidate(id: u64, height: f32, area: f32) -> Candidate {

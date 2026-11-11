@@ -171,18 +171,7 @@ fn directional_binding<'a>(
     {
         return None;
     }
-    let mut kind = source_kind(source, item_path)?;
-    if kind == InputKind::Artifact && artifact(target).is_none() {
-        kind = InputKind::Text;
-    }
-    // A web page carries its locator as words, and on a picture port the
-    // picture it shows (captured when the run starts, pixels only).
-    if kind != InputKind::Artifact
-        && web_page_node(source)
-        && port.is_some_and(|slot| !slot.takes_text())
-    {
-        kind = InputKind::Images;
-    }
+    let kind = input_kind_for(source, target, port, item_path)?;
     let slot = match port {
         Some(slot) if slot.takes_text() != (kind == InputKind::Text) => return None,
         slot => slot,
@@ -198,6 +187,24 @@ fn directional_binding<'a>(
         consumed: false,
         slot: slot.map(|s| s.id().to_string()),
     })
+}
+
+fn input_kind_for<'a>(
+    source: &Node,
+    target: &Node,
+    port: Option<InputSlot>,
+    item_path: &dyn Fn(crate::ids::ItemId) -> Option<&'a std::path::Path>,
+) -> Option<InputKind> {
+    let mut kind = source_kind(source, item_path)?;
+    if kind == InputKind::Artifact && artifact(target).is_none() {
+        kind = InputKind::Text;
+    }
+    // A page carries its locator as words or a capture on a picture port.
+    if kind != InputKind::Artifact && web_page_node(source) && port.is_some_and(|s| !s.takes_text())
+    {
+        kind = InputKind::Images;
+    }
+    Some(kind)
 }
 
 fn model_view_binding<'a>(
@@ -302,10 +309,21 @@ pub fn default_port<'a>(
     source: NodeId,
     item_path: &dyn Fn(crate::ids::ItemId) -> Option<&'a std::path::Path>,
 ) -> Option<InputPort> {
-    wire_kind(scene, source, item_path)?;
-    let text = !feeds_picture(scene, source, item_path);
-    let ports = input_ports_with(scene, target, item_path);
-    let taken = bound_slots(scene, target);
+    default_port_for(scene, scene.node(target)?, source, item_path)
+}
+
+/// Choose a compatible port on an existing or prepared target.
+pub fn default_port_for<'a>(
+    scene: &Scene,
+    target: &Node,
+    source: NodeId,
+    item_path: &dyn Fn(crate::ids::ItemId) -> Option<&'a std::path::Path>,
+) -> Option<InputPort> {
+    let source = scene.node(source)?;
+    let kind = input_kind_for(source, target, Some(InputSlot::Media), item_path)?;
+    let text = kind == InputKind::Text;
+    let ports = input_ports_for(target, item_path);
+    let taken = bound_slots(scene, target.id);
     let fits = |p: &&InputPort| p.slot.takes_text() == text;
     ports
         .iter()
@@ -484,7 +502,9 @@ pub fn rebind_with<'a>(
 }
 
 mod snapshot;
-pub use snapshot::{snapshot, snapshot_with_source_check, snapshot_with_value_source};
+pub use snapshot::{
+    snapshot, snapshot_with_source_check, snapshot_with_value_source, IncomingWires,
+};
 
 #[cfg(test)]
 mod tests;

@@ -1,7 +1,10 @@
 """Build the public site using Slate's actual theme and icon. No dependencies."""
+from html import escape
+import os
 from pathlib import Path
 import shutil
 import tomllib
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "website"
@@ -13,11 +16,20 @@ PUBLIC_FILES = (
 
 
 def build():
+    endpoint = os.environ.get("SLATE_SUGGESTION_ENDPOINT", "").strip()
+    if endpoint:
+        url = urlsplit(endpoint)
+        if (url.scheme != "https" or not url.hostname or url.username is not None
+                or url.query or url.fragment or url.path != "/suggestions"):
+            raise ValueError("SLATE_SUGGESTION_ENDPOINT must be an HTTPS /suggestions URL")
     OUTPUT.mkdir(parents=True, exist_ok=True)
     for relative in PUBLIC_FILES:
         destination = OUTPUT / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(SOURCE / relative, destination)
+    suggestion_page = OUTPUT / "suggestions/index.html"
+    suggestion_page.write_text(suggestion_page.read_text(encoding="utf-8").replace(
+        'data-endpoint=""', f'data-endpoint="{escape(endpoint)}"'), encoding="utf-8")
     assets = OUTPUT / "assets"
     assets.mkdir(exist_ok=True)
     shutil.copyfile(ROOT / "apps/slate/assets/slate.ico", assets / "slate.ico")

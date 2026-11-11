@@ -127,6 +127,18 @@ pub fn chrome_bounds(geom: &SelectionGeom, allow_rotate: bool) -> Rect {
     Rect::from_points(&geom.control_corners).expand(resize.max(rotate))
 }
 
+/// Conservative reach from an ordinary host's authored bounds. The compact
+/// frame can expand in both local axes before a resize or rotation hit.
+pub(crate) fn chrome_outer_reach(zoom: f32) -> f32 {
+    let compact = hit_regions::COMPACT_FRAME * std::f32::consts::FRAC_1_SQRT_2;
+    let rotate = hit_regions::rotation_radius(1.0)
+        + hit_regions::cursor_reach(ROTATE_ZONE_PX.max(CORNER_HIT_PX).max(EDGE_BAND_PX), 0.0);
+    (compact + rotate).max(canvas_scale::hit_px(
+        ROTATE_OFFSET_PX + ROTATE_ZONE_PX,
+        zoom,
+    ))
+}
+
 #[cfg(test)]
 pub fn body_geometry_distance(screen: Pos2, geom: &SelectionGeom) -> f32 {
     hit_regions::body_distance(screen, &geom.corners)

@@ -11,6 +11,36 @@ pub(super) struct HistoryView {
 }
 
 impl SlateApp {
+    /// Freeze public context before a downstream child is prepared.
+    pub(crate) fn downstream_generator_history(
+        &self,
+        source: NodeId,
+    ) -> Result<Option<agent_inputs::GeneratorMemoryPin>, String> {
+        if !self.image_history_preserved(source) {
+            return Ok(None);
+        }
+        let parent = self
+            .doc()
+            .scene
+            .node(source)
+            .ok_or("The source is missing")?;
+        let agent = slate_doc::agent_chat::agent(parent);
+        let turns = match agent {
+            Some(agent) if agent.generator.text_response_only => agent
+                .generator
+                .text_context
+                .iter()
+                .filter(|turn| matches!(turn.role.as_str(), "user" | "assistant"))
+                .cloned()
+                .collect(),
+            _ => self.public_image_history(source)?,
+        };
+        Ok(Some(agent_inputs::GeneratorMemoryPin {
+            source_revision: agent.map_or(String::new(), |agent| agent.session.clone()),
+            turns,
+        }))
+    }
+
     pub(crate) fn image_history_preserved(&self, id: NodeId) -> bool {
         self.pending_generator_preserve(id).unwrap_or_else(|| {
             self.doc()

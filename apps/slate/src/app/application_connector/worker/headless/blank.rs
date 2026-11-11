@@ -1,5 +1,11 @@
 use super::*;
 
+// McNeel rhino3dm 8.17.0: new File3dm(), ModelUnitSystem = Meters, toByteArray().
+const EMPTY_MODEL_METERS: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/assets/empty-meters.3dm"
+));
+
 type ReadyResult = Result<super::super::super::super::items::ReadyFile, String>;
 pub(in crate::app::application_connector) type EmptyCreation =
     (Receiver<ReadyResult>, Cancellation, Sender<bool>);
@@ -11,7 +17,7 @@ pub(in crate::app::application_connector) type TestEmptyCreation = (
     Receiver<()>,
 );
 
-pub(in crate::app::application_connector) fn create_empty() -> EmptyCreation {
+pub(in crate::app::application_connector) fn create_empty(downstream: bool) -> EmptyCreation {
     let (tx, rx) = crossbeam_channel::bounded(1);
     let (accepted, admission) = crossbeam_channel::bounded(1);
     let cancel = Cancellation::default();
@@ -21,15 +27,24 @@ pub(in crate::app::application_connector) fn create_empty() -> EmptyCreation {
         // The UI never deletes a generic ReadyFile or chooses cleanup paths.
         let mut owned = None;
         let result = (|| {
-            let runtime = configuration()?;
-            let generated = runtime.generate(
-                &atlas_connector_runtime::headless_rhino::GeometryPlan {
-                    units: atlas_connector_runtime::headless_rhino::Units::Meters,
-                    operations: vec![],
-                },
-                &work_cancel,
-                |_| {},
-            )?;
+            // A wire-created card needs an ordinary empty source immediately.
+            // Geometry work on that source still uses the licensed helper.
+            let bytes: std::borrow::Cow<'_, [u8]> = if downstream {
+                std::borrow::Cow::Borrowed(EMPTY_MODEL_METERS)
+            } else {
+                std::borrow::Cow::Owned(
+                    configuration()?
+                        .generate(
+                            &atlas_connector_runtime::headless_rhino::GeometryPlan {
+                                units: atlas_connector_runtime::headless_rhino::Units::Meters,
+                                operations: vec![],
+                            },
+                            &work_cancel,
+                            |_| {},
+                        )?
+                        .bytes,
+                )
+            };
             if work_cancel.is_cancelled() {
                 return Err("Empty model creation cancelled".into());
             }
@@ -43,8 +58,7 @@ pub(in crate::app::application_connector) fn create_empty() -> EmptyCreation {
                 .open(&path)
                 .map_err(|e| e.to_string())?;
             owned = Some(path.clone());
-            file.write_all(&generated.bytes)
-                .map_err(|e| e.to_string())?;
+            file.write_all(&bytes).map_err(|e| e.to_string())?;
             drop(file);
             atlas_core::workbook_assets::write_headless_model_provenance(
                 &path,

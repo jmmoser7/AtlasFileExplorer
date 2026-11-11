@@ -1,5 +1,71 @@
 //! Capture completed upstream values while preserving authored output identity.
 use super::*;
+use std::collections::HashMap;
+
+/// Authored connector candidates for one scene revision. The caller rebuilds
+/// this index when the scene changes. Values and legacy inference stay live.
+#[derive(Default)]
+pub struct IncomingWires {
+    by_target: HashMap<NodeId, Vec<NodeId>>,
+}
+
+impl IncomingWires {
+    pub fn record(&mut self, node: &Node) {
+        for target in candidate_targets(node).into_iter().flatten() {
+            self.by_target.entry(target).or_default().push(node.id);
+        }
+    }
+
+    pub fn candidate_ids(&self, target: NodeId) -> &[NodeId] {
+        self.by_target.get(&target).map_or(&[], Vec::as_slice)
+    }
+
+    pub fn snapshot_with_value_source(
+        &self,
+        doc: &SlateDoc,
+        portal: NodeId,
+        scope: AgentContextScope,
+        selection: &[NodeId],
+        output: impl FnMut(NodeId) -> Option<ContextItem>,
+        check_source: impl FnMut(NodeId) -> Result<(), String>,
+    ) -> Result<InputSnapshot, String> {
+        let candidates = self
+            .candidate_ids(portal)
+            .iter()
+            .filter_map(|id| doc.scene.node(*id));
+        snapshot_from_candidates(
+            doc,
+            portal,
+            scope,
+            selection,
+            candidates,
+            output,
+            check_source,
+        )
+    }
+}
+
+fn candidate_targets(node: &Node) -> [Option<NodeId>; 2] {
+    let NodeKind::Connector(conn) = &node.kind else {
+        return [None, None];
+    };
+    if let Some(binding) = &conn.binding {
+        return [endpoint_node(binding.target_end(conn)), None];
+    }
+    // A legacy unbound connector may supply either of its anchored ends.
+    let a = endpoint_node(&conn.a);
+    let b = endpoint_node(&conn.b).filter(|b| Some(*b) != a);
+    [a, b]
+}
+
+fn wire_order(node: &Node) -> &[u64] {
+    if let NodeKind::Connector(conn) = &node.kind {
+        if let Some(binding) = conn.binding.as_ref().filter(|b| !b.order.is_empty()) {
+            return &binding.order;
+        }
+    }
+    std::slice::from_ref(&node.id.0)
+}
 
 /// Completed upstream values only. A wire never runs another program implicitly.
 pub fn snapshot(
@@ -39,6 +105,31 @@ pub fn snapshot_with_value_source(
     portal: NodeId,
     scope: AgentContextScope,
     selection: &[NodeId],
+    output: impl FnMut(NodeId) -> Option<ContextItem>,
+    check_source: impl FnMut(NodeId) -> Result<(), String>,
+) -> Result<InputSnapshot, String> {
+    let candidates = doc
+        .scene
+        .nodes
+        .iter()
+        .filter(|node| candidate_targets(node).contains(&Some(portal)));
+    snapshot_from_candidates(
+        doc,
+        portal,
+        scope,
+        selection,
+        candidates,
+        output,
+        check_source,
+    )
+}
+
+fn snapshot_from_candidates<'a>(
+    doc: &'a SlateDoc,
+    portal: NodeId,
+    scope: AgentContextScope,
+    selection: &[NodeId],
+    candidates: impl Iterator<Item = &'a Node>,
     mut output: impl FnMut(NodeId) -> Option<ContextItem>,
     mut check_source: impl FnMut(NodeId) -> Result<(), String>,
 ) -> Result<InputSnapshot, String> {
@@ -128,29 +219,13 @@ pub fn snapshot_with_value_source(
     let mut wired = Vec::new();
     let mut seen = BTreeSet::new();
     // Stable wire identity/order, independent of node movement and album splitting.
-    let mut wires: Vec<_> = doc
-        .scene
-        .nodes
-        .iter()
-        .filter_map(|n| match &n.kind {
-            NodeKind::Connector(c) => Some((
-                c.binding
-                    .as_ref()
-                    .map(|b| {
-                        if b.order.is_empty() {
-                            vec![n.id.0]
-                        } else {
-                            b.order.clone()
-                        }
-                    })
-                    .unwrap_or_else(|| vec![n.id.0]),
-                n,
-            )),
-            _ => None,
-        })
-        .collect();
-    wires.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.id.cmp(&b.1.id)));
-    for (_, node) in wires {
+    let mut wires: Vec<_> = candidates.collect();
+    wires.sort_by(|a, b| {
+        wire_order(a)
+            .cmp(wire_order(b))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    for node in wires {
         let NodeKind::Connector(c) = &node.kind else {
             continue;
         };

@@ -83,32 +83,22 @@ impl SlateApp {
         };
         if spawn.chooser
             && kind == SpawnKind::Image
-            && !self.flow_is_upstream(source, spawn.from)
+            && spawn
+                .from
+                .is_none_or(|(side, t)| side == Side::Right && (t - OUTPUT_T).abs() < 0.001)
             && self.generator_source_kind(source) == Some(PendingHost::Image)
         {
-            return self
-                .spawn_blank_image_child(source, spawn.at.map(|[x, y]| Pos2::new(x, y - 48.0)));
+            return self.spawn_blank_image_child(source, spawn.at.map(|[x, y]| Pos2::new(x, y)));
         }
-        let image_history_pin = if spawn.chooser
-            && self.image_history_host(source)
-            && self.image_history_preserved(source)
-        {
-            let turns = match self.public_image_history(source) {
-                Ok(turns) => turns,
+        let artifact_checkpoint = kind == SpawnKind::Artifact && self.is_artifact_node(source);
+        let history_pin = if spawn.chooser && !artifact_checkpoint {
+            match self.downstream_generator_history(source) {
+                Ok(pin) => pin,
                 Err(error) => {
                     self.toast(error);
                     return false;
                 }
-            };
-            Some(agent_inputs::GeneratorMemoryPin {
-                source_revision: self
-                    .doc()
-                    .scene
-                    .node(source)
-                    .and_then(slate_doc::agent_chat::agent)
-                    .map_or(String::new(), |agent| agent.session.clone()),
-                turns,
-            })
+            }
         } else {
             None
         };
@@ -222,11 +212,17 @@ impl SlateApp {
                 doc.item(id).map(|item| item.path.as_path())
             })
         };
-        let Some(port) = agent_inputs::input_ports_of(&node, self.model_has_viewport(node.id))
-            .iter()
-            .find(|p| p.slot.takes_text() == reads_text)
-            .copied()
-        else {
+        let port = if spawn.chooser && !agent_inputs::is_web_page(&doc.scene, source) {
+            agent_inputs::default_port_for(&doc.scene, &node, source, &|id| {
+                doc.item(id).map(|item| item.path.as_path())
+            })
+        } else {
+            agent_inputs::input_ports_of(&node, self.model_has_viewport(node.id))
+                .iter()
+                .find(|p| p.slot.takes_text() == reads_text)
+                .copied()
+        };
+        let Some(port) = port else {
             self.toast("This node has no input for that output.");
             return false;
         };
@@ -241,7 +237,7 @@ impl SlateApp {
         };
         node.rect = rect;
         let prompt = spawn.prompt.trim().to_string();
-        let run = !prompt.is_empty();
+        let run = !spawn.chooser && !prompt.is_empty();
         let inherited_parameters = self
             .doc()
             .scene
@@ -260,7 +256,10 @@ impl SlateApp {
             a.model = model.clone().filter(|m| !m.is_empty());
             a.model_parameters = inherited_parameters;
             a.image = spawn.image;
-            a.live = spawn.live && kind == SpawnKind::Image;
+            a.live = !spawn.chooser && spawn.live && kind == SpawnKind::Image;
+            if spawn.chooser && kind != SpawnKind::Text {
+                a.bundle = None;
+            }
         }
         let id = node.id;
         // Both wires bind and route against the planned node before one commit.
@@ -278,10 +277,14 @@ impl SlateApp {
             },
             std::slice::from_ref(&node),
         );
+        if spawn.chooser && !matches!(&wire.kind, NodeKind::Connector(c) if c.binding.is_some()) {
+            self.toast("This node has no input for that output.");
+            return false;
+        }
         if kind == SpawnKind::Text {
             self.seed_agent_text_output_on_node(&mut node);
         }
-        let preserve = image_history_pin.is_some()
+        let preserve = history_pin.is_some()
             || self
                 .doc()
                 .scene
@@ -295,7 +298,7 @@ impl SlateApp {
         }
         let memory = preserve
             .then(|| {
-                if let Some(pin) = image_history_pin {
+                if let Some(pin) = history_pin {
                     self.build_generator_memory_pin_wire(source, &node, pin)
                 } else if kind == SpawnKind::Artifact {
                     self.build_artifact_memory_wire(source, &node)
@@ -304,6 +307,12 @@ impl SlateApp {
                 }
             })
             .flatten();
+        if spawn.chooser && memory.is_some() {
+            if let Some(agent) = slate_doc::agent_chat::agent_mut(&mut node) {
+                agent.generator.history_source = Some(source);
+                agent.generator.inherited_turn_count = Some(0);
+            }
+        }
         let mut nodes = vec![node, wire];
         nodes.extend(memory);
         if self.add_nodes(nodes).is_empty() {

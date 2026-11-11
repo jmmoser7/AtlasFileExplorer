@@ -5,6 +5,7 @@ mod context;
 pub(super) mod image_import;
 #[cfg(test)]
 mod text_answer_tests;
+pub(super) use context::ContextPublications;
 
 impl SlateApp {
     /// Provider cancellation may acknowledge late. Only the current generator
@@ -125,27 +126,43 @@ impl SlateApp {
         self.sync_agent_doc();
         self.pump_agent_approval_deliveries(ctx);
         let front_span = atlas_core::session_log::span("slate.agents.front");
-        let mut existing: HashSet<String> = self
-            .tabs
-            .iter()
-            .flat_map(|tab| tab.doc.scene.nodes.iter())
-            .filter_map(|n| {
-                slate_doc::agent_chat::agent(n)
-                    .filter(|a| !a.chat.train)
-                    .map(|a| a.session.clone())
-            })
-            .collect();
-        existing.extend(
+        if !self.agents.codex.is_empty() {
+            let _span = atlas_core::session_log::span("slate.agents.front.links");
+            let current = self.tab().id;
+            let topology = self.agent_topology();
+            let mut existing = HashSet::with_capacity(self.agents.codex.len());
+            if self.tabs.iter().any(|tab| tab.id == current) {
+                existing.extend(
+                    self.agents
+                        .codex
+                        .keys()
+                        .filter(|id| topology.non_train_sessions.contains(*id))
+                        .cloned(),
+                );
+            }
+            existing.extend(
+                self.tabs
+                    .iter()
+                    .filter(|tab| tab.id != current)
+                    .flat_map(|tab| tab.doc.scene.nodes.iter())
+                    .filter_map(slate_doc::agent_chat::agent)
+                    .filter(|agent| {
+                        !agent.chat.train && self.agents.codex.contains_key(&agent.session)
+                    })
+                    .map(|agent| agent.session.clone()),
+            );
+            existing.extend(
+                self.agents
+                    .awaiting
+                    .iter()
+                    .filter(|(_, s)| !matches!(s, AgentAwait::Failed { .. }))
+                    .filter_map(|(id, _)| self.agent_session_for(*id).map(|(s, _)| s)),
+            );
+            existing.extend(self.parked_agent_sessions());
             self.agents
-                .awaiting
-                .iter()
-                .filter(|(_, s)| !matches!(s, AgentAwait::Failed { .. }))
-                .filter_map(|(id, _)| self.agent_session_for(*id).map(|(s, _)| s)),
-        );
-        existing.extend(self.parked_agent_sessions());
-        self.agents
-            .codex
-            .retain(|session, _| existing.contains(session));
+                .codex
+                .retain(|session, _| existing.contains(session));
+        }
         self.ensure_agent_programs();
         self.ensure_agent_recents(ctx);
         self.pump_cursor_ide(ctx);
@@ -153,7 +170,10 @@ impl SlateApp {
         self.paint_schedule_dialog(ctx);
         self.pump_agent_connection(ctx);
         self.pump_agent_connecting();
-        self.rejoin_agent_chats();
+        {
+            let _span = atlas_core::session_log::span("slate.agents.front.rejoin");
+            self.rejoin_agent_chats();
+        }
         self.refresh_agent_connection();
         self.pump_agent_models();
         if let Some(id) = self.agents.focused {
@@ -203,16 +223,10 @@ impl SlateApp {
     /// Each card's linked session and published context, once a frame.
     pub(crate) fn pump_agent_sessions(&mut self, ctx: &egui::Context, ws: &std::path::Path) {
         let _sessions_span = atlas_core::session_log::span("slate.agents.sessions");
-        let ws = ws.to_path_buf();
-        let portals: Vec<(NodeId, Option<slate_doc::scene::AgentPortalRef>)> = self
-            .doc()
-            .scene
-            .nodes
-            .iter()
-            .filter(|n| slate_doc::agent_chat::is_agent_node(n))
-            .map(|n| (n.id, slate_doc::agent_chat::agent(n).cloned()))
-            .collect();
-        let live: std::collections::HashSet<NodeId> = portals.iter().map(|(id, _)| *id).collect();
+        let maintenance_span = atlas_core::session_log::span("slate.agents.sessions.maintain");
+        let topology = self.agent_topology();
+        let portals = &topology.cards;
+        let live = &topology.card_ids;
         // Linked sessions can answer from outside Slate (the sidecar writes
         // session.json), so an open board with agents keeps a slow poll.
         if self.agent_background_pending() {
@@ -222,7 +236,7 @@ impl SlateApp {
         }
 
         self.agents.sessions.retain(|id, _| live.contains(id));
-        self.relocate_absorbed_drafts(&live);
+        self.relocate_absorbed_drafts(live);
         self.agents.prompts.retain(|id, _| live.contains(id));
         self.agents.pick_scroll.retain(|id, _| live.contains(id));
         self.agents.awaiting.retain(|id, _| live.contains(id));
@@ -234,62 +248,61 @@ impl SlateApp {
         if self.agents.focused.is_some_and(|id| !live.contains(&id)) {
             self.agent_blur();
         }
+        self.agents
+            .image_imports
+            .note_candidates(&topology.local_images);
+        drop(maintenance_span);
 
-        let publish = self
-            .agents
-            .context_tick
-            .is_none_or(|t| t.elapsed() >= Duration::from_secs(1));
-        if publish {
-            self.agents.context_tick = Some(Instant::now());
-        }
-        let mut published = HashSet::new();
-        let mut live_dirs = HashSet::new();
-        let mut trains: HashMap<PathBuf, Vec<NodeId>> = HashMap::new();
-        if publish {
-            for (id, agent) in &portals {
-                if let Some(agent) = agent.as_ref().filter(|a| !a.provider.is_empty()) {
-                    let dir = self
-                        .agent_link_dir(*id, &ws)
-                        .unwrap_or_else(|| atlas_ai::agent::agent_dir(&ws, &agent.session));
-                    trains.entry(dir).or_default().push(*id);
-                }
+        let batch = self.agent_session_batch(ctx, ws, portals);
+        let links_span = atlas_core::session_log::span("slate.agents.sessions.links");
+        let mut updated = !batch.changed_dirs.is_empty();
+        if updated {
+            self.agents.output_epoch = self.agents.output_epoch.wrapping_add(1);
+            for id in &batch.changed_dirs {
+                self.agents.sessions.remove(id);
+                self.agents.image_cache.borrow_mut().remove(id);
+                self.agents.cover_focus.remove(id);
             }
         }
         for (id, agent) in portals {
+            let id = *id;
             let Some(agent) = agent else {
                 continue;
             };
-            if atlas_ai::agent::local_image_engine(&agent.provider) {
-                self.agents.image_imports.note_candidate(id);
-            }
-            if agent.provider.is_empty() {
-                continue;
-            }
-            if self.agents.bindings.get(&id) != Some(&agent.session) {
+            let previous = self.agents.bindings.get(&id);
+            let rebound = previous.is_some_and(|session| session != &agent.session);
+            let changed_dir = batch.changed_dirs.contains(&id);
+            let link = batch.links.by_card.get(&id);
+            if link.is_some() && previous != Some(&agent.session) {
                 self.agents.bindings.insert(id, agent.session.clone());
                 self.agents.image_cache.borrow_mut().remove(&id);
-
                 self.agents.sessions.remove(&id);
                 self.agents.local_turns.remove(&id);
                 self.agents.awaiting.remove(&id);
                 self.agents.cover_focus.remove(&id);
             }
-            let dir = self
-                .agent_link_dir(id, &ws)
-                .unwrap_or_else(|| atlas_ai::agent::agent_dir(&ws, &agent.session));
-            live_dirs.insert(dir.clone());
-            if !self.agent_has_child(id) {
-                if let Some(raw) = self.agents.sources.take_place(&dir) {
-                    self.place_atlas_request(id, &dir, &raw);
-                }
-                self.agent_output_roots(id, &dir);
-            }
-            let context = if publish && !ws.as_os_str().is_empty() && published.insert(dir.clone())
+            let Some(link) = link else { continue };
+            if !rebound
+                && !changed_dir
+                && !batch.poll_due(id, link)
+                && self.agents.focused != Some(id)
+                && self.portal_chrome.maximized != Some(id)
+                && !self.board_sel.contains(&id)
+                && !self.agent_connecting(id)
+                && !self.agent_is_running(id)
             {
+                continue;
+            }
+            let dir = &link.dir;
+            if !self.agent_has_child(id) {
+                if let Some(raw) = self.agents.sources.take_place(dir) {
+                    self.place_atlas_request(id, dir, &raw);
+                }
+                self.agent_output_roots(id, dir);
+            }
+            let context = if let Some(cards) = batch.publish.get(&id) {
                 let mut context =
                     self.agent_context_for(&agent.session, &agent.provider, agent.context);
-                let single = [id];
-                let cards = trains.get(&dir).map_or(&single[..], Vec::as_slice);
                 match self.published_train_inputs(cards) {
                     Some(Ok(inputs)) => {
                         context.selection = inputs
@@ -306,7 +319,7 @@ impl SlateApp {
             } else {
                 None
             };
-            if let Some(session) = self.agents.sources.poll(&dir, context.as_ref()) {
+            if let Some(session) = self.agents.sources.poll(dir, context.as_ref()) {
                 if !self.generator_session_is_current(id, &session) {
                     continue;
                 }
@@ -395,26 +408,21 @@ impl SlateApp {
                     self.agents.cover_focus.insert(id, count.saturating_sub(1));
                 }
                 self.sync_agent_text_output(id);
-                ctx.request_repaint();
+                updated = true;
             }
         }
+        if updated {
+            ctx.request_repaint();
+        }
+        drop(links_span);
+        let _aux_span = atlas_core::session_log::span("slate.agents.sessions.aux");
         self.finish_text_answer_requests();
-        let shown_sources = self
-            .doc()
-            .scene
-            .nodes
+        let mut shown_sources = topology
+            .shown_text
             .iter()
-            .filter_map(|node| slate_doc::agent_chat::agent(node))
-            .filter_map(|agent| agent.generator.shown_text.as_ref())
-            .map(|reference| {
-                slate_doc::scene::resolve_source(
-                    self.tab().path.as_deref(),
-                    &reference.source.locator,
-                )
-            })
+            .map(|locator| slate_doc::scene::resolve_source(self.tab().path.as_deref(), locator))
             .filter_map(|path| path.parent().map(std::path::Path::to_path_buf))
             .collect::<Vec<_>>();
-        let mut shown_sources = shown_sources;
         shown_sources.extend(
             self.agents
                 .flow
@@ -445,12 +453,19 @@ impl SlateApp {
                 shown_sources.push(dir.to_path_buf());
             }
         }
+        let mut auxiliary_dirs = HashSet::new();
         for dir in shown_sources {
             self.agents.sources.poll(&dir, None);
-            live_dirs.insert(dir);
+            auxiliary_dirs.insert(dir);
         }
-        self.retain_model_task_session_sources(&mut live_dirs);
-        self.agents.sources.retain(&live_dirs);
+        self.retain_model_task_session_sources(&mut auxiliary_dirs);
+        if auxiliary_dirs.is_subset(&batch.links.dirs) {
+            self.agents.sources.retain(&batch.links.dirs);
+        } else {
+            let mut live_dirs = batch.links.dirs.clone();
+            live_dirs.extend(auxiliary_dirs);
+            self.agents.sources.retain(&live_dirs);
+        }
         self.pump_agent_text_outputs();
     }
     pub(super) fn consume_agent_context(&mut self, portal: NodeId) {

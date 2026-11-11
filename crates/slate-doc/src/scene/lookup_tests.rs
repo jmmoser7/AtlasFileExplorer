@@ -2,6 +2,62 @@
 use super::{tests::scene_with_frame_and_image, *};
 
 #[test]
+fn connector_bounds_follow_host_patch_and_undo_without_rebuilding_spatial_index() {
+    let (mut scene, _, image) = scene_with_frame_and_image();
+    let old_rect = WorldRect::new(100.0, 100.0, 20.0, 20.0);
+    let new_rect = old_rect.translated(600.0, 0.0);
+    let wire = scene.build_node(
+        old_rect,
+        NodeKind::Connector(ConnectorNode {
+            a: ConnectorEnd::Anchored {
+                node: image,
+                side: Side::Right,
+                t: 0.5,
+            },
+            b: ConnectorEnd::Free {
+                point: [120.0, 120.0],
+            },
+            stroke: Stroke::none(),
+            color: None,
+            routing: None,
+            arrow_a: false,
+            arrow_b: false,
+            label: None,
+            display: WireDisplay::Default,
+            binding: None,
+            crosstalk: None,
+        }),
+    );
+    let id = wire.id;
+    assert!(scene.apply(&SceneCmd::Add {
+        index: 2,
+        node: wire
+    }));
+    assert!(scene.query_rect(old_rect).contains(&id));
+    let rebuilds = scene.spatial_rebuilds();
+    let before = scene.node(image).unwrap().clone();
+    let mut after = before.clone();
+    after.rect = after.rect.translated(600.0, 0.0);
+    let mut journal = SceneJournal::default();
+    assert!(journal.commit(
+        &mut scene,
+        vec![SceneCmd::Patch {
+            before: Box::new(before),
+            after: Box::new(after),
+        }],
+    ));
+    scene.set_derived_connector_rects(vec![(id, new_rect)]);
+    assert!(scene.query_rect(new_rect).contains(&id));
+    assert!(!scene.query_rect(old_rect).contains(&id));
+    assert_eq!(scene.spatial_rebuilds(), rebuilds);
+    assert!(journal.undo(&mut scene));
+    scene.set_derived_connector_rects(vec![(id, old_rect)]);
+    assert!(scene.query_rect(old_rect).contains(&id));
+    assert!(!scene.query_rect(new_rect).contains(&id));
+    assert_eq!(scene.spatial_rebuilds(), rebuilds);
+}
+
+#[test]
 fn node_lookup_survives_live_edits_journal_and_reload() {
     let (mut scene, frame, image) = scene_with_frame_and_image();
     assert_eq!(scene.index_of(image), Some(1));

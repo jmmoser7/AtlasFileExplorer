@@ -16,7 +16,13 @@ impl SlateApp {
                 );
             }
         }
-        for n in &self.doc().scene.nodes {
+        let scene = &self.doc().scene;
+        for n in self
+            .agent_topology()
+            .output_agents
+            .iter()
+            .filter_map(|id| scene.node(*id))
+        {
             if self.agent_stop_shown(n) {
                 self.paint_agent_stop(painter, xf, n, pointer);
             }

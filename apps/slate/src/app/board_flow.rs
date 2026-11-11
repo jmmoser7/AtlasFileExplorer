@@ -162,9 +162,7 @@ impl SpawnKind {
 
 impl SlateApp {
     fn is_flow_output(&self, grip: (NodeId, Side, f32)) -> bool {
-        grip.1 == Side::Right
-            && (grip.2 - OUTPUT_T).abs() < 0.001
-            && agent_inputs::is_flow_node(&self.doc().scene, grip.0)
+        grip.1 == Side::Right && (grip.2 - OUTPUT_T).abs() < 0.001 && self.is_agent_media(grip.0)
     }
 
     fn flow_output_at(&self, screen: Pos2, xf: &BoardXf) -> Option<NodeId> {
@@ -321,13 +319,19 @@ impl SlateApp {
             // A web page offers its shown picture to both agents.
             NodeKind::Portal(_) => agent_inputs::is_web_page(scene, id),
             // Pictures, video, 3D and text documents; not PDFs or design files.
-            NodeKind::Image(image) => self.doc().item(image.item).is_some_and(|item| {
-                use slate_doc::MediaKind;
-                matches!(
-                    slate_doc::media_kind(&item.path),
-                    MediaKind::Image | MediaKind::Video | MediaKind::Model | MediaKind::Text
-                )
-            }),
+            NodeKind::Image(image) => {
+                image.item == slate_doc::ItemId::NONE
+                    || self.doc().item(image.item).is_some_and(|item| {
+                        use slate_doc::MediaKind;
+                        matches!(
+                            slate_doc::media_kind(&item.path),
+                            MediaKind::Image
+                                | MediaKind::Video
+                                | MediaKind::Model
+                                | MediaKind::Text
+                        )
+                    })
+            }
             _ => false,
         };
         media

@@ -50,6 +50,7 @@ pub fn dialogs(
     version: &str,
     session_log: &atlas_core::session_log::SessionLog,
 ) -> FeedbackUiOutput {
+    let sent = super::send::poll(hub);
     let mut out = FeedbackUiOutput {
         command: None,
         toast: None,
@@ -85,7 +86,11 @@ pub fn dialogs(
 
     poll_screenshot(ctx, hub);
 
-    super::panels::show(ctx, palette, hub, app_name, version)
+    let mut out = super::panels::show(ctx, palette, hub, app_name, version);
+    if sent.is_some() {
+        out.toast = sent;
+    }
+    out
 }
 
 /// The capture arrives as an event; its PNG encode runs on a worker so a
@@ -138,16 +143,25 @@ pub(super) fn submit(
     app_name: &str,
     version: &str,
 ) -> Result<PathBuf, String> {
-    if hub.description.trim().is_empty() {
-        return Err("Add a short description first.".into());
-    }
-    let kind = hub.kind.ok_or("Missing report kind")?;
+    let mut report = prepare_report(hub, app_name, version)?;
+    report.git_hash = bundle::git_hash_short();
     let reports_dir = hub
         .prefs
         .reports_dir
         .clone()
         .unwrap_or_else(bundle::default_reports_dir);
-    std::fs::create_dir_all(&reports_dir).map_err(|e| e.to_string())?;
+    bundle::write_bundle(&reports_dir, &report, &hub.attachments)
+}
+
+pub(super) fn prepare_report(
+    hub: &FeedbackHub,
+    app_name: &str,
+    version: &str,
+) -> Result<ReportJson, String> {
+    if hub.description.trim().is_empty() {
+        return Err("Add a short description first.".into());
+    }
+    let kind = hub.kind.ok_or("Missing report kind")?;
     let links: Vec<String> = hub
         .links_text
         .lines()
@@ -155,10 +169,10 @@ pub(super) fn submit(
         .filter(|l| !l.is_empty())
         .map(str::to_owned)
         .collect();
-    let report = ReportJson {
+    Ok(ReportJson {
         app: app_name.to_string(),
         version: version.to_string(),
-        git_hash: bundle::git_hash_short(),
+        git_hash: None,
         os: std::env::consts::OS.to_string(),
         kind: match kind {
             FeedbackKind::Bug => "bug",
@@ -171,9 +185,7 @@ pub(super) fn submit(
         reproduce: hub.reproduce_wanted,
         created_at: chrono::Local::now().to_rfc3339(),
         bundle_dir: String::new(),
-    };
-    let dir = bundle::write_bundle(&reports_dir, &report, &hub.attachments)?;
-    Ok(dir)
+    })
 }
 
 /// Mail clients and the shell cap a mailto URL; the bundle holds the rest.
@@ -213,16 +225,26 @@ fn open_url(url: &str) {
     }
 }
 
-pub fn advanced_section(ui: &mut egui::Ui, prefs: &mut FeedbackPrefs, sub: Color32) {
+pub fn advanced_section(ui: &mut egui::Ui, prefs: &mut FeedbackPrefs, sub: Color32, app: &str) {
     ui.label(RichText::new("Suggestion box").small().strong());
     ui.label(
         RichText::new(
-            "Bug and feature reports are saved as folders on disk (no network). \
-             Default: feedback/client in a dev checkout, otherwise LocalAppData.",
+            "Save report keeps a local folder. The default is feedback/client in a dev checkout \
+             or LocalAppData in an installed app.",
         )
         .small()
         .color(sub),
     );
+    if super::send::endpoint(app).is_some() {
+        ui.label(
+            RichText::new(
+                "Send shares your description, typed links, app name, and version. \
+                 Attachments and recorded steps stay in your local report.",
+            )
+            .small()
+            .color(sub),
+        );
+    }
     let saved = prefs
         .reports_dir
         .as_ref()

@@ -29,22 +29,29 @@ fn history_snapshot_distinguishes_pending_missing_loaded_and_unavailable() {
             std::fs::write(dir.join("session.json"), bytes).unwrap();
         }
         let mut sources = AgentSources::default();
-        let mut link = AgentLink::new();
         // Hold the actual work queue until the admission check has observed
         // Pending, without timing assumptions about filesystem speed.
-        let (tx, rx) = crossbeam_channel::bounded(8);
-        link.tx = tx;
-        let latest = link.latest.clone();
-        let outputs = link.outputs.clone();
-        let place = link.place.clone();
-        let history = link.history_read.clone();
-        sources.links.insert(dir.clone(), link);
+        let ready = worker::ReadyQueue::default();
+        sources
+            .links
+            .insert(dir.clone(), AgentLink::with_scheduler(ready.clone()));
+        assert!(sources.poll(&dir, None).is_none());
+        assert!(
+            ready.try_take(true).is_none(),
+            "idle history is ordinary work"
+        );
+        sources.links.get_mut(&dir).unwrap().next_read =
+            Some(Instant::now() + Duration::from_secs(60));
         assert!(sources
             .history_snapshot(&dir)
             .unwrap_err()
             .contains("still loading"));
-        let worker =
-            std::thread::spawn(move || super::worker::run(rx, latest, outputs, place, history));
+        ready.try_take(true).unwrap().run_next();
+        assert_eq!(
+            ready.len(),
+            0,
+            "first-Send preload promotes the existing read"
+        );
         let end = Instant::now() + Duration::from_secs(3);
         let result = loop {
             let result = sources.history_snapshot(&dir);
@@ -63,7 +70,6 @@ fn history_snapshot_distinguishes_pending_missing_loaded_and_unavailable() {
             _ => assert!(result.unwrap_err().contains("unavailable")),
         }
         drop(sources);
-        worker.join().unwrap();
         let _ = std::fs::remove_dir_all(workspace);
     }
 }
@@ -80,7 +86,7 @@ fn prepared_delivery_keeps_one_source_worker_and_waits_until_released() {
     let sender = sources.prepare_request(&dir, &request);
     let second = sources.prepare_request(&dir, &request);
     assert_eq!(sources.links.len(), 1);
-    assert!(sender.tx.same_channel(&second.tx));
+    assert!(std::sync::Arc::ptr_eq(&sender.tx, &second.tx));
     assert!(
         !dir.join("request.json").exists(),
         "preparation cannot expose the next request"
@@ -120,23 +126,21 @@ fn artifact_polling_reserves_return_manifest_and_skips_generic_file_capture() {
         "artifacts":[{"id":"changed","turn":2,"kind":"modified","source":entry,"title":"index.html"}]
     })).unwrap();
     atomic_write_json(&dir.join("session.json"), &session).unwrap();
-    let (tx, rx) = crossbeam_channel::bounded(4);
-    tx.send(LinkWork::Request(dir.clone(), Box::new(request)))
+    let ready = worker::ReadyQueue::default();
+    let link = AgentLink::with_scheduler(ready.clone());
+    link.tx
+        .try_send(LinkWork::Request(dir.clone(), Box::new(request)))
         .unwrap();
-    tx.send(LinkWork::Roots(vec![workspace.clone()])).unwrap();
-    tx.send(LinkWork::Read(dir.join("session.json"))).unwrap();
-    drop(tx);
-    let latest = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let outputs = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let place = std::sync::Arc::new(std::sync::Mutex::new(None));
-    super::worker::run(
-        rx,
-        latest.clone(),
-        outputs.clone(),
-        place,
-        Default::default(),
-    );
-    assert_eq!(latest.lock().unwrap().as_ref().unwrap().request, "run");
+    link.tx
+        .try_send(LinkWork::Roots(vec![workspace.clone()]))
+        .unwrap();
+    link.tx
+        .try_send(LinkWork::Read(dir.join("session.json")))
+        .unwrap();
+    while let Some(token) = ready.try_take(false) {
+        token.run_next();
+    }
+    assert_eq!(link.latest.lock().unwrap().as_ref().unwrap().request, "run");
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(
             &std::fs::read(dir.join("return.json")).unwrap()
@@ -144,7 +148,7 @@ fn artifact_polling_reserves_return_manifest_and_skips_generic_file_capture() {
         .unwrap(),
         manifest
     );
-    assert!(outputs.lock().unwrap().is_none());
+    assert!(link.outputs.lock().unwrap().is_none());
     assert!(!dir.join("deliverables.json").exists());
     assert!(!dir.join("versions.json").exists());
     std::fs::remove_dir_all(workspace).unwrap();
@@ -272,7 +276,7 @@ fn context() -> AgentContext {
 
 #[test]
 fn streaming_snapshots_arrive_before_completion_without_fast_idle_polling() {
-    let (tx, rx) = crossbeam_channel::bounded(8);
+    let ready = worker::ReadyQueue::default();
     let session = AgentSession {
         activity: Vec::new(),
         usage: None,
@@ -290,19 +294,10 @@ fn streaming_snapshots_arrive_before_completion_without_fast_idle_polling() {
         bundle: Default::default(),
         request: "r1".into(),
     };
-    let latest = std::sync::Arc::new(std::sync::Mutex::new(Some(session.clone())));
-    let mut link = AgentLink {
-        tx,
-        latest: latest.clone(),
-        history_read: Default::default(),
-        next_read: Some(Instant::now()),
-        next_write: None,
-        streaming: false,
-        awaited: None,
-        outputs: Default::default(),
-        place: Default::default(),
-        roots: None,
-    };
+    let mut link = AgentLink::with_scheduler(ready.clone());
+    let latest = link.latest.clone();
+    *latest.lock().unwrap() = Some(session.clone());
+    link.next_read = Some(Instant::now());
     let path = Path::new("unused-session.json");
     assert_eq!(
         link.tick_read_session_file(path).unwrap().turns[0].text,
@@ -310,7 +305,7 @@ fn streaming_snapshots_arrive_before_completion_without_fast_idle_polling() {
     );
     link.next_read = Some(Instant::now() - Duration::from_millis(150));
     link.tick_read_session_file(path);
-    assert!(matches!(rx.try_recv(), Ok(LinkWork::Read(_))));
+    ready.try_take(true).unwrap().run_next();
     *latest.lock().unwrap() = Some(AgentSession {
         activity: Vec::new(),
         usage: None,
@@ -324,7 +319,7 @@ fn streaming_snapshots_arrive_before_completion_without_fast_idle_polling() {
     link.next_read = Some(Instant::now() - Duration::from_millis(150));
     link.tick_read_session_file(path);
     assert!(
-        rx.try_recv().is_err(),
+        ready.try_take(false).is_none(),
         "idle sources must retain their slower poll cadence"
     );
 
@@ -341,9 +336,108 @@ fn streaming_snapshots_arrive_before_completion_without_fast_idle_polling() {
     link.next_read = Some(Instant::now() - Duration::from_millis(150));
     link.tick_read_session_file(path);
     assert!(
-        matches!(rx.try_recv(), Ok(LinkWork::Read(_))),
+        ready.try_take(true).is_some(),
         "a stale session keeps fast reads until the awaited request reports"
     );
+}
+
+#[test]
+fn shared_link_workers_preserve_capacity_fifo_and_yield_to_other_sources() {
+    let ready = worker::ReadyQueue::default();
+    let first = AgentLink::with_scheduler(ready.clone());
+    let other = AgentLink::with_scheduler(ready.clone());
+    let workspace = temp_workspace("shared_link_fifo");
+    let dir = workspace.join("link");
+    let request = |index| {
+        LinkWork::Request(
+            dir.clone(),
+            Box::new(AgentRequest {
+                id: format!("request-{index}"),
+                ..Default::default()
+            }),
+        )
+    };
+    for index in 0..8 {
+        first.tx.try_send(request(index)).unwrap();
+    }
+    assert!(first.tx.try_send(request(8)).is_err());
+    other
+        .tx
+        .try_send(LinkWork::Request(
+            workspace.join("other"),
+            Box::new(AgentRequest {
+                id: "other-source".into(),
+                ..Default::default()
+            }),
+        ))
+        .unwrap();
+    assert_eq!(ready.len(), 2, "one ready token per source");
+
+    for index in 0..8 {
+        let token = ready.try_take(false).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&token, &first.tx));
+        token.run_next();
+        let saved: AgentRequest =
+            serde_json::from_slice(&std::fs::read(dir.join("request.json")).unwrap()).unwrap();
+        assert_eq!(saved.id, format!("request-{index}"));
+        if index == 0 {
+            let token = ready.try_take(false).unwrap();
+            assert!(std::sync::Arc::ptr_eq(&token, &other.tx));
+            token.run_next();
+        }
+    }
+    assert_eq!(ready.len(), 0);
+    first.tx.try_send(request(8)).unwrap();
+    ready.try_take(false).unwrap().run_next();
+    assert_eq!(ready.len(), 0);
+    let _ = std::fs::remove_dir_all(workspace);
+}
+
+#[test]
+fn reserved_worker_takes_promoted_link_in_fifo_order_while_ordinary_workers_are_occupied() {
+    let ready = worker::ReadyQueue::default();
+    let cold: Vec<_> = (0..4)
+        .map(|_| AgentLink::with_scheduler(ready.clone()))
+        .collect();
+    for link in &cold {
+        link.tx.try_send(LinkWork::Roots(Vec::new())).unwrap();
+    }
+    let _held: Vec<_> = (0..3).map(|_| ready.try_take(false).unwrap()).collect();
+    assert!(
+        ready.try_take(true).is_none(),
+        "ordinary work cannot occupy the reserve"
+    );
+
+    let workspace = temp_workspace("foreground-reserve");
+    let dir = workspace.join("link");
+    let mut active = AgentLink::with_scheduler(ready.clone());
+    assert!(active.tick_write_context_in(&dir, &context()));
+    active
+        .send_request_in(
+            &dir,
+            &AgentRequest {
+                id: "local-send".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(ready.len(), 2, "promotion moves the existing token");
+    let token = ready.try_take(true).unwrap();
+    assert!(std::sync::Arc::ptr_eq(&token, &active.tx));
+    token.run_next();
+    assert!(dir.join("context.json").is_file());
+    assert!(
+        !dir.join("request.json").exists(),
+        "accepted earlier work stays first"
+    );
+    ready.try_take(true).unwrap().run_next();
+    assert!(dir.join("request.json").is_file());
+    assert!(ready.try_take(true).is_none());
+    assert!(std::sync::Arc::ptr_eq(
+        &ready.try_take(false).unwrap(),
+        &cold[3].tx
+    ));
+    let _ = std::fs::remove_dir_all(workspace);
 }
 
 #[test]

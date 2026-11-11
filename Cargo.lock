@@ -411,9 +411,9 @@ dependencies = [
 
 [[package]]
 name = "atlas-agent"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
- "png 0.18.1",
+ "png",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -421,7 +421,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-ai"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "atlas-agent",
  "atlas-codex",
@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-codex"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "atlas-agent",
  "base64 0.22.1",
@@ -455,7 +455,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-comfy"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "atlas-agent",
  "atlas-curl",
@@ -464,7 +464,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-commands"
-version = "1.0.7"
+version = "1.0.8"
 
 [[package]]
 name = "atlas-connector"
@@ -488,7 +488,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-core"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "cfb",
  "clipboard-win",
@@ -511,14 +511,14 @@ dependencies = [
 
 [[package]]
 name = "atlas-curl"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "atlas-ollama"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "atlas-agent",
  "atlas-curl",
@@ -529,7 +529,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-openai"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "atlas-agent",
  "atlas-curl",
@@ -539,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-packs"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "atlas-connector",
  "dirs",
@@ -549,7 +549,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-relay"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "crossbeam-channel",
  "rcgen",
@@ -563,7 +563,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-segment"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "crossbeam-channel",
  "serde",
@@ -572,13 +572,14 @@ dependencies = [
 
 [[package]]
 name = "atlas-session"
-version = "1.0.7"
+version = "1.0.8"
 
 [[package]]
 name = "atlas-shell"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "atlas-core",
+ "atlas-curl",
  "atlas-update",
  "chrono",
  "crossbeam-channel",
@@ -591,23 +592,24 @@ dependencies = [
  "serde_json",
  "slate-doc",
  "toml 0.8.23",
+ "uuid",
  "vector-ink",
  "windows 0.61.3",
 ]
 
 [[package]]
 name = "atlas-subscription"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
- "base64 0.22.1",
  "atlas-agent",
+ "base64 0.22.1",
  "serde_json",
  "sha2 0.10.9",
 ]
 
 [[package]]
 name = "atlas-update"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "serde",
  "serde_json",
@@ -973,7 +975,7 @@ dependencies = [
 
 [[package]]
 name = "collage"
-version = "1.0.7"
+version = "1.0.8"
 
 [[package]]
 name = "color_quant"
@@ -2674,7 +2676,7 @@ dependencies = [
 
 [[package]]
 name = "model-preview"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2722,7 +2724,7 @@ dependencies = [
 
 [[package]]
 name = "native-file-atlas"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "atlas-ai",
  "atlas-commands",
@@ -3720,7 +3722,7 @@ dependencies = [
 
 [[package]]
 name = "rhino-mesh"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "flate2",
 ]
@@ -4119,7 +4121,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "slate"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "atlas-agent",
  "atlas-ai",
@@ -4158,7 +4160,7 @@ dependencies = [
 
 [[package]]
 name = "slate-artifact"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "atlas-core",
  "image",
@@ -4918,7 +4920,7 @@ dependencies = [
 
 [[package]]
 name = "vector-ink"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "earcutr",
  "i_overlay",
@@ -6026,7 +6028,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "code-lens",
  "proc-macro2",

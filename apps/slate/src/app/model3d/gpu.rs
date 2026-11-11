@@ -201,15 +201,23 @@ impl ModelEngine {
         adjust: Option<&ImageAdjust>,
     ) -> Option<egui::ColorImage> {
         let mut target = self.new_live_target()?;
-        let rendered = self.render_frame(
-            &mut target,
-            model,
-            cam,
-            (w, h, w as f32 / h as f32),
-            adjust,
-            false,
-        );
-        let image = rendered.then(|| self.read_target(&target)).flatten();
+        let rendered = {
+            let _span = atlas_core::session_log::span("slate.model3d.poster_draw");
+            self.render_frame(
+                &mut target,
+                model,
+                cam,
+                (w, h, w as f32 / h as f32),
+                adjust,
+                false,
+            )
+        };
+        let image = rendered
+            .then(|| {
+                let _span = atlas_core::session_log::span("slate.model3d.poster_readback");
+                self.read_target(&target)
+            })
+            .flatten();
         self.free_target(target);
         image
     }

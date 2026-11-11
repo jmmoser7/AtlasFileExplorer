@@ -67,7 +67,7 @@ pub fn window(app: &mut SlateApp, ctx: &egui::Context) {
             ui.separator();
             ui.add_space(6.0);
             let mut prefs = app.feedback.prefs.clone();
-            atlas_shell::feedback::advanced_section(ui, &mut prefs, palette.sub);
+            atlas_shell::feedback::advanced_section(ui, &mut prefs, palette.sub, "slate");
             if prefs != app.feedback.prefs {
                 app.feedback.prefs = prefs;
                 app.feedback.prefs.save("slate");

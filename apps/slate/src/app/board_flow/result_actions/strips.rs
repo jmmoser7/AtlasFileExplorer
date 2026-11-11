@@ -19,6 +19,9 @@ impl SlateApp {
     }
 
     pub(crate) fn result_selection(&self, host: NodeId) -> ResultSelection {
+        if self.agents.flow.results.selections.is_empty() {
+            return ResultSelection::default();
+        }
         self.result_binding(host)
             .and_then(|binding| {
                 self.agents

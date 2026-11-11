@@ -8,7 +8,6 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use atlas_ai::agent::PortalView;
 use atlas_shell::{canvas_scale, canvas_text};
 use eframe::egui::{self, Align2, Pos2, Rect};
 use slate_doc::scene::{AgentPortalRef, Node, NodeId, NodeKind};
@@ -241,14 +240,16 @@ impl SlateApp {
         {
             return;
         }
-        let next = self.doc().scene.nodes.iter().find_map(|n| {
-            let a = slate_doc::agent_chat::agent(n)?;
-            let channel = a.channel.clone()?;
-            (matches!(a.provider.as_str(), "codex" | "cursor")
-                && a.view == PortalView::Chat
-                && !self.agents.life.rejoined.contains(&a.session)
-                && !self.agent_has_child(n.id))
-            .then(|| (n.id, a.session.clone(), channel))
+        let topology = self.agent_topology();
+        let next = topology.rejoin_candidates.iter().find_map(|&id| {
+            let a = self
+                .doc()
+                .scene
+                .node(id)
+                .and_then(slate_doc::agent_chat::agent)?;
+            let channel = a.channel.as_ref()?;
+            (!self.agents.life.rejoined.contains(&a.session) && !self.agent_has_child(id))
+                .then(|| (id, a.session.clone(), channel.clone()))
         });
         let Some((id, session, channel)) = next else {
             return;

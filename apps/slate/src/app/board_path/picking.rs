@@ -243,15 +243,70 @@ pub fn board_pick_node_filtered(
     accepts: impl Fn(&Node) -> bool,
     host_of: impl Fn(NodeId) -> Option<slate_doc::WireHost>,
 ) -> Option<NodeId> {
+    let routes = slate_doc::wire::SceneWireRouting::default();
+    board_pick_node_with_routes(
+        scene,
+        point,
+        zoom,
+        include_locked,
+        None,
+        accepts,
+        &host_of,
+        |id, conn| {
+            routes.route(
+                scene,
+                Some(id),
+                &conn.a,
+                &conn.b,
+                conn.effective_routing(routing),
+                &host_of,
+            )
+        },
+    )
+}
+
+pub(crate) struct BoardPickCandidates<'a> {
+    pub ids: &'a [NodeId],
+    pub scan_bodies: bool,
+    pub scan_wires: bool,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn board_pick_node_with_routes(
+    scene: &slate_doc::scene::Scene,
+    point: [f32; 2],
+    zoom: f32,
+    include_locked: bool,
+    candidates: Option<BoardPickCandidates<'_>>,
+    accepts: impl Fn(&Node) -> bool,
+    host_of: impl Fn(NodeId) -> Option<slate_doc::WireHost>,
+    route_of: impl Fn(NodeId, &slate_doc::scene::ConnectorNode) -> Option<slate_doc::ConnectorPath>,
+) -> Option<NodeId> {
     let [wx, wy] = point;
-    let eligible =
-        |n: &Node| accepts(n) && !n.hidden && (!n.locked || include_locked) && !n.is_frame();
-    let wire_geometry = super::super::board_wire::WirePickGeometry {
-        accepts: &accepts,
-        host_of: &host_of,
+    let scan = || scene.nodes.iter().rev();
+    let indexed = || {
+        candidates
+            .iter()
+            .flat_map(|candidates| candidates.ids.iter().rev())
+            .filter_map(|id| scene.node(*id))
     };
-    for n in scene.nodes.iter().rev().filter(|n| eligible(n)) {
-        if matches!(n.kind, NodeKind::Connector(_)) {
+    let scan_bodies = candidates
+        .as_ref()
+        .is_none_or(|candidates| candidates.scan_bodies);
+    let scan_wires = candidates
+        .as_ref()
+        .is_none_or(|candidates| candidates.scan_wires);
+    let bodies = || {
+        (!scan_bodies)
+            .then(indexed)
+            .into_iter()
+            .flatten()
+            .chain(scan_bodies.then(scan).into_iter().flatten())
+    };
+    let eligible =
+        |n: &Node| !n.hidden && (!n.locked || include_locked) && !n.is_frame() && accepts(n);
+    for n in bodies() {
+        if matches!(n.kind, NodeKind::Connector(_)) || !eligible(n) {
             continue;
         }
         if let NodeKind::Shape(s) = &n.kind {
@@ -272,32 +327,37 @@ pub fn board_pick_node_filtered(
             return Some(n.id);
         }
     }
-    for n in scene.nodes.iter().rev().filter(|n| eligible(n)) {
+    let mut wire_blocked = None;
+    let wires = (!scan_wires)
+        .then(indexed)
+        .into_iter()
+        .flatten()
+        .chain(scan_wires.then(scan).into_iter().flatten());
+    for n in wires {
         let NodeKind::Connector(c) = &n.kind else {
             continue;
         };
-        if super::super::board_wire::hit_connector_filtered(
-            scene,
-            n.id,
-            c,
-            [wx, wy],
-            zoom,
-            routing,
-            &wire_geometry,
-        ) {
+        if !eligible(n) {
+            continue;
+        }
+        if *wire_blocked.get_or_insert_with(|| {
+            super::super::board_wire::wire_blocked_by_node(scene, wx, wy, zoom, &accepts)
+        }) {
+            break;
+        }
+        if route_of(n.id, c).is_some_and(|path| {
+            super::super::board_wire::hit_connector(path, c, point, zoom, &host_of)
+        }) {
             return Some(n.id);
         }
     }
-    scene
-        .nodes
-        .iter()
-        .rev()
+    bodies()
         .find(|n| {
-            accepts(n)
-                && n.is_frame()
+            n.is_frame()
                 && !n.hidden
                 && (include_locked || !n.locked)
                 && n.rect.contains(wx, wy)
+                && accepts(n)
         })
         .map(|n| n.id)
 }

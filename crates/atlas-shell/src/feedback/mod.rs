@@ -5,6 +5,7 @@ mod bundle;
 mod button;
 mod panels;
 mod recorder;
+mod send;
 mod ui;
 
 pub use bundle::{default_reports_dir, repo_root_from, repo_root_from_exe, ReportJson};
@@ -81,6 +82,7 @@ pub struct FeedbackHub {
     pub app_text_editing: bool,
     pub(crate) editing_last_frame: bool,
     pub(crate) capture_rx: Option<std::sync::mpsc::Receiver<Option<Vec<u8>>>>,
+    send: send::State,
     /// Last user-chosen position of the shared feedback dialog.
     pub(crate) dialog_pos: Option<eframe::egui::Pos2>,
     form_return: FeedbackPhase,
@@ -109,6 +111,7 @@ impl Default for FeedbackHub {
             app_text_editing: false,
             editing_last_frame: false,
             capture_rx: None,
+            send: send::State::default(),
             dialog_pos: None,
             form_return: FeedbackPhase::BugForm,
             dispatch_depth: 0,
@@ -118,7 +121,9 @@ impl Default for FeedbackHub {
 
 impl FeedbackHub {
     pub fn open_picker(&mut self) {
-        self.phase = FeedbackPhase::KindPicker;
+        if !self.send.pending() {
+            self.phase = FeedbackPhase::KindPicker;
+        }
     }
 
     pub fn begin_form(&mut self, kind: FeedbackKind) {
@@ -170,6 +175,9 @@ impl FeedbackHub {
     /// Attach dropped image files. A cloud placeholder is refused before
     /// any byte is read, so a drop never hydrates a OneDrive file.
     pub fn attach_dropped(&mut self, paths: &[PathBuf]) {
+        if self.send.pending() {
+            return;
+        }
         for path in paths {
             if self.attachments.iter().any(|(p, _)| p == path) {
                 continue;
@@ -195,6 +203,9 @@ impl FeedbackHub {
 
     /// Attach the clipboard picture through the shared clipboard-image owner.
     pub fn attach_clipboard_image(&mut self) {
+        if self.send.pending() {
+            return;
+        }
         match atlas_core::clipboard_image::read_png() {
             Some(png) => {
                 let n = self.attachments.len() + 1;
@@ -236,6 +247,7 @@ impl FeedbackHub {
         self.attachments.clear();
         self.attach_note = None;
         self.kind = None;
+        self.send = send::State::default();
     }
 
     pub fn mailto_subject(&self, app_name: &str) -> String {
