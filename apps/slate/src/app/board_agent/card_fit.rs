@@ -31,13 +31,18 @@ impl SlateApp {
         if self.tab().read_only || self.board_drag.is_some() {
             return;
         }
-        // Respect Undo until new typing or provider output actually changes the content.
-        if self.tab().journal.can_redo()
-            && self
-                .agents
-                .fit_revision
-                .is_none_or(|r| r.1 == self.agents.output_epoch && r.2 == self.agents.prompt_epoch)
-        {
+        // Undo itself can relocate prompts and reload sessions. Auto-fitting
+        // those changes must not create a new journal step and erase Redo.
+        let redo_pending = self.tab().journal.can_redo();
+        let prompt_fit_edit = self
+            .agents
+            .prompt_fit_edit
+            .take()
+            .filter(|&(doc, depth, _)| {
+                doc == self.tab().id && depth == self.tab().journal.undo_depth()
+            })
+            .map(|(_, _, id)| id);
+        if redo_pending && prompt_fit_edit.is_none() {
             return;
         }
         let revision = (
@@ -58,6 +63,7 @@ impl SlateApp {
             .scene
             .nodes
             .iter()
+            .filter(|n| !redo_pending || prompt_fit_edit == Some(n.id))
             .filter(|n| !n.hidden && !n.locked)
             .filter(|n| {
                 slate_doc::agent_chat::agent(n).is_some_and(|a| {
@@ -154,7 +160,7 @@ impl SlateApp {
                 *n = after.clone();
             });
         }
-        self.agents.fit_revision = if more {
+        self.agents.fit_revision = if more || redo_pending {
             None
         } else {
             Some((

@@ -38,6 +38,26 @@ impl ModelSpace {
 }
 
 impl SlateApp {
+    pub(in crate::app::model3d) fn model_poster_visible(
+        &self,
+        id: NodeId,
+        board: &slate_doc::WorldRect,
+        requested_at: u64,
+    ) -> bool {
+        let board_visible =
+            !self.at_home && self.doc().view.active_view == slate_doc::ViewKind::Board;
+        // These views use their own transform. Require fresh clipped paint
+        // demand so a slide or camera change can retire stale requests.
+        let other_view = requested_at.wrapping_add(1) == self.frame_no
+            && (self.presenting.is_some()
+                || self.frame_presentation.open(false)
+                || self.portal_chrome.maximized == Some(id));
+        self.doc().scene.node(id).is_some_and(|node| {
+            !node.hidden
+                && (other_view || (board_visible && slate_doc::node_aabb(node).intersects(board)))
+        })
+    }
+
     /// Cached duplicates retire without a GPU pass; one render attempt consumes
     /// the frame's expensive-work slot even if the driver cannot complete it.
     pub(in super::super) fn generate_poster(&mut self, id: NodeId) -> PosterGeneration {

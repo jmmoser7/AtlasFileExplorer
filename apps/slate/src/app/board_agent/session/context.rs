@@ -157,6 +157,43 @@ impl SlateApp {
             generated_at: atlas_ai::context::now_secs(),
         }
     }
+
+    pub(in crate::app::board_agent) fn consume_agent_context(&mut self, portal: NodeId) {
+        // A generator or text block rereads its wires on every run; they stay rewirable.
+        if slate_doc::agent_inputs::is_flow_node(&self.doc().scene, portal) {
+            return;
+        }
+        let ids: Vec<_> = self
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .filter_map(|n| {
+                let NodeKind::Connector(c) = &n.kind else {
+                    return None;
+                };
+                let binding = c.binding.as_ref()?;
+                if binding.consumed {
+                    return None;
+                }
+                // TWIN: slate_doc::agent_inputs::WireBinding::target 2026-09-25
+                let target = if binding.input_b { &c.b } else { &c.a };
+                slate_doc::agent_inputs::endpoint_node(target)
+                    .filter(|id| *id == portal)
+                    .map(|_| n.id)
+            })
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+        self.patch_nodes(&ids, |n| {
+            if let NodeKind::Connector(c) = &mut n.kind {
+                if let Some(binding) = &mut c.binding {
+                    binding.consumed = true;
+                }
+            }
+        });
+    }
 }
 
 impl ContextPublications {

@@ -165,6 +165,10 @@ fn two_drafts_keep_their_text_through_switches_and_undo_redo() {
     let undo = |h: &mut H| {
         h.app.board_undo();
         settle(h);
+        assert!(
+            h.app.tab().journal.can_redo(),
+            "settling the restored draft geometry preserves Redo"
+        );
     };
     let redo = |h: &mut H| {
         h.app.board_redo();
@@ -196,6 +200,21 @@ fn two_drafts_keep_their_text_through_switches_and_undo_redo() {
     check(&h, false, "redo to window");
     redo(&mut h);
     check(&h, false, "redo to pairs");
+
+    undo(&mut h);
+    undo(&mut h);
+    check(&h, true, "restore both drafts before editing");
+    let main_height = h.app.doc().scene.node(main).unwrap().rect.h;
+    let fork_rect = h.app.doc().scene.node(fork).unwrap().rect;
+    h.app
+        .edit_agent_prompt_text(main, "An extra line.\n".repeat(6));
+    h.app.fit_agent_cards(&h.ctx);
+    assert!(h.app.doc().scene.node(main).unwrap().rect.h > main_height);
+    assert_eq!(h.app.doc().scene.node(fork).unwrap().rect, fork_rect);
+    assert!(
+        !h.app.tab().journal.can_redo(),
+        "the edited draft fits in a new journal step"
+    );
 }
 
 #[test]

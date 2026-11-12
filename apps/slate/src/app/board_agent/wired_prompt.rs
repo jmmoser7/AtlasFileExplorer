@@ -157,6 +157,10 @@ impl SlateApp {
     pub(crate) fn edit_agent_prompt_text(&mut self, id: NodeId, text: String) {
         let previous = self.agents.prompt(id).unwrap_or("");
         let authored = self.authored_agent_prompt_edit(id, &text, previous);
+        if authored != previous && self.tab().journal.can_redo() {
+            self.agents.prompt_fit_edit =
+                Some((self.tab().id, self.tab().journal.undo_depth(), id));
+        }
         *self.agents.prompt_mut(id) = authored;
         self.agents.prompt_epoch = self.agents.prompt_epoch.wrapping_add(1);
     }

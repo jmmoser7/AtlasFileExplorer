@@ -235,6 +235,8 @@ pub struct AgentRuntime {
     pub(super) artifact_drag: Option<(NodeId, Pos2)>,
     pub(super) composer_focus: Option<NodeId>,
     pub(crate) prompt_epoch: u64,
+    /// A prompt edited by the person while a journal step awaits Redo.
+    pub(super) prompt_fit_edit: Option<(u64, usize, NodeId)>,
     pub(super) fit_revision: Option<FitRevision>,
     pub(super) fit_keys: HashMap<NodeId, u64>,
     pub(super) title_widths: HashMap<NodeId, f32>,
