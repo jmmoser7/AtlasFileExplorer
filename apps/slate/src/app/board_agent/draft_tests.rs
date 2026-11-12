@@ -200,11 +200,29 @@ fn two_drafts_keep_their_text_through_switches_and_undo_redo() {
     check(&h, false, "redo to window");
     redo(&mut h);
     check(&h, false, "redo to pairs");
+}
 
-    undo(&mut h);
-    undo(&mut h);
-    check(&h, true, "restore both drafts before editing");
+#[test]
+fn typing_into_a_restored_draft_still_fits_that_card() {
+    let (mut h, ids) = branched_pairs("mode_type_after_undo");
+    let root = ids[0];
+    h.app.board_sel = std::iter::once(ids[2]).collect();
+    assert!(h.app.agent_spawn_command(None));
+    let main = *h.app.board_sel.iter().next().unwrap();
+    *h.app.agents.prompt_mut(main) = DRAFT_TEXT.into();
+    settle(&mut h);
+    let tail = main_tail(&h, root);
+    switch(&mut h, tail, Shape::Train);
+    let tail = main_tail(&h, root);
+    switch(&mut h, tail, Shape::Window);
+    assert_draft_joined(&h, root, main, Shape::Window, false);
+
+    h.app.board_undo();
+    settle(&mut h);
+    assert_draft_joined(&h, root, main, Shape::Train, true);
+    assert!(h.app.tab().journal.can_redo());
     let main_height = h.app.doc().scene.node(main).unwrap().rect.h;
+    let fork = ids[4];
     let fork_rect = h.app.doc().scene.node(fork).unwrap().rect;
     h.app
         .edit_agent_prompt_text(main, "An extra line.\n".repeat(6));
