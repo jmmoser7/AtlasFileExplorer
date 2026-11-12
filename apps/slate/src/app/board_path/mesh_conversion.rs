@@ -65,10 +65,11 @@ impl CachedInkMesh {
     }
 
     pub(crate) fn from_wire(ink: InkMesh) -> Self {
+        let (stations, remainder) = ink.vertices.as_chunks::<4>();
         if ink.colors.is_empty()
             && ink.vertices.len() >= 8
-            && ink.vertices.len() % 4 == 0
-            && ink.vertices.chunks_exact(4).all(|station| {
+            && remainder.is_empty()
+            && stations.iter().all(|station| {
                 station
                     .iter()
                     .zip(vector_ink::AA_STRIP_ALPHAS)
@@ -76,9 +77,8 @@ impl CachedInkMesh {
             })
             && vector_ink::aa_strip_indices(ink.vertices.len()).eq(ink.indices.iter().copied())
         {
-            let stations = ink.vertices.chunks_exact(4);
             let (vertices, encoding) = if stations
-                .clone()
+                .iter()
                 .all(|station| station[1].pos.map(f32::to_bits) == station[2].pos.map(f32::to_bits))
             {
                 let mut vertices = Vec::with_capacity(stations.len() * 3);
@@ -231,7 +231,7 @@ fn append_strip_vertices<const N: usize>(
     colors: [Color32; N],
 ) {
     use egui::epaint::{Vertex, WHITE_UV};
-    for station in positions.chunks_exact(N) {
+    for station in positions.as_chunks::<N>().0 {
         for (&[x, y], color) in station.iter().zip(colors) {
             mesh.vertices.push(Vertex {
                 pos: xf.w2s(Pos2::new(x, y)),

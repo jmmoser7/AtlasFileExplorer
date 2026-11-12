@@ -141,6 +141,10 @@ type CachedGalley = (
     std::sync::Arc<atlas_shell::canvas_text::WorldLayout>,
 );
 type ChatsResult = (String, PathBuf, Result<Vec<CursorChat>, String>);
+type HistoryRailCache = (
+    Option<(u64, u64, u64)>,
+    Vec<slate_doc::agent_chat::HistoryRail>,
+);
 
 #[derive(Default)]
 pub struct AgentRuntime {
@@ -234,10 +238,7 @@ pub struct AgentRuntime {
     pub(super) fit_revision: Option<FitRevision>,
     pub(super) fit_keys: HashMap<NodeId, u64>,
     pub(super) title_widths: HashMap<NodeId, f32>,
-    pub(super) rail_cache: std::cell::RefCell<(
-        Option<(u64, u64, u64)>,
-        Vec<slate_doc::agent_chat::HistoryRail>,
-    )>,
+    pub(super) rail_cache: std::cell::RefCell<HistoryRailCache>,
     pub(super) bindings: HashMap<NodeId, String>,
     pub(super) context_selection: HashMap<String, Vec<NodeId>>,
     pub(super) requests: HashMap<NodeId, String>,

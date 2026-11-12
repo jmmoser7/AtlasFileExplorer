@@ -109,86 +109,6 @@ impl WireRouteCache {
     }
 }
 
-#[cfg(test)]
-mod cache_tests {
-    use super::*;
-    use crate::app::tests::Harness;
-
-    #[test]
-    fn bezier_route_retention_covers_the_dense_board_within_payload_budget() {
-        let mut cache = WireRouteCache::default();
-        let ends = [ConnectorEnd::Free { point: [0.0, 0.0] }; 2];
-        for id in 1..=MAX_CACHED_BEZIER_ROUTES as u64 + 1 {
-            cache.retain_bezier(
-                NodeId(id),
-                CachedBezier {
-                    ends,
-                    width: 0,
-                    paths: None,
-                },
-            );
-        }
-        assert!((1..=37_200).all(|id| cache.beziers.contains_key(&NodeId(id))));
-        assert!(cache.beziers.len() <= MAX_CACHED_BEZIER_ROUTES);
-        assert!(
-            cache.beziers.len() * std::mem::size_of::<(NodeId, CachedBezier)>()
-                <= BEZIER_ROUTE_PAYLOAD_BYTES
-        );
-    }
-
-    #[test]
-    fn settled_beziers_keep_colliding_ids_and_follow_live_host_motion() {
-        let mut h = Harness::new("settled-beziers-retain-and-invalidate");
-        h.app.leave_home();
-        h.app.ensure_work_tab();
-        h.app.board_wire_routing = WireRouting::Bezier;
-        let host = h.app.doc_mut().scene.build_node(
-            WorldRect::new(0.0, 0.0, 80.0, 60.0),
-            NodeKind::Image(slate_doc::scene::ImageNode::new(slate_doc::ItemId::NONE)),
-        );
-        let host = h.app.add_nodes(vec![host])[0];
-        let start = ConnectorEnd::Anchored {
-            node: host,
-            side: Side::Right,
-            t: 0.5,
-        };
-        let first = h.app.build_connector(
-            start,
-            ConnectorEnd::Free {
-                point: [250.0, 80.0],
-            },
-        );
-        let mut second = h.app.build_connector(
-            start,
-            ConnectorEnd::Free {
-                point: [450.0, 160.0],
-            },
-        );
-        second.id = NodeId(first.id.0 + 4096);
-        let ids = h.app.add_nodes(vec![first, second]);
-        let read = |app: &SlateApp, id: NodeId| {
-            let NodeKind::Connector(conn) = &app.doc().scene.node(id).unwrap().kind else {
-                panic!("expected connector")
-            };
-            app.visible_bezier_paths(id, conn)
-        };
-        let first = read(&h.app, ids[0]);
-        let second = read(&h.app, ids[1]);
-        assert!(!first.2 && !second.2);
-        assert_eq!(
-            read(&h.app, ids[0]),
-            (first.0.clone(), first.1.clone(), true)
-        );
-        assert_eq!(read(&h.app, ids[1]), (second.0, second.1, true));
-        h.app.doc_mut().scene.node_mut(host).unwrap().rect.x -= 20.0;
-        let moved = read(&h.app, ids[0]);
-        assert!(!moved.2);
-        assert_ne!(moved.0, first.0);
-        assert_ne!(moved.1, first.1);
-        assert!(read(&h.app, ids[0]).2);
-    }
-}
-
 impl SlateApp {
     pub(crate) fn paint_board_connectors(
         &mut self,
@@ -198,7 +118,7 @@ impl SlateApp {
         nodes: &[Node],
     ) {
         let cadence = if nodes.len() >= 10_000 { 4 } else { 16 };
-        if self.frame_no % cadence == 0 && self.session_log.persist_enabled() {
+        if self.frame_no.is_multiple_of(cadence) && self.session_log.persist_enabled() {
             self.paint_board_connector_batch::<true>(ui, painter, xf, nodes);
         } else {
             self.paint_board_connector_batch::<false>(ui, painter, xf, nodes);
@@ -358,11 +278,11 @@ impl SlateApp {
             &conn.a,
             &conn.b,
             WireRouting::Bezier,
-            &host_of,
+            host_of,
         );
         let drawn = raw
             .as_ref()
-            .map(|path| retreat_off_hosts(path.clone(), &conn.a, &conn.b, &host_of, width * 0.5));
+            .map(|path| retreat_off_hosts(path.clone(), &conn.a, &conn.b, host_of, width * 0.5));
         let compact = match (&raw, &drawn) {
             (Some(ConnectorPath::Bezier(raw)), Some(ConnectorPath::Bezier(drawn))) => {
                 Some(Some([*raw, *drawn]))
@@ -718,5 +638,85 @@ pub(crate) fn paint_route_preview(
                 stroke,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use crate::app::tests::Harness;
+
+    #[test]
+    fn bezier_route_retention_covers_the_dense_board_within_payload_budget() {
+        let mut cache = WireRouteCache::default();
+        let ends = [ConnectorEnd::Free { point: [0.0, 0.0] }; 2];
+        for id in 1..=MAX_CACHED_BEZIER_ROUTES as u64 + 1 {
+            cache.retain_bezier(
+                NodeId(id),
+                CachedBezier {
+                    ends,
+                    width: 0,
+                    paths: None,
+                },
+            );
+        }
+        assert!((1..=37_200).all(|id| cache.beziers.contains_key(&NodeId(id))));
+        assert!(cache.beziers.len() <= MAX_CACHED_BEZIER_ROUTES);
+        assert!(
+            cache.beziers.len() * std::mem::size_of::<(NodeId, CachedBezier)>()
+                <= BEZIER_ROUTE_PAYLOAD_BYTES
+        );
+    }
+
+    #[test]
+    fn settled_beziers_keep_colliding_ids_and_follow_live_host_motion() {
+        let mut h = Harness::new("settled-beziers-retain-and-invalidate");
+        h.app.leave_home();
+        h.app.ensure_work_tab();
+        h.app.board_wire_routing = WireRouting::Bezier;
+        let host = h.app.doc_mut().scene.build_node(
+            WorldRect::new(0.0, 0.0, 80.0, 60.0),
+            NodeKind::Image(slate_doc::scene::ImageNode::new(slate_doc::ItemId::NONE)),
+        );
+        let host = h.app.add_nodes(vec![host])[0];
+        let start = ConnectorEnd::Anchored {
+            node: host,
+            side: Side::Right,
+            t: 0.5,
+        };
+        let first = h.app.build_connector(
+            start,
+            ConnectorEnd::Free {
+                point: [250.0, 80.0],
+            },
+        );
+        let mut second = h.app.build_connector(
+            start,
+            ConnectorEnd::Free {
+                point: [450.0, 160.0],
+            },
+        );
+        second.id = NodeId(first.id.0 + 4096);
+        let ids = h.app.add_nodes(vec![first, second]);
+        let read = |app: &SlateApp, id: NodeId| {
+            let NodeKind::Connector(conn) = &app.doc().scene.node(id).unwrap().kind else {
+                panic!("expected connector")
+            };
+            app.visible_bezier_paths(id, conn)
+        };
+        let first = read(&h.app, ids[0]);
+        let second = read(&h.app, ids[1]);
+        assert!(!first.2 && !second.2);
+        assert_eq!(
+            read(&h.app, ids[0]),
+            (first.0.clone(), first.1.clone(), true)
+        );
+        assert_eq!(read(&h.app, ids[1]), (second.0, second.1, true));
+        h.app.doc_mut().scene.node_mut(host).unwrap().rect.x -= 20.0;
+        let moved = read(&h.app, ids[0]);
+        assert!(!moved.2);
+        assert_ne!(moved.0, first.0);
+        assert_ne!(moved.1, first.1);
+        assert!(read(&h.app, ids[0]).2);
     }
 }

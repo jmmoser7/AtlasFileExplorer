@@ -989,20 +989,20 @@ impl SlateApp {
             .runs
             .retain(|chain, _| chains.contains(chain));
         let mut active = false;
-        for chain in chains.iter().cloned() {
+        for chain in chains {
             let Some((_, owner)) =
-                xt::owner(&self.doc().scene, &chain).map(|(n, x)| (n.id, x.clone()))
+                xt::owner(&self.doc().scene, chain).map(|(n, x)| (n.id, x.clone()))
             else {
                 continue;
             };
-            if xt::ended(&self.doc().scene, &chain) {
-                self.agents.crosstalk.runs.remove(&chain);
+            if xt::ended(&self.doc().scene, chain) {
+                self.agents.crosstalk.runs.remove(chain);
                 continue;
             }
             let Some(started) = owner.started.clone() else {
                 continue;
             };
-            let relays = xt::relays(&self.doc().scene, &chain);
+            let relays = xt::relays(&self.doc().scene, chain);
             let run = self
                 .agents
                 .crosstalk
@@ -1016,7 +1016,7 @@ impl SlateApp {
             }
             run.seen = relays;
             let approval = owner.roles.keys().any(|s| self.xt_needs_approval(s));
-            let run = self.agents.crosstalk.runs.get_mut(&chain).unwrap();
+            let run = self.agents.crosstalk.runs.get_mut(chain).unwrap();
             let counting = run.pause.is_none() && !approval;
             match (counting, run.since) {
                 (true, None) => run.since = Some(Instant::now()),
@@ -1040,7 +1040,7 @@ impl SlateApp {
                 });
                 let busy = self.xt_busy(&session);
                 let name = self.xt_name(&session);
-                let run = self.agents.crosstalk.runs.get_mut(&chain).unwrap();
+                let run = self.agents.crosstalk.runs.get_mut(chain).unwrap();
                 if failed {
                     run.pause = Some(Pause::Failed(name));
                     run.waiting = None;
@@ -1053,13 +1053,13 @@ impl SlateApp {
                     continue;
                 }
             }
-            if self.crosstalk_stopped(&chain, &owner).is_some() {
-                let run = self.agents.crosstalk.runs.get_mut(&chain).unwrap();
+            if self.crosstalk_stopped(chain, &owner).is_some() {
+                let run = self.agents.crosstalk.runs.get_mut(chain).unwrap();
                 run.offer = None;
                 continue;
             }
             // A finished reply no wire carries yet, source side first.
-            if self.agents.crosstalk.runs[&chain].offer.is_none() {
+            if self.agents.crosstalk.runs[chain].offer.is_none() {
                 let mut order: Vec<&String> = owner.roles.keys().collect();
                 order.sort_by_key(|s| **s != owner.source);
                 for session in order {
@@ -1075,16 +1075,16 @@ impl SlateApp {
                         session: session.clone(),
                         turn,
                     };
-                    let run = &self.agents.crosstalk.runs[&chain];
+                    let run = &self.agents.crosstalk.runs[chain];
                     if turn < started.get(session).copied().unwrap_or(0)
                         || run.skipped.contains(&from)
-                        || xt::carried(&self.doc().scene, &chain, session, turn)
+                        || xt::carried(&self.doc().scene, chain, session, turn)
                     {
                         continue;
                     }
                     let long = last.text.chars().count() > xt::RELAY_MAX_CHARS;
                     let autonomy = self.xt_autonomy();
-                    let run = self.agents.crosstalk.runs.get_mut(&chain).unwrap();
+                    let run = self.agents.crosstalk.runs.get_mut(chain).unwrap();
                     run.offer = Some(Offer {
                         from,
                         text: last.text.clone(),
@@ -1098,7 +1098,7 @@ impl SlateApp {
             }
             // An accepted reply goes when its partner can take it and the
             // person is not typing there (X07: yours goes first).
-            let Some(offer) = self.agents.crosstalk.runs[&chain].offer.clone() else {
+            let Some(offer) = self.agents.crosstalk.runs[chain].offer.clone() else {
                 continue;
             };
             let Some(first) = offer.accepted else {
@@ -1108,7 +1108,7 @@ impl SlateApp {
                 continue;
             };
             if self.xt_tail(&partner).is_none() {
-                self.agents.crosstalk.runs.get_mut(&chain).unwrap().pause = Some(Pause::Missing);
+                self.agents.crosstalk.runs.get_mut(chain).unwrap().pause = Some(Pause::Missing);
                 continue;
             }
             let Some(tail) = self.xt_ready(&partner) else {
@@ -1122,8 +1122,8 @@ impl SlateApp {
             if typing {
                 continue;
             }
-            let outcome = self.perform_relay(&chain, &owner, &offer, first, tail);
-            let run = self.agents.crosstalk.runs.get_mut(&chain).unwrap();
+            let outcome = self.perform_relay(chain, &owner, &offer, first, tail);
+            let run = self.agents.crosstalk.runs.get_mut(chain).unwrap();
             run.offer = None;
             match outcome {
                 Ok(()) => run.waiting = Some((partner, Instant::now())),
@@ -2741,7 +2741,10 @@ mod tests {
                 .node(owner)
                 .expect("the wire stays, hidden");
         assert!(node.hidden && xt::crosstalk(node).unwrap().ended);
-        assert_eq!(p.h.app.agent_topology().crosstalk_chains, [chain.clone()]);
+        assert_eq!(
+            p.h.app.agent_topology().crosstalk_chains.as_slice(),
+            std::slice::from_ref(&chain)
+        );
         p.h.app
             .agents
             .crosstalk
