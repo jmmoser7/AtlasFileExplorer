@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="assets/theme.css">
 <link rel="stylesheet" href="styles.css">
 <script src="release.js" defer></script>
+<script src="capability-videos.js" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -30,18 +31,29 @@
     <a class="text-link" href="documentation/">Get to know Slate <span aria-hidden="true">↗</span></a>
   </div>
   <p class="microcopy">Windows x64 <span aria-hidden="true">·</span> Local files <span aria-hidden="true">·</span> No account needed</p>
-  <figure class="canvas-study">
-    <div class="study-heading"><span><span class="tiny-dot" aria-hidden="true"></span>A little room to think</span><span>01 / EXPLORATIONS</span></div>
-    <div class="study-canvas" aria-hidden="true">
-      <svg class="study-wires" viewBox="0 0 1080 420" preserveAspectRatio="none"><path d="M322 183C460 183 342 302 490 302S651 219 732 219"/><path d="M645 98C778 98 651 322 855 322"/></svg>
-      <div class="study-card study-note"><span class="card-kicker">FIELD NOTES / 01</span><h2>Good ideas<br>need a little<br>space.</h2><span class="note-rule"></span><p>Collect. Connect. Compose.</p><span class="file-caption"><span class="file-dot"></span>thought.txt</span></div>
-      <div class="study-card study-art"><svg viewBox="0 0 290 245"><defs><linearGradient id="sphere" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#dde2e8"/><stop offset=".52" stop-color="#8997a6"/><stop offset="1" stop-color="#23272d"/></linearGradient></defs><rect width="290" height="245" fill="#1c2026"/><g stroke="#333941" stroke-width=".6"><path d="M0 195h290M0 215h290M0 235h290M145 168 10 245m135-77 135 77m-135-77-65 77m65-77 65 77"/></g><ellipse cx="154" cy="196" rx="83" ry="11" fill="#0e1013" opacity=".5"/><circle cx="145" cy="115" r="76" fill="url(#sphere)"/><ellipse cx="145" cy="115" rx="76" ry="22" fill="none" stroke="#dde2e8" opacity=".25" transform="rotate(-27 145 115)"/><path d="M223 185h19m-9-9v18" stroke="#2dd4bf"/></svg><span class="file-caption">form-study.svg <span>↗</span></span></div>
-      <div class="study-card study-palette"><span class="card-kicker">A DIRECTION</span><div class="swatches"><i></i><i></i><i></i><i></i></div><span class="file-caption">Less noise. More focus.</span></div>
-      <div class="study-card study-caption"><span class="mini-cross">+</span><p>See what<br>belongs together.</p></div>
-      <span class="canvas-cursor"><svg viewBox="0 0 18 22"><path d="m2 1 13 12-6 1-3 6z"/></svg><span>Your next idea</span></span>
+</section>
+<section class="capability-videos page" aria-labelledby="capability-title">
+  <h2 id="capability-title">See Slate in action.</h2>
+  <div class="demo-album" role="region" aria-roledescription="carousel" aria-labelledby="capability-title">
+    <div class="demo-stage" id="demo-stage" role="group" tabindex="0" aria-label="Video demonstrations. Swipe, drag, or use the Left and Right arrow keys to change videos.">
+      <div class="demo-deck">
+        <!-- Demo video markup -->
+      </div>
+      <div class="demo-player">
+        <video muted playsinline preload="auto" data-demo-player aria-label="Slate demonstration"></video>
+        <img class="demo-current-poster" alt="" hidden>
+        <p class="demo-fallback" hidden>This video couldn’t be played.</p>
+      </div>
+      <div class="demo-controls">
+        <button type="button" data-demo-playback hidden>Pause</button>
+        <button type="button" data-demo-captions aria-label="Captions" aria-pressed="false" hidden>CC</button>
+      </div>
     </div>
-    <figcaption><span>An illustrative composition. Your canvas is yours.</span><span>LINK · ARRANGE · PRESENT</span></figcaption>
-  </figure>
+    <div class="demo-title-card">
+      <!-- Demo title markup -->
+    </div>
+    <p class="demo-visually-hidden" role="status" data-demo-status></p>
+  </div>
 </section>
 <section class="principles page" aria-label="What Slate does">
   <article><span class="section-number">01</span><h2>Bring your own files.</h2><p>Link images, documents, and reference material. Your files stay where they belong.</p></article>

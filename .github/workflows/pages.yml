@@ -44,6 +44,7 @@ jobs:
         run: python website/check.py
       - name: Check website JavaScript
         run: |
+          node --check website/capability-videos.js
           node --check website/suggestions/suggestions.js
           node website/check-suggestions.cjs
           node --test services/suggestion-intake/worker.test.mjs

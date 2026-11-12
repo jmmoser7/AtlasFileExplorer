@@ -28,7 +28,7 @@ class Page(HTMLParser):
         if tag == "meta":
             self.description |= attrs.get("name") == "description"
             self.viewport |= attrs.get("name") == "viewport"
-        for key in ("href", "src", "action"):
+        for key in ("href", "src", "action", "poster", "data-video-src", "data-captions"):
             if attrs.get(key):
                 self.links.append(attrs[key])
         if tag == "img":

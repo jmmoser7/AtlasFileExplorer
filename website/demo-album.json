@@ -1,0 +1,34 @@
+[
+  {
+    "id": "browse-workbooks",
+    "title": "Browse and open workbooks"
+  },
+  {
+    "id": "large-project-board",
+    "title": "Navigate a large project board"
+  },
+  {
+    "id": "vector-shapes",
+    "title": "Draw and edit vector shapes"
+  },
+  {
+    "id": "web-references",
+    "title": "Bring web references onto the canvas"
+  },
+  {
+    "id": "interactive-dashboard",
+    "title": "Explore an interactive dashboard"
+  },
+  {
+    "id": "scale-figure",
+    "title": "Place and render a scale figure"
+  },
+  {
+    "id": "render-variations",
+    "title": "Compare architectural render variations"
+  },
+  {
+    "id": "multiple-viewpoints",
+    "title": "Render multiple views of a building"
+  }
+]
