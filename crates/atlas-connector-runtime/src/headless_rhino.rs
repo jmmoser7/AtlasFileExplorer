@@ -1,5 +1,7 @@
 //! Closed Rhino SDK jobs, called on a worker after existing Session::begin admission.
 //! No connector transport, surface, source write-back or preview renderer is replaced.
+pub mod grasshopper;
+pub mod grasshopper_packages;
 mod plan;
 mod plan_contract;
 mod session;

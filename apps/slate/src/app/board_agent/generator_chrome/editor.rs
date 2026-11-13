@@ -68,7 +68,7 @@ impl SlateApp {
         z: f32,
         theme: atlas_shell::theme::Palette,
     ) -> tools::AgentEditResponse {
-        let model_mode = self.model_node_info(id).is_some();
+        let model_mode = self.grasshopper_viewer(id) || self.model_node_info(id).is_some();
         let outputs = self.model_generator_outputs(id);
         let selected_model = outputs.iter().position(|output| output.current);
         let visible = self
@@ -111,7 +111,7 @@ impl SlateApp {
                 prompt: &mut *edit.prompt,
                 hint: edit.hint,
                 take_focus: edit.take_focus,
-                count: Some(edit.count.max(1) as usize),
+                count: (!self.grasshopper_viewer(id)).then_some(edit.count.max(1) as usize),
                 preserve_history: preserve,
                 models: edit.models,
                 model: edit.model,
@@ -214,7 +214,7 @@ impl SlateApp {
             );
             false
         } else if out.submit
-            && self.model_node_info(id).is_some()
+            && (self.grasshopper_viewer(id) || self.model_node_info(id).is_some())
             && self
                 .doc()
                 .scene

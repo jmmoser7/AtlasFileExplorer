@@ -44,3 +44,14 @@ pub(super) const MEASURE: CommandSpec = spec(
     BOARD,
     &["distance", "ruler", "dimension", "3d"],
 );
+
+pub(super) const GRASSHOPPER_BAKE: CommandSpec = spec(
+    "board.model_grasshopper_bake",
+    "Board",
+    "Bake Grasshopper preview",
+    "Writes the selected Grasshopper viewer's visible solved geometry to a linked 3DM model. The first bake appears beside the viewer, with later bakes stacked below it",
+    None,
+    Repeat::Never,
+    BOARD,
+    &["grasshopper", "bake", "3dm"],
+);

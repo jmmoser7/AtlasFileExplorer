@@ -60,6 +60,8 @@ impl SlateApp {
                 PendingHost::Model => {
                     if providers.is_empty() {
                         "Set up a supported native model agent"
+                    } else if self.grasshopper_viewer(id) {
+                        "Describe the Grasshopper definition or the next change"
                     } else {
                         "Describe the model or the next change"
                     }
@@ -391,8 +393,13 @@ impl SlateApp {
         // its output-only graph identity and authored dimensions.
         agent.generator.input_source_kind = None;
         agent.generator.preserve_history = Some(draft.preserve_history);
-        agent.generator.count = Some(draft.count);
-        agent.image.count = draft.count;
+        let count = if self.grasshopper_viewer(id) {
+            1
+        } else {
+            draft.count
+        };
+        agent.generator.count = Some(count);
+        agent.image.count = count;
         let owned_text_output = self.is_owned_text_output(id);
         agent.generator.text_response_only = kind == PendingHost::Text && !owned_text_output;
         let mut after = before.clone();

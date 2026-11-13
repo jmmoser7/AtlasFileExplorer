@@ -22,7 +22,12 @@ impl SlateApp {
         inputs: atlas_agent::InputSnapshot,
     ) -> Option<NodeId> {
         let result = (|| -> Result<(), String> {
-            self.validate_model_generator_send(portal)?;
+            let grasshopper = self.grasshopper_viewer(portal);
+            if grasshopper {
+                self.validate_grasshopper_authoring(portal)?;
+            } else {
+                self.validate_model_generator_send(portal)?;
+            }
             let node = self.doc().scene.node(portal).ok_or("Model was removed")?;
             let agent = slate_doc::agent_chat::agent(node)
                 .ok_or("Choose a native model agent")?
@@ -107,7 +112,11 @@ impl SlateApp {
                 relayed_from: None,
                 goal: None,
             };
-            self.queue_model_task_request(portal, workspace, source_inputs, authored, request)
+            if grasshopper {
+                self.queue_grasshopper_authoring(portal, workspace, authored, request)
+            } else {
+                self.queue_model_task_request(portal, workspace, source_inputs, authored, request)
+            }
         })();
         if let Err(error) = result {
             self.fail_agent_await(portal, error);
@@ -139,7 +148,7 @@ impl SlateApp {
             .or_insert_with(|| request.history.clone());
         turns.push(AgentTurn {
             role: "user".into(),
-            text: request.prompt.clone(),
+            text: atlas_agent::display_prompt(&request.prompt).into(),
             at: request.at,
         });
         if self.agents.prompt(portal).unwrap_or_default() == authored {

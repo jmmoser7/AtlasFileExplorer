@@ -157,6 +157,7 @@ impl SlateApp {
             .into_iter()
             .flatten();
         for node in indexed.chain(full) {
+            self.paint_grasshopper_grips(node, painter, xf);
             if let Some(kind) =
                 slate_doc::agent_chat::agent(node).and_then(|a| a.generator.input_source_kind)
             {

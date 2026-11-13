@@ -14,6 +14,7 @@ pub(crate) mod native;
 mod presentation;
 mod rhino_window;
 mod worker;
+pub(crate) use worker::headless_rhino_configuration;
 
 #[derive(Default)]
 pub(crate) struct ConnectorRuntime {
@@ -54,11 +55,12 @@ enum InputCapture {
 
 impl SlateApp {
     pub(crate) fn application_connector_eligible(&self, id: NodeId) -> bool {
-        self.model_node_info(id).is_some_and(|info| {
-            info.path
-                .extension()
-                .is_some_and(|s| s.eq_ignore_ascii_case("3dm"))
-        })
+        !self.grasshopper_viewer(id)
+            && self.model_node_info(id).is_some_and(|info| {
+                info.path
+                    .extension()
+                    .is_some_and(|s| s.eq_ignore_ascii_case("3dm"))
+            })
     }
     pub(crate) fn application_connector_active(&self, id: NodeId) -> bool {
         !self.at_home

@@ -19,6 +19,15 @@ impl SlateApp {
         if !recognized || item.cache_key.is_empty() {
             return None;
         }
+        if let Some((cache_key, path)) = self.grasshopper_preview(doc, id, &item.cache_key) {
+            return Some(ModelNodeInfo {
+                node: id,
+                cache_key: cache_key.to_owned(),
+                path: path.to_owned(),
+                cam: img.model,
+                rect: node.rect,
+            });
+        }
         Some(ModelNodeInfo {
             node: id,
             cache_key: item.cache_key.clone(),

@@ -398,7 +398,7 @@ fn export_media_changing_zoom_paint_cost() {
                                 egui::Id::new("media-changing-zoom-paint"),
                             ));
                             for (index, &icon) in icons.iter().enumerate() {
-                                layout.paint_icon(&painter, index, icon, theme.ink, theme);
+                                layout.paint_icon(&painter, index, icon, theme.ink);
                             }
                         },
                     );

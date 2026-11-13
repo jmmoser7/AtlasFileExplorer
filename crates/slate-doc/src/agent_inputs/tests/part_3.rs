@@ -37,6 +37,7 @@ fn a_placed_text_document_carries_words_to_a_prompt_port() {
         &mut doc,
         NodeKind::Connector(ConnectorNode {
             crosstalk: None,
+            grasshopper: None,
             routing: None,
             a,
             b,
@@ -159,6 +160,7 @@ fn flow_ports_bind_by_slot_and_refuse_the_wrong_kind() {
         let binding = infer_binding(scene, &a, &b);
         NodeKind::Connector(ConnectorNode {
             crosstalk: None,
+            grasshopper: None,
             routing: None,
             a,
             b,
@@ -225,6 +227,7 @@ fn agent_cards_become_the_media_they_make() {
         let binding = infer_binding(&doc.scene, &a, &b);
         NodeKind::Connector(ConnectorNode {
             crosstalk: None,
+            grasshopper: None,
             routing: None,
             a,
             b,
@@ -281,6 +284,7 @@ fn agent_cards_become_the_media_they_make() {
     for source in [generator, block] {
         let wire = NodeKind::Connector(ConnectorNode {
             crosstalk: None,
+            grasshopper: None,
             routing: None,
             color: None,
             a: ConnectorEnd::Anchored {

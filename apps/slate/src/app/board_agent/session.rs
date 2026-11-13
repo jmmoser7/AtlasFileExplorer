@@ -187,6 +187,8 @@ impl SlateApp {
         self.pump_known_agent_image_imports(ctx);
         let tail_span = atlas_core::session_log::span("slate.agents.tail");
         self.pump_agent_awaits(ctx, &ws);
+        self.pump_grasshopper_authoring(ctx);
+        self.paint_grasshopper_confirmation(ctx);
         self.pump_crosstalk(ctx);
         self.pump_pending_chat_sends(ctx);
         self.pump_comfy_queue();

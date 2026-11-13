@@ -25,7 +25,31 @@ impl EditorHost<'_> {
         owner: (Id, egui::LayerId),
         panel: (chrome::ImagePanelKind, f32),
         enabled: bool,
-        agent_panel: bool,
+        paint_detached_surface: bool,
+        paint: impl FnOnce(&mut egui::Ui, Rect, Option<&chrome::ImagePresentationLayout>) -> T,
+    ) -> Option<EditorResponse<T>> {
+        self.show_with_heading(
+            ctx,
+            owner,
+            panel,
+            0.0,
+            enabled,
+            paint_detached_surface,
+            paint,
+        )
+    }
+
+    /// Reserve a row above the shared editor geometry in the same attached apron.
+    /// The detached height already includes its heading.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn show_with_heading<T>(
+        &self,
+        ctx: &egui::Context,
+        owner: (Id, egui::LayerId),
+        panel: (chrome::ImagePanelKind, f32),
+        heading_height: f32,
+        enabled: bool,
+        paint_detached_surface: bool,
         paint: impl FnOnce(&mut egui::Ui, Rect, Option<&chrome::ImagePresentationLayout>) -> T,
     ) -> Option<EditorResponse<T>> {
         let (id, layer) = owner;
@@ -33,19 +57,28 @@ impl EditorHost<'_> {
         if canvas_scale::too_small(12.0 * self.zoom) {
             return None;
         }
-        let layout = self
-            .blister
-            .then(|| chrome::image_presentation_layout(self.bounds, self.zoom, kind));
+        let heading = Vec2::new(0.0, heading_height * self.zoom);
+        let layout = self.blister.then(|| {
+            chrome::image_presentation_layout(self.bounds.translate(heading), self.zoom, kind)
+        });
         let rect = layout.map_or_else(
             || chrome::editor_placement(self.strip, self.bounds, height, self.zoom, self.canvas),
-            |layout| layout.editor_rect(self.zoom),
+            |layout| {
+                if heading_height > 0.0 {
+                    Rect::from_min_max(layout.overall.min - heading, layout.overall.max)
+                } else {
+                    layout.editor_rect(self.zoom)
+                }
+            },
         );
-        let area = layout.map_or(rect, |layout| layout.overall);
+        let area = layout.map_or(rect, |layout| {
+            Rect::from_min_max(layout.overall.min - heading, layout.overall.max)
+        });
         self.show_area(ctx, id, layer, area, |content| {
-            if let Some(layout) = &layout {
+            if layout.is_some() {
                 chrome::paint_blister_surface(
                     content.painter(),
-                    layout.overall,
+                    area,
                     self.strip,
                     self.zoom,
                     self.theme,
@@ -62,7 +95,7 @@ impl EditorHost<'_> {
                         self.theme,
                     );
                 }
-            } else if agent_panel {
+            } else if paint_detached_surface {
                 chrome::paint_detached_agent_surface(
                     content.painter(),
                     rect,
@@ -183,6 +216,9 @@ impl SlateApp {
             Panel::Fill | Panel::Stroke | Panel::Corners | Panel::Filter => {
                 image_palette::panel_kind(Some(panel))
             }
+            Panel::Grasshopper if self.grasshopper_color_heading_height() > 0.0 => {
+                image_palette::panel_kind(Some(Panel::Fill))
+            }
             _ => chrome::ImagePanelKind::Custom {
                 main_height: self.property_editor_height(painter, panel, width_units),
             },
@@ -237,6 +273,7 @@ impl SlateApp {
                     |id| self.artifact_editor_height(painter, id, width_units),
                 ),
             Panel::ModelDisplay => self.model_display_editor_height(),
+            Panel::Grasshopper => self.grasshopper_editor_height(),
             Panel::Capture => chrome::capture::launch_height(
                 self.shape_properties
                     .ids

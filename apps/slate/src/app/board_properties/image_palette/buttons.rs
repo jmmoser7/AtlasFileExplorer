@@ -99,7 +99,7 @@ pub(super) fn panel_buttons(
                     };
                     layout
                         .blister
-                        .paint_icon(ui.painter(), index, panel_icon(panel), color, theme);
+                        .paint_icon(ui.painter(), index, panel_icon(panel), color);
                     response
                 };
                 #[cfg(test)]

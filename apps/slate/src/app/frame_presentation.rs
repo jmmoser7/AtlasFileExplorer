@@ -54,6 +54,7 @@ pub(crate) struct State {
     board_ranks: HashMap<NodeId, usize>,
     hovered: Option<NodeId>,
     attached: bool,
+    chrome_rects: [Option<Rect>; 4],
     reveal: bool,
     thumb_gen: Option<(u64, u64)>,
     members: HashMap<NodeId, Vec<NodeId>>,

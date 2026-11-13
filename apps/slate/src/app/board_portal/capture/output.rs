@@ -48,6 +48,7 @@ pub(crate) fn capture_path(doc_path: Option<&Path>, node: NodeId, extension: &st
         "jpg" | "jpeg" => "jpg",
         "webp" => "webp",
         "mp4" => "mp4",
+        "3dm" => "3dm",
         _ => "png",
     };
     directory.join(format!(

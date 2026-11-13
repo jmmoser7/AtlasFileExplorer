@@ -919,6 +919,7 @@ mod tests {
             WorldRect::new(0.0, 0.0, 1.0, 1.0),
             NodeKind::Connector(ConnectorNode {
                 crosstalk: None,
+                grasshopper: None,
                 routing: None,
                 binding: None,
                 a: ConnectorEnd::Anchored {
@@ -1054,6 +1055,7 @@ mod tests {
             WorldRect::new(0.0, 0.0, 1.0, 1.0),
             NodeKind::Connector(ConnectorNode {
                 crosstalk: None,
+                grasshopper: None,
                 routing: None,
                 binding: None,
                 a: ConnectorEnd::Free { point: [5.0, 6.0] },

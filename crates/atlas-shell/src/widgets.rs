@@ -80,15 +80,22 @@ pub fn parse_slider_number(text: &str, range: std::ops::RangeInclusive<f32>) -> 
     Some(v.clamp(lo.min(hi), lo.max(hi)))
 }
 
+fn parse_slider_number_f64(text: &str, range: std::ops::RangeInclusive<f64>) -> Option<f64> {
+    let value = text.trim().parse::<f64>().ok()?;
+    value
+        .is_finite()
+        .then(|| value.clamp(*range.start(), *range.end()))
+}
+
 /// Enter and click-away commit; Escape cancels. `clamp` is the slider rule
 /// (out of range becomes the nearest end). Without it, out of range stays
 /// invalid, which is how underlined RGB and dimension fields already behave.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum TypedNumber {
+pub enum TypedNumber<T = f32> {
     Idle,
     Cancel,
     Invalid,
-    Commit(f32),
+    Commit(T),
 }
 
 pub fn typed_number_event(
@@ -99,24 +106,29 @@ pub fn typed_number_event(
     outside: bool,
     clamp: bool,
 ) -> TypedNumber {
+    typed_number_with(text, enter, escape, outside, |text| {
+        if clamp {
+            return parse_slider_number(text, range);
+        }
+        let value = text.trim().parse::<f32>().ok()?;
+        (value.is_finite() && range.contains(&value)).then_some(value)
+    })
+}
+
+fn typed_number_with<T>(
+    text: &str,
+    enter: bool,
+    escape: bool,
+    outside: bool,
+    parse: impl FnOnce(&str) -> Option<T>,
+) -> TypedNumber<T> {
     if escape {
         return TypedNumber::Cancel;
     }
     if !(enter || outside) {
         return TypedNumber::Idle;
     }
-    match text.trim().parse::<f32>() {
-        Ok(v) if v.is_finite() => {
-            if clamp {
-                TypedNumber::Commit(parse_slider_number(text, range).unwrap_or(v))
-            } else if range.contains(&v) {
-                TypedNumber::Commit(v)
-            } else {
-                TypedNumber::Invalid
-            }
-        }
-        _ => TypedNumber::Invalid,
-    }
+    parse(text).map_or(TypedNumber::Invalid, TypedNumber::Commit)
 }
 
 /// Tooltip / label number, matching property-strip readouts (`12`, `0.5`).
@@ -297,8 +309,8 @@ struct SliderEdit {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SliderFieldOut {
-    pub committed: Option<f32>,
+pub struct SliderFieldOut<T = f32> {
+    pub committed: Option<T>,
     pub open: bool,
 }
 
@@ -317,11 +329,70 @@ pub fn slider_value_field(
     begin: bool,
     chrome: FieldChrome,
 ) -> SliderFieldOut {
+    slider_value_field_with(
+        ui,
+        id,
+        center,
+        zoom,
+        || format_slider_number(value),
+        |text, enter, escape, outside| {
+            typed_number_event(text, range, enter, escape, outside, true)
+        },
+        suffix,
+        None,
+        begin,
+        chrome,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn slider_value_field_f64(
+    ui: &mut Ui,
+    id: Id,
+    center: Pos2,
+    zoom: f32,
+    value: f64,
+    range: std::ops::RangeInclusive<f64>,
+    field_bounds: Rect,
+    begin: bool,
+    chrome: FieldChrome,
+) -> SliderFieldOut<f64> {
+    slider_value_field_with(
+        ui,
+        id,
+        center,
+        zoom,
+        || value.to_string(),
+        |text, enter, escape, outside| {
+            typed_number_with(text, enter, escape, outside, |text| {
+                parse_slider_number_f64(text, range)
+            })
+        },
+        "",
+        Some(field_bounds),
+        begin,
+        chrome,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn slider_value_field_with<T: Copy>(
+    ui: &mut Ui,
+    id: Id,
+    center: Pos2,
+    zoom: f32,
+    initial_value: impl FnOnce() -> String,
+    typed_value: impl FnOnce(&str, bool, bool, bool) -> TypedNumber<T>,
+    suffix: &str,
+    field_bounds: Option<Rect>,
+    begin: bool,
+    chrome: FieldChrome,
+) -> SliderFieldOut<T> {
     let edit_id = id.with("slider_edit");
     let mut edit: Option<SliderEdit> = ui.ctx().data(|d| d.get_temp(edit_id));
     if begin && edit.is_none() && ui.is_enabled() {
         edit = Some(SliderEdit {
-            text: format_slider_number(value),
+            text: initial_value(),
             focus: true,
             error: false,
         });
@@ -336,7 +407,7 @@ pub fn slider_value_field(
             open: false,
         };
     };
-    let painter = ui.ctx().layer_painter(egui::LayerId::new(
+    let mut painter = ui.ctx().layer_painter(egui::LayerId::new(
         crate::selection_tools::POPUP_ORDER,
         id.with("slider_field"),
     ));
@@ -352,7 +423,21 @@ pub fn slider_value_field(
     let gap = 4.0 * zoom;
     let width = numeric.size().x + gap + post.size().x + pad * 2.0;
     let height = numeric.size().y.max(post.size().y) + pad;
-    let chip = Rect::from_center_size(center, Vec2::new(width.max(28.0 * zoom), height));
+    let size = Vec2::new(width.max(28.0 * zoom), height);
+    let chip = if let Some(bounds) = field_bounds.filter(|bounds| bounds.is_positive()) {
+        let size = size.min(bounds.size());
+        let origin = center - size * 0.5;
+        let last = bounds.max - size;
+        let origin = Pos2::new(
+            origin.x.clamp(bounds.left(), last.x.max(bounds.left())),
+            origin.y.clamp(bounds.top(), last.y.max(bounds.top())),
+        );
+        painter = painter.with_clip_rect(bounds);
+        Rect::from_min_size(origin, size)
+    } else {
+        Rect::from_center_size(center, size)
+    };
+    let center = chip.center();
     let response = ui.interact(chip, id.with("slider_field_hit"), Sense::click_and_drag());
     painter.rect(
         chip,
@@ -440,13 +525,11 @@ pub fn slider_value_field(
     );
     let outside =
         ui.input(|i| i.pointer.any_pressed()) && !response.contains_pointer() && !first_frame;
-    let event = typed_number_event(
+    let event = typed_value(
         &editing.text,
-        range,
         ui.input(|i| i.key_pressed(egui::Key::Enter)),
         ui.input(|i| i.key_pressed(egui::Key::Escape)),
         outside,
-        true,
     );
     let mut committed = None;
     match event {
@@ -830,6 +913,17 @@ mod tests {
         assert_eq!(parse_slider_number("33", 0.0..=100.0), Some(33.0));
         assert_eq!(format_slider_number(18.0), "18");
         assert_eq!(format_slider_number(0.5), "0.5");
+    }
+
+    #[test]
+    fn typed_double_slider_values_keep_the_entered_precision() {
+        let entered = 0.123_456_789_123_f64;
+        let range = 0.0..=1.0;
+        assert_eq!(
+            super::parse_slider_number_f64(&entered.to_string(), range.clone()),
+            Some(entered)
+        );
+        assert_eq!(super::parse_slider_number_f64("1.1", range), Some(1.0));
     }
 
     use super::{rail_interaction, slider, slider_end_overhang, slider_press_zone};

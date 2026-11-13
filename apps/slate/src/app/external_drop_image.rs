@@ -37,6 +37,7 @@ impl SlateApp {
             }
         }
         let mut drop_at = None;
+        let mut file_drop_at = None;
         let mut drop_alt = None;
         let mut dropped: Vec<PathBuf> = ctx.input(|i| {
             i.raw
@@ -61,9 +62,22 @@ impl SlateApp {
                 external_drop::Payload::Url(url) => {
                     self.drop_web_url(&url, event.at);
                 }
-                external_drop::Payload::Files(paths) => dropped.extend(paths),
+                external_drop::Payload::Files(paths) => {
+                    file_drop_at = Some(event.at);
+                    dropped.extend(paths);
+                }
                 external_drop::Payload::Image(source) => {
                     self.drop_browser_image(source, event.at, ctx)
+                }
+            }
+        }
+        let pointer = ctx.input(|i| i.pointer.hover_pos());
+        if !dropped.is_empty() {
+            if let Some(screen) = file_drop_at.or(pointer) {
+                let before = dropped.len();
+                self.consume_grasshopper_plugin_drop(&mut dropped, screen);
+                if dropped.len() != before {
+                    ctx.request_repaint();
                 }
             }
         }
@@ -72,14 +86,13 @@ impl SlateApp {
                 self.leave_home();
                 self.ensure_work_tab();
             }
-            let at = drop_at
-                .or_else(|| ctx.input(|i| i.pointer.hover_pos()))
+            let screen = drop_at.or(pointer);
+            let at = screen
                 .map(|p| self.board_xf().s2w(p))
                 .unwrap_or_else(|| self.tab().cam.offset.to_pos2());
             // An HTML page dropped on the board is a portal, not a snippet card
             // (D01). Alt keeps the old text card, which is the only way back.
             let alt = drop_alt.unwrap_or_else(|| ctx.input(|i| i.modifiers.alt));
-            let screen = drop_at.or_else(|| ctx.input(|i| i.pointer.hover_pos()));
             self.ingest_dropped_paths(dropped, at, alt, screen);
         }
         // Dropped/added .slate files open as tabs, after placement above.

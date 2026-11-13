@@ -59,6 +59,9 @@ impl SlateApp {
 
     /// Explicit human setup; agent sending never creates its own draft authority.
     pub(crate) fn connector_activate_headless(&mut self, node: NodeId) -> Result<(), String> {
+        if self.grasshopper_viewer(node) {
+            return Err("Bake the Grasshopper preview to edit it with the 3D agent".into());
+        }
         let info = self
             .model_node_info(node)
             .ok_or("Choose a placed 3D model for the headless builder")?;

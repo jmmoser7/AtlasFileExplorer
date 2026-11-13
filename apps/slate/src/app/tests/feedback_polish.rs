@@ -45,6 +45,7 @@ fn corner_shrink_with_a_zero_width_wire_stays_uniform() {
             display: WireDisplay::Default,
             binding: None,
             crosstalk: None,
+            grasshopper: None,
         }),
     );
     let wire_id = wire.id;

@@ -10,7 +10,8 @@ impl SlateApp {
     /// Resting native sources expose their own output. Expanded Agent inputs
     /// and already authored input connections use the unchanged typed sites.
     pub(crate) fn presented_wire_ports(&self, node: &Node) -> Vec<slate_doc::WirePort> {
-        self.wire_input_host(node)
+        let mut ports: Vec<_> = self
+            .wire_input_host(node)
             .ports()
             .into_iter()
             .filter(|port| {
@@ -22,7 +23,9 @@ impl SlateApp {
                         .find(|input| (input.t - port.t).abs() < 0.001)
                         .is_some_and(|input| self.source_agent_input_visible(node.id, input.slot))
             })
-            .collect()
+            .collect();
+        self.grasshopper_wire_ports(node, &mut ports);
+        ports
     }
 
     /// Rendering, dragging and picking share the path-resolved typed roles.
@@ -34,9 +37,11 @@ impl SlateApp {
     }
 
     pub(crate) fn wire_input_host(&self, node: &Node) -> slate_doc::wire_host::WireHost {
-        slate_doc::wire_host::WireHost::from_node_with_paths(node, &|id| {
+        let host = slate_doc::wire_host::WireHost::from_node_with_paths(node, &|id| {
             self.doc().item(id).map(|item| item.path.as_path())
-        })
+        });
+        let (inputs, outputs) = self.grasshopper_rail_sizes(node.id);
+        host.with_grasshopper_rows(inputs, outputs)
     }
 
     pub(crate) fn wire_port_point(&self, node: &Node, side: Side, t: f32) -> Pos2 {
@@ -193,6 +198,7 @@ impl SlateApp {
         let stroke = self.default_wire_stroke();
         let mut conn = ConnectorNode {
             crosstalk: None,
+            grasshopper: None,
             routing: Some(self.board_wire_routing),
             binding: binding.or_else(|| self.bind_wire(&a, &b, pending)),
             a,

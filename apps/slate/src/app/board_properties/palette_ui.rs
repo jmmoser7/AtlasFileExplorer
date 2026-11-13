@@ -10,7 +10,7 @@ pub(super) use state::LastChrome;
 #[cfg(test)]
 mod tests;
 impl SlateApp {
-    /// Runs before board input. Layout is recomputed from the host transform every frame.
+    /// Paints and handles property chrome at the supplied board camera.
     pub(crate) fn shape_properties_ui(&mut self, ui: &mut egui::Ui, xf: &BoardXf) -> bool {
         self.shape_properties.result_chrome_bottom = None;
         let ctx = ui.ctx().clone();
@@ -18,6 +18,7 @@ impl SlateApp {
         self.sync_shape_properties();
         self.seed_document_colors();
         self.shape_properties.chrome_hits.clear();
+        self.shape_properties.grasshopper_drop_area = None;
         let editing_hosted_text = self.text_edit.as_ref().is_some_and(|(id, _)| {
             self.doc().scene.node(*id).is_some_and(|n| match &n.kind {
                 NodeKind::Text(_) => true,
@@ -222,7 +223,8 @@ impl SlateApp {
                 chrome::strip_button_rect(strip, index, z)
             };
             let (label, icon, active) = self.property_strip_button_info(item);
-            let button_live = live && !grip_under;
+            let available = self.property_strip_button_available(item);
+            let button_live = live && !grip_under && available;
             let response = if blister {
                 let response = chrome::object_hover_text(
                     strip_ui.interact(
@@ -236,7 +238,9 @@ impl SlateApp {
                     ),
                     label,
                 );
-                let ink = if active {
+                let ink = if !available {
+                    theme.sub.gamma_multiply(0.45)
+                } else if active {
                     theme.accent
                 } else if response.hovered() {
                     theme.ink
@@ -244,7 +248,7 @@ impl SlateApp {
                     theme.sub
                 };
                 let painter = chrome::object_painter(&strip_ui);
-                media_layout.paint_icon(&painter, index, icon, ink.gamma_multiply(fade), theme);
+                media_layout.paint_icon(&painter, index, icon, ink.gamma_multiply(fade));
                 response
             } else {
                 chrome::button(
@@ -431,6 +435,11 @@ impl SlateApp {
                     }
                     let canvas = self.canvas_rect;
                     let kind = self.property_editor_kind(ui.painter(), panel, bounds.width() / z);
+                    let heading_height = if panel == Panel::Grasshopper {
+                        self.grasshopper_color_heading_height()
+                    } else {
+                        0.0
+                    };
                     let host = self.shape_properties.nodes.first().cloned();
                     let editor = EditorHost {
                         node: host.as_ref(),
@@ -441,12 +450,13 @@ impl SlateApp {
                         canvas,
                         theme,
                     }
-                    .show(
+                    .show_with_heading(
                         &ctx,
                         (Id::new("shape_property_editor"), ui.layer_id()),
                         (kind, height),
+                        heading_height,
                         enabled || panel == Panel::Capture,
-                        panel == Panel::Agent,
+                        matches!(panel, Panel::Agent | Panel::Grasshopper),
                         |ui, rect, layout| {
                             let sample = self.shape_property_body(ui, rect, panel, z, layout);
                             let ids = self.shape_properties.ids.as_slice();
@@ -457,6 +467,11 @@ impl SlateApp {
                         },
                     );
                     if let Some(editor) = editor {
+                        if enabled && panel == Panel::Grasshopper {
+                            self.shape_properties.grasshopper_drop_area = chrome_state
+                                .host
+                                .map(|(_, node)| (node, editor.area.intersect(canvas)));
+                        }
                         self.occupy_result_chrome(chrome_state.host, editor.area);
                         captures |= ctx.pointer_latest_pos().is_some_and(|p| {
                             editor.area.contains(p)

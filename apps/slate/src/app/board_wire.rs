@@ -7,6 +7,7 @@
 //! (`slate_doc::connector_route`); one gesture = one journaled step.
 const WIRE_BLISTER_SECONDS: f32 = 0.14;
 mod drag;
+mod grasshopper;
 mod grip_hits;
 pub use grip_hits::grip_hit_radius;
 pub(crate) use grip_hits::wire_ports_fit;
@@ -521,7 +522,9 @@ impl SlateApp {
         if self.portal_capture_owns_viewport(node.id) {
             return;
         }
-        if (!self.wire_input_ports(node).is_empty() && self.source_agent_inputs_visible(node.id))
+        if self.grasshopper_grip(node.id, side, grips.t).is_some()
+            || (!self.wire_input_ports(node).is_empty()
+                && self.source_agent_inputs_visible(node.id))
             || slate_doc::agent_chat::agent(node)
                 .is_some_and(|a| a.generator.input_source_kind.is_some())
         {
@@ -579,6 +582,10 @@ impl SlateApp {
                         continue;
                     };
                     if xf.w2s(p).distance(screen) <= grip_hit_radius(xf.z) {
+                        if conn.grasshopper.is_some() {
+                            self.toast("Delete the Grasshopper wire to disconnect its ports.");
+                            return None;
+                        }
                         if conn.crosstalk.is_some() {
                             self.toast("A crosstalk wire follows its messages; its ends stay put.");
                             return None;
@@ -623,6 +630,13 @@ impl SlateApp {
         // Press origin on a side-midpoint grip — not the live hover cache.
         let (node_id, side, t) = self.wire_grip_at(screen, &xf)?;
         let from = (node_id, side, t);
+        if self.grasshopper_grip(node_id, side, t).is_some() {
+            return Some(WireDrag {
+                mode: WireMode::Add { from },
+                cursor: world,
+                snap: None,
+            });
+        }
 
         // Ends currently anchored to this grip (node + side).
         let ends: Vec<(NodeId, bool, Node)> = self
@@ -634,7 +648,9 @@ impl SlateApp {
                 let NodeKind::Connector(c) = &n.kind else {
                     return None;
                 };
-                if is_on_grip(&c.a, node_id, side) {
+                if c.grasshopper.is_some() {
+                    None
+                } else if is_on_grip(&c.a, node_id, side) {
                     Some((n.id, false, n.clone()))
                 } else if is_on_grip(&c.b, node_id, side) {
                     Some((n.id, true, n.clone()))
@@ -764,11 +780,12 @@ impl SlateApp {
                 continue;
             };
             max_reach = max_reach.max(connector_pick_reach(conn));
+            let ends = self.current_grasshopper_ends(conn);
             let path = routes.route(
                 scene,
                 Some(node.id),
-                &conn.a,
-                &conn.b,
+                &ends[0],
+                &ends[1],
                 conn.effective_routing(routing),
                 |id| scene.node(id).map(|host| self.wire_host(host)),
             );

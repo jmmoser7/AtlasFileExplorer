@@ -141,6 +141,10 @@ impl SlateApp {
         if self.submit_pending_media(id) {
             return true;
         }
+        if self.grasshopper_viewer(id) {
+            self.send_human_model_prompt(id);
+            return true;
+        }
         match self.prepare_headless_model_send(id) {
             Ok(true) => return true,
             Ok(false) => {}

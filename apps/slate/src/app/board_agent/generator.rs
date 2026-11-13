@@ -478,5 +478,6 @@ impl SlateApp {
     }
     pub(crate) fn generations_waiting(&self, id: NodeId) -> usize {
         self.agents.comfy_queue.get(&id).map_or(0, |q| q.len())
+            + self.artifact_generations_waiting(id)
     }
 }

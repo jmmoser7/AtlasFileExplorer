@@ -20,6 +20,7 @@ pub const FILE_ATLAS_PLACE_MARKER: &str = "\n\nFile Atlas placement:\n";
 pub const FILE_ATLAS_PLACE_GUIDE: &str = "To show a folder on the board, write place.json in the agent link folder (beside session.json) as {\"id\":\"a-new-id\",\"kind\":\"file_atlas\",\"path\":\"folder-relative-to-the-project\"}. Slate places that folder as a File Atlas portal beside this card. Do not say you cannot place it, and do not send the person to the changed-documents dot for that folder.";
 
 pub const ARTIFACT_MARKER: &str = "\n\nChanged documents:\n";
+pub const GRASSHOPPER_AUTHORING_MARKER: &str = "\n\nGrasshopper authoring task:\n";
 
 /// One canonical profile, also loaded by the installed Cursor sidecar.
 pub const ARTIFACT_GENERATION_PROFILE: &str =
@@ -173,6 +174,10 @@ impl AgentRequest {
     pub fn input_text_in(&self, link_dir: Option<&std::path::Path>) -> String {
         let mut text = self.prompt_with_history();
         let link = link_dir.map(|d| d.to_string_lossy());
+        if self.policy == crate::TurnPolicy::StagedFiles {
+            self.append_wired_inputs(&mut text);
+            return text;
+        }
         if self.collaborator.is_some() {
             text.push_str(&collaborator::board_link_guide(
                 self,
@@ -352,6 +357,7 @@ fn strip_transport(text: &str) -> &str {
         FILE_ATLAS_PLACE_MARKER,
         ARTIFACT_MARKER,
         ARTIFACT_GENERATION_MARKER,
+        GRASSHOPPER_AUTHORING_MARKER,
         GOAL_MARKER,
         CHAT_MARKER,
         collaborator::BOARD_LINK_MARKER,
@@ -366,6 +372,8 @@ fn strip_transport(text: &str) -> &str {
             } else if marker == ARTIFACT_GENERATION_MARKER {
                 data.starts_with("Artifact generation profile v1\n")
                     || data.starts_with("Artifact generation profile v1\r\n")
+            } else if marker == GRASSHOPPER_AUTHORING_MARKER {
+                data.starts_with("Return exactly one editable Grasshopper definition.")
             } else if marker == GOAL_MARKER {
                 data.starts_with("Goal: ")
             } else if marker == CHAT_MARKER {

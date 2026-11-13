@@ -382,6 +382,7 @@ mod tests {
                     label: None,
                     display: Default::default(),
                     crosstalk: None,
+                    grasshopper: None,
                     binding: Some(WireBinding {
                         input_b,
                         kind: InputKind::Images,
@@ -449,6 +450,7 @@ mod tests {
             label: None,
             display: Default::default(),
             crosstalk: None,
+            grasshopper: None,
             binding: Some(crate::agent_inputs::WireBinding {
                 input_b: true,
                 kind: crate::agent_inputs::InputKind::Memory,

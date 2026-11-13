@@ -3,6 +3,30 @@ use crate::app::tests::Harness;
 use atlas_core::preview::{PreviewOutcome, PreviewResult};
 use crossbeam_channel::{unbounded, Sender};
 
+#[test]
+fn moving_camera_loads_linked_results_at_thumbnail_size_then_refines() {
+    let mut h = Harness::new("preview_motion_refinement");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.observe_board_camera(&h.ctx, 1.0);
+    h.app.tab_mut().cam.z *= 2.0;
+    h.app.observe_board_camera(&h.ctx, 1.01);
+    let image = h.base.join("result.png");
+    let key = linked_image_key(&image, "current");
+    let cap = h.app.settings.preview.max_px;
+    h.app.linked_image_texture(image.clone(), "current", 2048.0);
+    assert_eq!(
+        h.app.preview_inflight.get(&key),
+        Some(&tier_for(THUMB_PX as f32, cap)),
+    );
+    h.app.observe_board_camera(&h.ctx, 1.12);
+    h.app.linked_image_texture(image, "current", 2048.0);
+    assert_eq!(
+        h.app.preview_inflight.get(&key),
+        Some(&tier_for(2048.0, cap))
+    );
+}
+
 fn injected_results(app: &mut SlateApp) -> Sender<PreviewResult> {
     let (tx, rx) = unbounded();
     // Real workers cannot race these injected terminal results. No frame,

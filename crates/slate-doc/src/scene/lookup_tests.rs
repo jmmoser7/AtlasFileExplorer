@@ -26,6 +26,7 @@ fn connector_bounds_follow_host_patch_and_undo_without_rebuilding_spatial_index(
             display: WireDisplay::Default,
             binding: None,
             crosstalk: None,
+            grasshopper: None,
         }),
     );
     let id = wire.id;

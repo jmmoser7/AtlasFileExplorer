@@ -28,6 +28,9 @@ impl SlateApp {
         relay: Option<(&str, &str)>,
         human_model_task: bool,
     ) -> Option<NodeId> {
+        if self.grasshopper_viewer(portal) && !human_model_task {
+            return None;
+        }
         if relay.is_none() && self.submit_pending_image(portal) {
             return None;
         }
@@ -169,7 +172,7 @@ impl SlateApp {
         let origin = ChatSendOrigin {
             purpose: if human_model_task
                 && relay.is_none()
-                && self.model_node_info(portal).is_some()
+                && (self.grasshopper_viewer(portal) || self.model_node_info(portal).is_some())
             {
                 super::runtime::ChatSendPurpose::HumanModelTask {
                     source_inputs: inputs.clone(),

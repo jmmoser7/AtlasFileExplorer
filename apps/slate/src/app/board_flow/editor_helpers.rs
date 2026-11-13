@@ -365,6 +365,9 @@ impl SlateApp {
                     "Ask about the selected text…"
                 }
                 Some(PendingHost::Text) => "Describe the text or the next change",
+                Some(PendingHost::Model) if self.grasshopper_viewer(id) => {
+                    "Describe the Grasshopper definition or the next change"
+                }
                 Some(PendingHost::Model) => "Describe the model or the next change",
                 Some(PendingHost::Artifact) => "Describe the dashboard or the next change",
                 _ => "Tell the model what to write. Submit writes it again.",

@@ -155,6 +155,8 @@ pub enum TurnPolicy {
     /// The provider's own settings, plus the person's full-access grant.
     #[default]
     Default,
+    /// An isolated Codex file task; only its dedicated output directory is writable.
+    StagedFiles,
     /// No edits, commands, or subagents, whatever the grant.
     ReadOnly,
 }

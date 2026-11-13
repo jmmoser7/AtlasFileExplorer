@@ -24,6 +24,9 @@ impl SlateApp {
     /// Called only by the registered human Send action. Preview selection alone
     /// never reaches this path, and no membership/grant/checkpoint is created.
     pub(crate) fn prepare_headless_model_send(&mut self, node: NodeId) -> Result<bool, String> {
+        if self.grasshopper_viewer(node) {
+            return Err("Bake the Grasshopper preview to edit it with the 3D agent".into());
+        }
         self.validate_model_generator_count(node)?;
         let key = (self.tab().id, node);
         if self.model_node_info(node).is_none() {

@@ -178,9 +178,7 @@ pub(super) fn review(ui: &mut egui::Ui, theme: Palette) {
         .into_iter()
         .enumerate()
         {
-            layout
-                .blister
-                .paint_icon(ui.painter(), j, icon, theme.ink, theme);
+            layout.blister.paint_icon(ui.painter(), j, icon, theme.ink);
         }
         if width > 0.0 {
             for ring in &geometry.body {

@@ -31,6 +31,7 @@ impl SlateApp {
         let surface_start = surface
             .as_ref()
             .map(|_| atlas_shell::selection_tools::media_host_shape_start(painter));
+        let mut model_busy = false;
 
         match &node.kind {
             NodeKind::Frame(f) => {
@@ -183,7 +184,10 @@ impl SlateApp {
                         Crop::full(),
                         Mirror::default(),
                     );
-                    self.paint_model_viewport(
+                    if slate_doc::media::is_grasshopper(&path) {
+                        self.request_grasshopper(node.id, ui.ctx());
+                    }
+                    model_busy = self.paint_model_viewport(
                         ui,
                         painter,
                         &outline,
@@ -192,6 +196,8 @@ impl SlateApp {
                         node.id,
                         &name,
                         alpha,
+                        z,
+                        chrome && self.board_camera_in_motion(),
                     );
                 } else {
                     let desired_px =
@@ -469,8 +475,11 @@ impl SlateApp {
                 _ => {}
             }
         }
-        if (self.is_artifact_node(node.id) || self.image_palette_eligible(node.id))
-            && self.agent_is_running(node.id)
+        if model_busy
+            || ((self.is_artifact_node(node.id)
+                || matches!(&node.kind, NodeKind::Text(text) if text.agent.is_some())
+                || self.image_palette_eligible(node.id))
+                && self.agent_is_running(node.id))
         {
             let outline = self.node_screen_outline(ui.ctx(), xf, node);
             atlas_shell::selection_tools::generator::progress::paint_busy_perimeter(

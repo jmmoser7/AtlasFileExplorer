@@ -245,6 +245,7 @@ fn connector(a: ConnectorEnd, b: ConnectorEnd) -> NodeKind {
         display: Default::default(),
         binding: None,
         crosstalk: None,
+        grasshopper: None,
     })
 }
 

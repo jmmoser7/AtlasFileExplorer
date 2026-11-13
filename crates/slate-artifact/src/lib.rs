@@ -748,6 +748,7 @@ mod tests {
     fn wire(a: ConnectorEnd, b: ConnectorEnd, display: WireDisplay) -> NodeKind {
         NodeKind::Connector(ConnectorNode {
             crosstalk: None,
+            grasshopper: None,
             routing: None,
             binding: None,
             a,

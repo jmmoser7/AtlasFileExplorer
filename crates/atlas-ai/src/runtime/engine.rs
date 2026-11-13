@@ -10,6 +10,15 @@ pub(super) enum Engine {
 }
 
 impl Engine {
+    pub(super) fn start_staged_files(request: &AgentRequest) -> Result<Self, String> {
+        let dir = atlas_codex::staged_files_dir(request)?;
+        let executable = codex_executable().ok_or("Install Codex before authoring a definition")?;
+        // The app-server startup cwd is a writable Windows sandbox root as
+        // well as the turn cwd. Start a separate process for each revision.
+        let client = atlas_codex::Client::start(&executable, dir, None)?;
+        Ok(Self::Codex(Box::new(client)))
+    }
+
     pub(super) fn start(
         provider: &str,
         dir: &Path,

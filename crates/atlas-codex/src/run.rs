@@ -21,7 +21,9 @@ fn request_for_thread(
 ) -> Option<AgentRequest> {
     // Text response and image requests start a fresh thread below. Their
     // explicitly admitted history must survive regardless of rebind replay.
-    if (request.oneshot || request.image.is_some()) && !request.history.is_empty() {
+    if request.policy == TurnPolicy::StagedFiles
+        || ((request.oneshot || request.image.is_some()) && !request.history.is_empty())
+    {
         None
     } else if replay {
         if request.history.is_empty() {
@@ -85,6 +87,7 @@ impl Client {
             return Err("Codex request cancelled before submission.".into());
         }
         session.request = request.id.clone();
+        session.usage = None;
         if record_user {
             session.activity.clear();
         }
@@ -140,6 +143,7 @@ impl Client {
             self.full_access,
             restore.as_ref(),
         );
+        scope_staged_files(&mut params, request, &self.cwd)?;
         self.apply_model_parameters(request, &mut params)?;
         if cancel.load(Ordering::Relaxed) {
             return Err("Codex request cancelled before submission.".into());
@@ -156,7 +160,7 @@ impl Client {
         if record_user {
             session.turns.push(AgentTurn {
                 role: "user".into(),
-                text: request.prompt.clone(),
+                text: atlas_agent::display_prompt(&request.prompt).into(),
                 at: request.at,
             });
         }
@@ -299,6 +303,16 @@ impl Client {
                 collect_artifacts(session, &p["item"], artifact_turn, &turn);
             }
             let method = event["method"].as_str().unwrap_or("");
+            if method == "thread/tokenUsage/updated" {
+                if let Some(total) = p
+                    .pointer("/tokenUsage/total/totalTokens")
+                    .and_then(Value::as_u64)
+                {
+                    session.usage = Some(total);
+                    session.updated_at = now();
+                    changed(session);
+                }
+            }
             session::collect_activity(method, p, session);
             messages.apply(method, p, session);
             match method {

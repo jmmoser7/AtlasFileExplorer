@@ -68,11 +68,13 @@ pub(super) fn node_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem>
     if nodes.iter().any(|n| image_is_text(app, n)) {
         items.retain(|item| *item != StripItem::Panel(Panel::Filter));
     }
+    let grasshopper = matches!(nodes, [node] if app.grasshopper_viewer(node.id));
     let native = nodes.len() == 1 && app.application_connector_active(nodes[0].id);
     if native {
         items.retain(|item| *item != StripItem::Panel(Panel::Filter));
         items.extend([StripItem::ModelScreenshot, StripItem::ModelMaximize]);
-    } else if nodes.len() == 1 && app.model_has_viewport(nodes[0].id) {
+    } else if grasshopper || nodes.len() == 1 && app.model_has_viewport(nodes[0].id) {
+        // Reserve the solved viewer's geometry and hit IDs from the first frame.
         items.retain(|item| *item != StripItem::Panel(Panel::Filter));
         items.extend([
             StripItem::Panel(Panel::ModelDisplay),
@@ -85,8 +87,15 @@ pub(super) fn node_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem>
     if nodes.len() == 1 && app.application_connector_eligible(nodes[0].id) {
         items.push(StripItem::ApplicationConnector);
     }
-    if nodes.len() == 1 && image_is_model(app, &nodes[0]) && !app.model_has_viewport(nodes[0].id) {
+    if !grasshopper
+        && nodes.len() == 1
+        && image_is_model(app, &nodes[0])
+        && !app.model_has_viewport(nodes[0].id)
+    {
         items.retain(|item| *item != StripItem::Panel(Panel::Filter));
+    }
+    if grasshopper {
+        items.push(StripItem::Panel(Panel::Grasshopper));
     }
     if nodes.len() == 1 && image_has_pages(app, &nodes[0]) {
         items.push(StripItem::Panel(Panel::Pages));
@@ -182,6 +191,7 @@ pub(super) fn edits_picked_vertices(item: &StripItem) -> bool {
             | Panel::Layers
             | Panel::Bumper
             | Panel::Capture
+            | Panel::Grasshopper
             | Panel::ModelDisplay,
         )
         | StripItem::Frame(_)
@@ -312,6 +322,11 @@ impl SlateApp {
                 Icon::Model,
                 self.shape_properties.panel == Some(Panel::ModelDisplay),
             ),
+            StripItem::Panel(Panel::Grasshopper) => (
+                "Grasshopper inputs",
+                Icon::Sliders,
+                self.shape_properties.panel == Some(Panel::Grasshopper),
+            ),
             StripItem::ApplicationConnector => (
                 "Rhino.Inside: switch native / Slate 3D; right-click to open an isolated copy",
                 Icon::Rhino,
@@ -374,6 +389,22 @@ impl SlateApp {
                 Icon::Sliders,
                 self.frame_presentation.open(true),
             ),
+        }
+    }
+
+    pub(super) fn property_strip_button_available(&self, item: &StripItem) -> bool {
+        if !matches!(
+            item,
+            StripItem::Panel(Panel::ModelDisplay | Panel::Filter)
+                | StripItem::ModelMeasure
+                | StripItem::ModelScreenshot
+                | StripItem::ModelMaximize
+        ) {
+            return true;
+        }
+        match self.shape_properties.ids.as_slice() {
+            [id] if self.grasshopper_viewer(*id) => self.model_has_viewport(*id),
+            _ => true,
         }
     }
 }

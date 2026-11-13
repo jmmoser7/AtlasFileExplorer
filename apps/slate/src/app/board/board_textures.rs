@@ -251,13 +251,22 @@ impl SlateApp {
             return;
         }
         let dot = palette.grid_dot.gamma_multiply(alpha);
-        let step = board_snap::GRID_WORLD * xf.z;
+        let mut step = board_snap::GRID_WORLD * xf.z;
         if step < 6.0 {
             return;
         }
-        let origin = xf.w2s(Pos2::ZERO);
-        let x0 = origin.x + ((rect.left() - origin.x) / step).floor() * step;
-        let y0 = origin.y + ((rect.top() - origin.y) / step).floor() * step;
+        if self.board_camera_in_motion() {
+            // Keep dots on the same world lattice while emitting fewer shapes.
+            while step < 18.0 {
+                step *= 2.0;
+            }
+        }
+        let first_dot = |edge: f32, center: f32, offset: f32| {
+            let origin = f64::from(center) - f64::from(offset) * f64::from(xf.z);
+            edge - (f64::from(edge) - origin).rem_euclid(f64::from(step)) as f32
+        };
+        let x0 = first_dot(rect.left(), xf.center.x, xf.offset.x);
+        let y0 = first_dot(rect.top(), xf.center.y, xf.offset.y);
         let mut y = y0;
         while y < rect.bottom() {
             let mut x = x0;

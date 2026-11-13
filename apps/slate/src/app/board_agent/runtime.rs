@@ -153,6 +153,8 @@ pub struct AgentRuntime {
     pub(super) sources: atlas_ai::agent::AgentSources,
     pub(super) image_prep: std::cell::RefCell<super::input_prep::ImageInputPrep>,
     pub(super) chat_preparing: HashMap<NodeId, PendingChatSend>,
+    pub(super) grasshopper_runs: HashMap<NodeId, super::grasshopper::Run>,
+    pub(super) grasshopper_confirm: Option<(NodeId, String)>,
     pub(super) project_picker: Option<NodeId>,
     pub(super) catalog_error: Option<String>,
     pub(super) connection_rx: Option<Receiver<ConnectionResult>>,

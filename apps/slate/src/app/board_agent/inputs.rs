@@ -330,6 +330,7 @@ impl SlateApp {
     }
     pub(crate) fn agent_is_running(&self, id: NodeId) -> bool {
         self.model_task_is_running(id)
+            || self.agents.grasshopper_runs.contains_key(&id)
             || self.artifact_is_busy(id)
             || self.agents.chat_preparing.contains_key(&id)
             || self

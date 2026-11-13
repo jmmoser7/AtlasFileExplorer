@@ -30,7 +30,7 @@ impl SlateApp {
                     self.add_picked_image_layer(image, item);
                 }
             }
-            PickerMsg::OpenDoc(Some(path)) => self.open_doc_at(path),
+            PickerMsg::OpenDoc(Some(path)) => self.open_document_or_definition(path),
             PickerMsg::SaveDocAs {
                 tab_id,
                 path: Some(path),

@@ -393,6 +393,9 @@ impl SlateApp {
     }
 
     pub(super) fn bind_model_agent(&mut self, node: NodeId) -> Result<(), String> {
+        if self.grasshopper_viewer(node) {
+            return Err("Bake the Grasshopper preview to edit it with the 3D agent".into());
+        }
         let before = self
             .doc()
             .scene

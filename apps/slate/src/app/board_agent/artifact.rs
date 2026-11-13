@@ -93,6 +93,32 @@ impl SlateApp {
             || self.agents.artifact.running.contains_key(&id)
             || self.artifact_revision_loading(id)
     }
+    pub(crate) fn artifact_generation_working(&self, id: NodeId) -> Option<&'static str> {
+        let tab = self.tab().id;
+        let artifact = &self.agents.artifact;
+        if let Some(run) = artifact
+            .running
+            .get(&id)
+            .filter(|run| run.prepared.plan.tab == tab)
+        {
+            return Some(if run.publishing {
+                "Publishing dashboard"
+            } else {
+                "Building dashboard"
+            });
+        }
+        artifact
+            .preparing
+            .get(&id)
+            .filter(|run| run.plan.tab == tab)
+            .map(|_| "Preparing inputs")
+    }
+    pub(super) fn artifact_generations_waiting(&self, id: NodeId) -> usize {
+        let tab = self.tab().id;
+        self.agents.artifact.queued.get(&id).map_or(0, |queue| {
+            queue.iter().filter(|(plan, _)| plan.tab == tab).count()
+        })
+    }
     pub(crate) fn artifact_revision_loading(&self, id: NodeId) -> bool {
         self.agents.artifact.picks.contains_key(&id)
     }

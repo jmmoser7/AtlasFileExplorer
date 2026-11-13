@@ -31,6 +31,9 @@ impl SlateApp {
             self.tab().path.as_deref(),
             &output.source.locator,
         );
+        if slate_doc::media::is_grasshopper(&info.path) {
+            return None;
+        }
         info.cache_key =
             atlas_core::thumbs::cache_key(&info.path.to_string_lossy(), output.size, output.mtime);
         Some(info)
@@ -67,6 +70,35 @@ impl SlateApp {
         node: NodeId,
         identity: &str,
     ) -> Result<(), String> {
+        if self.grasshopper_model_output(node, identity) {
+            return Err("Run this Grasshopper revision from its viewer confirmation".into());
+        }
+        self.select_model_generator_output_inner(node, identity, false)
+    }
+
+    pub(crate) fn grasshopper_model_output(&self, node: NodeId, identity: &str) -> bool {
+        self.model_generator_outputs(node)
+            .iter()
+            .any(|output| output.id == identity && slate_doc::media::is_grasshopper(&output.source))
+    }
+
+    pub(crate) fn select_approved_grasshopper_output(
+        &mut self,
+        node: NodeId,
+        identity: &str,
+    ) -> Result<(), String> {
+        if !self.grasshopper_viewer(node) || !self.grasshopper_model_output(node, identity) {
+            return Err("Grasshopper revision or its viewer is unavailable".into());
+        }
+        self.select_model_generator_output_inner(node, identity, true)
+    }
+
+    fn select_model_generator_output_inner(
+        &mut self,
+        node: NodeId,
+        identity: &str,
+        approved_grasshopper: bool,
+    ) -> Result<(), String> {
         if self.tab().read_only || self.doc().scene.node(node).is_none_or(|n| n.locked) {
             return Err("Model is read-only or locked".into());
         }
@@ -82,6 +114,19 @@ impl SlateApp {
             self.tab().path.as_deref(),
             &output.source.locator,
         );
+        if approved_grasshopper {
+            if atlas_core::cloud::is_dehydrated(&path) {
+                return Err("Download this Grasshopper revision before running it".into());
+            }
+            let metadata = std::fs::symlink_metadata(&path)
+                .map_err(|error| format!("Could not open Grasshopper revision: {error}"))?;
+            if !metadata.is_file()
+                || metadata.len() != output.size
+                || atlas_core::metadata::mtime_of(&metadata) != output.mtime
+            {
+                return Err("The saved Grasshopper revision changed. Open the changed file separately to review it.".into());
+            }
+        }
         let item = self.item_for_ready_path(&path, output.size, output.mtime);
         let already_selected = self.doc().scene.node(node).is_some_and(|node| {
             slate_doc::agent_chat::agent(node)
@@ -129,6 +174,11 @@ impl SlateApp {
             self.tab().path.as_deref(),
             &output.source.locator,
         );
+        if slate_doc::media::is_grasshopper(&path) {
+            return Err(
+                "Grasshopper revisions require a person's explicit Run confirmation".into(),
+            );
+        }
         let item = self.doc().items.iter().find(|item| {
             item.pdf_page == 0 && super::super::super::board_portal::resolve_source(self.tab().path.as_deref(), &item.path.to_string_lossy()) == path
         }).ok_or("Model output link is missing; select this saved output with the human preview control to restore its registration, then retry")?;

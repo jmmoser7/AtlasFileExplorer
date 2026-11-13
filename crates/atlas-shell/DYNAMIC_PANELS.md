@@ -41,12 +41,11 @@ cutout centered on the host bottom datum, with 84-unit soft shoulder runs. The
 shared silhouette owns clipping, exterior stroke and shadow for eligible Image,
 3D, Video, document and rectangular portal hosts. In the expanded dropdown,
 retain the original 40-unit band and natural width fully inside the host;
-wireframe icons overlay the host image without a cutout, using the shared
-palette keyline from `icons::paint_on_media` for contrast. The mesh assigns
-foreground and keyline materials to disjoint vector regions, then applies
-caller opacity and fade once across their shared outer coverage fringe. The solid apron
-remains below the host. Side-port radial clearance is 2 units, half the prior
-4-unit gap, with the 6-unit disc unchanged. See revision r2 in
+wireframe icons overlay the host image without a cutout. They use the shared
+bare glyph renderer, with the tool's state color and its normal coverage
+antialiasing. The solid apron remains below the host. Side-port radial
+clearance is 2 units, half the prior 4-unit gap, with the 6-unit disc
+unchanged. See revision r2 in
 `design/media-ui-2026-10-17/metrics.json`; original references remain historical.
 Generated thumbnail action menus and batch naming reuse shared shell
 selection/menu controls; the app supplies stable result identity and performs

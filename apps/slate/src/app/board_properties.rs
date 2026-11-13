@@ -17,6 +17,7 @@ use slate_doc::{
 use vector_ink::kurbo::Shape;
 
 mod commands;
+mod grasshopper;
 mod image_palette;
 mod modal_input;
 mod model_display;
@@ -44,6 +45,8 @@ pub enum Panel {
     Bumper,
     /// 3D viewport display pass and imported surface material switch.
     ModelDisplay,
+    /// Definition-owned inputs and Bake on a Grasshopper viewer.
+    Grasshopper,
     /// Portal still/video actions use the same attached property apron.
     Capture,
 }
@@ -123,6 +126,9 @@ pub struct ShapeProperties {
     dimensions: Vec<Dimension>,
     bounds: Option<WorldRect>,
     pub panel: Option<Panel>,
+    grasshopper_draft: Option<grasshopper::Draft>,
+    grasshopper_expanded: Option<scene::GrasshopperControlId>,
+    grasshopper_drop_area: Option<(NodeId, Rect)>,
     /// One click-away timer for image/Artifact panels and their generator menus; never rearms a tool.
     pub(super) remembered_image_panels: selection::ObjectPanelMemory,
     pub(super) pages_focus: u16,
@@ -536,6 +542,8 @@ impl SlateApp {
         }
         self.shape_properties.preview.clear();
         if close {
+            self.close_grasshopper_draft();
+            self.shape_properties.grasshopper_expanded = None;
             self.shape_properties.panel = None;
             self.shape_properties.color = Default::default();
         }
@@ -543,6 +551,12 @@ impl SlateApp {
     }
 
     pub(crate) fn shape_property_keys(&mut self, ctx: &egui::Context) -> bool {
+        if self.shape_properties.grasshopper_draft.is_some()
+            && ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            self.finish_grasshopper_draft(false);
+            return true;
+        }
         if ctx.input(|i| i.key_pressed(egui::Key::Escape))
             && self.cancel_image_layer_name_draft(ctx)
         {
@@ -766,6 +780,10 @@ impl SlateApp {
         }
         if panel == Panel::ModelDisplay {
             self.model_display_editor(ui, rect, z, theme);
+            return None;
+        }
+        if panel == Panel::Grasshopper {
+            self.grasshopper_editor(ui, rect, image_layout, z, theme);
             return None;
         }
         if panel == Panel::Filter {
@@ -3473,6 +3491,7 @@ mod tests {
                 StripItem::Panel(Panel::Layers) => "layers",
                 StripItem::Panel(Panel::Bumper) => "bumper",
                 StripItem::Panel(Panel::ModelDisplay) => "display",
+                StripItem::Panel(Panel::Grasshopper) => "grasshopper",
                 StripItem::Panel(Panel::Capture) => "capture",
                 StripItem::ModelMeasure => "measure",
                 StripItem::ModelScreenshot => "screenshot",

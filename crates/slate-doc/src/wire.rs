@@ -2074,6 +2074,7 @@ mod tests {
             bumper: None,
             kind: NodeKind::Connector(ConnectorNode {
                 crosstalk: None,
+                grasshopper: None,
                 routing: None,
                 binding: None,
                 a,

@@ -193,7 +193,7 @@ impl SlateApp {
             );
         }
         let previews = agent.provider == "comfy";
-        if hud {
+        if hud || progress {
             let view = progress.then(|| self.generator_view(id));
             let working = view.as_ref().map_or("", |view| view.task().working());
             self.paint_run_progress(ui, painter, id, body, z, working, previews);

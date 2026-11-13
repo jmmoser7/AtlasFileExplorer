@@ -29,6 +29,15 @@ pub struct ImageNode {
     /// otherwise.
     #[serde(default)]
     pub model: ModelCamera,
+    /// Input values authored in this viewer. The linked definition stays intact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grasshopper: Option<Box<GrasshopperOverrides>>,
+    /// Explicit values supplied to exposed input markers in the definition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grasshopper_literals: Option<Box<GrasshopperOverrides>>,
+    /// Source viewer for the vertically stacked Grasshopper bake cards.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grasshopper_bake_source: Option<NodeId>,
     /// The agent generating this picture. Its results are the card's album;
     /// `item` is the result a person picked, and [`ItemId::NONE`] shows the
     /// newest (see [`crate::agent_inputs::newest_image`]).
@@ -65,6 +74,9 @@ impl ImageNode {
             adjust: ImageAdjust::default(),
             video: VideoOpts::default(),
             model: ModelCamera::default(),
+            grasshopper: None,
+            grasshopper_literals: None,
+            grasshopper_bake_source: None,
             agent: None,
             paint_layers: Vec::new(),
             result_layers: Vec::new(),
@@ -107,5 +119,25 @@ mod tests {
         edited.text_override = Some(String::new());
         let encoded = serde_json::to_string(&edited).unwrap();
         assert_eq!(serde_json::from_str::<ImageNode>(&encoded).unwrap(), edited);
+    }
+
+    #[test]
+    fn grasshopper_values_are_optional_and_round_trip_per_viewer() {
+        let original = ImageNode::new(ItemId(3));
+        let encoded = serde_json::to_string(&original).unwrap();
+        assert!(!encoded.contains("grasshopper"));
+        assert_eq!(
+            serde_json::from_str::<ImageNode>(&encoded).unwrap(),
+            original
+        );
+
+        let mut edited = original.clone();
+        let mut values = GrasshopperOverrides::default();
+        let control = "a4a3e1bc-c137-497e-8a0d-1e7f8ce60500".parse().unwrap();
+        values.set(control, GrasshopperValue::Bool(false)).unwrap();
+        edited.grasshopper = Some(Box::new(values));
+        let encoded = serde_json::to_string(&edited).unwrap();
+        assert_eq!(serde_json::from_str::<ImageNode>(&encoded).unwrap(), edited);
+        assert!(original.grasshopper.is_none());
     }
 }

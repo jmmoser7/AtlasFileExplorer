@@ -35,11 +35,15 @@ impl SlateApp {
         }
         stroke_outline(painter, outline_s, &t.stroke, z);
         let source = self.paint_text_review(ui, painter, node.id, srect, z, chrome);
+        let agent_note = t.agent.is_some() && !self.slate_nesting();
         if self
             .text_edit
             .as_ref()
             .is_some_and(|(edit_id, _)| *edit_id == node.id)
         {
+            if agent_note {
+                self.paint_run_progress(ui, painter, node.id, srect, z, "Writing", false);
+            }
             return;
         }
         // An agent note shows its reply until it is edited.
@@ -117,7 +121,7 @@ impl SlateApp {
                     .add(shape);
             }
         }
-        if t.agent.is_some() && !self.slate_nesting() {
+        if agent_note {
             self.paint_agent_note(ui, painter, xf, node, srect);
         }
     }

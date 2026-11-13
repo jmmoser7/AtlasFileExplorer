@@ -2,6 +2,25 @@
 use super::*;
 
 #[test]
+fn grasshopper_inputs_have_a_native_squircle_before_the_first_solve() {
+    let mut h = board();
+    let rect = WorldRect::new(0.0, 0.0, 240.0, 180.0);
+    let definition = model_node(&mut h, "tower.GHX", rect);
+    let model = model_node(&mut h, "tower.3dm", rect);
+    let node = |h: &Harness, id| h.app.doc().scene.node(id).unwrap().clone();
+    let definition_tools = item_kinds(&live_property_strip_items(&h.app, &[node(&h, definition)]));
+    assert!(definition_tools.contains(&"grasshopper"));
+    assert!(definition_tools.contains(&"agent"));
+    assert!(
+        !item_kinds(&live_property_strip_items(&h.app, &[node(&h, model)]))
+            .contains(&"grasshopper")
+    );
+    h.app.board_sel = [definition].into_iter().collect();
+    assert!(h.app.open_object_panel(Panel::Grasshopper));
+    assert!(h.app.open_object_panel(Panel::Agent));
+}
+
+#[test]
 fn model_viewports_offer_display_measure_screenshot_then_filters() {
     let mut h = board();
     let rect = WorldRect::new(0.0, 0.0, 240.0, 180.0);

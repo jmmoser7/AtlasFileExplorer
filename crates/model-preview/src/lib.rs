@@ -117,6 +117,14 @@ struct Format {
 /// Gap rows open the same card and say why there is no viewport yet.
 const FORMATS: &[Format] = &[
     Format {
+        ext: "gh",
+        kind: Kind::Gap("Grasshopper definitions need the Slate Rhino runtime to solve."),
+    },
+    Format {
+        ext: "ghx",
+        kind: Kind::Gap("Grasshopper definitions need the Slate Rhino runtime to solve."),
+    },
+    Format {
         ext: "3dm",
         kind: Kind::Mesh,
     },

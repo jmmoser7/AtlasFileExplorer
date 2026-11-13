@@ -379,6 +379,57 @@ pub(super) fn buffer(
     theme: Palette,
     capsule: bool,
 ) -> bool {
+    let edit = buffer_with_field(
+        ui,
+        id,
+        rect,
+        fraction,
+        |ui, center, begin, chrome| {
+            crate::widgets::slider_value_field(
+                ui,
+                id,
+                center + Vec2::new(0.0, -18.0 * zoom),
+                zoom,
+                display,
+                display_range,
+                suffix,
+                begin,
+                chrome,
+            )
+        },
+        to_fraction,
+        metric,
+        zoom,
+        theme,
+        capsule,
+    );
+    edit.scrubbed || edit.committed.is_some()
+}
+
+struct BufferEdit<T> {
+    scrubbed: bool,
+    committed: Option<T>,
+    scrubbing: bool,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn buffer_with_field<T: Copy>(
+    ui: &mut egui::Ui,
+    id: Id,
+    rect: Rect,
+    fraction: &mut f32,
+    field: impl FnOnce(
+        &mut egui::Ui,
+        Pos2,
+        bool,
+        crate::widgets::FieldChrome,
+    ) -> crate::widgets::SliderFieldOut<T>,
+    to_fraction: impl FnOnce(T) -> f32,
+    metric: impl Fn(f32) -> String,
+    zoom: f32,
+    theme: Palette,
+    capsule: bool,
+) -> BufferEdit<T> {
     let center = Pos2::new(egui::lerp(rect.x_range(), *fraction), rect.center().y);
     let handle = if capsule {
         Rect::from_center_size(center, Vec2::new(20.0, 11.0) * zoom)
@@ -419,14 +470,9 @@ pub(super) fn buffer(
             Stroke::new(1.25 * zoom, theme.ink),
         );
     }
-    let field = crate::widgets::slider_value_field(
+    let field = field(
         ui,
-        id,
-        center + Vec2::new(0.0, -18.0 * zoom),
-        zoom,
-        display,
-        display_range,
-        suffix,
+        center,
         hit.handle_click,
         crate::widgets::FieldChrome {
             text: theme.ink,
@@ -437,12 +483,11 @@ pub(super) fn buffer(
             caret: theme.select,
         },
     );
-    let mut changed = response.changed();
     if let Some(v) = field.committed {
         *fraction = to_fraction(v).clamp(0.0, 1.0);
-        changed = true;
     }
-    if !field.open && (response.is_pointer_button_down_on() || response.dragged()) {
+    let scrubbing = response.is_pointer_button_down_on() || response.dragged();
+    if !field.open && scrubbing {
         if let Some(cursor) = ui.ctx().pointer_latest_pos() {
             let text = label_layout(ui.painter(), &metric(*fraction), zoom, theme.ink);
             let r = Rect::from_min_size(
@@ -462,7 +507,11 @@ pub(super) fn buffer(
             text.paint_anchored(&p, r.center(), Align2::CENTER_CENTER, theme.ink);
         }
     }
-    changed
+    BufferEdit {
+        scrubbed: response.changed(),
+        committed: field.committed,
+        scrubbing,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -827,18 +876,7 @@ fn capsule_buffer(
     zoom: f32,
     theme: Palette,
 ) -> bool {
-    ui.painter().rect_stroke(
-        track,
-        track.height() * 0.5,
-        Stroke::new(0.8 * zoom, theme.border_strong),
-        egui::StrokeKind::Inside,
-    );
-    let rail = Rect::from_center_size(
-        track.center(),
-        Vec2::new(track.width() - 24.0 * zoom, 1.5 * zoom),
-    );
-    ui.painter()
-        .rect_filled(rail, 1.5 * zoom, theme.border_strong);
+    let rail = paint_capsule_track(ui, track, zoom, theme);
     buffer(
         ui,
         id,
@@ -853,6 +891,140 @@ fn capsule_buffer(
         theme,
         true,
     )
+}
+
+fn paint_capsule_track(ui: &egui::Ui, track: Rect, zoom: f32, theme: Palette) -> Rect {
+    ui.painter().rect_stroke(
+        track,
+        track.height() * 0.5,
+        Stroke::new(0.8 * zoom, theme.border_strong),
+        egui::StrokeKind::Inside,
+    );
+    let rail = Rect::from_center_size(
+        track.center(),
+        Vec2::new(track.width() - 24.0 * zoom, 1.5 * zoom),
+    );
+    ui.painter()
+        .rect_filled(rail, 1.5 * zoom, theme.border_strong);
+    rail
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ScalarCapsuleEdit {
+    /// Changed scrub preview or committed typed value.
+    pub value: Option<f64>,
+    /// True while the pointer is held on the rail.
+    pub scrubbing: bool,
+}
+
+/// Draw the fillet capsule rail for a scalar input. Drag its handle to scrub,
+/// or click the handle to edit the exact value.
+#[allow(clippy::too_many_arguments)]
+pub fn scalar_capsule(
+    ui: &mut egui::Ui,
+    track: Rect,
+    value: f64,
+    range: std::ops::RangeInclusive<f64>,
+    step: Option<f64>,
+    precision: Option<usize>,
+    zoom: f32,
+    theme: Palette,
+) -> ScalarCapsuleEdit {
+    let (min, max) = (*range.start(), *range.end());
+    if !value.is_finite()
+        || !min.is_finite()
+        || !max.is_finite()
+        || min >= max
+        || track.width() <= 24.0 * zoom
+    {
+        return ScalarCapsuleEdit::default();
+    }
+    let span = max - min;
+    let to_fraction = |number: f64| {
+        let number = number.clamp(min, max);
+        if span.is_finite() {
+            ((number - min) / span) as f32
+        } else {
+            ((number * 0.5 - min * 0.5) / (max * 0.5 - min * 0.5)) as f32
+        }
+    };
+    let from_fraction = |fraction: f32| {
+        let t = f64::from(fraction);
+        if t <= 0.0 {
+            return min;
+        }
+        if t >= 1.0 {
+            return max;
+        }
+        let raw = if span.is_finite() {
+            min + span * t
+        } else {
+            min * (1.0 - t) + max * t
+        };
+        let snapped = match step.filter(|step| step.is_finite() && *step > 0.0) {
+            Some(step) => min + ((raw - min) / step).round() * step,
+            None => raw,
+        };
+        let rounded = match precision.filter(|digits| *digits <= 15) {
+            Some(digits) => {
+                let scale = 10_f64.powi(digits as i32);
+                (snapped * scale).round() / scale
+            }
+            None => snapped,
+        };
+        if rounded.is_finite() {
+            rounded.clamp(min, max)
+        } else {
+            raw
+        }
+    };
+    let id = ui.make_persistent_id("scalar_capsule");
+    let rail = paint_capsule_track(ui, track, zoom, theme);
+    let mut fraction = to_fraction(value);
+    let edit = buffer_with_field(
+        ui,
+        id,
+        rail,
+        &mut fraction,
+        |ui, center, begin, chrome| {
+            let clip = ui.clip_rect();
+            let field_bounds =
+                Rect::from_x_y_ranges(track.x_range(), clip.y_range()).intersect(clip);
+            crate::widgets::slider_value_field_f64(
+                ui,
+                id,
+                center,
+                zoom,
+                value,
+                range,
+                field_bounds,
+                begin,
+                chrome,
+            )
+        },
+        to_fraction,
+        |fraction| {
+            let value = from_fraction(fraction);
+            match precision {
+                Some(digits) => format!("{value:.digits$}", digits = digits.min(15)),
+                None => format!("{value:.3}")
+                    .trim_end_matches('0')
+                    .trim_end_matches('.')
+                    .to_owned(),
+            }
+        },
+        zoom,
+        theme,
+        true,
+    );
+    ScalarCapsuleEdit {
+        value: edit.committed.or_else(|| {
+            edit.scrubbed
+                .then(|| from_fraction(fraction))
+                .filter(|new| *new != value)
+        }),
+        scrubbing: edit.scrubbing && edit.committed.is_none(),
+    }
 }
 
 #[derive(Default)]

@@ -52,6 +52,35 @@ impl Harness {
 }
 
 #[test]
+fn authored_text_paints_generation_activity_with_the_agent_palette_closed() {
+    let (mut h, id) = Harness::text_review_renderer_fixture();
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    h.app.board_sel.clear();
+    h.app.set_agent_session_for_test(
+        id,
+        atlas_agent::AgentSession {
+            status: atlas_agent::AgentStatus::Thinking,
+            ..Default::default()
+        },
+    );
+    let output = h.ctx.clone().run(Default::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            h.app.paint_agent_note(
+                ui,
+                ui.painter(),
+                &h.app.board_xf(),
+                &node,
+                Rect::from_min_size(Pos2::new(20.0, 20.0), egui::vec2(500.0, 320.0)),
+            );
+        });
+    });
+    assert!(output.shapes.iter().any(|entry| {
+        matches!(&entry.shape, egui::Shape::Text(text) if text.galley.text().starts_with("Writing ·"))
+    }));
+    assert_eq!(h.app.doc().scene.node(id), Some(&node));
+}
+
+#[test]
 fn studio_sheet_has_exact_padding_and_nonoverlapping_capped_review() {
     for zoom in [0.5, 1.0, 2.0] {
         let body = Rect::from_min_size(Pos2::ZERO, egui::vec2(650.0, 390.0) * zoom);

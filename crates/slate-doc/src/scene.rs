@@ -35,6 +35,13 @@ mod model_output;
 pub use model_output::ModelOutputRef;
 mod image;
 pub use image::ImageNode;
+mod grasshopper;
+pub use grasshopper::{
+    grasshopper_wire, GrasshopperChoice, GrasshopperControl, GrasshopperControlId,
+    GrasshopperControlKind, GrasshopperOverrides, GrasshopperPort, GrasshopperPortAccess,
+    GrasshopperPortDirection, GrasshopperPortId, GrasshopperPortType, GrasshopperValue,
+    GrasshopperWire, GrasshopperWirePorts,
+};
 
 mod model_camera;
 pub use model_camera::{ModelCamera, ModelDisplay};
@@ -2301,6 +2308,7 @@ pub struct ConnectorNode {
     pub binding: Option<crate::agent_inputs::WireBinding>,
     /// A crosswire between two coding conversations (`crate::crosstalk`).
     pub crosstalk: Option<Box<crate::crosstalk::Crosstalk>>,
+    pub grasshopper: Option<Box<GrasshopperWirePorts>>,
 }
 
 impl ConnectorNode {
@@ -2348,6 +2356,8 @@ struct ConnectorRepr {
     binding: Option<crate::agent_inputs::WireBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     crosstalk: Option<Box<crate::crosstalk::Crosstalk>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    grasshopper: Option<Box<GrasshopperWirePorts>>,
 }
 
 impl From<ConnectorRepr> for ConnectorNode {
@@ -2368,6 +2378,7 @@ impl From<ConnectorRepr> for ConnectorNode {
             display: r.display,
             binding: r.binding,
             crosstalk: r.crosstalk,
+            grasshopper: r.grasshopper,
         };
         node.set_color(color);
         node
@@ -2389,6 +2400,7 @@ impl From<ConnectorNode> for ConnectorRepr {
             display: n.display,
             binding: n.binding,
             crosstalk: n.crosstalk,
+            grasshopper: n.grasshopper,
         }
     }
 }
@@ -5454,6 +5466,7 @@ mod tests {
     fn test_connector(a: ConnectorEnd, b: ConnectorEnd) -> ConnectorNode {
         ConnectorNode {
             crosstalk: None,
+            grasshopper: None,
             routing: None,
             binding: None,
             a,

@@ -231,6 +231,18 @@ impl CodexLink {
 
                 let result = (|| -> Result<(), String> {
                     validate_artifact_submission(&request, &provider)?;
+                    let mut staged_engine = if request.policy
+                        == atlas_agent::TurnPolicy::StagedFiles
+                    {
+                        if provider != "codex" || host_tools.is_some() {
+                            return Err(
+                                "Staged file authoring requires the isolated Codex harness".into(),
+                            );
+                        }
+                        Some(Engine::start_staged_files(&request)?)
+                    } else {
+                        None
+                    };
                     if host_tools.is_some() && subscription_provider(&provider).is_none() {
                         return Err("This helper route requires its subscription transport".into());
                     }
@@ -286,7 +298,7 @@ impl CodexLink {
                         }
                         _ => None,
                     };
-                    if client.is_none() {
+                    if staged_engine.is_none() && client.is_none() {
                         client = Some(Engine::start(
                             &provider,
                             &dir,
@@ -301,7 +313,8 @@ impl CodexLink {
                         atomic_write_json(&dir.join("checkpoint.json"), &request.history)
                             .map_err(|e| e.to_string())?;
                     }
-                    if let Some(Engine::Codex(c)) = client.as_mut() {
+                    let engine = staged_engine.as_mut().or(client.as_mut()).unwrap();
+                    if let Engine::Codex(c) = engine {
                         let session = crate::access::session_of(&dir);
                         let session = session.as_deref();
                         c.set_full_access(request_full_access(
@@ -315,7 +328,7 @@ impl CodexLink {
                     if image_history::record_submitted_user(
                         &request,
                         &mut session,
-                        matches!(client.as_ref(), Some(Engine::Codex(_))),
+                        matches!(engine, Engine::Codex(_)),
                     ) {
                         image_history::write_public(
                             &dir.join("session.json"),
@@ -324,7 +337,7 @@ impl CodexLink {
                         )
                         .map_err(|e| e.to_string())?;
                     }
-                    client.as_mut().unwrap().run(
+                    engine.run(
                         &request,
                         &mut session,
                         &stop,

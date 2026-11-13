@@ -1,6 +1,7 @@
 //! Unbound agent portal paint.
 
 use super::*;
+use atlas_ai::agent::PortalView;
 
 impl SlateApp {
     pub(crate) fn agent_capture_picker_open(&self, id: NodeId) -> bool {
@@ -105,12 +106,32 @@ impl SlateApp {
             );
         }
 
-        if portal
+        let running = self.agent_is_running(node.id);
+        let view = portal
             .agent
             .as_ref()
-            .is_none_or(|a| a.provider.is_empty() || a.view == atlas_ai::agent::PortalView::Chat)
-        {
-            self.paint_agent_chat_header(ui, painter, xf, node, portal);
+            .filter(|agent| !agent.provider.is_empty())
+            .map(|agent| agent.view);
+        match view {
+            Some(PortalView::Images | PortalView::Text) => {
+                if running || self.generations_waiting(node.id) > 0 {
+                    let working = if view == Some(PortalView::Text) {
+                        "Writing"
+                    } else {
+                        self.generator_view(node.id).task().working()
+                    };
+                    self.paint_run_progress(
+                        ui,
+                        painter,
+                        node.id,
+                        layout.body,
+                        xf.z,
+                        working,
+                        false,
+                    );
+                }
+            }
+            _ => self.paint_agent_chat_header(ui, painter, xf, node, portal),
         }
 
         if !maximized {
@@ -127,6 +148,15 @@ impl SlateApp {
             );
         } else {
             self.paint_portal_capture(painter, node.id, layout.body);
+        }
+        if running {
+            atlas_shell::selection_tools::generator::progress::paint_busy_perimeter(
+                ui.ctx(),
+                painter,
+                &outline,
+                xf.z,
+                self.palette(),
+            );
         }
     }
     fn paint_agent_unbound(

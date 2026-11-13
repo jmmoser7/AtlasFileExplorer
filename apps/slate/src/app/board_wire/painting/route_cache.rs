@@ -65,7 +65,7 @@ impl SlateApp {
         }
 
         let mut cache = self.current_wire_route_cache();
-        let ends = [conn.a, conn.b];
+        let ends = self.current_grasshopper_ends(conn);
         let host_ids = ends.each_ref().map(endpoint_node);
         let hosts = host_ids.map(|id| id.and_then(|id| self.visible_wire_host(id)));
         // Memory routes can resolve the authored ends even while a caller
@@ -80,17 +80,18 @@ impl SlateApp {
                 }
             }
         }
-        let path = cache.scene.route(
-            scene,
-            Some(id),
-            &conn.a,
-            &conn.b,
-            routing,
-            |id| match host_ids.iter().position(|host| *host == Some(id)) {
-                Some(index) => hosts[index].clone(),
-                None => self.visible_wire_host(id),
-            },
-        );
+        let path =
+            cache.scene.route(
+                scene,
+                Some(id),
+                &ends[0],
+                &ends[1],
+                routing,
+                |id| match host_ids.iter().position(|host| *host == Some(id)) {
+                    Some(index) => hosts[index].clone(),
+                    None => self.visible_wire_host(id),
+                },
+            );
         if cacheable
             && cache.paths.len() < MAX_CACHED_ROUTES
             && !matches!(&path, Some(ConnectorPath::Orthogonal(points)) if points.len() > MAX_CACHED_ROUTE_POINTS)
@@ -132,13 +133,14 @@ impl SlateApp {
         conn: &ConnectorNode,
     ) -> (Option<ConnectorPath>, Option<ConnectorPath>, bool) {
         let scene = &self.doc().scene;
-        let ends = [conn.a, conn.b];
+        let ends = self.current_grasshopper_ends(conn);
         let host_ids = ends.each_ref().map(endpoint_node);
         let width = connector_drawn_stroke(conn.stroke).width;
         // Query actual replacing previews. Idle avatars do not change a
         // route, and a replacing host can move without a scene revision.
         let previews = host_ids.map(|id| id.and_then(|id| self.presence_preview(id)));
-        let mut cache = (self.board_drag.is_none()
+        let mut cache = (conn.grasshopper.is_none()
+            && self.board_drag.is_none()
             && !self.slate_nesting()
             && previews.iter().all(Option::is_none))
         .then(|| self.current_wire_route_cache());
@@ -168,14 +170,14 @@ impl SlateApp {
         let raw = connector_route_in_scene_with_hosts(
             scene,
             Some(id),
-            &conn.a,
-            &conn.b,
+            &ends[0],
+            &ends[1],
             WireRouting::Bezier,
             host_of,
         );
         let drawn = raw
             .as_ref()
-            .map(|path| retreat_off_hosts(path.clone(), &conn.a, &conn.b, host_of, width * 0.5));
+            .map(|path| retreat_off_hosts(path.clone(), &ends[0], &ends[1], host_of, width * 0.5));
         let compact = match (&raw, &drawn) {
             (Some(ConnectorPath::Bezier(raw)), Some(ConnectorPath::Bezier(drawn))) => {
                 Some(Some([*raw, *drawn]))

@@ -17,8 +17,9 @@ impl SlateApp {
         let id = node.id;
         let z = xf.z;
         self.paint_text_result_strip(ui, id, body, z);
+        self.paint_run_progress(ui, painter, id, body, z, "Writing", false);
         // Ordinary Text keeps its authored sheet. Shared Agent chrome owns
-        // sending and activity; the response is reviewed below the sheet.
+        // sending; the response is reviewed below the sheet.
         if self.text_response_only(id) {
             return;
         }
@@ -66,6 +67,5 @@ impl SlateApp {
             );
             laid.paint(painter, at, ink.warn);
         }
-        self.paint_run_progress(ui, painter, id, body, z, "Writing", false);
     }
 }

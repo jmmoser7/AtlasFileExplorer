@@ -84,6 +84,7 @@ impl SlateApp {
             pdf_page,
             desired_px,
             desired_px > THUMB_PX as f32 * UPGRADE_FACTOR
+                && !self.board_camera_in_motion()
                 && slate_doc::media_kind(&path) != slate_doc::MediaKind::Text,
             false,
         ) {
@@ -109,6 +110,13 @@ impl SlateApp {
         desired_px: f32,
     ) -> Option<TextureHandle> {
         let key = linked_image_key(&path, revision);
+        // Newly visible results still get a thumbnail as the camera moves.
+        // The resident texture stays available and sharpens once motion settles.
+        let desired_px = if self.board_camera_in_motion() {
+            desired_px.min(THUMB_PX as f32)
+        } else {
+            desired_px
+        };
         self.path_preview(key, path, None, desired_px, true, true)
     }
 

@@ -2,6 +2,23 @@
 use super::*;
 
 impl SlateApp {
+    pub(crate) fn frame_presentation_captures_navigation(
+        &self,
+        ctx: &egui::Context,
+        pointer: Option<Pos2>,
+    ) -> bool {
+        let state = &self.frame_presentation;
+        state.tab == Some(self.tab().id)
+            && state.host.is_some_and(|id| {
+                state.tile_press.is_some()
+                    || state.drag
+                    || pointer.is_some_and(|p| {
+                        state.chrome_rects.iter().flatten().any(|r| r.contains(p))
+                            || (state.settings && settings::popup_at(ctx, self.tab().id, id, p))
+                    })
+            })
+    }
+
     pub(crate) fn frame_presentation_ui(
         &mut self,
         ui: &mut Ui,
@@ -33,6 +50,7 @@ impl SlateApp {
         };
         let z = xf.z;
         if canvas_scale::too_small(12.0 * z) {
+            self.frame_presentation.chrome_rects = [None; 4];
             return false;
         }
         let ctx = ui.ctx().clone();
@@ -78,6 +96,7 @@ impl SlateApp {
                 camera.cam.z = next;
                 camera.cam.offset = anchor.to_vec2() - (body.center() - xf.center) / camera.cam.z;
                 self.frame_presentation.reveal = true;
+                self.frame_presentation.chrome_rects = [None; 4];
                 ctx.request_repaint();
                 return true;
             }
@@ -86,7 +105,11 @@ impl SlateApp {
             let dy = -(layout.rect.bottom() - bounds.bottom() + 8.0).max(0.0);
             if dx != 0.0 || dy != 0.0 {
                 self.tab_mut().cam.offset -= vec2(dx, dy) / z;
+                self.frame_presentation.chrome_rects = [None; 4];
                 ctx.request_repaint();
+                // Rebuild at the adjusted camera on the next pass instead
+                // of painting this drawer at the previous host position.
+                return true;
             }
         }
         let pointer = ctx.pointer_latest_pos();
@@ -212,6 +235,8 @@ impl SlateApp {
         for extra in [menu, context].into_iter().flatten() {
             rect = rect.union(extra);
         }
+        self.frame_presentation.chrome_rects = [Some(layout.rect), Some(strip.rect), menu, context]
+            .map(|rect| rect.map(|r| r.intersect(bounds)));
         let mut controls =
             selection_tools::object_ui(ui, Id::new(("frame-presentation", tab, id.0)), rect);
         let p = selection_tools::object_painter(&controls);

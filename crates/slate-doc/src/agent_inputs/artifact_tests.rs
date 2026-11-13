@@ -59,6 +59,7 @@ fn wire(doc: &mut SlateDoc, source: NodeId, target: NodeId, memory: bool) -> Nod
             label: None,
             display: Default::default(),
             crosstalk: None,
+            grasshopper: None,
         }),
     );
     let id = node.id;

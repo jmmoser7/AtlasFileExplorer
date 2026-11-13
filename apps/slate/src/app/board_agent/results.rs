@@ -177,6 +177,7 @@ impl SlateApp {
     }
 
     fn stop_agent_at(&mut self, id: NodeId, expected_request: Option<&str>) -> bool {
+        let grasshopper = self.agents.grasshopper_runs.remove(&id).is_some();
         if self.model_task_is_running(id) {
             self.connector_stop_headless(id);
         }
@@ -236,6 +237,9 @@ impl SlateApp {
         }
         if let Some(link) = self.agents.codex.get(&session) {
             link.stop();
+            return true;
+        }
+        if grasshopper {
             return true;
         }
         if generator {

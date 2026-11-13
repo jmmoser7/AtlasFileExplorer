@@ -82,6 +82,7 @@ fn actual_svg_model_source_and_target_keep_path_resolved_endpoints_after_seriali
                     label: None,
                     display: Default::default(),
                     crosstalk: None,
+                    grasshopper: None,
                     binding: None,
                 };
                 let wire = doc.scene.build_node(

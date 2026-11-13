@@ -20,11 +20,21 @@ impl SlateApp {
         xf: &BoardXf,
         body_allowed: bool,
     ) {
+        if self.open_grasshopper_grip_context(ctx, point, xf) {
+            self.board_menu = None;
+            self.board_empty_menu = None;
+            return;
+        }
         if self.open_graph_context(ctx, point, xf) {
             return;
         }
         if body_allowed {
-            if let Some(id) = self.board_pick_node(world.x, world.y) {
+            let ordinary = self.board_pick_node(world.x, world.y);
+            let bundle = ordinary
+                .is_none()
+                .then(|| self.grasshopper_bundle_at(point, xf))
+                .flatten();
+            if let Some(id) = ordinary.or(bundle) {
                 self.board_menu = Some((id, point));
             } else {
                 self.board_empty_menu = Some(point);
@@ -143,6 +153,9 @@ impl SlateApp {
     }
 
     pub(super) fn graph_menu_input(&mut self, ui: &egui::Ui) -> bool {
+        if self.grasshopper_grip_context_input(ui) {
+            return true;
+        }
         let ctx = ui.ctx();
         if self.agents.flow.graph_menu.is_none()
             && self.agents.flow.menu.is_none()

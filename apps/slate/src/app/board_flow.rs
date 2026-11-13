@@ -946,6 +946,21 @@ impl SlateApp {
         previews: bool,
     ) {
         let running = self.agent_is_running(id);
+        self.paint_run_progress_with_state(ui, painter, id, body, z, working, previews, running);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn paint_run_progress_with_state(
+        &mut self,
+        ui: &egui::Ui,
+        painter: &egui::Painter,
+        id: NodeId,
+        body: Rect,
+        z: f32,
+        working: &str,
+        previews: bool,
+        running: bool,
+    ) {
         let waiting = self.generations_waiting(id);
         if !running && waiting == 0 {
             self.agents.flow.started.remove(&id);
@@ -964,29 +979,28 @@ impl SlateApp {
             .doc()
             .scene
             .node(id)
-            .and_then(slate_doc::agent_chat::agent)
-            .cloned();
-        let total = match &agent {
+            .and_then(slate_doc::agent_chat::agent);
+        let total = match agent {
             Some(a) if a.view == PortalView::Images && !a.live => {
                 a.image.count.clamp(1, 8) as usize
             }
             _ => 1,
         };
-        let done = self
+        let session = self
             .agents
             .session(id)
-            .map(|s| {
+            .filter(|s| !request.is_empty() && s.request == request);
+        let secs = started.elapsed().as_secs();
+        let mut text = if !running {
+            "Waiting".to_string()
+        } else if total > 1 {
+            let done = session.map_or(0, |s| {
                 s.bundle
                     .images
                     .iter()
                     .filter(|i| i.request == request)
                     .count()
-            })
-            .unwrap_or(0);
-        let secs = started.elapsed().as_secs();
-        let mut text = if !running {
-            "Waiting".to_string()
-        } else if total > 1 {
+            });
             format!("{working} image {} of {total}", (done + 1).min(total))
         } else {
             working.to_string()
@@ -997,39 +1011,16 @@ impl SlateApp {
         if waiting > 0 {
             text.push_str(&format!(" · {waiting} waiting"));
         }
+        let agent_running = running && self.agent_is_running(id);
+        if agent_running {
+            if let Some(tokens) = session.and_then(|s| s.usage) {
+                use super::board_agent::train_ux::token_readout;
+                text.push_str(&format!(" · {} tokens", token_readout(Some(tokens), 0)));
+            }
+        }
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(200));
-        let font = canvas_scale::font(12.0, z);
-        if !canvas_text::legible(font.size) {
-            return;
-        }
-        let ink = self.palette().overlay();
-        let laid = canvas_text::layout_no_wrap(painter, text, font, ink.text);
-        let spin = canvas_scale::px(6.0, z);
-        let pad = canvas_scale::px(10.0, z);
-        let size = laid.size() + egui::vec2(pad * 3.0 + spin * 2.0, pad);
-        let pill = Rect::from_center_size(
-            Pos2::new(
-                body.center().x,
-                body.top() + canvas_scale::px(16.0, z) + size.y * 0.5,
-            ),
-            size,
-        );
-        paint_overlay_pill(painter, pill, size.y * 0.5, ink.progress, &ink, z);
         let time = ui.input(|i| i.time) as f32;
-        super::board_agent::paint_agent_spinner(
-            painter,
-            Pos2::new(pill.left() + pad + spin, pill.center().y),
-            spin,
-            time,
-            ink.text,
-        );
-        laid.paint_anchored(
-            painter,
-            Pos2::new(pill.left() + pad * 2.0 + spin * 2.0, pill.center().y),
-            Align2::LEFT_CENTER,
-            ink.text,
-        );
         if running && !previews {
             atlas_shell::selection_tools::generator::progress::paint_sweep(
                 painter,
@@ -1037,6 +1028,73 @@ impl SlateApp {
                 z,
                 time as f64,
                 self.palette(),
+            );
+        }
+        let font = canvas_scale::font(12.0, z);
+        if !canvas_text::legible(font.size) {
+            return;
+        }
+        let ink = self.palette().overlay();
+        let spin = canvas_scale::px(6.0, z);
+        let pad = canvas_scale::px(10.0, z);
+        let horizontal_insets = pad * 3.0 + spin * 2.0;
+        let max_text_width = body.width() - horizontal_insets - pad * 2.0;
+        if max_text_width < font.size * 2.0 {
+            return;
+        }
+        let activity = agent_running
+            .then_some(session)
+            .flatten()
+            .and_then(|_| self.generator_activity_headline(id));
+        let headline = activity.filter(|s| *s != working).map(|s| {
+            canvas_text::layout_rows(
+                painter,
+                s.to_owned(),
+                font.clone(),
+                ink.text,
+                max_text_width,
+                1,
+            )
+        });
+        let laid = canvas_text::layout_rows(painter, text, font, ink.text, max_text_width, 1);
+        let caption_gap = pad * 0.3;
+        let caption_height = headline.as_ref().map_or(0.0, |s| s.size().y + caption_gap);
+        let caption_width = headline.as_ref().map_or(0.0, |s| s.size().x);
+        let size = egui::vec2(
+            laid.size().x.max(caption_width) + horizontal_insets,
+            laid.size().y + pad + caption_height,
+        );
+        let pill = Rect::from_center_size(
+            Pos2::new(
+                body.center().x,
+                body.top() + canvas_scale::px(16.0, z) + size.y * 0.5,
+            ),
+            size,
+        );
+        let radius = (laid.size().y + pad) * 0.5;
+        paint_overlay_pill(painter, pill, radius, ink.progress, &ink, z);
+        let top_line_center = pill.top() + (pad + laid.size().y) * 0.5;
+        let text_left = pill.left() + pad * 2.0 + spin * 2.0;
+        let caption_top = top_line_center + laid.size().y * 0.5 + caption_gap;
+        super::board_agent::paint_agent_spinner(
+            painter,
+            Pos2::new(pill.left() + pad + spin, top_line_center),
+            spin,
+            time,
+            ink.text,
+        );
+        laid.paint_anchored(
+            painter,
+            Pos2::new(text_left, top_line_center),
+            Align2::LEFT_CENTER,
+            ink.text,
+        );
+        if let Some(headline) = headline {
+            headline.paint_anchored(
+                painter,
+                Pos2::new(text_left, caption_top),
+                Align2::LEFT_TOP,
+                ink.text,
             );
         }
     }

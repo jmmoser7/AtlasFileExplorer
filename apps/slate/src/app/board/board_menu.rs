@@ -50,6 +50,7 @@ impl SlateApp {
                 tags: false,
             });
         let mut chosen = None;
+        let mut bundle_chosen = None;
         let mut tag_anchor = None;
         let menu_rect = egui::Area::new(egui::Id::new("slate_board_menu"))
             .fixed_pos(pos)
@@ -99,6 +100,27 @@ impl SlateApp {
                             }
                         }
                     }
+                    if let Some(bundled) = self.grasshopper_wire_bundle_choice(node_id) {
+                        if has_rows {
+                            metrics.separator(ui, dark);
+                        }
+                        let label = if bundled {
+                            "Bundle Grasshopper wires"
+                        } else {
+                            "Unbundle Grasshopper wires"
+                        };
+                        let icon = if bundled {
+                            MenuIcon::Group
+                        } else {
+                            MenuIcon::Ungroup
+                        };
+                        if metrics
+                            .row(ui, atlas_shell::menu::Row::new(icon, label), dark)
+                            .clicked()
+                        {
+                            bundle_chosen = Some(bundled);
+                        }
+                    }
                 });
             })
             .response
@@ -131,7 +153,14 @@ impl SlateApp {
             self.board_sel = targets.iter().copied().collect();
             self.run_board_menu_entry(ctx, entry, node_id);
         }
-        if dismissed || chosen.is_some() {
+        if let Some(bundled) = bundle_chosen {
+            self.dispatch(
+                ctx,
+                atlas_commands::CommandId("board.wire.grasshopper_bundle"),
+                Some(serde_json::json!({"node":node_id,"bundled":bundled}).to_string()),
+            );
+        }
+        if dismissed || chosen.is_some() || bundle_chosen.is_some() {
             self.board_menu = None;
             ctx.data_mut(|data| data.remove::<SubmenuState>(state_id));
         } else {

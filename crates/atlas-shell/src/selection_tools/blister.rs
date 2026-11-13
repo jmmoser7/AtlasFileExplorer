@@ -1,7 +1,4 @@
-use crate::{
-    icons::{self, Icon},
-    theme::Palette,
-};
+use crate::icons::{self, Icon};
 use eframe::egui::{Color32, Painter, Pos2, Rect, Vec2};
 
 /// Fixed height of the raised tool notch in board units.
@@ -27,21 +24,10 @@ pub struct BlisterLayout {
 }
 
 impl BlisterLayout {
-    /// Bare media glyphs retain their state color and get a contrast edge over content.
-    pub fn paint_icon(
-        self,
-        painter: &Painter,
-        index: usize,
-        icon: Icon,
-        color: Color32,
-        theme: Palette,
-    ) {
-        let rect = self.icon_rect(index);
-        match self.presentation {
-            BlisterPresentation::Collapsed => icons::paint(painter, rect, icon, color),
-            BlisterPresentation::Overlay => {
-                icons::paint_on_media(painter, rect, icon, color, theme)
-            }
+    /// Keep both presentations on the same bare, coverage-antialiased glyph.
+    pub fn paint_icon(self, painter: &Painter, index: usize, icon: Icon, color: Color32) {
+        if color.a() != 0 {
+            icons::paint(painter, self.icon_rect(index), icon, color);
         }
     }
 

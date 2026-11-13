@@ -34,6 +34,7 @@ impl SlateApp {
             self.agents.context_human.remove(&node.id);
         }
         let anchor = chat_dot_center(rect, false, z);
+        let running = self.agent_is_running(node.id);
         let (status_color, status_label, pulse) = agent_status_chip(
             provider,
             self.agents.ide,
@@ -43,6 +44,11 @@ impl SlateApp {
             palette.sub,
             palette.danger,
         );
+        let (status_color, status_label, pulse) = if running && !pulse {
+            (palette.accent, "Preparing", true)
+        } else {
+            (status_color, status_label, pulse)
+        };
         {
             painter.circle_filled(
                 anchor,
@@ -60,7 +66,6 @@ impl SlateApp {
             ui.ctx().request_repaint_after(Duration::from_millis(100));
         }
         let title = portal.title.clone();
-        let running = self.agent_is_running(node.id);
         let show_model = (!provider.is_empty() || self.pending_generator_host(node.id).is_some())
             && self.agents.project_picker != Some(node.id)
             && !self
@@ -132,7 +137,7 @@ impl SlateApp {
                 anchor.x + canvas_scale::px(10.0, z),
                 dot_top - rise + canvas_scale::px(card.title_x_height_offset, z),
             );
-            let title_label = if !tail && !streaming {
+            let title_label = if !tail && !running {
                 model_owned
                     .as_deref()
                     .map(|model| format!("{title} · {model}"))
@@ -167,7 +172,7 @@ impl SlateApp {
                 self.agents.title_edit = Some((node.id, title));
             }
             let mut x = title_hit.rect.right();
-            if show_model && (tail || streaming) {
+            if show_model && (tail || running) {
                 let sep = canvas_text::text(
                     painter,
                     Pos2::new(x, at.y),
@@ -179,19 +184,40 @@ impl SlateApp {
                 x = sep.right();
             }
             let mut model_rect = None;
-            if streaming && show_model {
+            if running && show_model {
                 let band = Rect::from_min_max(
                     Pos2::new(x, at.y),
                     Pos2::new(title_rect.right(), at.y + canvas_scale::px(18.0, z)),
                 );
-                let mut respond = egui::Ui::new(
-                    ui.ctx().clone(),
-                    Id::new(("agent-responding", node.id.0)),
-                    egui::UiBuilder::new()
-                        .layer_id(ui.layer_id())
-                        .max_rect(band),
-                );
-                self.paint_header_responding(&mut respond, node.id, z);
+                if streaming {
+                    let mut respond = egui::Ui::new(
+                        ui.ctx().clone(),
+                        Id::new(("agent-responding", node.id.0)),
+                        egui::UiBuilder::new()
+                            .layer_id(ui.layer_id())
+                            .max_rect(band),
+                    );
+                    self.paint_header_responding(&mut respond, node.id, z);
+                } else if band.width() > 14.0 * z && canvas_text::legible(font.size) {
+                    let painter = painter.with_clip_rect(band.intersect(ui.clip_rect()));
+                    let radius = canvas_scale::px(4.5, z);
+                    let at = band.left_center();
+                    super::paint_agent_spinner(
+                        &painter,
+                        at + egui::vec2(radius, 0.0),
+                        radius,
+                        ui.input(|i| i.time) as f32,
+                        palette.accent,
+                    );
+                    canvas_text::text(
+                        &painter,
+                        at + egui::vec2(canvas_scale::px(14.0, z), 0.0),
+                        Align2::LEFT_CENTER,
+                        status_label,
+                        font,
+                        palette.sub,
+                    );
+                }
             } else if tail && model_owned.is_some() {
                 let hit = Rect::from_min_max(
                     Pos2::new(x, at.y),

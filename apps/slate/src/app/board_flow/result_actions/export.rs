@@ -16,6 +16,14 @@ impl SlateApp {
             let mut node = host.clone();
             match reference {
                 HiddenOutputRef::Model { ticket } => {
+                    if self.grasshopper_model_output(address.host, ticket)
+                        && self.active_result_reference(address.host).as_ref() != Some(reference)
+                    {
+                        self.toast(
+                            "Run this Grasshopper revision before copying it onto the canvas.",
+                        );
+                        return (snapshot, Vec::new());
+                    }
                     let output = self
                         .doc()
                         .scene

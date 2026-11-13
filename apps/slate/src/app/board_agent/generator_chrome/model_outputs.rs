@@ -72,6 +72,9 @@ impl SlateApp {
         else {
             return false;
         };
+        if self.grasshopper_model_output(choice.node, &choice.output) {
+            return self.request_grasshopper_output_confirmation(choice.node, &choice.output);
+        }
         match self.select_model_generator_output(choice.node, &choice.output) {
             Ok(()) => true,
             Err(error) => {

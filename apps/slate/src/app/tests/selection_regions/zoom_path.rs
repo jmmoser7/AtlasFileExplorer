@@ -72,6 +72,84 @@ fn an_unmodified_wheel_notch_applies_in_its_arrival_frame_without_a_tail() {
 }
 
 #[test]
+fn a_clamped_wheel_zoom_preserves_the_camera_offset_exactly() {
+    let mut h = grip_board("regions_clamped_zoom_no_drift");
+    let pointer = h.app.canvas_rect.center() + EVec2::new(80.0, -40.0);
+    let offset = EVec2::new(0.0001, -0.0002);
+    for (zoom, factor) in [(1.0 / 128.0, 0.5), (128.0, 2.0)] {
+        let tab = h.app.tab_mut();
+        tab.cam.z = zoom;
+        tab.cam.offset = offset;
+        tab.grid_fade_armed = false;
+        assert!(!h.app.zoom_at(pointer, factor));
+        assert_eq!(h.app.tab().cam.offset, offset);
+        assert_eq!(h.app.tab().cam.z, zoom);
+        assert!(!h.app.tab().grid_fade_armed);
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn wheel_and_drag_paint_the_current_camera_in_their_arrival_frame() {
+    use board::paint_probe;
+
+    let mut h = grip_board("regions_arrival_frame_camera_paint");
+    let focus = h.app.canvas_rect.center() + EVec2::new(72.0, -36.0);
+    let move_by = EVec2::new(36.0, 18.0);
+    let release_by = EVec2::new(6.0, -4.0);
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Middle,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let assert_painted_camera = |h: &Harness| {
+        let painted = paint_probe::take().expect("this frame painted the board");
+        let camera = h.app.board_xf();
+        assert_eq!(painted.xf.z, camera.z);
+        assert_eq!(painted.xf.offset, camera.offset);
+    };
+    for zoom in [1.0 / 64.0, 1.0, 64.0] {
+        h.app.tab_mut().cam.z = zoom;
+        h.app.tab_mut().cam.offset = EVec2::ZERO;
+        h.frame();
+        paint_probe::enable(true);
+        h.frame_with(|input| {
+            input.events.push(egui::Event::PointerMoved(focus));
+            input.events.push(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: EVec2::new(0.0, 40.0),
+                modifiers: egui::Modifiers::NONE,
+            });
+        });
+        assert!(h.app.tab().cam.z > zoom);
+        assert_painted_camera(&h);
+
+        let zoomed = h.app.tab().cam;
+        h.frame_with(|input| input.events.push(button(focus, true)));
+        h.frame_with(|input| {
+            input
+                .events
+                .push(egui::Event::PointerMoved(focus + move_by))
+        });
+        assert_ne!(h.app.tab().cam.offset, zoomed.offset);
+        assert_painted_camera(&h);
+
+        let release = focus + move_by + release_by;
+        h.frame_with(|input| {
+            input.events.push(button(release, false));
+            input
+                .events
+                .push(egui::Event::PointerMoved(release + EVec2::splat(8.0)));
+        });
+        let expected = zoomed.offset - (move_by + release_by) / zoomed.z;
+        assert!((h.app.tab().cam.offset - expected).length() * zoomed.z < 0.01);
+        assert_painted_camera(&h);
+        paint_probe::enable(false);
+    }
+}
+
+#[test]
 fn board_wheel_reaches_point_detail_and_wide_overview_while_anchoring_the_pointer() {
     let mut h = grip_board("regions_real_wheel_range");
     let pointer = h.app.canvas_rect.center() + EVec2::new(86.0, -54.0);

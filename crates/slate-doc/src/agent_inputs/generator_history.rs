@@ -207,6 +207,7 @@ mod tests {
                     label: None,
                     display: Default::default(),
                     crosstalk: None,
+                    grasshopper: None,
                 }),
             );
             scene.nodes.push(node);

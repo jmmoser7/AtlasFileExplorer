@@ -107,6 +107,11 @@ impl SlateApp {
             return ArtifactBuild::Node(self.build_web_portal(rect, Some(source.into()), None));
         }
         let path = std::path::Path::new(source);
+        // Agent deliverables must not solve a script-bearing Grasshopper file
+        // through the generic output-placement route.
+        if slate_doc::media::is_grasshopper(path) {
+            return ArtifactBuild::Unavailable;
+        }
         let chosen = match face {
             Face::Graphic => Some(PreviewFace::Graphic),
             Face::Text => Some(PreviewFace::Text),

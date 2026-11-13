@@ -301,7 +301,7 @@ impl SlateApp {
             }
             if self.agent_connected(id) {
                 self.agents.life.connecting.remove(&id);
-                self.send_agent_prompt(id);
+                self.resume_agent_send(id);
             } else if self.agents.connection_rx.is_none() {
                 self.agents.life.connecting.remove(&id);
                 if !self.queue_agent_send(id) {
@@ -339,7 +339,7 @@ impl SlateApp {
                 }
             }
             if self.agent_connected(id) {
-                self.send_agent_prompt(id);
+                self.resume_agent_send(id);
             } else if let Some(error) = &failure {
                 self.fail_agent_await(
                     id,
@@ -348,6 +348,14 @@ impl SlateApp {
             } else {
                 self.toast(NOT_CONNECTED);
             }
+        }
+    }
+
+    fn resume_agent_send(&mut self, id: NodeId) {
+        if self.grasshopper_viewer(id) {
+            self.send_human_model_prompt(id);
+        } else {
+            self.send_agent_prompt(id);
         }
     }
 

@@ -120,7 +120,9 @@ impl SlateApp {
             );
         }
         let mut after = before.clone();
-        if self.active_result_reference(host).as_ref() == Some(output) {
+        if self.active_result_reference(host).as_ref() == Some(output)
+            && !self.grasshopper_viewer(host)
+        {
             if let Some(fallback) = available
                 .iter()
                 .rev()
@@ -221,6 +223,13 @@ impl SlateApp {
         }
         if !remove && self.active_result_reference(address.host).as_ref() == Some(&reference) {
             return true;
+        }
+        if !remove {
+            if let HiddenOutputRef::Model { ticket } = &reference {
+                if self.grasshopper_model_output(address.host, ticket) {
+                    return self.request_grasshopper_output_confirmation(address.host, ticket);
+                }
+            }
         }
         if let HiddenOutputRef::Artifact { family, revision } = &reference {
             return if remove {

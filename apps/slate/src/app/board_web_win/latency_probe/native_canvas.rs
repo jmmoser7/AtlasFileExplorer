@@ -2,6 +2,7 @@
 //! The diagnostic marker exists only in this ignored test's owned window.
 mod gestures;
 mod report;
+mod run;
 use report::process_cpu_ms;
 mod image_fixture;
 mod paint_witness;
@@ -47,6 +48,9 @@ struct NativeBench {
     warm_until: Instant,
     last_update: Option<Instant>,
     fit: Option<slate_doc::WorldRect>,
+    fit_scale: f32,
+    start_zoom: Option<f32>,
+    baseline_detail: bool,
     step: usize,
     scene: String,
     settle_until: Option<Instant>,
@@ -91,6 +95,17 @@ impl NativeBench {
             scene.as_str(),
             "image-board" | "mixed" | "live-model"
         ));
+        let fit_scale = std::env::var("SLATE_LATENCY_SCALE").map_or(1.0, |scale| {
+            scale
+                .parse()
+                .expect("SLATE_LATENCY_SCALE must be 0.5, 1, or 4")
+        });
+        assert!(
+            [0.5, 1.0, 4.0].contains(&fit_scale),
+            "unsupported fit scale"
+        );
+        assert!(scene != "live-model" || fit_scale == 1.0);
+        let baseline_detail = std::env::var_os("SLATE_LATENCY_BASELINE_DETAIL").is_some();
         let model_grid = std::env::var("SLATE_LATENCY_MODEL_GRID")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -118,6 +133,9 @@ impl NativeBench {
         app.kits = crate::app::kits::KitState::builtin_only();
         app.leave_home();
         app.ensure_work_tab();
+        if baseline_detail {
+            app.disable_board_motion_detail_for_test();
+        }
         let images = app.add_paths(&images);
         let models = app.add_paths(&models);
         let mut h = Harness {
@@ -162,6 +180,9 @@ impl NativeBench {
             warm_until: Instant::now() + Duration::from_secs(8),
             last_update: None,
             fit: Some(bounds),
+            fit_scale,
+            start_zoom: None,
+            baseline_detail,
             step: 0,
             scene,
             settle_until: None,
@@ -262,6 +283,9 @@ impl eframe::App for NativeBench {
             self.idle = Some((Instant::now(), 0, process_cpu_ms()));
             return;
         };
+        if self.step == 0 {
+            self.start_zoom = Some(self.h.app.tab().cam.z);
+        }
         self.driver.schedule(job);
         self.input_queued = true;
         self.step += 1;
@@ -304,6 +328,10 @@ impl eframe::App for NativeBench {
         self.h.app.update_app(ctx);
         if let Some(bounds) = self.fit.take() {
             self.h.app.zoom_to_rect(bounds);
+            if self.fit_scale != 1.0 {
+                let zoom = self.h.app.tab().cam.z * self.fit_scale;
+                self.h.app.tab_mut().cam.z = self.h.app.canvas_zoom_profile().clamp(zoom);
+            }
         }
         let ms = started.elapsed().as_secs_f64() * 1000.0;
         if self.profile_sections {
@@ -391,103 +419,5 @@ impl eframe::App for NativeBench {
 #[test]
 #[ignore = "opens an owned native synthetic board and observes composed frames; no user-window input"]
 fn native_canvas_input_to_composed_frame() {
-    let nodes = std::env::var("SLATE_LATENCY_NODES")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(335usize);
-    let scene = std::env::var("SLATE_LATENCY_SCENE").unwrap_or_else(|_| "image-board".into());
-    assert!(if scene == "live-model" {
-        nodes == 1
-    } else {
-        (20..=5000).contains(&nodes)
-    });
-    let label = std::env::var("SLATE_LATENCY_LABEL").unwrap_or_else(|_| "baseline".into());
-    assert!(label
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')));
-    let output = Arc::new(Mutex::new(None));
-    let sink = output.clone();
-    let options = eframe::NativeOptions {
-        renderer: eframe::Renderer::Glow,
-        vsync: true,
-        run_and_return: true,
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1280.0, 720.0])
-            .with_decorations(false)
-            .with_title("Slate performance owned probe — synthetic"),
-        event_loop_builder: Some(Box::new(|builder| {
-            use winit::platform::windows::EventLoopBuilderExtWindows;
-            builder.with_any_thread(true);
-        })),
-        ..Default::default()
-    };
-    eframe::run_native(
-        "Slate performance owned probe",
-        options,
-        Box::new(move |cc| Ok(Box::new(NativeBench::new(cc, nodes, sink)))),
-    )
-    .unwrap();
-    let report = output
-        .lock()
-        .unwrap()
-        .take()
-        .expect("native benchmark writes its report before closing");
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
-        "../../target/performance-recovery/20261031/native-{label}-{nodes}.json"
-    ));
-    std::fs::write(&path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
-    println!(
-        "native latency summary={} report={}",
-        report["summary"],
-        path.display()
-    );
-    assert!(report["failure"].is_null(), "{report}");
-    for phase in if scene == "live-model" {
-        &["pan", "zoom"][..]
-    } else {
-        &["pan", "zoom", "selection"][..]
-    } {
-        assert!(
-            report["samples"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|sample| sample["phase"] == *phase
-                    && sample["response_changed"] == true
-                    && sample["response_pixels_changed"] == true),
-            "{phase} needs independently changed composed canvas pixels"
-        );
-    }
-
-    let samples = report["samples"].as_array().unwrap();
-    assert_eq!(
-        samples.len(),
-        if scene == "live-model" { 80 } else { 120 },
-        "each gesture frame was independently observed"
-    );
-    assert!(
-        samples
-            .iter()
-            .any(|s| s["phase"] == "pan" && s["response_changed"] == true),
-        "normal middle-drag input moved the camera"
-    );
-    assert!(
-        samples
-            .iter()
-            .any(|s| s["phase"] == "zoom" && s["response_changed"] == true),
-        "normal wheel input changed zoom"
-    );
-    if scene != "live-model" {
-        assert!(
-            samples
-                .iter()
-                .any(|s| s["phase"] == "selection" && s["response_changed"] == true),
-            "normal clicks changed selection"
-        );
-    } else {
-        assert_eq!(
-            report["model_live_after"], true,
-            "the actual live 3D texture remains on screen"
-        );
-    }
+    run::native_canvas_probe();
 }

@@ -314,6 +314,9 @@ impl SlateApp {
             return;
         }
         let clip = body.intersect(layout.frame);
+        let artifact = slate_doc::scene::artifact(node).is_some();
+        let working = self.artifact_generation_working(node.id);
+        let generating = artifact && (working.is_some() || self.generations_waiting(node.id) > 0);
         let poster = self.web.views.get(&node.id).and_then(|v| v.poster.clone());
         if let Some(tex) = poster {
             // A resource-saving still frame is the page, not a disabled slide.
@@ -331,9 +334,21 @@ impl SlateApp {
                     tint,
                 );
             }
-        } else {
+        } else if !generating || !matches!(state, WebState::Unbound) {
             let clipped = painter.with_clip_rect(clip.intersect(painter.clip_rect()));
             self.paint_web_empty_state(&clipped, clip, node.id, &state, alpha, zoom);
+        }
+        if artifact {
+            self.paint_run_progress_with_state(
+                ui,
+                &painter.with_clip_rect(clip.intersect(painter.clip_rect())),
+                node.id,
+                clip,
+                zoom,
+                working.unwrap_or("Building dashboard"),
+                false,
+                working.is_some(),
+            );
         }
     }
 

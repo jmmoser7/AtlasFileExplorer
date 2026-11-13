@@ -102,6 +102,7 @@ fn explicit_typed_targets_and_saved_view_identity_are_distinct_from_legacy_edge_
         label: None,
         display: Default::default(),
         crosstalk: None,
+        grasshopper: None,
     };
     let saved = serde_json::to_vec(&conn).unwrap();
     let restored: ConnectorNode = serde_json::from_slice(&saved).unwrap();

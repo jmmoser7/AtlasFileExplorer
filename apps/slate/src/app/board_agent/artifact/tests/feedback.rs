@@ -47,6 +47,50 @@ fn retry_immediately_replaces_the_failed_state_with_preparing() {
 }
 
 #[test]
+fn dashboard_paints_generation_activity_with_the_agent_palette_closed() {
+    let (mut h, image) = board("dashboard-content-progress");
+    let id = spawn(&mut h, image);
+    // Resolve the unbound WebView through the ordinary pump while the
+    // newly spawned dashboard is still selected and therefore demanded.
+    h.app.web_pump(&h.ctx);
+    *h.app.agents.prompt_mut(id) = "Build a dashboard.".into();
+    assert!(h.app.queue_artifact_generation(id));
+    h.app.board_sel.clear();
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    let NodeKind::Portal(portal) = &node.kind else {
+        panic!("dashboard is a Web portal");
+    };
+    let paint = |h: &mut Harness| {
+        let layout = crate::app::board_portal_chrome::layout_for_portal(
+            slate_doc::scene::PortalKind::Web,
+            Rect::from_min_size(Pos2::new(20.0, 20.0), egui::vec2(500.0, 320.0)),
+            false,
+            false,
+            slate_doc::scene::Corner::Square,
+            1.0,
+        );
+        h.ctx.clone().run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                h.app
+                    .paint_web_portal_in_rect(ui, ui.painter(), &node, portal, &layout, 1.0);
+            });
+        })
+    };
+    let has_label = |output: &egui::FullOutput, label: &str| {
+        output.shapes.iter().any(|entry| {
+            matches!(&entry.shape, egui::Shape::Text(text) if text.galley.text().starts_with(label))
+        })
+    };
+    let active = paint(&mut h);
+    assert!(has_label(&active, "Preparing inputs"));
+    assert!(!has_label(&active, "Interactive artifact"));
+    h.app.agents.artifact.preparing.remove(&id);
+    let idle = paint(&mut h);
+    assert!(!has_label(&idle, "Preparing inputs"));
+    assert!(has_label(&idle, "Interactive artifact"));
+}
+
+#[test]
 fn play_without_a_workspace_explains_the_prerequisite() {
     let (mut h, image) = board("artifact-play-missing-workspace");
     let node = spawn(&mut h, image);

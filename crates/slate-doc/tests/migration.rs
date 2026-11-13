@@ -587,6 +587,7 @@ fn v2_document() -> SlateDoc {
 
     let connector = ConnectorNode {
         crosstalk: None,
+        grasshopper: None,
         routing: None,
         binding: None,
         a: ConnectorEnd::Anchored {

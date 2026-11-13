@@ -47,9 +47,59 @@ pub fn turn_params(
 fn turn_override(policy: TurnPolicy, full_access: bool) -> Option<&'static str> {
     match policy {
         TurnPolicy::ReadOnly => Some("readOnly"),
+        TurnPolicy::StagedFiles => Some("workspaceWrite"),
         TurnPolicy::Default if full_access => Some("dangerFullAccess"),
         TurnPolicy::Default => None,
     }
+}
+
+/// Codex's cwd is itself a writable root under workspace-write. Scope both
+/// fields and the implicit temp roots, irrespective of a general access grant.
+pub(super) fn scope_staged_files(
+    params: &mut Value,
+    request: &AgentRequest,
+    default_cwd: &Path,
+) -> Result<(), String> {
+    if request.policy != TurnPolicy::StagedFiles {
+        return Ok(());
+    }
+    let dir = staged_files_dir(request)?;
+    if dir != default_cwd {
+        return Err("The staged Codex worker was launched in the wrong directory".into());
+    }
+    params["cwd"] = json!(dir);
+    params["sandboxPolicy"] = json!({
+        "type": "workspaceWrite",
+        "writableRoots": [dir],
+        "networkAccess": false,
+        "excludeTmpdirEnvVar": true,
+        "excludeSlashTmp": true,
+    });
+    Ok(())
+}
+
+pub fn staged_files_dir(request: &AgentRequest) -> Result<&Path, String> {
+    request
+        .output_dir
+        .as_deref()
+        .map(Path::new)
+        .filter(|dir| {
+            dir.is_absolute()
+                && dir
+                    .file_name()
+                    .is_some_and(|name| name == request.id.as_str())
+                && dir
+                    .parent()
+                    .and_then(Path::file_name)
+                    .is_some_and(|name| name == ".slate-grasshopper-authoring")
+        })
+        .filter(|_| {
+            request.collaborator.is_none()
+                && request.artifact.is_none()
+                && request.image.is_none()
+                && !request.oneshot
+        })
+        .ok_or_else(|| "Codex staged authoring needs an isolated request directory".into())
 }
 
 /// A thread's own approval and sandbox settings, as `thread/start` or

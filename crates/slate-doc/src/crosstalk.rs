@@ -546,6 +546,7 @@ pub fn connector(
         display: Default::default(),
         binding: None,
         crosstalk: Some(Box::new(binding)),
+        grasshopper: None,
     })
 }
 

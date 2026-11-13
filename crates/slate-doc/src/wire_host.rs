@@ -43,6 +43,19 @@ const EPS: f32 = 1e-6;
 /// durable slot identity; resizing the host never stretches this rail.
 pub const FLOW_PORT_TOP: f32 = 48.0;
 pub const FLOW_PORT_PITCH: f32 = 42.0;
+const GRASSHOPPER_PORT_BASE: f32 = 2.0;
+const GRASSHOPPER_PORT_TOP: f32 = 24.0;
+const GRASSHOPPER_PORT_PITCH: f32 = 21.0;
+
+/// Reserved identity range for named Grasshopper grips on each side.
+pub fn grasshopper_port_t(row: usize) -> f32 {
+    GRASSHOPPER_PORT_BASE + row as f32
+}
+
+pub fn grasshopper_port_row(t: f32) -> Option<usize> {
+    (t.is_finite() && t >= GRASSHOPPER_PORT_BASE && t.fract() == 0.0)
+        .then_some((t - GRASSHOPPER_PORT_BASE) as usize)
+}
 
 /// Graft capsules retain the original port datum and cap at four terminals.
 pub fn graft_capsule_height(incoming: usize) -> f32 {
@@ -83,6 +96,7 @@ pub struct WireHost {
     input_source: bool,
     /// Unconfigured linked sources keep their authored native output edge.
     native_image_output: bool,
+    grasshopper_rows: [usize; 2],
     /// Chat-card side ports resolve on the header dot, not the edge midpoint.
     chat: bool,
 }
@@ -127,6 +141,7 @@ impl WireHost {
             image: false,
             input_source: false,
             native_image_output: false,
+            grasshopper_rows: [0; 2],
             chat: false,
         }
     }
@@ -141,6 +156,7 @@ impl WireHost {
             image: false,
             input_source: false,
             native_image_output: false,
+            grasshopper_rows: [0; 2],
             chat: false,
         }
     }
@@ -168,6 +184,7 @@ impl WireHost {
                 image: false,
                 input_source: false,
                 native_image_output: false,
+                grasshopper_rows: [0; 2],
                 chat: false,
             };
         }
@@ -192,6 +209,7 @@ impl WireHost {
                 || matches!(&node.kind, NodeKind::Portal(p) if p.kind == crate::scene::PortalKind::Web))
                 && crate::agent_chat::agent(node).is_none_or(|a| a.provider.is_empty())
                 && crate::scene::artifact(node).is_none(),
+            grasshopper_rows: [0; 2],
             input_source: crate::agent_chat::agent(node)
                 .is_some_and(|a| a.generator.input_source_kind.is_some()),
             chat,
@@ -202,6 +220,11 @@ impl WireHost {
     /// other shapes still resolve through `anchor` and `snap`.
     pub fn offers_ports(&self) -> bool {
         self.ports_enabled && self.flow_sites_fit()
+    }
+
+    pub fn with_grasshopper_rows(mut self, inputs: usize, outputs: usize) -> Self {
+        self.grasshopper_rows = [inputs, outputs];
+        self
     }
 
     /// Port relevance belongs to the screen-space interaction policy. Small
@@ -296,7 +319,14 @@ impl WireHost {
 
     /// World point for `(side, t)`. Chat side ports sit on the header dot.
     pub fn anchor(&self, side: Side, t: f32) -> [f32; 2] {
-        let flow_t = self.flow_anchor_t(side, t);
+        let named_row = if matches!(side, Side::Left | Side::Right) {
+            grasshopper_port_row(t)
+        } else {
+            None
+        };
+        let flow_t = named_row
+            .map(|row| self.grasshopper_anchor_t(side, row))
+            .or_else(|| self.flow_anchor_t(side, t));
         let (t, inset) = if self.chat && matches!(side, Side::Left | Side::Right) {
             let t = (crate::link_inset::rail_inset() / self.rect.h.max(1.0)).clamp(0.0, 1.0);
             (t, crate::link_inset::port_inset())
@@ -316,6 +346,34 @@ impl WireHost {
         [p[0] - n[0] * inset, p[1] - n[1] * inset]
     }
 
+    fn grasshopper_rows_on(&self, side: Side) -> usize {
+        match side {
+            Side::Left => self.grasshopper_rows[0],
+            Side::Right => self.grasshopper_rows[1],
+            _ => 0,
+        }
+    }
+
+    fn grasshopper_anchor_t(&self, side: Side, row: usize) -> f32 {
+        let rows = self.grasshopper_rows_on(side).max(row.saturating_add(1));
+        let needed = FLOW_PORT_TOP + rows as f32 * GRASSHOPPER_PORT_PITCH + self.flow_tail() + 14.0;
+        (GRASSHOPPER_PORT_TOP + row as f32 * GRASSHOPPER_PORT_PITCH) / needed.max(self.rect.h)
+    }
+
+    fn flow_tail(&self) -> f32 {
+        let rows = self
+            .flow
+            .iter()
+            .filter(|p| p.slot != atlas_agent::InputSlot::View)
+            .count();
+        let rows = rows.max(if self.image && rows > 0 {
+            crate::agent_inputs::GENERATOR_PORTS.len()
+        } else {
+            1
+        });
+        (rows - 1) as f32 * FLOW_PORT_PITCH
+    }
+
     /// Resolve known typed slot identities to fixed distances from the top.
     /// The special 3D View rail and arbitrary saved edge attachments retain
     /// their existing normalized geometry. Compact rails fit continuously;
@@ -328,10 +386,19 @@ impl WireHost {
             return Some((FLOW_PORT_TOP / self.rect.h.max(1.0)).clamp(0.0, 1.0));
         }
         if self.native_image_output
+            && self.grasshopper_rows[1] == 0
             && side == Side::Right
             && (t - crate::agent_inputs::OUTPUT_T).abs() < EPS
         {
             return None;
+        }
+        let top = FLOW_PORT_TOP + self.grasshopper_rows_on(side) as f32 * GRASSHOPPER_PORT_PITCH;
+        let needed = top + self.flow_tail() + 14.0;
+        if side == Side::Right
+            && self.grasshopper_rows[1] > 0
+            && (t - crate::agent_inputs::OUTPUT_T).abs() < EPS
+        {
+            return Some(top / needed.max(self.rect.h));
         }
         // Hosts advertising graph ports use the fixed Studio datum. Hosts
         // without graph settings retain their ordinary native edge geometry.
@@ -346,12 +413,6 @@ impl WireHost {
         if graph_rows == 0 {
             return None;
         }
-        let rows = graph_rows.max(if self.image {
-            crate::agent_inputs::GENERATOR_PORTS.len()
-        } else {
-            1
-        });
-        let needed = FLOW_PORT_TOP + (rows - 1) as f32 * FLOW_PORT_PITCH + 14.0;
         let scale = (self.rect.h / needed).clamp(0.0, 1.0);
         if self.flow.iter().any(|p| {
             p.slot == atlas_agent::InputSlot::View && side == Side::Left && (p.t - t).abs() < EPS
@@ -367,9 +428,7 @@ impl WireHost {
                 .position(|p| (p.t - t).abs() < EPS),
             _ => None,
         };
-        row.map(|row| {
-            (FLOW_PORT_TOP + row as f32 * FLOW_PORT_PITCH) * scale / self.rect.h.max(f32::EPSILON)
-        })
+        row.map(|row| (top + row as f32 * FLOW_PORT_PITCH) * scale / self.rect.h.max(f32::EPSILON))
     }
     pub fn outward(&self, side: Side, t: f32) -> [f32; 2] {
         match &self.kind {

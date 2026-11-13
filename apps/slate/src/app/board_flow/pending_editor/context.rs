@@ -143,6 +143,9 @@ impl SlateApp {
                 })
                 .map(|p| p.id.as_str())
                 .collect(),
+            PendingHost::Model if self.grasshopper_viewer(id) => {
+                has_codex.then_some("codex").into_iter().collect()
+            }
             PendingHost::Model => self
                 .registered_agent_programs()
                 .iter()

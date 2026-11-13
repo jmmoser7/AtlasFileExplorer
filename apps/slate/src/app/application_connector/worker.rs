@@ -19,6 +19,7 @@ use exchange::Exchange;
 #[cfg(test)]
 use exchange::{request_deadline, source_lost};
 mod headless;
+pub(crate) use headless::configuration as headless_rhino_configuration;
 mod native;
 pub(super) use headless::create_empty as create_empty_headless;
 #[cfg(test)]

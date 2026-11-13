@@ -15,12 +15,29 @@ class HeadlessRhino {
     static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = 262144 };
     [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] static extern bool SetDllDirectory(string path);
     [STAThread] static int Main(string[] args) {
-        if(args.Length != 2) return 2;
+        bool builtInsOnly = args.Length == 4 && args[3] == "built-ins-only";
+        bool grasshopper = (args.Length == 3 || builtInsOnly) && args[2] == "grasshopper";
+        if(args.Length != 2 && !grasshopper) return 2;
         system=Path.GetFullPath(args[0]); job=Path.GetFullPath(args[1]);
         SetDllDirectory(system);
         Environment.SetEnvironmentVariable("PATH",system+";"+Environment.GetEnvironmentVariable("PATH"));
-        AppDomain.CurrentDomain.AssemblyResolve+=(s,e)=> { var p=Path.Combine(system,new AssemblyName(e.Name).Name+".dll"); return File.Exists(p)?Assembly.LoadFrom(p):null; };
-        try { return Run(); } catch(OperationCanceledException) { Progress("cancelled"); return 3; }
+        string grasshopperDirectory = Path.GetFullPath(Path.Combine(system, "..", "Plug-ins", "Grasshopper"));
+        AppDomain.CurrentDomain.AssemblyResolve += (sender, request) => {
+            string filename = new AssemblyName(request.Name).Name + ".dll";
+            string path = Path.Combine(system, filename);
+            if (File.Exists(path)) return Assembly.LoadFrom(path);
+            path = Path.Combine(grasshopperDirectory, filename);
+            return grasshopper && File.Exists(path) ? Assembly.LoadFrom(path) : null;
+        };
+        try {
+            if (!grasshopper) return Run();
+#if SLATE_GRASSHOPPER
+            return GrasshopperHost.Run(job, builtInsOnly);
+#else
+            throw new InvalidOperationException("This Rhino helper was built without Grasshopper compile references.");
+#endif
+        }
+        catch(OperationCanceledException) { Progress("cancelled"); return 3; }
         catch(Exception e) { File.WriteAllText(Path.Combine(job,"error.txt"),e.ToString()); return 1; }
     }
     static void CheckStop() { if(File.Exists(Path.Combine(job,"stop"))) throw new OperationCanceledException(); }

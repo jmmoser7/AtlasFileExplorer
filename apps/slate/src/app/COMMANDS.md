@@ -703,6 +703,16 @@ Camera-only — never journaled, never repeatable.
   Arctic remains white, and the diagnostic passes are unchanged. Materials
   default to On for older workbooks. Esc inside a live viewport peels the pending point, then
   Measure, then the shown measurements, then the viewport.
+- **Grasshopper definitions** (`.gh`, `.ghx`) use the same 3D viewport.
+  The **Grasshopper inputs** squircle lists the definition's named controls.
+  Input changes preview live and are saved with the viewer. **Bake**
+  (`board.model_grasshopper_bake`) creates a linked `.3dm` beside the viewer.
+  Successive bakes stack underneath it, with one undo step per card.
+  Named Hops inputs and outputs appear as gray grips above Agent grips. Drag
+  between compatible grips or right-click an input to set or clear a value.
+  Right-click a Grasshopper grip or wire to **Bundle Grasshopper wires** or
+  **Unbundle Grasshopper wires** (`board.wire.grasshopper_bundle`). Bundling
+  changes the drawing only. One undo step restores the previous presentation.
 
 ## Board portals
 

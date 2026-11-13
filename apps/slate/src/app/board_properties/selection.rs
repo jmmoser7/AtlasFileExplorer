@@ -95,6 +95,7 @@ impl SlateApp {
     fn remembered_panel_eligible(&self, id: NodeId) -> bool {
         self.image_palette_eligible(id)
             || self.is_artifact_node(id)
+            || self.grasshopper_viewer(id)
             || self.doc().scene.node(id).is_some_and(
                 |node| matches!(&node.kind, NodeKind::Text(text) if text.agent.is_some()),
             )
@@ -235,6 +236,7 @@ impl SlateApp {
             self.shape_properties.tab != self.tab().id || self.shape_properties.ids != ids;
         if changed {
             if self.shape_properties.tab == self.tab().id {
+                self.close_grasshopper_draft();
                 self.dismiss_active_object_panel(now);
             }
             let mut remembered_image_panels =

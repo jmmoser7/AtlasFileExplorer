@@ -90,7 +90,7 @@ impl Strip {
                 } else {
                     theme.ink
                 };
-                b.paint_icon(ui.painter(), i, icon, color, theme);
+                b.paint_icon(ui.painter(), i, icon, color);
                 r
             } else {
                 chrome::button(

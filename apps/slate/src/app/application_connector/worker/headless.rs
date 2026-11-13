@@ -194,7 +194,7 @@ fn snapshot(draft: &HeadlessDraft, root: &Path, serial: u64) -> BindingSnapshot 
     }
 }
 
-fn configuration() -> Result<HeadlessRhino, String> {
+pub(crate) fn configuration() -> Result<HeadlessRhino, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let bin = exe.parent().ok_or("Missing executable directory")?;
     let mut helper = bin.join("HeadlessRhino.exe");

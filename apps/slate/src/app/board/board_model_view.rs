@@ -88,10 +88,35 @@ impl SlateApp {
         node_id: NodeId,
         name: &str,
         alpha: f32,
-    ) {
+        z: f32,
+        reuse_live_resolution: bool,
+    ) -> bool {
+        let grasshopper = self.grasshopper_viewer(node_id);
+        let working = if self.agent_is_running(node_id) {
+            Some(if grasshopper {
+                "Authoring definition"
+            } else {
+                "Building 3D model"
+            })
+        } else if grasshopper {
+            self.grasshopper_working_label(node_id)
+        } else {
+            None
+        };
+        let busy = working.is_some();
         self.paint_model_result_strip(ui, node_id, srect, self.board_xf().z);
         if self.paint_application_connector(ui, painter, node_id, srect) {
-            return;
+            self.paint_run_progress_with_state(
+                ui,
+                painter,
+                node_id,
+                srect,
+                z,
+                working.unwrap_or_default(),
+                true,
+                busy,
+            );
+            return busy;
         }
         let info = self.model_node_info(node_id);
         let tint = Color32::WHITE.gamma_multiply(alpha);
@@ -100,6 +125,25 @@ impl SlateApp {
 
         let live_tex = live
             .then(|| {
+                // A board zoom changes the output size, not the model's view.
+                // Scale the drawn GPU slot until the board settles. Actual
+                // model navigation, filters and aspect changes still redraw.
+                let reusable = reuse_live_resolution
+                    && self.model3d.live.get(&node_id).is_some_and(|vp| {
+                        vp.rendered.is_some_and(|(camera, _, _, filter, aspect)| {
+                            let drawn_aspect = f32::from_bits(aspect);
+                            let current_aspect = srect.width() / srect.height().max(1.0);
+                            camera == vp.cam.cache_hash()
+                                && filter == adjust.cache_hash()
+                                && (drawn_aspect - current_aspect).abs() <= 0.005 * drawn_aspect
+                        })
+                    });
+                if let Some(texture) = reusable
+                    .then(|| self.model3d.live_texture_id(node_id))
+                    .flatten()
+                {
+                    return Some(texture);
+                }
                 self.model_live_texture(ui.ctx(), node_id, srect.width(), srect.height(), &adjust)
             })
             .flatten();
@@ -114,8 +158,10 @@ impl SlateApp {
         if awaiting_slot {
             ui.ctx().request_repaint();
         }
-        let rendered = if live && !awaiting_slot {
-            live_tex
+        let rendered = if let Some(texture) = live_tex {
+            Some(texture)
+        } else if live && !awaiting_slot && !grasshopper {
+            None
         } else {
             info.as_ref().and_then(|info| {
                 let poster = self.model_poster_texture(ui.ctx(), info, &adjust);
@@ -125,7 +171,14 @@ impl SlateApp {
                 {
                     self.request_model_poster(info);
                 }
-                poster.map(|t| t.id())
+                if grasshopper {
+                    let poster = self.grasshopper_displayed_poster(node_id, poster);
+                    live.then(|| self.model3d.live_texture_id(node_id))
+                        .flatten()
+                        .or(poster)
+                } else {
+                    poster.map(|t| t.id())
+                }
             })
         };
         let render_ready = rendered.is_some();
@@ -153,6 +206,9 @@ impl SlateApp {
                 })
             })
             .or_else(|| {
+                if grasshopper {
+                    return None;
+                }
                 let desired_px = srect.width().max(srect.height()) * ui.ctx().pixels_per_point();
                 self.board_texture(
                     ui.ctx(),
@@ -177,12 +233,15 @@ impl SlateApp {
                 ));
                 // Distinguish "still working" from "this file has no meshes"
                 // (the load bar overlay below carries the working state).
-                if parse_progress.is_none() {
-                    let msg = info
-                        .as_ref()
-                        .and_then(|info| {
-                            self.model_failure(&info.cache_key)
-                                .map(|msg| atlas_shell::widgets::trunc(msg, 120))
+                if parse_progress.is_none() && !busy {
+                    let msg = self
+                        .grasshopper_status(node_id)
+                        .map(|msg| atlas_shell::widgets::trunc(msg, 120))
+                        .or_else(|| {
+                            info.as_ref().and_then(|info| {
+                                self.model_failure(&info.cache_key)
+                                    .map(|msg| atlas_shell::widgets::trunc(msg, 120))
+                            })
                         })
                         .unwrap_or_else(|| {
                             format!(
@@ -211,7 +270,7 @@ impl SlateApp {
         // Load bar while the mesh parse blocks this node's render (live
         // unlock, or first poster generation for a locked node). The worker
         // reports byte-accurate checkpoints; the bar eases between them.
-        if let Some(target) = parse_progress {
+        if let Some(target) = parse_progress.filter(|_| !busy) {
             let palette = self.palette();
             let shown = ui.ctx().animate_value_with_time(
                 egui::Id::new(("slate_model_progress", node_id.0)),
@@ -262,5 +321,16 @@ impl SlateApp {
         }
 
         self.paint_model_wired_view_strip(ui, node_id, srect, self.board_xf().z);
+        self.paint_run_progress_with_state(
+            ui,
+            painter,
+            node_id,
+            srect,
+            z,
+            working.unwrap_or_default(),
+            tex.is_some(),
+            busy,
+        );
+        busy
     }
 }

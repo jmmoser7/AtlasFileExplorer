@@ -102,6 +102,25 @@ impl SlateApp {
                 return self.dispatch_targeted_human_with_context(ctx, command, detail.as_deref());
             }
             "board.wire.canvas" => self.open_canvas_wire_settings(ctx),
+            "board.wire.grasshopper_bundle" => detail
+                .as_deref()
+                .and_then(|detail| {
+                    #[derive(serde::Deserialize)]
+                    struct Bundle {
+                        node: NodeId,
+                        bundled: bool,
+                        port: Option<slate_doc::scene::GrasshopperPortId>,
+                        side: Option<slate_doc::scene::Side>,
+                    }
+                    serde_json::from_str::<Bundle>(detail).ok()
+                })
+                .is_some_and(|request| match (request.port, request.side) {
+                    (Some(port), Some(side)) => {
+                        self.set_grasshopper_grip_bundle(request.node, &port, side, request.bundled)
+                    }
+                    (None, None) => self.set_grasshopper_wire_bundle(request.node, request.bundled),
+                    _ => false,
+                }),
             "board.image.shape_fill" => return self.shape_fill_command(detail.as_deref()),
             "board.image.layer.rename"
             | "board.image.layer.visibility"
@@ -205,6 +224,7 @@ impl SlateApp {
             "board.model_display" => self.dispatch_model_display(detail.as_deref()),
             "board.model_materials" => self.dispatch_model_materials(detail.as_deref()),
             "board.model_measure" => self.dispatch_model_measure(detail.as_deref()),
+            "board.model_grasshopper_bake" => self.dispatch_grasshopper_bake(detail.as_deref()),
             command if capture::owns_command(command) => {
                 self.dispatch_portal_capture(ctx, id.0, detail.as_deref())
             }

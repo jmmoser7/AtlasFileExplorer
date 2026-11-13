@@ -1,10 +1,13 @@
 //! Desktop eyedropper session and destination routing.
 
 use super::BrushSettingUndo;
-use crate::app::{board::BoardTool, board_properties, SlateApp};
-use atlas_shell::desktop_color::PickMode;
+use crate::app::{board::BoardTool, board_properties, grasshopper::EditPhase, SlateApp};
+use atlas_shell::{desktop_color::PickMode, selection_tools::SampleGesture};
 use eframe::egui;
-use slate_doc::NodeId;
+use slate_doc::{
+    scene::{GrasshopperControlId, GrasshopperControlKind, GrasshopperValue},
+    NodeId,
+};
 
 pub(crate) enum DesktopDestination {
     CanvasWires,
@@ -17,6 +20,11 @@ pub(crate) enum DesktopDestination {
         ids: Vec<NodeId>,
         panel: board_properties::Panel,
         preview: bool,
+    },
+    Grasshopper {
+        node: NodeId,
+        control: GrasshopperControlId,
+        alpha: u8,
     },
 }
 
@@ -78,6 +86,26 @@ impl SlateApp {
         );
     }
 
+    pub(crate) fn start_grasshopper_desktop_sample(
+        &mut self,
+        node: NodeId,
+        control: GrasshopperControlId,
+        alpha: u8,
+        gesture: SampleGesture,
+    ) {
+        self.begin_desktop_sample(
+            DesktopDestination::Grasshopper {
+                node,
+                control,
+                alpha,
+            },
+            match gesture {
+                SampleGesture::Click => PickMode::Click,
+                SampleGesture::Drag => PickMode::Drag,
+            },
+        );
+    }
+
     pub(crate) fn desktop_sample_frame(&mut self, ctx: &egui::Context) {
         self.maybe_start_brush_alt_sample(ctx);
         let Some(session) = &self.desktop_sample else {
@@ -116,6 +144,11 @@ impl SlateApp {
                 panel,
                 preview,
             } => self.finish_node_sample(ctx, ids, panel, preview, session.tab, sample.rgb),
+            DesktopDestination::Grasshopper {
+                node,
+                control,
+                alpha,
+            } => self.finish_grasshopper_sample(node, control, alpha, sample.rgb),
         }
     }
 
@@ -162,6 +195,51 @@ impl SlateApp {
         if let Some(before) = brush_before {
             self.push_brush_setting_undo(before);
         }
+    }
+
+    fn finish_grasshopper_sample(
+        &mut self,
+        node: NodeId,
+        control: GrasshopperControlId,
+        alpha: u8,
+        rgb: [u8; 3],
+    ) {
+        if self.tab().read_only
+            || self.doc().scene.node(node).is_none_or(|node| node.locked)
+            || !self.grasshopper_viewer(node)
+        {
+            self.toast("Color pick canceled: its target is no longer editable");
+            return;
+        }
+        if self.shape_properties.panel != Some(board_properties::Panel::Grasshopper)
+            || self.shape_properties.tab != self.tab().id
+            || self.shape_properties.ids != [node]
+        {
+            self.toast("Color pick canceled: its selection changed");
+            return;
+        }
+        let current = self.grasshopper_panel(node).and_then(|panel| {
+            panel
+                .controls
+                .into_iter()
+                .find(|entry| entry.id == control && entry.kind == GrasshopperControlKind::Color)
+                .and_then(|entry| entry.value)
+        });
+        let Some(GrasshopperValue::Color(current)) = current else {
+            self.toast("Color pick canceled: its Grasshopper control changed");
+            return;
+        };
+        let [red, green, blue] = rgb;
+        let value = [red, green, blue, alpha];
+        if value != current {
+            self.grasshopper_edit(
+                node,
+                control,
+                GrasshopperValue::Color(value),
+                EditPhase::Commit,
+            );
+        }
+        self.remember_document_colors(vec![rgb]);
     }
 
     fn finish_node_sample(

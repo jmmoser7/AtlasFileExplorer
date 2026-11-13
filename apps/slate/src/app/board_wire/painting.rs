@@ -2,6 +2,7 @@
 use super::*;
 use std::time::{Duration, Instant};
 
+mod motion;
 mod route_cache;
 pub(crate) use route_cache::WireRouteCache;
 
@@ -11,6 +12,7 @@ const WIRE_BATCH_VERTICES: usize = 60_000;
 struct WireStrokeBatch {
     mesh: egui::Mesh,
     trace: WirePaintTrace,
+    motion_pixels_per_world: Option<f32>,
 }
 
 #[derive(Default)]
@@ -94,14 +96,27 @@ impl SlateApp {
         xf: &BoardXf,
         nodes: &[Node],
     ) {
-        let mut batch = WireStrokeBatch::default();
+        let mut batch = WireStrokeBatch {
+            motion_pixels_per_world: self
+                .board_camera_in_motion()
+                .then(|| xf.z * painter.ctx().pixels_per_point()),
+            ..Default::default()
+        };
         let theme_wire = self.theme_wire_rgba();
         let field = self.field_selection();
         let media = self.prepared_media_chrome_host();
+        let bundles = self.grasshopper_bundles(nodes);
+        let bundled: std::collections::HashSet<_> = bundles
+            .iter()
+            .flat_map(|bundle| bundle.wires.iter().copied())
+            .collect();
         for node in nodes {
             let NodeKind::Connector(conn) = &node.kind else {
                 continue;
             };
+            if bundled.contains(&node.id) {
+                continue;
+            }
             // Existing chrome can belong to the authored host behind a
             // presence preview. Keep that node's ordinary paint ordering.
             if field == Some(node.id)
@@ -117,6 +132,20 @@ impl SlateApp {
             }
         }
         batch.flush::<TRACE>(painter);
+        let palette = self.palette();
+        for bundle in &bundles {
+            let selected = bundle.wires.iter().any(|id| self.board_sel.contains(id));
+            bundle.paint(
+                painter,
+                xf,
+                if selected {
+                    palette.select
+                } else {
+                    palette.wire
+                },
+                selected,
+            );
+        }
         if TRACE {
             batch.trace.emit(&self.wire_route_cache.borrow());
         }
@@ -280,7 +309,11 @@ impl SlateApp {
         let Some(path) = path else {
             return;
         };
-        stroke.color = conn.paint_color(theme_wire);
+        stroke.color = if conn.grasshopper.is_some() {
+            theme_wire
+        } else {
+            conn.paint_color(theme_wire)
+        };
         let opacity = (node.opacity
             * match conn.display {
                 WireDisplay::Faint => FAINT_OPACITY,
@@ -289,8 +322,40 @@ impl SlateApp {
         .clamp(0.0, 1.0);
         let fade = |c: Color32| c.gamma_multiply(opacity);
         let base = fade(rgba32(stroke.color));
+        if let Some(access) = self
+            .grasshopper_access(conn)
+            .filter(|access| *access != slate_doc::scene::GrasshopperPortAccess::Item)
+        {
+            batch.flush::<TRACE>(painter);
+            super::grasshopper::paint_grasshopper_fancy_wire(
+                painter,
+                xf,
+                &path,
+                access,
+                base,
+                stroke.width,
+            );
+            return;
+        }
 
-        if !stroke.is_none() {
+        // Small plain connectors keep their endpoints and screen coverage
+        // without building another antialiased mesh for each wheel notch.
+        let drew_motion_chord = batch
+            .motion_pixels_per_world
+            .is_some_and(|pixels_per_world| {
+                let coverage = stroke.width * pixels_per_world;
+                !stroke.is_none()
+                    && coverage <= 0.75
+                    && node.rect.w.abs().max(node.rect.h.abs()) * pixels_per_world <= 16.0
+                    && matches!(path, ConnectorPath::Bezier(_))
+                    && stroke.dash == Dash::Solid
+                    && stroke.profile == WidthProfile::Uniform
+                    && !conn.arrow_a
+                    && !conn.arrow_b
+                    && !self.board_sel.contains(&node.id)
+                    && batch.append_subpixel_chord::<TRACE>(painter, xf, &path, coverage, base)
+            });
+        if !stroke.is_none() && !drew_motion_chord {
             let key_started = WirePaintTrace::start::<TRACE>();
             let bucket = board_path::zoom_bucket(xf.z);
             let key = connector_cache_key(
@@ -393,6 +458,9 @@ impl SlateApp {
         let NodeKind::Connector(conn) = &node.kind else {
             return;
         };
+        if conn.grasshopper.as_deref().is_some_and(|wire| wire.bundled) {
+            return;
+        }
         let Some(path) = self.connector_path_visible(node.id, conn) else {
             return;
         };

@@ -282,12 +282,19 @@ impl MediaKind {
 }
 
 /// Extensions that place as one 3D model node. The preview crate
-/// (`model-preview`) owns which of these decode to a mesh and which stay a
-/// gap card. Both lists are checked against each other by
+/// (`model-preview`) owns whether the viewport reads the file directly, uses
+/// an external runtime, or shows a gap card. Both lists are checked by
 /// `every_model_extension_has_one_preview_owner`.
 pub const MODEL_EXTENSIONS: &[&str] = &[
-    "3dm", "obj", "stl", "gltf", "glb", "blend", "dwg", "dxf", "skp", "fbx",
+    "3dm", "gh", "ghx", "obj", "stl", "gltf", "glb", "blend", "dwg", "dxf", "skp", "fbx",
 ];
+
+/// Grasshopper source files solve into viewport geometry in the Rhino worker.
+pub fn is_grasshopper(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("gh") || ext.eq_ignore_ascii_case("ghx"))
+}
 
 /// Classify a file by extension (lowercased).
 /// How an ambiguous file can be shown. The catalog is this function: a format
@@ -405,6 +412,8 @@ mod tests {
             ("clip.MOV", MediaKind::Video),
             ("tower.3dm", MediaKind::Model),
             ("Tower.3DM", MediaKind::Model),
+            ("tower.gh", MediaKind::Model),
+            ("Tower.GHX", MediaKind::Model),
             ("mesh.obj", MediaKind::Model),
             ("part.STL", MediaKind::Model),
             ("scene.glb", MediaKind::Model),

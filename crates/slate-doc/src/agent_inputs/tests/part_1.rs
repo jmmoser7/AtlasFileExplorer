@@ -83,6 +83,7 @@ fn bound_slots_includes_view_when_wired() {
         &mut doc,
         NodeKind::Connector(ConnectorNode {
             crosstalk: None,
+            grasshopper: None,
             a: ConnectorEnd::Anchored {
                 node: shot,
                 side: Side::Right,
@@ -132,6 +133,7 @@ fn view_wire_binding_source_is_screenshot_image() {
     .expect("view wire");
     let conn = ConnectorNode {
         crosstalk: None,
+        grasshopper: None,
         a: shot_end,
         b: model_port,
         stroke: Stroke::default(),
@@ -229,6 +231,7 @@ fn an_image_generator_accepts_a_model_wire_that_missed_the_midpoint() {
     let wire = |a: ConnectorEnd, b: ConnectorEnd, display: WireDisplay| {
         NodeKind::Connector(ConnectorNode {
             crosstalk: None,
+            grasshopper: None,
             routing: None,
             a,
             b,
@@ -341,6 +344,7 @@ fn connect(doc: &mut SlateDoc, a: NodeId, b: NodeId) -> NodeId {
         doc,
         NodeKind::Connector(ConnectorNode {
             crosstalk: None,
+            grasshopper: None,
             routing: None,
             a,
             b,

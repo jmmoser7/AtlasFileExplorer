@@ -147,6 +147,74 @@ fn frame_with_events(
 }
 
 #[test]
+fn open_node_chrome_uses_the_arrival_frame_camera_for_zoom_and_pan() {
+    use crate::app::board_properties::tests::{board, strip_button, text_node};
+
+    let mut h = board();
+    let host = text_node(&mut h, WorldRect::new(-180.0, -160.0, 360.0, 160.0));
+    h.frame();
+    h.app.shape_properties.panel = Some(Panel::Text);
+    for _ in 0..12 {
+        h.frame();
+    }
+    let start = h.app.board_xf();
+    let button = strip_button(&h, Panel::Text);
+    let editor = *h.app.shape_properties.chrome_hits.last().unwrap();
+    let point = h.app.canvas_rect.center() + Vec2::new(300.0, -110.0);
+    let assert_aligned = |h: &Harness| {
+        let xf = h.app.board_xf();
+        let expected = |p| xf.w2s(start.s2w(p));
+        let button_after = strip_button(h, Panel::Text);
+        let editor_after = *h.app.shape_properties.chrome_hits.last().unwrap();
+        assert_eq!(h.app.shape_properties.panel, Some(Panel::Text));
+        assert!(h.app.board_sel.contains(&host));
+        assert!(button_after.center().distance(expected(button.center())) < 0.2);
+        assert!((button_after.width() - button.width() * xf.z / start.z).abs() < 0.2);
+        assert!(editor_after.center().distance(expected(editor.center())) < 0.2);
+    };
+
+    h.frame_with(|input| {
+        input.events.push(egui::Event::PointerMoved(point));
+        input.events.push(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: Vec2::new(0.0, 24.0),
+            modifiers: egui::Modifiers::NONE,
+        });
+    });
+    let zoomed = h.app.board_xf();
+    assert!(zoomed.z > start.z);
+    assert_aligned(&h);
+
+    h.frame_with(|input| {
+        input.events.push(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: Vec2::new(0.0, 24.0),
+            modifiers: egui::Modifiers::SHIFT,
+        });
+    });
+    let shifted = h.app.board_xf();
+    assert_eq!(shifted.z, zoomed.z);
+    assert_ne!(shifted.offset, zoomed.offset);
+    assert_aligned(&h);
+
+    let middle = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Middle,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.frame_with(|input| input.events.push(middle(point, true)));
+    let moved = point + Vec2::new(24.0, -20.0);
+    h.frame_with(|input| input.events.push(egui::Event::PointerMoved(moved)));
+    assert_ne!(h.app.board_xf().offset, shifted.offset);
+    assert_aligned(&h);
+
+    let released = moved + Vec2::new(8.0, -5.0);
+    h.frame_with(|input| input.events.push(middle(released, false)));
+    assert_aligned(&h);
+}
+
+#[test]
 fn a_generator_popup_keeps_its_visible_hits_while_the_image_apron_opens() {
     for (host, width, height, attached_route) in [
         ("attached", 680.0, 380.0, true),

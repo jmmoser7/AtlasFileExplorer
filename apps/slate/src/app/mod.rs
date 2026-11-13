@@ -85,6 +85,7 @@ mod external_drop;
 mod external_drop_classify;
 mod external_drop_image;
 mod frame_presentation;
+pub(crate) mod grasshopper;
 mod image_composite;
 #[cfg(test)]
 mod image_layer_tests;
@@ -157,6 +158,7 @@ pub struct SlateTab {
     pub lease_holder: Option<LeaseInfo>,
     pub chrome: ChromeConfig,
     pub cam: Camera,
+    board_motion: board::BoardMotion,
     pub grid_fade: atlas_shell::grid_fade::GridFade,
     pub grid_fade_armed: bool,
     /// Board undo/redo history (session-local, not saved with the doc).
@@ -183,6 +185,7 @@ impl SlateTab {
             lease_holder: None,
             chrome: chrome::default_chrome(),
             cam: Camera::default(),
+            board_motion: board::BoardMotion::default(),
             grid_fade: atlas_shell::grid_fade::GridFade::default(),
             grid_fade_armed: false,
             journal: SceneJournal::default(),
@@ -455,6 +458,7 @@ pub struct SlateApp {
     frame_hwnd: isize,
     /// Interactive 3D model viewport state (see `model3d.rs`).
     pub model3d: model3d::ModelSpace,
+    grasshopper: grasshopper::Viewers,
     connectors: application_connector::ConnectorRuntime,
     production: production::ProductionRuntime,
     media_links: items::MediaLinkJobs,
@@ -932,6 +936,7 @@ impl SlateApp {
             production: production::ProductionRuntime::from_args(),
             media_links: Default::default(),
             model3d: model3d::ModelSpace::default(),
+            grasshopper: grasshopper::Viewers::default(),
             model_shot_pending: None,
             pending_view_drop: None,
             view_drop_preview: None,
@@ -1106,7 +1111,7 @@ impl SlateApp {
         if let Some(path) = initial_doc {
             app.at_home = false;
             app.ensure_work_tab();
-            app.open_doc_at(path);
+            app.open_document_or_definition(path);
         }
         boot.phase("open");
         app.ensure_home_cover_bakes();
@@ -1470,9 +1475,29 @@ impl SlateApp {
 
     pub fn open_doc_dialog(&mut self) {
         self.picker.open(
-            PickRequest::file().filter("Slate workbook", &[SLATE_EXTENSION]),
+            PickRequest::file().filter("Slate and Grasshopper", &[SLATE_EXTENSION, "gh", "ghx"]),
             |picked| PickerMsg::OpenDoc(file_picker::first(picked)),
         );
+    }
+
+    fn open_document_or_definition(&mut self, path: PathBuf) {
+        if !slate_doc::media::is_grasshopper(&path) {
+            self.open_doc_at(path);
+            return;
+        }
+        self.ensure_work_tab();
+        if self.refuse_read_only_edit() {
+            return;
+        }
+        if let Some(item) = self.item_for_path(&path) {
+            self.at_home = false;
+            let at = if self.canvas_rect.is_positive() {
+                self.board_xf().s2w(self.canvas_rect.center())
+            } else {
+                egui::Pos2::ZERO
+            };
+            self.place_items_on_board(&[item], at);
+        }
     }
 
     pub fn save_doc(&mut self) {
@@ -1591,8 +1616,10 @@ impl SlateApp {
     pub(crate) fn open_item_path(&mut self, path: &std::path::Path) {
         let path =
             slate_doc::scene::resolve_source(self.tab().path.as_deref(), &path.to_string_lossy());
-        if slate_doc::media_kind(&path) == slate_doc::MediaKind::Workbook {
-            self.open_doc_at(path);
+        if slate_doc::media_kind(&path) == slate_doc::MediaKind::Workbook
+            || slate_doc::media::is_grasshopper(&path)
+        {
+            self.open_document_or_definition(path);
         } else {
             Self::open_path(&path);
         }
@@ -1955,6 +1982,7 @@ impl SlateApp {
         {
             let _span = atlas_core::session_log::span("slate.model3d");
             self.model3d_frame(ctx);
+            self.grasshopper_frame(ctx);
         }
         {
             let _span = atlas_core::session_log::span("slate.video");

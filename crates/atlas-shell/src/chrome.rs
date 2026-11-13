@@ -8,6 +8,8 @@
 use crate::theme::Palette;
 use eframe::egui::{self, CornerRadius, Rect, Stroke, StrokeKind};
 
+pub use crate::selection_tools::{scalar_capsule, ScalarCapsuleEdit};
+
 /// Per-tab UI chrome configuration (nested inside the active tab's workspace).
 ///
 /// `T` = number of tool panels, `R` = number of readout panels. Panel enums

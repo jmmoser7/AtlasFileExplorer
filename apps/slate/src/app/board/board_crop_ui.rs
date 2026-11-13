@@ -3,17 +3,6 @@
 use super::*;
 
 impl SlateApp {
-    pub(super) fn board_zoom_at(&mut self, pointer: Pos2, factor: f32) {
-        let xf = self.board_xf();
-        let world_before = xf.s2w(pointer);
-        let cam = &mut self.tab_mut().cam;
-        cam.z = (cam.z * factor).clamp(ZOOM_MIN, ZOOM_MAX);
-        let cam_z = cam.z;
-        let center = self.canvas_rect.center();
-        self.tab_mut().cam.offset = world_before.to_vec2() - (pointer - center) / cam_z;
-        self.tab_mut().grid_fade_armed = true;
-    }
-
     pub(super) fn board_snap_threshold(&self) -> f32 {
         board_snap::SNAP_SCREEN_PX / self.tab().cam.z
     }

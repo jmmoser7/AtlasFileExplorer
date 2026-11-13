@@ -1,5 +1,5 @@
 use super::SlateApp;
-use eframe::egui::{self, Pos2, Rect};
+use eframe::egui::{self, Pos2, Rect, Vec2};
 
 impl SlateApp {
     /// Wheel events carry the modifier state at the notch, which can differ
@@ -54,14 +54,39 @@ impl SlateApp {
         if blocked {
             return false;
         }
-        let old = self.tab().cam.offset;
-        let mut offset = old;
-        if !self.turbo_pan.step(ctx, rect, pointer, &mut offset) {
+        let mut delta = Vec2::ZERO;
+        if !self.turbo_pan.step(ctx, rect, pointer, &mut delta) {
             return false;
         }
-        let zoom = self.tab().cam.z;
-        self.tab_mut().cam.offset = old - (offset - old) / zoom;
+        let cam = &mut self.tab_mut().cam;
+        cam.offset -= delta / cam.z;
         true
+    }
+
+    /// `drag_delta` becomes zero on button-up. Preserve the final sample up
+    /// to the release, excluding any free pointer motion batched after it.
+    pub(crate) fn pan_release_delta(resp: &egui::Response, button: egui::PointerButton) -> Vec2 {
+        let delta = resp.ctx.input(|input| {
+            let delta = input.pointer.delta();
+            let release = input.events.iter().find_map(|event| match event {
+                egui::Event::PointerButton {
+                    pos,
+                    button: released,
+                    pressed: false,
+                    ..
+                } if *released == button => Some(*pos),
+                _ => None,
+            });
+            match (input.pointer.latest_pos(), release) {
+                (Some(latest), Some(release)) => delta + (release - latest),
+                _ => delta,
+            }
+        });
+        delta
+            * resp
+                .ctx
+                .layer_transform_from_global(resp.layer_id)
+                .map_or(1.0, |transform| transform.scaling)
     }
 
     pub(crate) fn world_to_screen(&self, w: Pos2) -> Pos2 {
@@ -86,15 +111,23 @@ impl SlateApp {
         cam.offset = bounds.center().to_vec2();
     }
 
-    pub(crate) fn zoom_at(&mut self, pointer: Pos2, factor: f32) {
-        let world_before = self.screen_to_world(pointer);
+    pub(crate) fn zoom_at(&mut self, pointer: Pos2, factor: f32) -> bool {
+        let from_center = pointer - self.canvas_rect.center();
         let profile = self.canvas_zoom_profile();
-        let cam = &mut self.tab_mut().cam;
-        cam.z = profile.clamp(cam.z * factor);
-        let cam_z = cam.z;
-        let center = self.canvas_rect.center();
-        self.tab_mut().cam.offset = world_before.to_vec2() - (pointer - center) / cam_z;
-        self.tab_mut().grid_fade_armed = true;
+        let tab = self.tab_mut();
+        let cam = &mut tab.cam;
+        let next_zoom = profile.clamp(cam.z * factor);
+        if next_zoom == cam.z || !next_zoom.is_finite() {
+            return false;
+        }
+        // Solve the cursor anchor as a delta to avoid rounding a world point
+        // to f32 and subtracting it again, especially far from the origin.
+        let delta = f64::from(cam.z).recip() - f64::from(next_zoom).recip();
+        cam.offset.x = (f64::from(cam.offset.x) + f64::from(from_center.x) * delta) as f32;
+        cam.offset.y = (f64::from(cam.offset.y) + f64::from(from_center.y) * delta) as f32;
+        cam.z = next_zoom;
+        tab.grid_fade_armed = true;
+        true
     }
 
     pub(crate) fn bump_grid_fade(&mut self, time: f64) {
@@ -260,12 +293,16 @@ impl SlateApp {
             },
         );
         match action {
-            Some(MiniMenuAction::ZoomOut) => self.zoom_at(rect.center(), 1.0 / 1.2),
+            Some(MiniMenuAction::ZoomOut) => {
+                self.zoom_at(rect.center(), 1.0 / 1.2);
+            }
             Some(MiniMenuAction::ZoomReset) => {
                 let f = 1.0 / self.tab().cam.z;
                 self.zoom_at(rect.center(), f);
             }
-            Some(MiniMenuAction::ZoomIn) => self.zoom_at(rect.center(), 1.2),
+            Some(MiniMenuAction::ZoomIn) => {
+                self.zoom_at(rect.center(), 1.2);
+            }
             Some(MiniMenuAction::Fit) => {
                 if let Some(bounds) = fit_bounds {
                     self.fit_view(bounds);

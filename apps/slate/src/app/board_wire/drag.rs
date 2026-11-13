@@ -14,6 +14,12 @@ impl SlateApp {
         if let Some(from) = from.filter(|f| self.is_crosstalk_port(*f)) {
             return self.crosstalk_snap(world, from.0, snap_w);
         }
+        if let Some(from) = from.filter(|(node, _, t)| {
+            self.grasshopper_viewer(*node)
+                && slate_doc::wire_host::grasshopper_port_row(*t).is_some()
+        }) {
+            return self.grasshopper_wire_snap(world, from, snap_w);
+        }
         let exclude = from.map(|f| f.0);
         let doc = self.doc();
         let scene = &doc.scene;
@@ -31,11 +37,10 @@ impl SlateApp {
             if !host.offers_ports() {
                 continue;
             }
-            if let Some(port) = self
-                .presented_wire_ports(n)
-                .into_iter()
-                .find(|port| Pos2::new(port.point[0], port.point[1]).distance(world) <= snap_w)
-            {
+            if let Some(port) = self.presented_wire_ports(n).into_iter().find(|port| {
+                self.grasshopper_grip(n.id, port.side, port.t).is_none()
+                    && Pos2::new(port.point[0], port.point[1]).distance(world) <= snap_w
+            }) {
                 return Some((n.id, port.side, port.t));
             }
             // Explicit typed sites win above. Elsewhere a Model retains its
@@ -183,6 +188,14 @@ impl SlateApp {
             WireMode::Add { from } if self.is_crosstalk_port(from) => {
                 if let Some((to, _, _)) = wd.snap {
                     self.crosstalk_link(from.0, to);
+                }
+            }
+            WireMode::Add { from }
+                if self.grasshopper_viewer(from.0)
+                    && slate_doc::wire_host::grasshopper_port_row(from.2).is_some() =>
+            {
+                if let Some(to) = wd.snap {
+                    self.finish_grasshopper_wire(from, to);
                 }
             }
             WireMode::Add { from } => match wd.snap {

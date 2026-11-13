@@ -41,7 +41,9 @@
 //!   them; the opposite union handle stays put on every corner and edge.
 //! - Frames drag their members with them (geometric membership, captured at
 //!   gesture start).
+mod motion;
 mod paint_node;
+pub(super) use motion::BoardMotion;
 #[cfg(all(test, windows))]
 pub(crate) mod paint_probe;
 use super::{
@@ -296,6 +298,32 @@ impl SlateApp {
         let tag_popup = popup_capture && super::ui::tools::tags::editor_open(self, ui.ctx());
         let xf = self.board_xf();
         let wp = pointer.map(|p| xf.s2w(p));
+        let space = ui.input(|i| i.key_down(egui::Key::Space));
+        let hand_pan = self.board_tool == BoardTool::Pan;
+        let primary_pans = space || hand_pan;
+        let zoom_tool_owns_primary =
+            self.zoom_tool_active() && (resp.clicked() || self.zoom_marquee.is_some());
+        let pan_released = resp.drag_stopped_by(egui::PointerButton::Middle)
+            || resp.drag_stopped_by(egui::PointerButton::Secondary)
+            || (primary_pans && resp.drag_stopped_by(egui::PointerButton::Primary));
+        let defer_node_chrome = ui.input(|i| {
+            let p = &i.pointer;
+            let wheel_pending =
+                Self::board_wheel_input(i).0 != 0.0 || i.raw_scroll_delta != Vec2::ZERO;
+            let primary_action = !primary_pans
+                && !zoom_tool_owns_primary
+                && (p.primary_down()
+                    || p.button_pressed(egui::PointerButton::Primary)
+                    || p.button_released(egui::PointerButton::Primary));
+            let pan_pending = p.middle_down()
+                || p.secondary_down()
+                || (primary_pans && p.primary_down())
+                || pan_released;
+            !primary_action
+                && !p.button_clicked(egui::PointerButton::Middle)
+                && !p.button_clicked(egui::PointerButton::Secondary)
+                && (wheel_pending || pan_pending || zoom_tool_owns_primary)
+        });
         let editing_text = self.text_compose_active();
         let frame_body_input =
             !popup_capture && pointer.is_some_and(|p| self.board_selected_frame_at(p, &xf));
@@ -303,12 +331,32 @@ impl SlateApp {
         let agent_controls_capture = modal_capture
             || (!frame_body_input
                 && (self.agent_spawn_input(ui, &xf) | self.image_result_drag_input(ui, &xf)));
-        let other_toolbar_captures = self.shape_properties_ui(ui, &xf)
-            | self.corner_entry_ui(ui, &xf)
-            | self.tip_numeric_ui(ui, &xf)
-            | self.image_paint_palette_ui(ui, &xf);
-        let frame_presentation_captures = !presence_capture
-            && self.frame_presentation_ui(ui, &xf, other_toolbar_captures || popup_capture);
+        let (node_toolbar_captures, frame_presentation_captures, tip_captures) =
+            if defer_node_chrome {
+                // During a navigation gesture, arbitrate against the visible UI
+                // from the last paint. Build new widgets once after the camera
+                // changes, at the same transform used by the host and stringers.
+                let property = pointer.is_some_and(|p| {
+                    rect.contains(p)
+                        && self
+                            .shape_properties
+                            .chrome_hits
+                            .iter()
+                            .any(|hit| hit.contains(p))
+                });
+                let presentation = !presence_capture
+                    && self.frame_presentation_captures_navigation(ui.ctx(), pointer);
+                (property, presentation, self.tip_numeric_ui(ui, &xf))
+            } else {
+                let property = self.shape_properties_ui(ui, &xf)
+                    | self.corner_entry_ui(ui, &xf)
+                    | self.image_paint_palette_ui(ui, &xf);
+                let tip = self.tip_numeric_ui(ui, &xf);
+                let presentation = !presence_capture
+                    && self.frame_presentation_ui(ui, &xf, property || tip || popup_capture);
+                (property, presentation, tip)
+            };
+        let other_toolbar_captures = node_toolbar_captures || tip_captures;
         let shot_captures = self.paint_model_screenshot_popup(ui.ctx());
         let model_toolbar_captures = popup_capture
             || presence_capture
@@ -407,14 +455,20 @@ impl SlateApp {
                 }
             } else if !sheet_scrolled && camera_scroll.y != 0.0 {
                 if let Some(p) = pointer {
-                    self.board_zoom_at(
+                    canvas_nav |= self.zoom_at(
                         p,
                         atlas_core::display::SLATE_BOARD.wheel_factor(camera_scroll.y),
                     );
-                    canvas_nav = true;
                 }
             }
-            if over_agent_card && !card_scrolls && live_model.is_none() {
+            if defer_node_chrome && !sheet_scrolled && live_model.is_none() {
+                // A panel can move under the stationary pointer as the
+                // board zooms. The same wheel event cannot scroll it too.
+                ui.ctx().input_mut(|i| {
+                    i.smooth_scroll_delta = Vec2::ZERO;
+                    i.raw_scroll_delta = Vec2::ZERO;
+                });
+            } else if over_agent_card && live_model.is_none() {
                 ui.ctx().input_mut(|i| {
                     i.smooth_scroll_delta.y = 0.0;
                     i.raw_scroll_delta.y = 0.0;
@@ -425,8 +479,6 @@ impl SlateApp {
                 });
             }
         }
-        let space = ui.input(|i| i.key_down(egui::Key::Space));
-        let hand_pan = self.board_tool == BoardTool::Pan;
         // Avatars and live pages own captured button chords and navigation.
         let button_capture = page_capture || presence_capture;
         let (secondary_down, secondary_pressed) = ui.input(|i| {
@@ -518,15 +570,24 @@ impl SlateApp {
                 .send_viewport_cmd(egui::ViewportCommand::CursorPosition(target));
         }
         let hold_right = claim_right || brush_right;
+        let pan_buttons = [
+            (egui::PointerButton::Middle, true),
+            (egui::PointerButton::Primary, space || hand_pan),
+            (
+                egui::PointerButton::Secondary,
+                !turbo_pan_active && !(hold_right || model_pointer),
+            ),
+        ];
+        let stopped_pan = pan_buttons.iter().find_map(|&(button, enabled)| {
+            (enabled && resp.drag_stopped_by(button)).then_some(button)
+        });
         let panning = !tag_popup
             && !presence_capture
             && !web_capture
-            && (resp.dragged_by(egui::PointerButton::Middle)
-                || (space && resp.dragged_by(egui::PointerButton::Primary))
-                || (resp.dragged_by(egui::PointerButton::Secondary)
-                    && !turbo_pan_active
-                    && !(hold_right || model_pointer))
-                || (hand_pan && resp.dragged_by(egui::PointerButton::Primary))
+            && (pan_buttons
+                .iter()
+                .any(|&(button, enabled)| enabled && resp.dragged_by(button))
+                || stopped_pan.is_some()
                 || through_palette.is_some());
         if hand_pan && resp.hovered() {
             ui.ctx().set_cursor_icon(if panning {
@@ -536,7 +597,13 @@ impl SlateApp {
             });
         }
         if panning {
-            let delta = through_palette.unwrap_or_else(|| resp.drag_delta());
+            let delta = through_palette.unwrap_or_else(|| {
+                if let Some(button) = stopped_pan {
+                    Self::pan_release_delta(&resp, button)
+                } else {
+                    resp.drag_delta()
+                }
+            });
             let zc = self.tab().cam.z;
             self.tab_mut().cam.offset -= delta / zc;
             canvas_nav = true;
@@ -549,9 +616,23 @@ impl SlateApp {
         let zoom_tool = !button_capture
             && !web_capture
             && self.zoom_tool_frame(ui, &resp, rect, space || panning || hand_pan);
+        if defer_node_chrome {
+            let xf = self.board_xf();
+            let property = self.shape_properties_ui(ui, &xf)
+                | self.corner_entry_ui(ui, &xf)
+                | self.image_paint_palette_ui(ui, &xf);
+            if !presence_capture {
+                self.frame_presentation_ui(ui, &xf, property || tip_captures || popup_capture);
+            }
+        }
+        // Earlier hit tests arbitrate ownership against the displayed camera.
+        // Scene paint, culling and the remaining gestures share this frame's camera.
+        let xf = self.board_xf();
+        let wp = pointer.map(|p| xf.s2w(p));
         // Connector grips: Select tool, idle pointer near a node edge.
         if self.board_tool == BoardTool::Select
             && self.board_drag.is_none()
+            && !canvas_nav
             && !panning
             && !zoom_tool
             && !editing_text
@@ -1260,6 +1341,7 @@ impl SlateApp {
             }
         }
 
+        self.observe_board_camera(ui.ctx(), now);
         brush_prof::lap("input");
         drop(input_span);
         let hover_span = atlas_core::session_log::span("slate.board.hover");
@@ -1269,6 +1351,7 @@ impl SlateApp {
         self.board_sides_hover = None;
         let hover_live = resp.hovered()
             && !panning
+            && !self.board_camera_in_motion()
             && !zoom_tool
             && !editing_text
             && self.board_tool == BoardTool::Select

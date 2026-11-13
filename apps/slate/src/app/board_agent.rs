@@ -32,7 +32,7 @@ mod outputs;
 #[cfg(test)]
 mod refresh_tests;
 mod schedule;
-mod train_ux;
+pub(super) mod train_ux;
 
 // Concern modules. Names stay on this module via `use`.
 mod agent_stage;
@@ -56,6 +56,7 @@ mod focus;
 mod generator;
 mod generator_chrome;
 mod generator_pump;
+mod grasshopper;
 mod header_menu;
 mod input_prep;
 pub(crate) use input_prep::InputPreparation as TaskInputPreparation;
