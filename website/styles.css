@@ -60,9 +60,15 @@ h1 { font-size: clamp(56px, 7.3vw, 90px); font-weight: 450; letter-spacing: -4.7
 .demo-controls { position: absolute; z-index: 2; right: 21%; bottom: 7%; display: flex; gap: 6px; opacity: 0; pointer-events: none; transition: opacity .15s; }
 .demo-stage:hover .demo-controls, .demo-stage:focus-visible .demo-controls, .demo-controls:focus-within, .demo-stage[data-paused] .demo-controls { opacity: 1; pointer-events: auto; }
 .demo-controls button { min-height: 36px; padding: 4px 9px; border: 1px solid #fff4; border-radius: 8px; background: #111318e0; color: white; font-size: 12px; cursor: pointer; }
+.demo-fullscreen-row { display: flex; justify-content: flex-end; padding-inline: 12px; }
+.demo-fullscreen-row:has([hidden]), .demo-fullscreen-row:empty { display: none; }
+button[data-demo-fullscreen] { width: 36px; height: 36px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--ink); cursor: pointer; }
+button[data-demo-fullscreen] svg { display: block; width: 100%; height: 100%; }
+button[data-demo-fullscreen] path:last-child, .demo-stage:fullscreen button[data-demo-fullscreen] path:first-child { display: none; }
+.demo-stage:fullscreen button[data-demo-fullscreen] path:last-child { display: inline; }
 .demo-stage:fullscreen { background: #000; }
 .demo-stage:fullscreen .demo-deck { visibility: hidden; }
-.demo-stage:fullscreen .demo-player { top: 0; left: 0; width: 100%; height: 100%; aspect-ratio: auto; transform: none !important; border-radius: 0; }
+.demo-stage:fullscreen .demo-player { top: 0; left: 0; width: 100%; height: calc(100% - 56px); aspect-ratio: auto; transform: none !important; border-radius: 0; }
 .demo-stage:fullscreen .demo-controls { right: 12px; bottom: 12px; opacity: 1; pointer-events: auto; }
 .demo-controls button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 .demo-title-card { width: var(--demo-card-width); margin-inline: auto; min-height: 42px; padding: 4px 0 10px; text-align: center; }

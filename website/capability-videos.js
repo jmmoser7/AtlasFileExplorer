@@ -7,7 +7,9 @@ const currentPoster = player.querySelector('.demo-current-poster');
 const fallback = player.querySelector('.demo-fallback');
 const playback = stage.querySelector('[data-demo-playback]');
 const captions = stage.querySelector('[data-demo-captions]');
-const fullscreen = stage.querySelector('[data-demo-fullscreen]');
+const fullscreen = album.querySelector('[data-demo-fullscreen]');
+const fullscreenRow = fullscreen.parentElement;
+const fullscreenControls = stage.querySelector('.demo-controls');
 const announcement = album.querySelector('[data-demo-status]');
 const titles = Array.from(album.querySelectorAll('[data-demo-copy]'));
 const slides = Array.from(stage.querySelectorAll('[data-demo-slide]'), (panel, index) => ({
@@ -220,7 +222,11 @@ fullscreen.addEventListener('click', async () => {
 });
 document.addEventListener('fullscreenchange', () => {
   lastTap = null;
-  fullscreen.textContent = document.fullscreenElement === stage ? 'Exit fullscreen' : 'Fullscreen';
+  const active = document.fullscreenElement === stage;
+  fullscreen.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Fullscreen');
+  const hadFocus = document.activeElement === fullscreen;
+  (active ? fullscreenControls : fullscreenRow).append(fullscreen);
+  if (hadFocus) fullscreen.focus({ preventScroll: true });
 });
 
 stage.addEventListener('focusin', event => {
