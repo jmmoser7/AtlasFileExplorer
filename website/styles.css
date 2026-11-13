@@ -96,7 +96,9 @@ summary { cursor: pointer; }
 .resource-link:hover h2 span { color: var(--accent); transform: translate(2px, -2px); }
 .resource-link p { font-size: 13px; max-width: 360px; margin-bottom: 22px; }
 .resource-link .text-link { font-size: 12px; color: var(--accent); }
-.site-footer { border-top: 1px solid var(--grid-dot); display: flex; justify-content: space-between; align-items: center; gap: 20px; padding-block: 25px 30px; font-size: 11px; color: var(--sub); }
+.site-footer { flex-wrap: wrap; border-top: 1px solid var(--grid-dot); display: flex; justify-content: space-between; align-items: center; gap: 20px; padding-block: 25px 30px; font-size: 11px; color: var(--sub); }
+.site-footer-qr { display: grid; order: 4; justify-items: center; gap: 8px; flex: 0 0 100%; }
+.site-footer-qr img { display: block; border-radius: 4px; }
 .site-footer .wordmark { color: var(--ink); font-size: 20px; gap: 0; }
 .footer-dot { color: var(--accent); }
 .docs-page, .suggestions-page { padding-block: 64px 80px; }

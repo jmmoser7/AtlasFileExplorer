@@ -14,7 +14,7 @@ SOURCE = ROOT / "website"
 OUTPUT = ROOT / "target" / "slate-site"
 PUBLIC_FILES = (
     "index.html", "styles.css", "release.js", "capability-videos.js", "documentation/index.html",
-    "suggestions/index.html", "suggestions/suggestions.js",
+    "suggestions/index.html", "suggestions/suggestions.js", "assets/site-qr.png",
 )
 
 
