@@ -118,8 +118,7 @@ function updatePlayback(userInitiated = false) {
   playback.textContent = playing ? 'Pause' : 'Play';
   playback.setAttribute('aria-label', playing ? 'Pause demonstrations' : 'Play demonstrations');
   playback.hidden = !available.length || Boolean(video.error);
-  fullscreen.hidden = playback.hidden ||
-    !(document.fullscreenEnabled && stage.requestFullscreen || video.webkitEnterFullscreen);
+  fullscreen.hidden = playback.hidden && !stage.hasAttribute('data-fullscreen');
   if (!available.length) return;
   if (!playing || (!inView && !userInitiated) || document.hidden || video.error) {
     video.pause();
@@ -211,22 +210,39 @@ captions.addEventListener('click', () => {
   updateCaptions();
 });
 
-fullscreen.addEventListener('click', async () => {
-  try {
-    if (document.fullscreenElement === stage) await document.exitFullscreen();
-    else if (document.fullscreenEnabled && stage.requestFullscreen) await stage.requestFullscreen();
-    else video.webkitEnterFullscreen();
-  } catch {
-    announcement.textContent = 'Fullscreen is unavailable for this video.';
-  }
-});
-document.addEventListener('fullscreenchange', () => {
+function syncFullscreen() {
   lastTap = null;
-  const active = document.fullscreenElement === stage;
+  const active = document.fullscreenElement === stage || stage.hasAttribute('data-expanded');
+  stage.toggleAttribute('data-fullscreen', active);
   fullscreen.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Fullscreen');
   const focusedControl = document.activeElement;
   (active ? stage : controlsSlot).append(controls);
   if (controls.contains(focusedControl)) focusedControl.focus({ preventScroll: true });
+  updatePlayback(active);
+}
+
+fullscreen.addEventListener('click', async () => {
+  if (document.fullscreenElement === stage) {
+    await document.exitFullscreen();
+    return;
+  }
+  if (!stage.hasAttribute('data-expanded') && document.fullscreenEnabled && stage.requestFullscreen) {
+    try {
+      await stage.requestFullscreen();
+      return;
+    } catch {
+      // Keep the carousel available if the browser declines native fullscreen.
+    }
+  }
+  stage.toggleAttribute('data-expanded');
+  syncFullscreen();
+});
+document.addEventListener('fullscreenchange', syncFullscreen);
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && stage.hasAttribute('data-expanded')) {
+    stage.removeAttribute('data-expanded');
+    syncFullscreen();
+  }
 });
 
 stage.addEventListener('focusin', event => {
@@ -251,16 +267,38 @@ function finishSwipe(event, end) {
   const axis = swipeAxis;
   swipeStart = null;
   swipeAxis = null;
-  if (!start || axis === 'vertical' || available.length < 2) return;
+  if (!start || available.length < 2) return;
   const dx = end.clientX - start.clientX;
   const dy = end.clientY - start.clientY;
-  if (Math.abs(dx) < 36 || Math.abs(dx) < 1.4 * Math.abs(dy)) return;
-  lastTap = null;
+  const vertical = stage.hasAttribute('data-fullscreen') && Math.abs(dy) > Math.abs(dx);
+  if (!vertical && axis === 'vertical') return;
+  const distance = vertical ? dy : dx;
+  const crossDistance = vertical ? dx : dy;
+  if (Math.abs(distance) < 36 || Math.abs(distance) < 1.4 * Math.abs(crossDistance)) return;
   event.preventDefault();
   // Retry playback on a fresh gesture after a browser autoplay denial.
   if (!pausedByUser) playing = true;
-  select(index + (dx < 0 ? 1 : -1), true);
+  select(index + (distance < 0 ? 1 : -1), true);
 }
+
+let lastWheelAt = -Infinity;
+let wheelDistance = 0;
+let wheelNavigated = false;
+stage.addEventListener('wheel', event => {
+  if (!stage.hasAttribute('data-fullscreen') || available.length < 2 || event.ctrlKey) return;
+  event.preventDefault();
+  if (event.timeStamp - lastWheelAt > 180) {
+    wheelDistance = 0;
+    wheelNavigated = false;
+  }
+  lastWheelAt = event.timeStamp;
+  if (wheelNavigated) return;
+  const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  wheelDistance += delta * (event.deltaMode === 0 ? 1 : 40);
+  if (Math.abs(wheelDistance) < 30) return;
+  wheelNavigated = true;
+  select(index + Math.sign(wheelDistance), true);
+}, { passive: false });
 
 stage.addEventListener('touchstart', event => {
   swipeStart = event.touches.length === 1 && !event.target.closest('button') ? event.touches[0] : null;
@@ -273,7 +311,8 @@ stage.addEventListener('touchmove', event => {
   const dx = Math.abs(event.touches[0].clientX - swipeStart.clientX);
   const dy = Math.abs(event.touches[0].clientY - swipeStart.clientY);
   if (!swipeAxis && Math.max(dx, dy) >= 4) swipeAxis = dx > dy ? 'horizontal' : 'vertical';
-  if (swipeAxis === 'horizontal' && event.cancelable) event.preventDefault();
+  if (event.cancelable && (swipeAxis === 'horizontal' ||
+      (swipeAxis === 'vertical' && stage.hasAttribute('data-fullscreen')))) event.preventDefault();
 }, { passive: false });
 stage.addEventListener('touchcancel', () => {
   swipeStart = null;
