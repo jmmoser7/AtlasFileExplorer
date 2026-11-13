@@ -306,15 +306,14 @@ impl Viewers {
         let active: Vec<_> = self
             .views
             .iter()
-            .filter_map(|(&key, view)| {
-                (key.0 == tab).then(|| {
-                    (
-                        key,
-                        view.instance,
-                        view.source_revision.clone(),
-                        view.source.clone(),
-                    )
-                })
+            .filter(|(key, _)| key.0 == tab)
+            .map(|(&key, view)| {
+                (
+                    key,
+                    view.instance,
+                    view.source_revision.clone(),
+                    view.source.clone(),
+                )
             })
             .collect();
         if active.is_empty() {

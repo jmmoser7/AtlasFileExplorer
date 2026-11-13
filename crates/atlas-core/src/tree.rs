@@ -949,8 +949,8 @@ mod tests {
         assert!((0..25).all(|i| t.file_pos[i].place == FilePlace::Grid));
         // 25 files, 10 cols -> 3 rows; all inside grid bounds.
         let gb = t.dirs[pics].grid_bounds.unwrap();
-        for i in 0..25 {
-            assert!(gb.contains_rect(t.file_pos[i].rect()));
+        for file in &t.file_pos[..25] {
+            assert!(gb.contains_rect(file.rect()));
         }
     }
 

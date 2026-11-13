@@ -730,24 +730,24 @@ impl Inner {
 
     fn stack_names(&self) -> String {
         let mut s = String::new();
-        for i in 0..self.stack_len {
+        for &(name, _) in &self.stack[..self.stack_len] {
             if !s.is_empty() {
                 s.push('>');
             }
-            s.push_str(self.stack[i].0);
+            s.push_str(name);
         }
         s
     }
 
     fn completed_names(&self) -> String {
         let mut s = String::new();
-        for i in 0..self.completed_len {
+        for &(name, duration) in &self.completed[..self.completed_len] {
             if !s.is_empty() {
                 s.push(',');
             }
-            s.push_str(self.completed[i].0);
+            s.push_str(name);
             s.push(':');
-            s.push_str(&format!("{:.1}", self.completed[i].1));
+            s.push_str(&format!("{duration:.1}"));
         }
         if s.is_empty() {
             self.stack_names()
