@@ -182,7 +182,7 @@ struct Job {
 }
 
 enum Work {
-    Solve(Job),
+    Solve(Box<Job>),
     Close(String),
 }
 
@@ -787,7 +787,7 @@ impl SlateApp {
             .grasshopper
             .background
             .get_or_insert_with(|| Background::start(ctx));
-        if background.requests.send(Work::Solve(job)).is_ok() {
+        if background.requests.send(Work::Solve(Box::new(job))).is_ok() {
             background.busy = Some(key);
         } else {
             view.status = Some("The Grasshopper worker stopped. Retry to start it again.".into());

@@ -255,10 +255,7 @@ impl SlateApp {
         let Some(item) = app.doc().item(img.item) else {
             return false;
         };
-        if slate_doc::media_kind(&item.path) != slate_doc::MediaKind::Image {
-            return false;
-        }
-        true
+        slate_doc::media_kind(&item.path) == slate_doc::MediaKind::Image
     }
 
     pub fn agent_picture_draw_mode(&self, image: NodeId) -> bool {

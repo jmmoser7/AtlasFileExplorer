@@ -635,44 +635,6 @@ impl WireBundle {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bundle_leads_reach_their_ports_and_short_steep_spans_stay_monotone() {
-        for target_x in [18.0, 315.0, 318.0, 395.0] {
-            let members = [
-                (
-                    NodeId(1),
-                    [Pos2::new(315.0, 417.0), Pos2::new(target_x, 560.0)],
-                ),
-                (
-                    NodeId(2),
-                    [Pos2::new(315.0, 452.0), Pos2::new(target_x, 584.0)],
-                ),
-            ];
-            let bundle = WireBundle::new(&members).unwrap();
-            for ((id, [source, target]), [left, right]) in members.iter().zip(&bundle.leads) {
-                assert_eq!(left.p0, <[f32; 2]>::from(*source));
-                assert_eq!(left.p3, bundle.trunk.p0);
-                assert_eq!(right.p0, bundle.trunk.p3);
-                assert_eq!(right.p3, <[f32; 2]>::from(*target));
-                assert_eq!(bundle.hit(*target, 0.1), Some(*id));
-            }
-            for curve in std::iter::once(&bundle.trunk).chain(bundle.leads.iter().flatten()) {
-                let span = curve.p3[0] - curve.p0[0];
-                let direction = span.signum();
-                let xs = [curve.p0[0], curve.c1[0], curve.c2[0], curve.p3[0]];
-                if span == 0.0 {
-                    assert!(xs.iter().all(|x| *x == xs[0]));
-                }
-                assert!(xs.windows(2).all(|x| (x[1] - x[0]) * direction >= 0.0));
-            }
-        }
-    }
-}
-
 pub(super) fn paint_grasshopper_fancy_wire(
     painter: &egui::Painter,
     xf: &BoardXf,
@@ -729,5 +691,43 @@ fn literal_value(kind: GrasshopperPortType, text: &str) -> Result<GrasshopperVal
         Ok(n) if n.is_finite() => Ok(GrasshopperValue::Number(n)),
         _ if kind == GrasshopperPortType::Data => Ok(GrasshopperValue::Text(text.into())),
         _ => Err("Enter a finite number.".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bundle_leads_reach_their_ports_and_short_steep_spans_stay_monotone() {
+        for target_x in [18.0, 315.0, 318.0, 395.0] {
+            let members = [
+                (
+                    NodeId(1),
+                    [Pos2::new(315.0, 417.0), Pos2::new(target_x, 560.0)],
+                ),
+                (
+                    NodeId(2),
+                    [Pos2::new(315.0, 452.0), Pos2::new(target_x, 584.0)],
+                ),
+            ];
+            let bundle = WireBundle::new(&members).unwrap();
+            for ((id, [source, target]), [left, right]) in members.iter().zip(&bundle.leads) {
+                assert_eq!(left.p0, <[f32; 2]>::from(*source));
+                assert_eq!(left.p3, bundle.trunk.p0);
+                assert_eq!(right.p0, bundle.trunk.p3);
+                assert_eq!(right.p3, <[f32; 2]>::from(*target));
+                assert_eq!(bundle.hit(*target, 0.1), Some(*id));
+            }
+            for curve in std::iter::once(&bundle.trunk).chain(bundle.leads.iter().flatten()) {
+                let span = curve.p3[0] - curve.p0[0];
+                let direction = span.signum();
+                let xs = [curve.p0[0], curve.c1[0], curve.c2[0], curve.p3[0]];
+                if span == 0.0 {
+                    assert!(xs.iter().all(|x| *x == xs[0]));
+                }
+                assert!(xs.windows(2).all(|x| (x[1] - x[0]) * direction >= 0.0));
+            }
+        }
     }
 }

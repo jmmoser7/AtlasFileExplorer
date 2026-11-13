@@ -836,11 +836,7 @@ pub fn hit_shape_stroke(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: 
     };
     let style = stroke_style_world(&shape.stroke, zoom);
     let slop = pick_slop_world(zoom);
-    if stroke_picks(shape) && picking::hit_painted_stroke(node, shape, &bez, &style, [wx, wy], slop)
-    {
-        return true;
-    }
-    false
+    stroke_picks(shape) && picking::hit_painted_stroke(node, shape, &bez, &style, [wx, wy], slop)
 }
 
 /// Topmost closed shape whose interior contains the point. Used when a
