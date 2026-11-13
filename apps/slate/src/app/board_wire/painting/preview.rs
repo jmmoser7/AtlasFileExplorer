@@ -40,7 +40,7 @@ impl SlateApp {
                     self.default_wire_stroke()
                 });
                 if !crosstalk {
-                    stroke.color = super::super::board::to_rgba(palette.wire);
+                    stroke.color = crate::app::board::to_rgba(palette.wire);
                 }
                 let path = retreat_off_hosts(
                     path,

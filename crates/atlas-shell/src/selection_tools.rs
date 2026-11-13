@@ -597,11 +597,11 @@ fn fraction_width(fraction: f32) -> f32 {
 mod capsule;
 #[cfg(test)]
 use capsule::capsule_tags;
-use capsule::{paint_capsule, CAPSULE_LABEL, CAPSULE_TAG};
 pub use capsule::{
     capsule, capsule_divider, capsule_stack_rects, paint_capsule_divider, paint_capsule_row,
     Capsule, CapsuleResponse, StackSide, STACK_GAP, STACK_OFFSET, STACK_WIDTH,
 };
+use capsule::{paint_capsule, CAPSULE_LABEL, CAPSULE_TAG};
 
 #[allow(clippy::too_many_arguments)]
 fn capsule_buffer(
