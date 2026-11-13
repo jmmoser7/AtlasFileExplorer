@@ -55,6 +55,7 @@ let frameTime = 0;
 
 // Same wrapped position and sigmoidal spacing, yaw and depth as Slate Home.
 function paintRack() {
+  stage.toggleAttribute('data-rack-moving', !reducedMotion.matches && position !== target);
   const count = available.length;
   for (const [slot, { panel }] of available.entries()) {
     const distance = slot - position;
@@ -72,6 +73,8 @@ function paintRack() {
       const scaleX = Math.cos(yaw * Math.PI / 180) * scale;
       const edge = Math.max(0, (stageWidth + playerWidth * scaleX) / 2 - 48);
       const projectedX = Math.max(-edge, Math.min(edge, x * scale));
+      player.style.setProperty('--demo-player-offset', `${projectedX}px`);
+      player.style.setProperty('--demo-player-scale', `${scaleX}, ${scale}`);
       player.style.transform = `translate(-50%, -50%) translateX(${projectedX}px) scale(${scaleX}, ${scale})`;
     }
   }
@@ -218,6 +221,7 @@ function syncFullscreen() {
   const focusedControl = document.activeElement;
   (active ? stage : controlsSlot).append(controls);
   if (controls.contains(focusedControl)) focusedControl.focus({ preventScroll: true });
+  sizeRack();
   updatePlayback(active);
 }
 
