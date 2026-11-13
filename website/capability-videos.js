@@ -277,7 +277,7 @@ stage.addEventListener('touchend', event => {
   const side = x < left + width / 2 ? -1 : 1;
   if (lastTap?.side === side && event.timeStamp - lastTap.time <= 350 &&
       Math.hypot(x - lastTap.x, y - lastTap.y) <= 40) {
-    lastTap = null;
+    lastTap = { side, time: event.timeStamp, x, y };
     if (event.cancelable) event.preventDefault();
     video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + side * 5));
     return;
