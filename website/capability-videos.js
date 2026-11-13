@@ -135,7 +135,11 @@ function updateCaptions() {
   if (track) track.mode = showCaptions ? 'showing' : 'disabled';
 }
 
+let lastTap = null;
+let touchStartedAt = 0;
+
 function select(nextIndex, announce = false) {
+  lastTap = null;
   if (!available.length) return;
   const count = available.length;
   let step = nextIndex - index;
@@ -228,6 +232,7 @@ function finishSwipe(event, end) {
   const dx = end.clientX - start.clientX;
   const dy = end.clientY - start.clientY;
   if (Math.abs(dx) < 36 || Math.abs(dx) < 1.4 * Math.abs(dy)) return;
+  lastTap = null;
   event.preventDefault();
   // Retry playback on a fresh gesture after a browser autoplay denial.
   if (!pausedByUser) playing = true;
@@ -237,6 +242,8 @@ function finishSwipe(event, end) {
 stage.addEventListener('touchstart', event => {
   swipeStart = event.touches.length === 1 && !event.target.closest('button') ? event.touches[0] : null;
   swipeAxis = null;
+  touchStartedAt = event.timeStamp;
+  if (!swipeStart) lastTap = null;
 }, { passive: true });
 stage.addEventListener('touchmove', event => {
   if (!swipeStart || event.touches.length !== 1) return;
@@ -245,8 +252,38 @@ stage.addEventListener('touchmove', event => {
   if (!swipeAxis && Math.max(dx, dy) >= 4) swipeAxis = dx > dy ? 'horizontal' : 'vertical';
   if (swipeAxis === 'horizontal' && event.cancelable) event.preventDefault();
 }, { passive: false });
-stage.addEventListener('touchcancel', () => { swipeStart = null; swipeAxis = null; });
-stage.addEventListener('touchend', event => finishSwipe(event, event.changedTouches[0]), { passive: false });
+stage.addEventListener('touchcancel', () => {
+  swipeStart = null;
+  swipeAxis = null;
+  lastTap = null;
+});
+stage.addEventListener('touchend', event => {
+  const end = event.changedTouches[0];
+  const isTap = swipeStart && !swipeAxis && event.touches.length === 0 &&
+    event.timeStamp - touchStartedAt <= 300 &&
+    Math.hypot(end.clientX - swipeStart.clientX, end.clientY - swipeStart.clientY) < 12;
+  finishSwipe(event, end);
+  if (!isTap || !Number.isFinite(video.duration)) {
+    lastTap = null;
+    return;
+  }
+
+  const { left, right, top, bottom, width } = player.getBoundingClientRect();
+  const { clientX: x, clientY: y } = end;
+  if (x < left || x > right || y < top || y > bottom) {
+    lastTap = null;
+    return;
+  }
+  const side = x < left + width / 2 ? -1 : 1;
+  if (lastTap?.side === side && event.timeStamp - lastTap.time <= 350 &&
+      Math.hypot(x - lastTap.x, y - lastTap.y) <= 40) {
+    lastTap = null;
+    if (event.cancelable) event.preventDefault();
+    video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + side * 5));
+    return;
+  }
+  lastTap = { side, time: event.timeStamp, x, y };
+}, { passive: false });
 stage.addEventListener('pointerdown', event => {
   if (event.pointerType !== 'mouse' || event.button !== 0 || event.target.closest('button')) return;
   swipeStart = event;
