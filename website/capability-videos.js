@@ -73,8 +73,6 @@ function paintRack() {
       const scaleX = Math.cos(yaw * Math.PI / 180) * scale;
       const edge = Math.max(0, (stageWidth + playerWidth * scaleX) / 2 - 48);
       const projectedX = Math.max(-edge, Math.min(edge, x * scale));
-      player.style.setProperty('--demo-player-offset', `${projectedX}px`);
-      player.style.setProperty('--demo-player-scale', `${scaleX}, ${scale}`);
       player.style.transform = `translate(-50%, -50%) translateX(${projectedX}px) scale(${scaleX}, ${scale})`;
     }
   }
