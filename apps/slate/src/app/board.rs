@@ -1351,7 +1351,7 @@ impl SlateApp {
         self.board_sides_hover = None;
         let hover_live = resp.hovered()
             && !panning
-            && !self.board_camera_in_motion()
+            && !canvas_nav
             && !zoom_tool
             && !editing_text
             && self.board_tool == BoardTool::Select

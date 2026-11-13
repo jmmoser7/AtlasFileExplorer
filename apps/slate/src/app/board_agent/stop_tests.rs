@@ -107,8 +107,7 @@ fn the_conversation_picker_stays_painted_while_the_wheel_zooms_over_it() {
 
 /// Where each conversation row's title is painted, relative to the card's
 /// top-left and divided by the zoom: world units, so zoom alone moves
-/// nothing. `xf` is the camera the frame painted with; the wheel moves
-/// the camera after the board paints.
+/// nothing. `xf` is the camera used to paint the board after navigation.
 fn picker_rows(
     h: &super::super::tests::Harness,
     xf: &BoardXf,
@@ -134,8 +133,8 @@ fn the_conversation_picker_rows_keep_their_columns_while_ctrl_wheel_zooms() {
     for n in [12, 20] {
         let mut h = board("chat_picker_columns");
         let card = codex_chat_picker(&mut h, n);
-        let xf = h.app.board_xf();
         let out = h.frame_output(|_| {});
+        let xf = h.app.board_xf();
         let base: Vec<egui::Vec2> = picker_rows(&h, &xf, &out, card, n)
             .into_iter()
             .map(|r| r.expect("every row is painted"))
@@ -160,7 +159,6 @@ fn the_conversation_picker_rows_keep_their_columns_while_ctrl_wheel_zooms() {
         let mut zooms = Vec::new();
         for step in 0..20 {
             let delta = if step < 10 { 40.0 } else { -40.0 };
-            let xf = h.app.board_xf();
             let out = h.frame_output(|i| {
                 i.events.push(egui::Event::PointerMoved(at));
                 i.events.push(egui::Event::MouseWheel {
@@ -169,8 +167,9 @@ fn the_conversation_picker_rows_keep_their_columns_while_ctrl_wheel_zooms() {
                     modifiers: egui::Modifiers::CTRL,
                 });
             });
+            let xf = h.app.board_xf();
             let z = xf.z;
-            zooms.push(h.app.tab().cam.z);
+            zooms.push(z);
             for (i, (now, want)) in picker_rows(&h, &xf, &out, card, n)
                 .into_iter()
                 .zip(&base)

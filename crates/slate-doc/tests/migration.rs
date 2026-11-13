@@ -584,7 +584,6 @@ fn v2_document() -> SlateDoc {
         let index = scene.nodes.len();
         assert!(journal.commit(scene, vec![SceneCmd::Add { index, node }]));
     }
-
     let connector = ConnectorNode {
         crosstalk: None,
         grasshopper: None,

@@ -1,6 +1,6 @@
 //! PDF first-page thumbnails via pdfium (Chrome's PDF engine).
 //!
-//! pdfium.dll is loaded dynamically from next to the exe, or, for a source
+//! The Pdfium library is loaded dynamically from next to the exe, or, for a source
 //! build under `target/`, from the checkout's `vendor/`. If the DLL is missing the
 //! binding simply stays `None` and PDF previews fall back to whatever shell
 //! handler the machine has — the app never fails because of it.
@@ -152,23 +152,26 @@ fn init_pdfium() -> Option<Pdfium> {
     match Pdfium::bind_to_system_library() {
         Ok(bindings) => Some(Pdfium::new(bindings)),
         Err(_) => {
-            eprintln!("[atlas] pdfium.dll not found — PDF previews limited to shell handlers");
+            eprintln!("[atlas] Pdfium unavailable — PDF previews limited to shell handlers");
             None
         }
     }
 }
 
-/// `vendor/` of the source checkout a dev or test binary runs from: the
-/// nearest ancestor of the exe folder (within `target/<profile>/deps`) that
-/// holds a `Cargo.toml`. Never the working directory, so a share or synced
-/// folder the app is started from cannot supply the DLL.
+/// `vendor/` of the checkout owning the executable's `target/` directory.
+/// Unit test binaries can live at `target/<profile>/build/<crate>/<hash>/out`.
+/// Never search the working directory or use an unrelated Cargo manifest.
 fn source_vendor_dir(exe_dir: &Path) -> Option<PathBuf> {
-    exe_dir
+    let target = exe_dir
         .ancestors()
         .skip(1)
-        .take(4)
-        .find(|dir| dir.join("Cargo.toml").is_file())
-        .map(|dir| dir.join("vendor"))
+        .take(5)
+        .find(|dir| dir.file_name().is_some_and(|name| name == "target"))?;
+    let checkout = target.parent()?;
+    checkout
+        .join("Cargo.toml")
+        .is_file()
+        .then(|| checkout.join("vendor"))
 }
 
 fn read_pdf_bytes(path: &Path) -> Option<Vec<u8>> {
@@ -339,12 +342,18 @@ mod tests {
         );
         std::fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
         assert_eq!(super::source_vendor_dir(&deps), Some(root.join("vendor")));
-        let installed = root.join("a").join("b").join("c").join("d").join("e");
+        let generated_test = root.join("target/debug/build/slate/test-hash/out");
+        std::fs::create_dir_all(&generated_test).unwrap();
+        assert_eq!(
+            super::source_vendor_dir(&generated_test),
+            Some(root.join("vendor"))
+        );
+        let installed = root.join("installed/bin");
         std::fs::create_dir_all(&installed).unwrap();
         assert_eq!(
             super::source_vendor_dir(&installed),
             None,
-            "the walk stops inside a target layout's depth"
+            "a nearby manifest outside Cargo's target layout is not a library source"
         );
         std::fs::remove_dir_all(&root).ok();
     }
@@ -364,13 +373,13 @@ trailer << /Root 1 0 R >>\n\
         std::fs::write(&path, pdf).unwrap();
 
         let result = super::thumbnail(&path, 192);
-        // Only assert when the pdfium DLL is actually loadable (Windows,
-        // with the vendored DLL present). On other platforms the binding
-        // stays None by design and PDF previews are skipped.
-        if cfg!(windows) && std::path::Path::new("vendor/pdfium.dll").exists() {
+        // Development machines can omit the engine. Exercise the real
+        // binding on every platform that provides it, including Linux CI.
+        if super::library_present() {
             let (w, h, rgba) = result.expect("pdfium failed to render minimal pdf");
             assert!(w > 0 && h > 0);
             assert_eq!(rgba.len(), (w * h * 4) as usize);
+            assert_eq!(super::page_count(&path), Some(1));
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

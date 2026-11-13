@@ -525,7 +525,6 @@ pub fn export_label(scene: &Scene, node: &Node) -> Option<String> {
         }
     ))
 }
-
 /// A new crosswire connector between two cards.
 pub fn connector(
     scene: &Scene,

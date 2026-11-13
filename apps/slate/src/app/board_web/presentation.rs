@@ -1,6 +1,8 @@
 //! One Web-host presentation, including derived artifact previews.
 use super::*;
 
+mod navigation;
+
 impl SlateApp {
     /// Pending generation previews change the browser input, never the scene.
     pub(super) fn effective_web_portal<'a>(
@@ -177,46 +179,6 @@ impl SlateApp {
 
     /// `portal.web.open_external` — hand the locator to the system browser,
     /// which is the honest place for a page Slate is only framing.
-    pub(crate) fn web_open_external(&mut self) -> bool {
-        let Some(id) = self.selected_web_portal() else {
-            return false;
-        };
-        self.web_open_external_for(id)
-    }
-
-    pub(crate) fn web_open_external_for(&mut self, id: NodeId) -> bool {
-        let Some(Node {
-            kind: NodeKind::Portal(portal),
-            ..
-        }) = self.doc().scene.node(id)
-        else {
-            return false;
-        };
-        let Some(locator) = self
-            .effective_web_portal(id, portal)
-            .source
-            .as_ref()
-            .map(|source| source.locator.clone())
-        else {
-            return false;
-        };
-        let workbook = self.tab().path.clone();
-        let target = if web_origin(&locator).is_some() {
-            locator
-        } else {
-            resolve_web_source(workbook.as_deref(), &locator)
-                .to_string_lossy()
-                .into_owned()
-        };
-        match open_externally(&target) {
-            Ok(()) => true,
-            Err(e) => {
-                self.toast(format!("Could not open {target}: {e}"));
-                false
-            }
-        }
-    }
-
     pub(crate) fn paint_web_portal(
         &mut self,
         ui: &egui::Ui,
