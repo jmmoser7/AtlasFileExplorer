@@ -7,6 +7,7 @@ const currentPoster = player.querySelector('.demo-current-poster');
 const fallback = player.querySelector('.demo-fallback');
 const playback = stage.querySelector('[data-demo-playback]');
 const captions = stage.querySelector('[data-demo-captions]');
+const fullscreen = stage.querySelector('[data-demo-fullscreen]');
 const announcement = album.querySelector('[data-demo-status]');
 const titles = Array.from(album.querySelectorAll('[data-demo-copy]'));
 const slides = Array.from(stage.querySelectorAll('[data-demo-slide]'), (panel, index) => ({
@@ -115,6 +116,8 @@ function updatePlayback(userInitiated = false) {
   playback.textContent = playing ? 'Pause' : 'Play';
   playback.setAttribute('aria-label', playing ? 'Pause demonstrations' : 'Play demonstrations');
   playback.hidden = !available.length || Boolean(video.error);
+  fullscreen.hidden = playback.hidden ||
+    !(document.fullscreenEnabled && stage.requestFullscreen || video.webkitEnterFullscreen);
   if (!available.length) return;
   if (!playing || (!inView && !userInitiated) || document.hidden || video.error) {
     video.pause();
@@ -204,6 +207,20 @@ playback.addEventListener('click', () => {
 captions.addEventListener('click', () => {
   showCaptions = !showCaptions;
   updateCaptions();
+});
+
+fullscreen.addEventListener('click', async () => {
+  try {
+    if (document.fullscreenElement === stage) await document.exitFullscreen();
+    else if (document.fullscreenEnabled && stage.requestFullscreen) await stage.requestFullscreen();
+    else video.webkitEnterFullscreen();
+  } catch {
+    announcement.textContent = 'Fullscreen is unavailable for this video.';
+  }
+});
+document.addEventListener('fullscreenchange', () => {
+  lastTap = null;
+  fullscreen.textContent = document.fullscreenElement === stage ? 'Exit fullscreen' : 'Fullscreen';
 });
 
 stage.addEventListener('focusin', event => {
