@@ -1,7 +1,7 @@
 use super::protocol;
 use super::{Job, VideoEvent};
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread::JoinHandle;
 
@@ -128,22 +128,39 @@ fn worker_path() -> io::Result<PathBuf> {
         return Ok(path);
     }
     let current = std::env::current_exe()?;
-    let mut directory = current
+    let directory = current
         .parent()
         .ok_or_else(|| io::Error::other("missing executable directory"))?;
-    if directory
-        .file_name()
-        .is_some_and(|name| name == "examples" || name == "deps")
-    {
-        directory = directory
-            .parent()
-            .ok_or_else(|| io::Error::other("missing target directory"))?;
-    }
-    Ok(directory.join(if cfg!(windows) {
+    Ok(adjacent_worker(directory))
+}
+
+fn adjacent_worker(directory: &Path) -> PathBuf {
+    let name = if cfg!(windows) {
         "slate-video-worker.exe"
     } else {
         "slate-video-worker"
-    }))
+    };
+    let adjacent = directory.join(name);
+    if adjacent.is_file() {
+        return adjacent;
+    }
+    let profile = match directory.file_name().and_then(|name| name.to_str()) {
+        Some("examples" | "deps") => directory.parent(),
+        // Cargo 1.100 runs test binaries from build/<crate>/<hash>/out.
+        Some("out") => directory
+            .ancestors()
+            .nth(3)
+            .filter(|parent| parent.file_name().is_some_and(|name| name == "build"))
+            .and_then(Path::parent)
+            .filter(|profile| {
+                profile.ancestors().skip(1).take(2).any(|parent| {
+                    parent.file_name().is_some_and(|name| name == "target")
+                        || parent.join(".rustc_info.json").is_file()
+                })
+            }),
+        _ => None,
+    };
+    profile.map_or(adjacent, |profile| profile.join(name))
 }
 
 #[cfg(test)]
