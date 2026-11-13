@@ -5,11 +5,11 @@ const player = stage.querySelector('.demo-player');
 const video = player.querySelector('video');
 const currentPoster = player.querySelector('.demo-current-poster');
 const fallback = player.querySelector('.demo-fallback');
-const playback = stage.querySelector('[data-demo-playback]');
-const captions = stage.querySelector('[data-demo-captions]');
-const fullscreen = album.querySelector('[data-demo-fullscreen]');
-const fullscreenRow = fullscreen.parentElement;
-const fullscreenControls = stage.querySelector('.demo-controls');
+const controlsSlot = album.querySelector('.demo-controls-slot');
+const controls = controlsSlot.querySelector('.demo-controls');
+const playback = controls.querySelector('[data-demo-playback]');
+const captions = controls.querySelector('[data-demo-captions]');
+const fullscreen = controls.querySelector('[data-demo-fullscreen]');
 const announcement = album.querySelector('[data-demo-status]');
 const titles = Array.from(album.querySelectorAll('[data-demo-copy]'));
 const slides = Array.from(stage.querySelectorAll('[data-demo-slide]'), (panel, index) => ({
@@ -224,9 +224,9 @@ document.addEventListener('fullscreenchange', () => {
   lastTap = null;
   const active = document.fullscreenElement === stage;
   fullscreen.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Fullscreen');
-  const hadFocus = document.activeElement === fullscreen;
-  (active ? fullscreenControls : fullscreenRow).append(fullscreen);
-  if (hadFocus) fullscreen.focus({ preventScroll: true });
+  const focusedControl = document.activeElement;
+  (active ? stage : controlsSlot).append(controls);
+  if (controls.contains(focusedControl)) focusedControl.focus({ preventScroll: true });
 });
 
 stage.addEventListener('focusin', event => {
