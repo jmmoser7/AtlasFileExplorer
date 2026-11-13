@@ -1,5 +1,9 @@
 [
   {
+    "id": "slate-demo",
+    "title": "Slate demo"
+  },
+  {
     "id": "browse-workbooks",
     "title": "Browse and open workbooks"
   },
