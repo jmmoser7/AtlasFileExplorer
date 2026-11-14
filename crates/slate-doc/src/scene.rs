@@ -2829,7 +2829,9 @@ impl Scene {
         if idx.is_current(self.scene_gen) && idx.len() == self.nodes.len() {
             return;
         }
-        idx.rebuild(&self.nodes, self.scene_gen);
+        // Re-files only moved nodes when the node sequence is unchanged (the
+        // drag-preview case); rebuilds otherwise.
+        idx.refresh(&self.nodes, self.scene_gen);
     }
 
     /// Broad-phase: node ids whose AABB intersects `rect`, ascending z-order.
@@ -2950,8 +2952,8 @@ impl Scene {
     }
 
     pub fn node_mut(&mut self, id: NodeId) -> Option<&mut Node> {
-        // In-place edits (drag preview) bypass [`SceneCmd`]; invalidate the
-        // spatial cache so the next query rebuilds from live rects.
+        // In-place edits (drag preview) bypass [`SceneCmd`]; mark the spatial
+        // cache stale so the next query refreshes it from live rects.
         let idx = self.index_of(id)?;
         self.bump_gen();
         Some(&mut self.nodes[idx])

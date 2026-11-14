@@ -43,6 +43,23 @@
 /// Shared by native apps and visual fixtures so screenshots exercise production AA.
 pub const NATIVE_MSAA_SAMPLES: u16 = 4;
 
+/// The sample count the native apps request for their window surface:
+/// [`NATIVE_MSAA_SAMPLES`] unless `ATLAS_MSAA_SAMPLES` is set to 0, 2, 4 or 8.
+///
+/// The override exists to measure what coverage AA costs on a given display
+/// and GPU (a 3240x2160 window at 4x is 28 million samples per frame). It is
+/// read once: the surface format is fixed when the window is created.
+pub fn native_msaa_samples() -> u16 {
+    static SAMPLES: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+    *SAMPLES.get_or_init(|| {
+        std::env::var("ATLAS_MSAA_SAMPLES")
+            .ok()
+            .and_then(|value| value.trim().parse::<u16>().ok())
+            .filter(|samples| matches!(samples, 0 | 2 | 4 | 8))
+            .unwrap_or(NATIVE_MSAA_SAMPLES)
+    })
+}
+
 pub mod agent_presence;
 pub mod canvas_corner;
 pub mod canvas_scale;

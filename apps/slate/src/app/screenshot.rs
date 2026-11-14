@@ -172,7 +172,7 @@ impl Capture {
             "imagePixels": image_pixels,
             "theme": if ctx.style().visuals.dark_mode { "dark" } else { "light" },
             "canvasZoom": canvas_zoom,
-            "msaaSamplesRequested": atlas_shell::NATIVE_MSAA_SAMPLES
+            "msaaSamplesRequested": atlas_shell::native_msaa_samples()
         });
         let file = std::fs::OpenOptions::new()
             .write(true)

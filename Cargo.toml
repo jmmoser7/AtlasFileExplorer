@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-exclude = ["vendor/rfd"]
+exclude = ["vendor/rfd", "vendor/eframe"]
 members = [
     "crates/atlas-core",
     "crates/atlas-packs",
@@ -35,12 +35,16 @@ members = [
 ]
 
 [workspace.package]
-version = "1.0.9"
+version = "1.0.10"
 edition = "2021"
 
 # Pinned upstream picker with an opt-in Windows overwrite-confirmation policy.
 [patch.crates-io]
 rfd = { path = "vendor/rfd" }
+# Pinned eframe that stops switching the OpenGL context on every painted frame
+# on Windows (frame cost, and a suspected trigger of a native crash in the Intel
+# GL driver). Upstream fixed this in 0.37.0; see vendor/eframe/ATLAS-PATCH.md.
+eframe = { path = "vendor/eframe" }
 
 [workspace.dependencies]
 # Shared third-party deps — always reference these from member crates so the
