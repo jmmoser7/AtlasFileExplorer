@@ -3,6 +3,15 @@
 //! Derived state (Amendment F / VI.3): rebuilt from [`Scene::nodes`], never
 //! serialized. Exact geometry tests stay in the caller; this module only
 //! answers "which nodes might touch this rect/point?".
+//!
+//! Work is bounded on both sides so large boards stay cheap:
+//! - a node whose AABB spans more than [`MAX_CELLS_PER_NODE`] cells (a slide
+//!   frame among small notes, a long connector) sits in a short `large` list
+//!   instead of being written into every cell it covers;
+//! - a query whose rect spans more cells than testing every AABB would cost
+//!   (a zoomed-out view) tests the AABBs instead of probing every cell;
+//! - an in-place edit ([`SpatialIndex::refresh`]) re-files only the nodes
+//!   whose bounds moved instead of rebuilding the whole grid.
 
 use std::collections::HashMap;
 
@@ -11,6 +20,16 @@ use crate::scene::{Node, NodeId, NodeKind, WorldRect};
 mod bounds;
 pub use bounds::node_aabb;
 
+#[cfg(test)]
+mod tests;
+
+/// A node covering more grid cells than this is indexed in `large`.
+const MAX_CELLS_PER_NODE: u64 = 64;
+
+/// [`SpatialIndex::refresh`] gives way to a full rebuild once more nodes than
+/// this (or an eighth of the scene, whichever is larger) have moved.
+const REFRESH_MOVED_MIN: usize = 64;
+
 /// Uniform spatial hash grid. Cell size tracks mean node extent so clustered
 /// boards (many small nodes in a region) do not collapse into one hot cell.
 #[derive(Debug, Clone)]
@@ -18,11 +37,14 @@ pub struct SpatialIndex {
     cell_size: f32,
     /// Cell → (z-index, id). Z-index is the position in `Scene.nodes`.
     cells: HashMap<(i32, i32), Vec<(u32, NodeId)>>,
+    /// Nodes too large for the grid; every query tests them. A node is in
+    /// `cells` or in `large`, never both.
+    large: Vec<(u32, NodeId)>,
     ids: Vec<NodeId>,
     aabbs: Vec<WorldRect>,
     /// `Scene::scene_gen` at last rebuild; `u64::MAX` means empty/unbuilt.
     built_gen: u64,
-    /// Full rebuilds. Incremental appends do not increment this.
+    /// Full rebuilds. Incremental appends and refreshes do not increment this.
     rebuilds: u64,
 }
 
@@ -31,6 +53,7 @@ impl Default for SpatialIndex {
         Self {
             cell_size: 256.0,
             cells: HashMap::new(),
+            large: Vec::new(),
             ids: Vec::new(),
             aabbs: Vec::new(),
             built_gen: u64::MAX,
@@ -60,6 +83,7 @@ impl SpatialIndex {
 
     pub fn rebuild(&mut self, nodes: &[Node], scene_gen: u64) {
         self.cells.clear();
+        self.large.clear();
         self.ids.clear();
         self.aabbs.clear();
         self.ids.reserve(nodes.len());
@@ -68,15 +92,59 @@ impl SpatialIndex {
 
         for (z, node) in nodes.iter().enumerate() {
             let aabb = node_aabb(node);
-            let z = z as u32;
             self.ids.push(node.id);
             self.aabbs.push(aabb);
-            for key in cell_keys_for_rect(aabb, self.cell_size) {
-                self.cells.entry(key).or_default().push((z, node.id));
-            }
+            self.insert_entry(z as u32, node.id, aabb);
         }
         self.built_gen = scene_gen;
         self.rebuilds += 1;
+    }
+
+    /// Bring a stale index up to date with `nodes`.
+    ///
+    /// In-place edits (a drag preview through `Scene::node_mut`) change bounds
+    /// without changing which nodes exist or their z-order. When that is all
+    /// that happened, only the moved nodes are re-filed: one AABB comparison
+    /// per node instead of a rebuild of every cell. Anything else — a first
+    /// build, an explicit [`Self::invalidate`], a different node sequence, or
+    /// too many moved nodes — falls back to [`Self::rebuild`].
+    pub fn refresh(&mut self, nodes: &[Node], scene_gen: u64) {
+        if self.built_gen == u64::MAX || self.ids.len() != nodes.len() {
+            self.rebuild(nodes, scene_gen);
+            return;
+        }
+        // Re-filing must stay cheaper than the rebuild it replaces: cap the
+        // number of moved nodes and the entries their removal has to walk
+        // (crowded cells, or `large`, make each removal expensive).
+        let moved_limit = (nodes.len() / 8).max(REFRESH_MOVED_MIN);
+        let walk_limit = nodes.len() as u64 * 4 + 1024;
+        let mut walked = 0u64;
+        let mut moved: Vec<(u32, WorldRect)> = Vec::new();
+        for (z, node) in nodes.iter().enumerate() {
+            if self.ids[z] != node.id {
+                self.rebuild(nodes, scene_gen);
+                return;
+            }
+            let aabb = node_aabb(node);
+            if aabb == self.aabbs[z] {
+                continue;
+            }
+            walked += self.removal_walk(self.aabbs[z]);
+            if moved.len() == moved_limit || walked > walk_limit {
+                self.rebuild(nodes, scene_gen);
+                return;
+            }
+            moved.push((z as u32, aabb));
+        }
+        for (z, new) in moved {
+            let zi = z as usize;
+            let id = self.ids[zi];
+            let old = self.aabbs[zi];
+            self.remove_entry(id, old);
+            self.aabbs[zi] = new;
+            self.insert_entry(z, id, new);
+        }
+        self.built_gen = scene_gen;
     }
 
     pub fn rebuilds(&self) -> u64 {
@@ -89,9 +157,7 @@ impl SpatialIndex {
         let aabb = node_aabb(node);
         self.ids.push(node.id);
         self.aabbs.push(aabb);
-        for key in cell_keys_for_rect(aabb, self.cell_size) {
-            self.cells.entry(key).or_default().push((z, node.id));
-        }
+        self.insert_entry(z, node.id, aabb);
     }
 
     /// Drop the last appended node. Z indices below it stay valid.
@@ -100,16 +166,7 @@ impl SpatialIndex {
             return;
         };
         self.ids.pop();
-        let id = node.id;
-        for key in cell_keys_for_rect(aabb, self.cell_size) {
-            let Some(bucket) = self.cells.get_mut(&key) else {
-                continue;
-            };
-            bucket.retain(|&(_, existing)| existing != id);
-            if bucket.is_empty() {
-                self.cells.remove(&key);
-            }
-        }
+        self.remove_entry(node.id, aabb);
     }
 
     /// Bounds of one existing node changed; z-order did not.
@@ -124,19 +181,9 @@ impl SpatialIndex {
         if old == new {
             return true;
         }
-        let id = node.id;
-        for key in cell_keys_for_rect(old, self.cell_size) {
-            if let Some(bucket) = self.cells.get_mut(&key) {
-                bucket.retain(|&(_, existing)| existing != id);
-                if bucket.is_empty() {
-                    self.cells.remove(&key);
-                }
-            }
-        }
+        self.remove_entry(node.id, old);
         self.aabbs[zi] = new;
-        for key in cell_keys_for_rect(new, self.cell_size) {
-            self.cells.entry(key).or_default().push((z, id));
-        }
+        self.insert_entry(z, node.id, new);
         true
     }
 
@@ -146,23 +193,34 @@ impl SpatialIndex {
         if self.ids.is_empty() {
             return Vec::new();
         }
+        // Probing costs one hash lookup per covered cell, so it only pays off
+        // while the rect covers few cells relative to the node count.
+        let probe_limit = ((self.ids.len() / 4) as u64).max(16);
+        let span = CellSpan::of(rect, self.cell_size).filter(|span| span.count() <= probe_limit);
+        let Some(span) = span else {
+            // A wide (zoomed-out) or unbounded rect: test every AABB once.
+            // `aabbs` is in z-order, so the result needs no sort.
+            return self
+                .aabbs
+                .iter()
+                .zip(&self.ids)
+                .filter(|(aabb, _)| aabb.intersects(&rect))
+                .map(|(_, id)| *id)
+                .collect();
+        };
         let mut seen = vec![false; self.ids.len()];
         let mut hits: Vec<(u32, NodeId)> = Vec::new();
-        for key in cell_keys_for_rect(rect, self.cell_size) {
-            let Some(bucket) = self.cells.get(&key) else {
+        let buckets = span.keys().filter_map(|key| self.cells.get(&key));
+        for &(z, id) in buckets.flatten().chain(&self.large) {
+            let zi = z as usize;
+            if zi >= seen.len() || seen[zi] {
                 continue;
-            };
-            for &(z, id) in bucket {
-                let zi = z as usize;
-                if zi >= seen.len() || seen[zi] {
-                    continue;
-                }
-                if !self.aabbs[zi].intersects(&rect) {
-                    continue;
-                }
-                seen[zi] = true;
-                hits.push((z, id));
             }
+            if !self.aabbs[zi].intersects(&rect) {
+                continue;
+            }
+            seen[zi] = true;
+            hits.push((z, id));
         }
         hits.sort_unstable_by_key(|(z, _)| *z);
         hits.into_iter().map(|(_, id)| id).collect()
@@ -174,12 +232,11 @@ impl SpatialIndex {
             return Vec::new();
         }
         let key = cell_key(x, y, self.cell_size);
-        let Some(bucket) = self.cells.get(&key) else {
-            return Vec::new();
-        };
-        // A point probes one cell; each node is entered at most once there.
+        let bucket = self.cells.get(&key).map_or(&[][..], Vec::as_slice);
+        // A point probes one cell; each node is entered at most once there,
+        // and a node in `large` is in no cell.
         let mut hits: Vec<(u32, NodeId)> = Vec::new();
-        for &(z, id) in bucket {
+        for &(z, id) in bucket.iter().chain(&self.large) {
             let Some(aabb) = self.aabbs.get(z as usize) else {
                 continue;
             };
@@ -190,44 +247,109 @@ impl SpatialIndex {
         hits.sort_unstable_by_key(|(z, _)| *z);
         hits.into_iter().map(|(_, id)| id).collect()
     }
+
+    fn insert_entry(&mut self, z: u32, id: NodeId, aabb: WorldRect) {
+        let Some(span) = grid_span(aabb, self.cell_size) else {
+            self.large.push((z, id));
+            return;
+        };
+        for key in span.keys() {
+            self.cells.entry(key).or_default().push((z, id));
+        }
+    }
+
+    /// How many entries [`Self::remove_entry`] walks for a node filed under `aabb`.
+    fn removal_walk(&self, aabb: WorldRect) -> u64 {
+        let Some(span) = grid_span(aabb, self.cell_size) else {
+            return self.large.len() as u64;
+        };
+        span.keys()
+            .filter_map(|key| self.cells.get(&key))
+            .map(|bucket| bucket.len() as u64)
+            .sum()
+    }
+
+    /// `aabb` must be the bounds the node was filed under.
+    fn remove_entry(&mut self, id: NodeId, aabb: WorldRect) {
+        let Some(span) = grid_span(aabb, self.cell_size) else {
+            self.large.retain(|&(_, existing)| existing != id);
+            return;
+        };
+        for key in span.keys() {
+            let Some(bucket) = self.cells.get_mut(&key) else {
+                continue;
+            };
+            bucket.retain(|&(_, existing)| existing != id);
+            if bucket.is_empty() {
+                self.cells.remove(&key);
+            }
+        }
+    }
 }
 
 fn choose_cell_size(nodes: &[Node]) -> f32 {
-    if nodes.is_empty() {
-        return 256.0;
-    }
     let mut sum = 0.0f32;
+    let mut counted = 0usize;
     for n in nodes {
         let a = node_aabb(n);
-        sum += a.w.max(a.h);
+        let extent = a.w.max(a.h);
+        // One unbounded node must not decide the cell size for the rest.
+        if extent.is_finite() {
+            sum += extent;
+            counted += 1;
+        }
     }
-    (sum / nodes.len() as f32).clamp(32.0, 512.0)
+    if counted == 0 || !sum.is_finite() {
+        return 256.0;
+    }
+    (sum / counted as f32).clamp(32.0, 512.0)
 }
 
 fn cell_key(x: f32, y: f32, cell: f32) -> (i32, i32) {
     ((x / cell).floor() as i32, (y / cell).floor() as i32)
 }
 
-fn cell_keys_for_rect(rect: WorldRect, cell: f32) -> impl Iterator<Item = (i32, i32)> {
-    let r = rect.normalized();
-    // Empty / point rects still occupy one cell.
-    let max_x = if r.w > 0.0 { r.x + r.w } else { r.x };
-    let max_y = if r.h > 0.0 { r.y + r.h } else { r.y };
-    // Inclusive max edge: a rect ending exactly on a cell boundary must
-    // still visit that boundary's cell when the max is a positive extent.
-    let x0 = (r.x / cell).floor() as i32;
-    let y0 = (r.y / cell).floor() as i32;
-    let x1 = if r.w > 0.0 {
-        (((max_x - f32::EPSILON) / cell).floor() as i32).max(x0)
-    } else {
-        x0
-    };
-    let y1 = if r.h > 0.0 {
-        (((max_y - f32::EPSILON) / cell).floor() as i32).max(y0)
-    } else {
-        y0
-    };
-    (y0..=y1).flat_map(move |y| (x0..=x1).map(move |x| (x, y)))
+/// Inclusive range of grid cells covered by a rect.
+#[derive(Debug, Clone, Copy)]
+struct CellSpan {
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+}
+
+impl CellSpan {
+    /// `None` when the rect has a non-finite coordinate.
+    fn of(rect: WorldRect, cell: f32) -> Option<Self> {
+        let r = rect.normalized();
+        if !(r.x.is_finite() && r.y.is_finite() && r.w.is_finite() && r.h.is_finite()) {
+            return None;
+        }
+        // Empty / point rects still occupy one cell. The max edge is inclusive,
+        // like `WorldRect::intersects` and `contains`: a rect ending exactly on
+        // a cell boundary also covers the cell that starts there, so touching
+        // rects always share a cell and the exact test decides.
+        let x0 = (r.x / cell).floor() as i32;
+        let y0 = (r.y / cell).floor() as i32;
+        let x1 = (((r.x + r.w) / cell).floor() as i32).max(x0);
+        let y1 = (((r.y + r.h) / cell).floor() as i32).max(y0);
+        Some(Self { x0, y0, x1, y1 })
+    }
+
+    fn count(self) -> u64 {
+        let wide = (i64::from(self.x1) - i64::from(self.x0) + 1) as u64;
+        let tall = (i64::from(self.y1) - i64::from(self.y0) + 1) as u64;
+        wide.saturating_mul(tall)
+    }
+
+    fn keys(self) -> impl Iterator<Item = (i32, i32)> {
+        (self.y0..=self.y1).flat_map(move |y| (self.x0..=self.x1).map(move |x| (x, y)))
+    }
+}
+
+/// The cells a node is filed under, or `None` when it belongs in `large`.
+fn grid_span(aabb: WorldRect, cell: f32) -> Option<CellSpan> {
+    CellSpan::of(aabb, cell).filter(|span| span.count() <= MAX_CELLS_PER_NODE)
 }
 
 /// Brute-force reference for property tests — not used at runtime.
@@ -248,162 +370,4 @@ pub fn brute_query_point(nodes: &[Node], x: f32, y: f32) -> Vec<NodeId> {
         .filter(|n| node_aabb(n).contains(x, y))
         .map(|n| n.id)
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ids::ItemId;
-    use crate::scene::{ImageNode, NodeKind, Scene, SceneCmd, WorldRect};
-
-    fn push_image(scene: &mut Scene, rect: WorldRect) -> NodeId {
-        let node = scene.build_node(rect, NodeKind::Image(ImageNode::new(ItemId(1))));
-        let id = node.id;
-        let index = scene.nodes.len();
-        assert!(scene.apply(&SceneCmd::Add { index, node }));
-        id
-    }
-
-    #[test]
-    fn query_rect_matches_linear_scan() {
-        // Property-style: a few hundred constructed scenes, index == brute.
-        let mut seed = 0xC0FFEE_u64;
-        let mut next = || {
-            // xorshift64
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            seed
-        };
-        for scene_i in 0..64 {
-            let mut scene = Scene::default();
-            let n_nodes = 8 + (next() % 48) as usize;
-            for _ in 0..n_nodes {
-                let x = (next() % 2000) as f32 - 200.0;
-                let y = (next() % 2000) as f32 - 200.0;
-                let w = 10.0 + (next() % 120) as f32;
-                let h = 10.0 + (next() % 120) as f32;
-                let id = push_image(&mut scene, WorldRect::new(x, y, w, h));
-                if next().is_multiple_of(5) {
-                    let before = scene.node(id).unwrap().clone();
-                    let mut after = before.clone();
-                    after.rotation_deg = (next() % 180) as f32;
-                    assert!(scene.apply(&SceneCmd::Patch {
-                        before: Box::new(before),
-                        after: Box::new(after),
-                    }));
-                }
-            }
-            for q in 0..8 {
-                let qx = (next() % 1800) as f32 - 100.0;
-                let qy = (next() % 1800) as f32 - 100.0;
-                let qw = 20.0 + (next() % 400) as f32;
-                let qh = 20.0 + (next() % 400) as f32;
-                let rect = WorldRect::new(qx, qy, qw, qh);
-                let indexed = scene.query_rect(rect);
-                let brute = brute_query_rect(&scene.nodes, rect);
-                assert_eq!(
-                    indexed, brute,
-                    "scene {scene_i} query {q}: index diverged from brute"
-                );
-                let px = qx + qw * 0.5;
-                let py = qy + qh * 0.5;
-                assert_eq!(
-                    scene.query_point(px, py),
-                    brute_query_point(&scene.nodes, px, py),
-                    "scene {scene_i} point query {q}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn query_survives_add_remove_move() {
-        let mut scene = Scene::default();
-        let a = push_image(&mut scene, WorldRect::new(0.0, 0.0, 50.0, 50.0));
-        let b = push_image(&mut scene, WorldRect::new(100.0, 0.0, 50.0, 50.0));
-        let c = push_image(&mut scene, WorldRect::new(200.0, 0.0, 50.0, 50.0));
-
-        let world = WorldRect::new(-10.0, -10.0, 400.0, 100.0);
-        assert_eq!(scene.query_rect(world), vec![a, b, c]);
-
-        // Move b far away.
-        let before = scene.node(b).unwrap().clone();
-        let mut after = before.clone();
-        after.rect = WorldRect::new(5000.0, 5000.0, 50.0, 50.0);
-        assert!(scene.apply(&SceneCmd::Patch {
-            before: Box::new(before),
-            after: Box::new(after),
-        }));
-        assert_eq!(scene.query_rect(world), vec![a, c]);
-        assert_eq!(
-            scene.query_rect(WorldRect::new(4990.0, 4990.0, 80.0, 80.0)),
-            vec![b]
-        );
-
-        // Remove a.
-        let node_a = scene.node(a).unwrap().clone();
-        let index = scene.index_of(a).unwrap();
-        assert!(scene.apply(&SceneCmd::Remove {
-            index,
-            node: node_a,
-        }));
-        assert_eq!(scene.query_rect(world), vec![c]);
-
-        // Add back near origin.
-        let d = push_image(&mut scene, WorldRect::new(10.0, 10.0, 20.0, 20.0));
-        assert_eq!(scene.query_rect(world), vec![c, d]);
-    }
-
-    #[test]
-    fn ten_thousand_nodes_marquee_under_two_ms() {
-        let mut scene = Scene::default();
-        // Spread nodes on a grid so the index has work to do (not one cell).
-        for i in 0..10_000 {
-            let col = (i % 100) as f32;
-            let row = (i / 100) as f32;
-            push_image(
-                &mut scene,
-                WorldRect::new(col * 40.0, row * 40.0, 20.0, 20.0),
-            );
-        }
-        // Marquee covering a 10×10 block in the middle (~100 candidates).
-        let marquee = WorldRect::new(800.0, 800.0, 400.0, 400.0);
-
-        // Warm the index once so timing measures query, not first rebuild.
-        let _ = scene.query_rect(marquee);
-
-        let t_brute = std::time::Instant::now();
-        let brute = brute_query_rect(&scene.nodes, marquee);
-        let brute_dt = t_brute.elapsed();
-
-        let t_idx = std::time::Instant::now();
-        let indexed = scene.query_rect(marquee);
-        let idx_dt = t_idx.elapsed();
-
-        assert_eq!(indexed, brute);
-        eprintln!(
-            "10k-node marquee: brute={brute_dt:?} index={idx_dt:?} hits={}",
-            indexed.len()
-        );
-        assert!(
-            idx_dt.as_secs_f64() * 1000.0 < 2.0,
-            "indexed marquee took {idx_dt:?}, want < 2ms"
-        );
-    }
-
-    #[test]
-    fn appending_a_node_does_not_rebuild_the_index() {
-        let mut scene = Scene::default();
-        for i in 0..32 {
-            push_image(&mut scene, WorldRect::new(i as f32 * 30.0, 0.0, 10.0, 10.0));
-        }
-        let _ = scene.query_point(5.0, 5.0);
-        let rebuilds = scene.spatial_rebuilds();
-        assert_eq!(rebuilds, 1);
-        let id = push_image(&mut scene, WorldRect::new(0.0, 80.0, 10.0, 10.0));
-        assert_eq!(scene.spatial_rebuilds(), rebuilds);
-        assert!(scene.query_point(5.0, 85.0).contains(&id));
-        assert!(scene.query_point(5.0, 5.0).contains(&scene.nodes[0].id));
-    }
 }
