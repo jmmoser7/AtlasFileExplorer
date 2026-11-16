@@ -1,0 +1,103 @@
+[
+  {
+    "tag": "slate-feedback-20261116",
+    "date": "2026-11-16",
+    "base_version": "1.0.8",
+    "download": "https://github.com/jmmoser7/AtlasFileExplorer/releases/download/slate-feedback-20261116/Slate-Windows-x64-QA-20261116.zip",
+    "patches": [
+      "Removed playback overlays while video plays and hid file-type badges on Board cards.",
+      "Clarified Save image to canvas and Save video to canvas. Kept the model picker arrow close to shortened labels and showed more of long layer names."
+    ],
+    "regression_fixes": [
+      "Video holds the paused frame and resumes from the scrubbed position.",
+      "The Zoom marquee works after opening the Windows system menu. Short Board pans respond to the first movement.",
+      "Rapid Brush dabs and drags commit ink. Double-click in Select still opens Crop.",
+      "Image layer deletion can be undone.",
+      "Selection shadows follow expanded image and video panels during zoom. Closed fillets and chamfers join cleanly."
+    ],
+    "feature_additions": [
+      "Native 3D full screen fills the viewport and docks its display swatches and high-contrast Materials control at the bottom.",
+      "Polygonal Lasso can close at the starting point or with Ctrl-click."
+    ]
+  },
+  {
+    "tag": "v1.0.10",
+    "date": "2026-11-14",
+    "download": "https://github.com/jmmoser7/AtlasFileExplorer/releases/download/v1.0.10/AtlasSuite-stable-Setup.exe",
+    "patches": ["Reduced board index work during drags and at wide zoom levels."],
+    "regression_fixes": ["Stopped unnecessary per-frame OpenGL context switches implicated in Windows crashes.", "Restored adjacency detection for bounds that touch at the canvas origin."],
+    "feature_additions": []
+  },
+  {
+    "tag": "v1.0.9",
+    "date": "2026-11-13",
+    "download": "https://github.com/jmmoser7/AtlasFileExplorer/releases/download/v1.0.9/AtlasSuite-stable-Setup.exe",
+    "patches": ["Improved Slate’s canvas feedback and the mobile video album’s swipe navigation."],
+    "regression_fixes": ["Restored canvas and document checks and fixed discovery of the video worker in Cargo test builds."],
+    "feature_additions": ["Added linked Grasshopper definitions on the Slate canvas."]
+  },
+  {
+    "tag": "v1.0.8",
+    "date": "2026-11-12",
+    "download": "https://github.com/jmmoser7/AtlasFileExplorer/releases/download/v1.0.8/AtlasSuite-stable-Setup.exe",
+    "patches": ["Improved board performance and routed website suggestions through private intake."],
+    "regression_fixes": ["Preserved redo during background card fitting and repaired the native integration lifecycle."],
+    "feature_additions": ["Introduced native subscription connections and scoped model workflows in preview."]
+  },
+  {
+    "tag": "v1.0.7",
+    "date": "2026-11-05",
+    "download": "https://github.com/jmmoser7/AtlasFileExplorer/releases/download/v1.0.7/AtlasSuite-stable-Setup.exe",
+    "patches": ["Isolated video decoding and bounded frame buffers."],
+    "regression_fixes": ["Restored one-click video playback and replay, including video frame and file-path handling."],
+    "feature_additions": ["Added native Video Studio and packaged its playback helper."]
+  },
+  {
+    "tag": "v1.0.6",
+    "date": "2026-11-04",
+    "download": "https://github.com/jmmoser7/AtlasFileExplorer/releases/download/v1.0.6/AtlasSuite-stable-Setup.exe",
+    "patches": ["Showed the published build number beside the website download."],
+    "regression_fixes": [],
+    "feature_additions": ["Added the Frame presentation palette, immediate slide navigation and support for moving grouped Frame content."]
+  },
+  {
+    "tag": "v1.0.5",
+    "date": "2026-11-03",
+    "download": "https://github.com/jmmoser7/AtlasFileExplorer/releases/download/v1.0.5/AtlasSuite-stable-Setup.exe",
+    "patches": ["Aligned Chat Train and generator interactions and packaged headless Rhino support."],
+    "regression_fixes": ["Corrected worker lifetime, new image history, pasted-input classification and undo for scoped creation."],
+    "feature_additions": []
+  },
+  {
+    "tag": "v1.0.3",
+    "date": "2026-10-27",
+    "download": "https://github.com/jmmoser7/AtlasFileExplorer/releases/download/v1.0.3/AtlasSuite-stable-Setup.exe",
+    "patches": ["Improved board picking and consolidated portal performance work."],
+    "regression_fixes": ["Restored workbook recovery from Home and corrected shared video playback."],
+    "feature_additions": ["Added Rhino.Inside model portals and Grasshopper companion windows.", "Added scoped model, image and CSV workflows and reusable dashboard inputs."]
+  },
+  {
+    "tag": "v1.0.2",
+    "date": "2026-10-21",
+    "download": "https://github.com/jmmoser7/AtlasFileExplorer/releases/download/v1.0.2/AtlasSuite-stable-Setup.exe",
+    "patches": ["Consolidated board interaction fixes and tool validation."],
+    "regression_fixes": ["Repaired collaborator chat persistence, steering and recovery, and restored copy for pasted images."],
+    "feature_additions": ["Added the Slate website with downloads, documentation and suggestions.", "Added local image subject highlighting and expanded board collaborator interactions."]
+  },
+  {
+    "tag": "v1.0.0",
+    "date": "2026-09-25",
+    "download": "https://github.com/jmmoser7/AtlasFileExplorer/releases/download/v1.0.0/AtlasSuite-stable-Setup.exe",
+    "patches": ["Reused brush stroke and web frame data to reduce repeated work on the canvas."],
+    "regression_fixes": ["Stopped repeated agent program polling when discovery is unavailable."],
+    "feature_additions": []
+  },
+  {
+    "tag": "v0.1.0",
+    "date": "2026-09-16",
+    "download": "https://github.com/jmmoser7/AtlasFileExplorer/releases/download/v0.1.0/AtlasSuite-stable-Setup.exe",
+    "patches": ["Included notices for embedded fonts."],
+    "regression_fixes": [],
+    "feature_additions": ["Published the first combined Windows installer for Slate and File Atlas with launch-time updates."]
+  }
+]

@@ -9,6 +9,8 @@ import shutil
 import tomllib
 from urllib.parse import urlsplit
 
+from release_history import release_notes
+
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "website"
 OUTPUT = ROOT / "target" / "slate-site"
@@ -96,6 +98,15 @@ def build():
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(SOURCE / relative, destination)
     build_demonstrations()
+    home = OUTPUT / "index.html"
+    source = home.read_text(encoding="utf-8")
+    notes_marker = "<!-- Release history -->"
+    build_marker = "<!-- Stable build number -->"
+    if source.count(notes_marker) != 1 or source.count(build_marker) != 2:
+        raise ValueError("Homepage needs one release history marker and two stable build labels")
+    version, notes = release_notes(SOURCE / "release-history.json")
+    source = source.replace(notes_marker, notes).replace(build_marker, version)
+    home.write_text(source, encoding="utf-8")
     suggestion_page = OUTPUT / "suggestions/index.html"
     suggestion_page.write_text(suggestion_page.read_text(encoding="utf-8").replace(
         'data-endpoint=""', f'data-endpoint="{escape(endpoint)}"'), encoding="utf-8")

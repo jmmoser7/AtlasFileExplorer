@@ -12,6 +12,7 @@ python website/build.py
 python website/check.py
 node --check website/suggestions/suggestions.js
 node website/check-suggestions.cjs
+node website/check-release.cjs
 python -m http.server 4173 --bind 127.0.0.1 --directory target/slate-site
 ```
 
@@ -28,9 +29,38 @@ from Actions → Slate website.
 
 Expected address: https://jmmoser7.github.io/AtlasFileExplorer/
 
-Download URLs follow the latest stable release, so no version needs to be
-changed when publishing a new Windows build. Preview uses the existing
-`preview` release tag. Both installers include Slate and File Atlas.
+The primary installer and portable ZIP follow the latest stable GitHub
+Release. The preview installer uses the rolling `preview` tag. Both
+installers include Slate and File Atlas.
+
+### Update the stable release notes
+
+1. Publish the versioned stable GitHub Release through the Windows release
+   workflow in [distribution.md](../docs/distribution.md). Verify the
+   installer downloads successfully from that release.
+2. Add an entry to `website/release-history.json` in descending publication
+   order. Include the stable tag, publication date, and the actual installer
+   URL under `/releases/download/<tag>/`. Keep each older installer pinned
+   to its own tag.
+3. Summarize verified changes in the `patches`, `regression_fixes`, and
+   `feature_additions` arrays. Use an empty list when a category has no notes.
+4. Run the preview checks above. Verify the version label, its Release notes
+   link, and the download beneath the new release heading. Merge to `main`,
+   wait for Pages, then open the live page and download the package through
+   its versioned link.
+
+### Publish notes for a Windows QA build
+
+1. Publish the tested portable ZIP on a separate dated prerelease, such as
+   `slate-feedback-20261116`. Keep the stable installer and update feed on
+   their existing stable release. Check the published ZIP against the tested
+   package checksum.
+2. Add the QA entry in publication order in `website/release-history.json`.
+   Use the dated tag, asset URL under `/releases/download/<tag>/`,
+   installed app version as `base_version`, and the same three note arrays.
+   The page uses the newest stable entry for its build label.
+3. Follow the same local and live Pages checks as the stable release. Verify
+   the direct portable ZIP from the QA heading.
 
 Set the repository Actions variable `SLATE_SUGGESTION_ENDPOINT` to the public
 HTTPS `/suggestions` endpoint of the private intake relay. For a local site

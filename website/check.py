@@ -1,7 +1,11 @@
 """Check the built public bundle, relative links, anchors and essential metadata."""
 from html.parser import HTMLParser
+import json
 from pathlib import Path
+import re
 from urllib.parse import unquote, urlsplit
+
+from release_history import CATEGORIES, RELEASES
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "target" / "slate-site"
@@ -35,7 +39,8 @@ class Page(HTMLParser):
             assert "alt" in attrs, "Image needs alternate text or an explicit decorative alt"
 
 
-pages = {p: Page(p.read_text(encoding="utf-8")) for p in OUTPUT.rglob("*.html")}
+sources = {path: path.read_text(encoding="utf-8") for path in OUTPUT.rglob("*.html")}
+pages = {path: Page(source) for path, source in sources.items()}
 assert len(pages) == 3, "Expected home, documentation and suggestion pages"
 checked = 0
 for path, page in pages.items():
@@ -59,4 +64,30 @@ for path, page in pages.items():
 assert not list(OUTPUT.rglob("*.py")), "Build scripts must not be published"
 assert not list(OUTPUT.rglob("*.md")), "Internal docs must not be published"
 assert (OUTPUT / ".nojekyll").exists()
+home_path = OUTPUT / "index.html"
+home = pages[home_path]
+home_source = sources[home_path]
+history = json.loads((ROOT / "website" / "release-history.json").read_text(encoding="utf-8"))
+stable_tag = next(entry["tag"] for entry in history if "base_version" not in entry)
+stable_label = f"Build {stable_tag[1:]}"
+assert "release-notes" in home.ids and "#release-notes" in home.links, "Missing release history link"
+build_labels = re.findall(
+    r'<span\b[^>]*\bid="([^"]+)"[^>]*\bdata-stable-build\b[^>]*>([^<]+)</span>',
+    home_source,
+)
+assert build_labels == [("hero-build", stable_label), ("download-build", stable_label)], "Missing stable build labels"
+assert home.links.count(f"{RELEASES}/latest/download/AtlasSuite-stable-Setup.exe") == 2, "Expected both stable installers"
+assert re.search(
+    r'\bid="download-build"[^>]*>[^<]+</span>\s*<a href="#release-notes">', home_source,
+), "Release notes should sit beside the Downloads build label"
+release_rows = re.findall(
+    r'<article class="release-entry" id="release-([^"]+)">\s*'
+    r'<div class="release-entry-header">[^\n]+</div>\s*'
+    r'<a class="text-link" href="([^"]+)">',
+    home_source,
+)
+assert release_rows == [(entry["tag"], entry["download"]) for entry in history], (
+    "Expected one pinned download beneath its own release heading in history order"
+)
+assert re.findall(r"<h5>([^<]+)</h5>", home_source) == [title for _, title in CATEGORIES] * len(history)
 print(f"PASS: {len(pages)} pages; {checked} local links, assets and anchors; metadata; public bundle.")

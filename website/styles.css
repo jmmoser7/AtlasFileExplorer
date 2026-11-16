@@ -94,11 +94,27 @@ html:has(.demo-stage[data-expanded]) { overflow: hidden; }
 .tag { font-size: 8px; letter-spacing: 1px; padding: 3px 7px; border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 5px; color: var(--accent); }
 .download-panel > p { margin: 15px 0 21px; font-size: 12px; max-width: 300px; }
 .wide { width: 100%; justify-content: space-between; }
-.download-links { display: flex; justify-content: space-between; gap: 15px; margin-top: 15px; font-size: 11px; color: var(--muted); }
+.download-links { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 15px; margin-top: 15px; font-size: 11px; color: var(--muted); }
+.download-version { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.download-version a { white-space: nowrap; }
 .preview-download { border-top: 1px solid var(--border); margin-top: 24px; padding-top: 17px; font-size: 11px; color: var(--sub); }
 summary { cursor: pointer; }
 .preview-download p { margin-block: 12px; }
 .preview-download .text-link { font-size: 11px; }
+.release-history { grid-column: 1 / -1; min-width: 0; scroll-margin-top: 24px; }
+.release-history h3 { margin: 0 0 18px; font-size: 24px; letter-spacing: -.6px; }
+.release-entry { border-top: 1px solid var(--border); padding-block: 20px; }
+.release-entry-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.release-entry-header h4 { margin: 0; font-size: 17px; }
+.release-entry-header h4 a:hover { text-decoration: underline; }
+.release-entry-header time, .release-entry-header span, .release-empty { color: var(--sub); font-size: 12px; }
+.release-entry > .text-link { display: inline-block; margin-bottom: 12px; }
+.release-package { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+.release-categories { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 12px 28px; }
+.release-categories h5 { font-size: 13px; margin: 0 0 6px; }
+.release-categories ul { margin: 0; padding-inline-start: 16px; color: var(--muted); font-size: 13px; }
+.release-categories li + li { margin-top: 5px; }
+.release-empty { margin: 0; }
 .next-steps { display: grid; grid-template-columns: 1fr 1fr; gap: 100px; padding-block: 70px 85px; }
 .resource-link { display: block; }
 .resource-link h2 { display: flex; justify-content: space-between; gap: 10px; font-size: 26px; letter-spacing: -.8px; margin: 19px 0 14px; }
