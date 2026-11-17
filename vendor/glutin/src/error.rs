@@ -28,6 +28,13 @@ impl Error {
         Self { raw_code, raw_os_message, kind }
     }
 
+    #[cfg(wgl_backend)]
+    pub(crate) fn with_wgl_step(mut self, step: &str) -> Self {
+        let detail = self.raw_os_message.as_deref().unwrap_or(self.kind.as_str());
+        self.raw_os_message = Some(format!("Mesa WGL {step}: {detail}"));
+        self
+    }
+
     /// Helper to check that error is [`ErrorKind::NotSupported`].
     #[inline]
     pub fn not_supported(&self) -> bool {

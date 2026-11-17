@@ -11,7 +11,7 @@ use windows_sys::Win32::System::LibraryLoader as loader;
 
 use crate::error::{ErrorKind, Result};
 
-const ATLAS_WGL_PROVIDER_DLL: &str = "ATLAS_WGL_PROVIDER_DLL";
+pub(super) const ATLAS_WGL_PROVIDER_DLL: &str = "ATLAS_WGL_PROVIDER_DLL";
 const MESA_ICD: &str = "libgallium_wgl.dll";
 
 /// One process owns both the WGL extension table and its originating provider.
@@ -39,7 +39,7 @@ impl Provider {
     pub(super) fn selected() -> Result<&'static Self> {
         PROVIDER.get_or_try_init(|| {
             if let Some(path) = env::var_os(ATLAS_WGL_PROVIDER_DLL) {
-                Self::mesa(Path::new(&path))
+                Self::mesa(Path::new(&path)).map_err(|error| error.with_wgl_step("provider load"))
             } else {
                 Self::system()
             }
@@ -75,9 +75,12 @@ impl Provider {
         if !path.is_absolute() {
             return Err(ErrorKind::NotSupported("ATLAS_WGL_PROVIDER_DLL must be absolute").into());
         }
+        // LoadLibraryExW requires native separators when using the full DLL path for
+        // dependency resolution. Canonicalize both paths before passing them to Windows.
+        let path = path.canonicalize()?;
         let expected_icd = path.with_file_name(MESA_ICD).canonicalize()?;
         Self::mesa_icd_loaded_from(&expected_icd)?;
-        let name: Vec<_> = OsStr::new(path).encode_wide().chain(Some(0)).collect();
+        let name: Vec<_> = path.as_os_str().encode_wide().chain(Some(0)).collect();
         // SAFETY: name is null-terminated. The absolute DLL path controls the search for its
         // paired Mesa ICD; other dependencies may resolve from System32.
         let library = unsafe {

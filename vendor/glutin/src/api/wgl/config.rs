@@ -15,7 +15,7 @@ use crate::config::{
     Api, AsRawConfig, ColorBufferType, ConfigSurfaceTypes, ConfigTemplate, GlConfig, RawConfig,
 };
 use crate::display::{DisplayFeatures, GetGlDisplay};
-use crate::error::{ErrorKind, Result};
+use crate::error::{Error, ErrorKind, Result};
 use crate::private::Sealed;
 
 use super::display::Display;
@@ -265,7 +265,12 @@ impl Display {
                 &mut num_configs,
             ) == 0
             {
-                return Err(IoError::last_os_error().into());
+                let error = Error::from(IoError::last_os_error());
+                return Err(if self.inner.provider.is_mesa() {
+                    error.with_wgl_step("choose window pixel format")
+                } else {
+                    error
+                });
             }
             configs.set_len(num_configs as _);
 

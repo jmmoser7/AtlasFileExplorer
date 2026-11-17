@@ -245,10 +245,10 @@ impl Display {
             },
             #[cfg(all(egl_backend, wgl_backend))]
             DisplayApiPreference::WglThenEgl(window_handle) => unsafe {
-                if let Ok(display) = WglDisplay::new(display, window_handle) {
-                    Ok(Self::Wgl(display))
-                } else {
-                    Ok(Self::Egl(EglDisplay::new(display)?))
+                match WglDisplay::new(display, window_handle) {
+                    Ok(display) => Ok(Self::Wgl(display)),
+                    Err(error) if crate::api::wgl::explicit_provider_requested() => Err(error),
+                    Err(_) => Ok(Self::Egl(EglDisplay::new(display)?)),
                 }
             },
             #[cfg(cgl_backend)]

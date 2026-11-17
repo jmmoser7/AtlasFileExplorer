@@ -1,7 +1,10 @@
 diff --git a/src/api/wgl/config.rs b/src/api/wgl/config.rs
-index 2be7a777..3255b9c9 100644
+index 2be7a777..114456c6 100644
 --- a/src/api/wgl/config.rs
 +++ b/src/api/wgl/config.rs
+@@ -18 +18 @@ use crate::display::{DisplayFeatures, GetGlDisplay};
+-use crate::error::{ErrorKind, Result};
++use crate::error::{Error, ErrorKind, Result};
 @@ -21,0 +22 @@ use super::display::Display;
 +use super::provider::Provider;
 @@ -121 +122,2 @@ impl Display {
@@ -11,7 +14,15 @@ index 2be7a777..3255b9c9 100644
 @@ -127 +129 @@ impl Display {
 -            if gl::DescribePixelFormat(
 +            if (self.inner.provider.describe_pixel_format)(
-@@ -301,2 +303,21 @@ impl Config {
+@@ -266 +268,6 @@ impl Display {
+-                return Err(IoError::last_os_error().into());
++                let error = Error::from(IoError::last_os_error());
++                return Err(if self.inner.provider.is_mesa() {
++                    error.with_wgl_step("choose window pixel format")
++                } else {
++                    error
++                });
+@@ -301,2 +308,21 @@ impl Config {
 -        let descriptor =
 -            self.inner.descriptor.as_ref().map(|desc| desc as _).unwrap_or(std::ptr::null());
 +        let provider = self.inner.display.inner.provider;
@@ -35,19 +46,19 @@ index 2be7a777..3255b9c9 100644
 +        } else {
 +            std::ptr::null()
 +        };
-@@ -305 +326 @@ impl Config {
+@@ -305 +331 @@ impl Config {
 -            if gl::SetPixelFormat(hdc, self.inner.pixel_format_index, descriptor) == 0 {
 +            if (provider.set_pixel_format)(hdc, self.inner.pixel_format_index, descriptor) == 0 {
-@@ -502 +523,4 @@ impl fmt::Debug for ConfigInner {
+@@ -502 +528,4 @@ impl fmt::Debug for ConfigInner {
 -pub(crate) fn choose_dummy_pixel_format(hdc: HDC) -> Result<(i32, PIXELFORMATDESCRIPTOR)> {
 +pub(super) fn choose_dummy_pixel_format(
 +    provider: &Provider,
 +    hdc: HDC,
 +) -> Result<(i32, PIXELFORMATDESCRIPTOR)> {
-@@ -532 +556 @@ pub(crate) fn choose_dummy_pixel_format(hdc: HDC) -> Result<(i32, PIXELFORMATDES
+@@ -532 +561 @@ pub(crate) fn choose_dummy_pixel_format(hdc: HDC) -> Result<(i32, PIXELFORMATDES
 -    let pixel_format_index = unsafe { gl::ChoosePixelFormat(hdc, &descriptor) };
 +    let pixel_format_index = unsafe { (provider.choose_pixel_format)(hdc, &descriptor) };
-@@ -539 +563 @@ pub(crate) fn choose_dummy_pixel_format(hdc: HDC) -> Result<(i32, PIXELFORMATDES
+@@ -539 +568 @@ pub(crate) fn choose_dummy_pixel_format(hdc: HDC) -> Result<(i32, PIXELFORMATDES
 -        if gl::DescribePixelFormat(
 +        if (provider.describe_pixel_format)(
 diff --git a/src/api/wgl/context.rs b/src/api/wgl/context.rs
@@ -173,7 +184,7 @@ index 14469382..ec5d61fb 100644
 -    pub(crate) lib_opengl32: HMODULE,
 +    pub(super) provider: &'static Provider,
 diff --git a/src/api/wgl/mod.rs b/src/api/wgl/mod.rs
-index 9fd7ec37..53c12035 100644
+index 9fd7ec37..41c159df 100644
 --- a/src/api/wgl/mod.rs
 +++ b/src/api/wgl/mod.rs
 @@ -10 +10 @@ use std::os::windows::ffi::OsStrExt;
@@ -184,31 +195,71 @@ index 9fd7ec37..53c12035 100644
 +use windows_sys::Win32::Graphics::Gdi as gdi;
 @@ -20,0 +21 @@ pub mod display;
 +mod provider;
-@@ -31,2 +32,2 @@ impl WglExtra {
+@@ -22,0 +24,5 @@ pub mod surface;
++#[cfg(egl_backend)]
++pub(crate) fn explicit_provider_requested() -> bool {
++    std::env::var_os(provider::ATLAS_WGL_PROVIDER_DLL).is_some()
++}
++
+@@ -31,2 +37,2 @@ impl WglExtra {
 -    fn new() -> Self {
 -        Self(wgl_extra::Wgl::load_with(|addr| unsafe {
 +    fn new(provider: &provider::Provider) -> Self {
 +        Self(wgl_extra::Wgl::load_with(|addr| {
-@@ -34,2 +35 @@ impl WglExtra {
+@@ -34,2 +40 @@ impl WglExtra {
 -            let addr = addr.as_ptr();
 -            wgl::GetProcAddress(addr).cast()
 +            provider.get_proc_address(&addr)
-@@ -48,0 +49 @@ unsafe fn load_extra_functions(
+@@ -48,0 +54 @@ unsafe fn load_extra_functions(
 +    provider: &provider::Provider,
-@@ -118,2 +119,2 @@ unsafe fn load_extra_functions(
+@@ -51,0 +58,9 @@ unsafe fn load_extra_functions(
++    let describe = |error: Error, step| {
++        if provider.is_mesa() {
++            error.with_wgl_step(step)
++        } else {
++            error
++        }
++    };
++    let os_error = |step| describe(IoError::last_os_error().into(), step);
++
+@@ -56 +71 @@ unsafe fn load_extra_functions(
+-            return Err(IoError::last_os_error().into());
++            return Err(os_error("GetWindowPlacement"));
+@@ -64 +79 @@ unsafe fn load_extra_functions(
+-            return Err(IoError::last_os_error().into());
++            return Err(os_error("GetClassNameW"));
+@@ -71 +86 @@ unsafe fn load_extra_functions(
+-            return Err(IoError::last_os_error().into());
++            return Err(os_error("GetClassInfoExW"));
+@@ -113 +128 @@ unsafe fn load_extra_functions(
+-        return Err(IoError::last_os_error().into());
++        return Err(os_error("CreateWindowExW for the bootstrap window"));
+@@ -116,0 +132,3 @@ unsafe fn load_extra_functions(
++    if hdc == 0 && provider.is_mesa() {
++        return Err(os_error("GetDC for the bootstrap window"));
++    }
+@@ -118,3 +136,4 @@ unsafe fn load_extra_functions(
 -        let (pixel_format_index, descriptor) = config::choose_dummy_pixel_format(hdc)?;
 -        if gl::SetPixelFormat(hdc, pixel_format_index, &descriptor) == 0 {
-+        let (pixel_format_index, descriptor) = config::choose_dummy_pixel_format(provider, hdc)?;
+-            return Err(IoError::last_os_error().into());
++        let (pixel_format_index, descriptor) = config::choose_dummy_pixel_format(provider, hdc)
++            .map_err(|error| describe(error, "choose or describe bootstrap pixel format"))?;
 +        if (provider.set_pixel_format)(hdc, pixel_format_index, &descriptor) == 0 {
-@@ -125,2 +126,2 @@ unsafe fn load_extra_functions(
++            return Err(os_error("set bootstrap pixel format"));
+@@ -125,3 +144,6 @@ unsafe fn load_extra_functions(
 -        let context = gl::wglCreateContext(hdc);
 -        if gl::wglMakeCurrent(hdc, context) == 0 {
+-            return Err(IoError::last_os_error().into());
 +        let context = (provider.create_context)(hdc);
++        if context == 0 && provider.is_mesa() {
++            return Err(os_error("create bootstrap context"));
++        }
 +        if (provider.make_current)(hdc, context) == 0 {
-@@ -133 +134 @@ unsafe fn load_extra_functions(
++            return Err(os_error("bind bootstrap context"));
+@@ -133 +155 @@ unsafe fn load_extra_functions(
 -    let wgl_extra = WGL_EXTRA.get_or_init(WglExtra::new);
 +    let wgl_extra = WGL_EXTRA.get_or_init(|| WglExtra::new(provider));
-@@ -137,2 +138,10 @@ unsafe fn load_extra_functions(
+@@ -137,2 +159,10 @@ unsafe fn load_extra_functions(
 -        wm::DestroyWindow(win);
 -        gl::wglDeleteContext(context);
 +        if provider.is_mesa() {
@@ -223,10 +274,10 @@ index 9fd7ec37..53c12035 100644
 +        }
 diff --git a/src/api/wgl/provider.rs b/src/api/wgl/provider.rs
 new file mode 100644
-index 00000000..5cae8946
+index 00000000..26283ec9
 --- /dev/null
 +++ b/src/api/wgl/provider.rs
-@@ -0,0 +1,177 @@
+@@ -0,0 +1,180 @@
 +use std::ffi::{c_void, CStr, OsStr, OsString};
 +use std::os::windows::ffi::{OsStrExt, OsStringExt};
 +use std::path::{Path, PathBuf};
@@ -240,7 +291,7 @@ index 00000000..5cae8946
 +
 +use crate::error::{ErrorKind, Result};
 +
-+const ATLAS_WGL_PROVIDER_DLL: &str = "ATLAS_WGL_PROVIDER_DLL";
++pub(super) const ATLAS_WGL_PROVIDER_DLL: &str = "ATLAS_WGL_PROVIDER_DLL";
 +const MESA_ICD: &str = "libgallium_wgl.dll";
 +
 +/// One process owns both the WGL extension table and its originating provider.
@@ -268,7 +319,7 @@ index 00000000..5cae8946
 +    pub(super) fn selected() -> Result<&'static Self> {
 +        PROVIDER.get_or_try_init(|| {
 +            if let Some(path) = env::var_os(ATLAS_WGL_PROVIDER_DLL) {
-+                Self::mesa(Path::new(&path))
++                Self::mesa(Path::new(&path)).map_err(|error| error.with_wgl_step("provider load"))
 +            } else {
 +                Self::system()
 +            }
@@ -304,9 +355,12 @@ index 00000000..5cae8946
 +        if !path.is_absolute() {
 +            return Err(ErrorKind::NotSupported("ATLAS_WGL_PROVIDER_DLL must be absolute").into());
 +        }
++        // LoadLibraryExW requires native separators when using the full DLL path for
++        // dependency resolution. Canonicalize both paths before passing them to Windows.
++        let path = path.canonicalize()?;
 +        let expected_icd = path.with_file_name(MESA_ICD).canonicalize()?;
 +        Self::mesa_icd_loaded_from(&expected_icd)?;
-+        let name: Vec<_> = OsStr::new(path).encode_wide().chain(Some(0)).collect();
++        let name: Vec<_> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 +        // SAFETY: name is null-terminated. The absolute DLL path controls the search for its
 +        // paired Mesa ICD; other dependencies may resolve from System32.
 +        let library = unsafe {
@@ -423,3 +477,28 @@ index 6ec93ce6..b73c7e7b 100644
 @@ -252 +253 @@ impl<T: SurfaceTypeTrait> GlSurface<T> for Surface<T> {
 -        context.is_current()
 +        self.is_current(context)
+diff --git a/src/display.rs b/src/display.rs
+index 25aa9988..8c4435f3 100644
+--- a/src/display.rs
++++ b/src/display.rs
+@@ -248,4 +248,4 @@ impl Display {
+-                if let Ok(display) = WglDisplay::new(display, window_handle) {
+-                    Ok(Self::Wgl(display))
+-                } else {
+-                    Ok(Self::Egl(EglDisplay::new(display)?))
++                match WglDisplay::new(display, window_handle) {
++                    Ok(display) => Ok(Self::Wgl(display)),
++                    Err(error) if crate::api::wgl::explicit_provider_requested() => Err(error),
++                    Err(_) => Ok(Self::Egl(EglDisplay::new(display)?)),
+diff --git a/src/error.rs b/src/error.rs
+index 5223fdde..a810a925 100644
+--- a/src/error.rs
++++ b/src/error.rs
+@@ -30,0 +31,7 @@ impl Error {
++    #[cfg(wgl_backend)]
++    pub(crate) fn with_wgl_step(mut self, step: &str) -> Self {
++        let detail = self.raw_os_message.as_deref().unwrap_or(self.kind.as_str());
++        self.raw_os_message = Some(format!("Mesa WGL {step}: {detail}"));
++        self
++    }
++

@@ -22,12 +22,16 @@ created by a different provider.
 
 With `ATLAS_WGL_PROVIDER_DLL` set to an absolute Mesa wrapper path, the patch
 uses the same provider to select pixel formats, create and bind contexts,
-resolve OpenGL functions, and present. The loader verifies that
-`libgallium_wgl.dll` belongs to the same directory as the wrapper. Each process
-selects the provider once. With no opt-in, the original Windows GDI and
-WGL functions provide those operations. Glutin also checks the bound device
-context when testing whether a WGL surface is current, so eframe uses the
-same provider for that check.
+resolve OpenGL functions, and present. The loader canonicalizes the wrapper path
+for Windows DLL resolution and verifies that `libgallium_wgl.dll` belongs to
+the same directory. Each process selects the provider once. With no opt-in,
+the original Windows GDI and WGL functions provide those operations. Glutin
+also checks the bound device context when testing whether a WGL surface is
+current, so eframe uses the same provider for that check.
+
+When software WGL is selected explicitly, a WGL initialization failure is
+reported with its original error code and setup step. The WGL-first selection
+keeps its normal EGL fallback for the system provider.
 
 Reassess this patch when the pinned Glutin version changes. Validate native
 and Mesa startup, one and multiple windows, resize, and process shutdown.

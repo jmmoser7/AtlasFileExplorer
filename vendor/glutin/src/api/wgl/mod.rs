@@ -21,6 +21,11 @@ pub mod display;
 mod provider;
 pub mod surface;
 
+#[cfg(egl_backend)]
+pub(crate) fn explicit_provider_requested() -> bool {
+    std::env::var_os(provider::ATLAS_WGL_PROVIDER_DLL).is_some()
+}
+
 pub(crate) static WGL_EXTRA: OnceCell<WglExtra> = OnceCell::new();
 
 pub(crate) struct WglExtra(wgl_extra::Wgl);
@@ -50,11 +55,20 @@ unsafe fn load_extra_functions(
     instance: HMODULE,
     win: HWND,
 ) -> Result<(&'static WglExtra, HashSet<&'static str>)> {
+    let describe = |error: Error, step| {
+        if provider.is_mesa() {
+            error.with_wgl_step(step)
+        } else {
+            error
+        }
+    };
+    let os_error = |step| describe(IoError::last_os_error().into(), step);
+
     let rect = unsafe {
         let mut placement: WINDOWPLACEMENT = std::mem::zeroed();
         placement.length = mem::size_of::<WINDOWPLACEMENT>() as _;
         if wm::GetWindowPlacement(win, &mut placement) == 0 {
-            return Err(IoError::last_os_error().into());
+            return Err(os_error("GetWindowPlacement"));
         }
         placement.rcNormalPosition
     };
@@ -62,14 +76,14 @@ unsafe fn load_extra_functions(
     let mut class_name = [0u16; 128];
     unsafe {
         if wm::GetClassNameW(win, class_name.as_mut_ptr(), 128) == 0 {
-            return Err(IoError::last_os_error().into());
+            return Err(os_error("GetClassNameW"));
         }
     }
 
     let mut class = unsafe {
         let mut class: WNDCLASSEXW = std::mem::zeroed();
         if wm::GetClassInfoExW(instance, class_name.as_ptr(), &mut class) == 0 {
-            return Err(IoError::last_os_error().into());
+            return Err(os_error("GetClassInfoExW"));
         }
 
         class
@@ -111,21 +125,28 @@ unsafe fn load_extra_functions(
     };
 
     if win == 0 {
-        return Err(IoError::last_os_error().into());
+        return Err(os_error("CreateWindowExW for the bootstrap window"));
     }
 
     let hdc = unsafe { gdi::GetDC(win) };
+    if hdc == 0 && provider.is_mesa() {
+        return Err(os_error("GetDC for the bootstrap window"));
+    }
     unsafe {
-        let (pixel_format_index, descriptor) = config::choose_dummy_pixel_format(provider, hdc)?;
+        let (pixel_format_index, descriptor) = config::choose_dummy_pixel_format(provider, hdc)
+            .map_err(|error| describe(error, "choose or describe bootstrap pixel format"))?;
         if (provider.set_pixel_format)(hdc, pixel_format_index, &descriptor) == 0 {
-            return Err(IoError::last_os_error().into());
+            return Err(os_error("set bootstrap pixel format"));
         }
     };
 
     let context = unsafe {
         let context = (provider.create_context)(hdc);
+        if context == 0 && provider.is_mesa() {
+            return Err(os_error("create bootstrap context"));
+        }
         if (provider.make_current)(hdc, context) == 0 {
-            return Err(IoError::last_os_error().into());
+            return Err(os_error("bind bootstrap context"));
         }
         context
     };
