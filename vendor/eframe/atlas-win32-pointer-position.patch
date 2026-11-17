@@ -1,0 +1,72 @@
+diff --git a/src/native/epi_integration.rs b/src/native/epi_integration.rs
+index 03b5f2d..f402b1a 100644
+--- a/src/native/epi_integration.rs
++++ b/src/native/epi_integration.rs
+@@ -150,0 +151,40 @@ pub fn create_storage_with_file(_file: impl Into<PathBuf>) -> Option<Box<dyn epi
++#[cfg(target_os = "windows")]
++#[allow(unsafe_code)]
++fn native_client_press_position(
++    window: &winit::window::Window,
++) -> Option<winit::dpi::PhysicalPosition<f64>> {
++    use winapi::shared::windef::{HWND, POINT};
++    use winapi::um::winuser::{GetClientRect, GetMessagePos, ScreenToClient};
++
++    let raw_window_handle::RawWindowHandle::Win32(handle) = window.window_handle().ok()?.as_raw()
++    else {
++        return None;
++    };
++    let hwnd = handle.hwnd.get() as HWND;
++    // The normal winit WM_LBUTTONDOWN callback runs during DispatchMessage.
++    // GetMessagePos follows that queued message even if the live cursor moved.
++    // SAFETY: This call reads the calling GUI thread's message position.
++    let message_position = unsafe { GetMessagePos() };
++    let mut point = POINT {
++        x: i32::from(message_position as i16),
++        y: i32::from((message_position >> 16) as i16),
++    };
++    let mut client = winapi::shared::windef::RECT {
++        left: 0,
++        top: 0,
++        right: 0,
++        bottom: 0,
++    };
++    // SAFETY: The borrowed winit window keeps the HWND alive, and both
++    // output parameters point to initialized local Win32 structs.
++    let available =
++        unsafe { ScreenToClient(hwnd, &mut point) != 0 && GetClientRect(hwnd, &mut client) != 0 };
++    (available
++        && (client.left..client.right).contains(&point.x)
++        && (client.top..client.bottom).contains(&point.y))
++    .then_some(winit::dpi::PhysicalPosition::new(
++        f64::from(point.x),
++        f64::from(point.y),
++    ))
++}
++
+@@ -251,0 +292,26 @@ impl EpiIntegration {
++        #[cfg(target_os = "windows")]
++        if let WindowEvent::MouseInput {
++            device_id,
++            button: MouseButton::Left,
++            state: ElementState::Pressed,
++        } = event
++        {
++            let event_count = egui_winit.egui_input().events.len();
++            let response = egui_winit.on_window_event(window, event);
++            // Supported buttons append an event only if egui-winit has a pointer
++            // position. Windows can deliver a press before the next cursor move.
++            if egui_winit.egui_input().events.len() == event_count {
++                if let Some(position) = native_client_press_position(window) {
++                    let _ = egui_winit.on_window_event(
++                        window,
++                        &WindowEvent::CursorMoved {
++                            device_id: *device_id,
++                            position,
++                        },
++                    );
++                    return egui_winit.on_window_event(window, event);
++                }
++            }
++            return response;
++        }
++

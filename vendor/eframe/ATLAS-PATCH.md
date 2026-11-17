@@ -1,14 +1,16 @@
-# Pinned eframe: no per-frame OpenGL context switch on Windows
+# Pinned eframe 0.31.1 Windows patches
 
-This directory contains the unchanged contents of the published `eframe 0.31.1`
-crate, except for the one source patch recorded in
-[`atlas-gl-context-switch.patch`](atlas-gl-context-switch.patch) and these two
-Atlas provenance files. The published package ships no license file; eframe is
-licensed `MIT OR Apache-2.0` (see `Cargo.toml`).
+This directory contains the published `eframe 0.31.1` crate with two Atlas patches.
 
-The recorded diff uses zero context to avoid whitespace-only context markers.
-Apply it to a clean upstream snapshot with `git apply --unidiff-zero` (from this
-workspace root, add `--directory=vendor/eframe` before the patch filename).
+- [Avoid redundant Windows OpenGL context switches](atlas-gl-context-switch.patch).
+- [Recover a Windows primary press when the adapter has no pointer position](atlas-win32-pointer-position.patch).
+
+The published package ships no license file. It is licensed
+`MIT OR Apache-2.0` (see `Cargo.toml`).
+
+The recorded diffs use zero context. Apply them to a clean upstream snapshot with
+`git apply --unidiff-zero`. From the workspace root, add `--directory=vendor/eframe`
+before the patch filename.
 
 - Package: https://crates.io/crates/eframe/0.31.1
 - Repository: https://github.com/emilk/egui (`crates/eframe`)
@@ -16,7 +18,7 @@ workspace root, add `--directory=vendor/eframe` before the patch filename).
 - Crate archive SHA256:
   `d0dfe0859f3fb1bc6424c57d41e10e9093fe938f426b691e42272c2f336d915c`
 
-## What upstream 0.31.1 does
+## OpenGL context switching
 
 `change_gl_context` (`src/native/glow_integration.rs`) has an early-out for
 "this surface is already current" and compiles it out on Windows. glutin's WGL
@@ -33,10 +35,9 @@ Upstream has since fixed this differently, by remembering which viewport the
 context was last bound to: [egui #8461](https://github.com/emilk/egui/pull/8461),
 "Don't switch the GL context twice per frame on Windows with one viewport",
 merged 2026-10-06 and released in eframe 0.37.0. This patch has the same intent
-for 0.31.1 with a smaller change. **Remove this directory when the workspace
-moves to eframe 0.37.0 or later.**
+for 0.31.1 with a smaller change. **Remove the OpenGL patch when the workspace moves to eframe 0.37.0 or later.**
 
-## What the patch does
+### What the patch does
 
 `change_gl_context` takes the early-out on every platform. On Windows the check
 is `surface_is_current`: glutin's context comparison, plus the missing half -
@@ -51,7 +52,7 @@ window changes, as on the other platforms.
 `ATLAS_GL_ALWAYS_SWITCH=1` in the environment restores upstream 0.31.1's
 behavior for A/B comparison.
 
-## Why Atlas carries it now
+### Why Atlas carries it now
 
 Two reasons, of different strength.
 
@@ -100,14 +101,14 @@ Two reasons, of different strength.
    buffer. The analysis is in `output/slate-audit-2026-11-13/REPORT.md` in the
    FileAtlas folder.
 
-## Not covered
+### Not covered
 
 - Every real switch between two windows still releases and re-acquires the
   context (Slate with the linked File Atlas window open), as does viewport
   creation.
 - The driver's other synchronous flushes (`SwapBuffers` every frame, readbacks).
 
-## Status
+### Status
 
 Compile-checked in the workspace (`cargo check -p slate -p native-file-atlas`).
 Not yet exercised in a native run: confirm on the Intel reference machine that a
@@ -115,6 +116,23 @@ single-window session renders normally, that opening and closing the linked
 File Atlas window still paints both windows, and that window resize, minimize /
 restore, presentation mode, a DPI or monitor change and display sleep / resume
 are unaffected.
+
+## Windows primary mouse position
+
+In eframe 0.31.1, egui-winit clears the stored pointer position on `CursorLeft`.
+It only appends a primary-button event if the position is available. A Windows
+primary press can arrive before the next cursor move.
+
+This patch checks whether the viewport's adapter appended an event for the
+delivered press. If it appended none, eframe reads that native message's
+screen position and converts it to the same viewport's client coordinates.
+If the point is within the client area, eframe updates the adapter's position
+and replays the press. A press already delivered to egui follows the existing
+path.
+
+Reassess this patch when updating eframe and egui-winit. Check that the first
+Board gesture and ordinary click work after native menu dismissal and when
+switching between Slate and the linked File Atlas window.
 
 The workspace uses `[patch.crates-io]` at the existing version and excludes this
 dependency snapshot from workspace membership. No unrelated upstream changes or
