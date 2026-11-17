@@ -15,7 +15,7 @@ CATEGORIES = (
 
 
 def release_notes(source):
-    """Return the newest stable version and the complete release history markup."""
+    """Return the newest stable version available for rollout and the release history markup."""
     entries = json.loads(source.read_text(encoding="utf-8"))
     if not isinstance(entries, list) or not entries:
         raise ValueError("release-history.json must contain a nonempty list")
@@ -26,7 +26,9 @@ def release_notes(source):
     html = []
     for entry in entries:
         expected = {"tag", "date", "download", *(key for key, _ in CATEGORIES)}
-        if not isinstance(entry, dict) or set(entry) not in (expected, expected | {"base_version"}):
+        if not isinstance(entry, dict) or set(entry) not in (
+            expected, expected | {"base_version"}, expected | {"hold_notice"}
+        ):
             raise ValueError("Each release needs a tag, date, download and all three note lists")
         tag = entry["tag"]
         if not isinstance(tag, str) or tag in seen_tags:
@@ -37,6 +39,15 @@ def release_notes(source):
             raise ValueError("Release history must be ordered newest first")
         previous_date = published
         base_version = entry.get("base_version")
+        held = "hold_notice" in entry
+        hold_status = ""
+        hold_notice = ""
+        if held:
+            notice = entry["hold_notice"]
+            if not isinstance(notice, str) or not notice.strip():
+                raise ValueError(f"{tag} needs a nonempty hold notice")
+            hold_status = '<strong class="release-hold-status">On hold</strong>'
+            hold_notice = f'<p class="release-package">{escape(notice)}</p>\n'
         if "base_version" in entry:
             if not re.fullmatch(r"slate-feedback-\d{8}", tag) or not isinstance(base_version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", base_version):
                 raise ValueError(f"{tag} needs a dated QA tag and a numeric base version")
@@ -55,7 +66,7 @@ def release_notes(source):
             if previous_stable is not None and previous_stable <= stable:
                 raise ValueError("Stable releases must be ordered newest first")
             previous_stable = stable
-            if latest_stable is None:
+            if latest_stable is None and not held:
                 latest_stable = version
             heading = f"Slate {version}"
             download_label = f"Download {version}"
@@ -85,12 +96,14 @@ def release_notes(source):
             f'<h4><a href="{RELEASES}/tag/{tag}">{heading}</a></h4>'
             '<span aria-hidden="true">·</span>'
             f'<time datetime="{published.isoformat()}">{published:%B} {published.day}, {published.year}</time>'
+            f'{hold_status}'
             '</div>\n'
             f'  <a class="text-link" href="{escape(download, quote=True)}">{download_label} <span aria-hidden="true">↓</span></a>\n'
             f'  {package}'
+            f'  {hold_notice}'
             '  <div class="release-categories">' + "".join(groups) + '</div>\n'
             '</article>'
         )
     if latest_stable is None:
-        raise ValueError("Release history needs at least one stable release")
+        raise ValueError("Release history needs at least one stable release available for rollout")
     return latest_stable, "\n".join(html)

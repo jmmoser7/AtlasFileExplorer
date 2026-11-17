@@ -49,6 +49,11 @@ installers include Slate and File Atlas.
    wait for Pages, then open the live page and download the package through
    its versioned link.
 
+If a rollout is on hold and GitHub Latest points to a previous stable release,
+add a `hold_notice` to the held entry. The entry keeps its pinned download and
+displays the notice. The static build label skips held entries and the live
+label follows GitHub Latest.
+
 ### Publish notes for a Windows QA build
 
 1. Publish the tested portable ZIP on a separate dated prerelease, such as

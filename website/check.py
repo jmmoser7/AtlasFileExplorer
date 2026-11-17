@@ -68,7 +68,9 @@ home_path = OUTPUT / "index.html"
 home = pages[home_path]
 home_source = sources[home_path]
 history = json.loads((ROOT / "website" / "release-history.json").read_text(encoding="utf-8"))
-stable_tag = next(entry["tag"] for entry in history if "base_version" not in entry)
+stable_tag = next(
+    entry["tag"] for entry in history if "base_version" not in entry and "hold_notice" not in entry
+)
 stable_label = f"Build {stable_tag[1:]}"
 assert "release-notes" in home.ids and "#release-notes" in home.links, "Missing release history link"
 build_labels = re.findall(
@@ -89,5 +91,11 @@ release_rows = re.findall(
 assert release_rows == [(entry["tag"], entry["download"]) for entry in history], (
     "Expected one pinned download beneath its own release heading in history order"
 )
+held_tags = re.findall(
+    r'<article class="release-entry" id="release-([^"]+)">\s*'
+    r'<div class="release-entry-header">[^\n]+<strong class="release-hold-status">On hold</strong></div>',
+    home_source,
+)
+assert held_tags == [entry["tag"] for entry in history if "hold_notice" in entry]
 assert re.findall(r"<h5>([^<]+)</h5>", home_source) == [title for _, title in CATEGORIES] * len(history)
 print(f"PASS: {len(pages)} pages; {checked} local links, assets and anchors; metadata; public bundle.")

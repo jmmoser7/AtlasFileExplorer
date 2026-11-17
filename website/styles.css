@@ -108,6 +108,7 @@ summary { cursor: pointer; }
 .release-entry-header h4 { margin: 0; font-size: 17px; }
 .release-entry-header h4 a:hover { text-decoration: underline; }
 .release-entry-header time, .release-entry-header span, .release-empty { color: var(--sub); font-size: 12px; }
+.release-hold-status { color: var(--accent); font-size: 12px; }
 .release-entry > .text-link { display: inline-block; margin-bottom: 12px; }
 .release-package { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
 .release-categories { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 12px 28px; }
