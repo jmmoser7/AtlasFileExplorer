@@ -12,9 +12,10 @@ $repo = Split-Path -Parent $PSScriptRoot
 $release = (Resolve-Path -LiteralPath $ReleaseDirectory).Path
 $fixture = Join-Path $repo 'target/debug/examples/update_smoke.exe'
 $test = Join-Path $env:RUNNER_TEMP ("atlas-stable-smoke-" + [Guid]::NewGuid().ToString('N'))
+$diagnostics = Join-Path $env:RUNNER_TEMP 'atlas-stable-smoke-diagnostics'
 $previousRoot = Join-Path $test 'upgraded'
 $cleanRoot = Join-Path $test 'clean'
-New-Item -Path $test -ItemType Directory | Out-Null
+New-Item -Path $test, $diagnostics -ItemType Directory | Out-Null
 
 function Assert-Artifact([string]$Path, [long]$Size, [string]$Sha) {
     if ($Sha -notmatch '^[a-fA-F0-9]{64}$' -or
@@ -25,7 +26,7 @@ function Assert-Artifact([string]$Path, [long]$Size, [string]$Sha) {
 }
 
 function Install-Suite([string]$Setup, [string]$Root) {
-    $log = Join-Path $test ("setup-" + (Split-Path -Leaf $Root) + ".log")
+    $log = Join-Path $diagnostics ("setup-" + (Split-Path -Leaf $Root) + ".log")
     $setupProcess = Start-Process -FilePath $Setup -ArgumentList @(
         '--silent', '--installto', ('"' + $Root + '"'), '--log', ('"' + $log + '"')
     ) -WindowStyle Hidden -PassThru
@@ -63,6 +64,41 @@ function Assert-AppBytes([string]$Root, $ExpectedHashes) {
             throw "$name in $Root differs from the generated update package."
         }
     }
+}
+
+function Save-SlateStartupDiagnostics([string]$SlatePath, [long]$StartedAfter) {
+    $localData = [Environment]::GetFolderPath('LocalApplicationData')
+    $reports = Join-Path $localData 'NativeFileAtlas/crash-reports/slate'
+    foreach ($directory in Get-ChildItem -LiteralPath $reports -Directory -ErrorAction SilentlyContinue) {
+        $runPath = Join-Path $directory.FullName 'run.json'
+        if (!(Test-Path -LiteralPath $runPath -PathType Leaf)) { continue }
+        $run = Get-Content -LiteralPath $runPath -Raw | ConvertFrom-Json
+        if ($run.executable.path -ne $SlatePath -or $run.started_unix_ms -lt $StartedAfter) { continue }
+
+        $destination = New-Item -Path (Join-Path $diagnostics $directory.Name) -ItemType Directory
+        foreach ($name in @('run.json', 'report.json', 'native-exception.txt', 'stderr.log')) {
+            $source = Join-Path $directory.FullName $name
+            if (Test-Path -LiteralPath $source -PathType Leaf) {
+                Copy-Item -LiteralPath $source -Destination $destination.FullName
+            }
+        }
+        $reportPath = Join-Path $destination.FullName 'report.json'
+        if (Test-Path -LiteralPath $reportPath -PathType Leaf) {
+            Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json |
+                Select-Object monitor_pid, child_pid, exit_code, exit_code_hex, exit_status, native_exception |
+                Format-List
+        }
+        Get-Content -LiteralPath (Join-Path $destination.FullName 'stderr.log') -Tail 40 -ErrorAction SilentlyContinue
+    }
+}
+
+function Read-SlateStartupActivity([long]$StartedAfter) {
+    $localData = [Environment]::GetFolderPath('LocalApplicationData')
+    $activity = Join-Path $localData 'NativeFileAtlas/session-log/slate.jsonl'
+    if (!(Test-Path -LiteralPath $activity -PathType Leaf)) { return }
+    Select-String -LiteralPath $activity -Pattern 'slate\.graphics|first_frame' |
+        ForEach-Object { ConvertFrom-Json -InputObject $_.Line } |
+        Where-Object { $_.t -ge $StartedAfter }
 }
 
 $repository = 'https://github.com/jmmoser7/AtlasFileExplorer'
@@ -109,6 +145,10 @@ try {
 
 Install-Suite $baselineSetup $previousRoot
 Assert-Installed $previousRoot $previous
+Install-Suite (Join-Path $release $setupName) $cleanRoot
+Assert-Installed $cleanRoot $Version
+Assert-AppBytes $cleanRoot $hashes
+Write-Output "Verified clean install of stable $Version."
 Copy-Item -LiteralPath $fixture -Destination (Join-Path $previousRoot 'current/update_smoke.exe')
 $probe = Join-Path $previousRoot 'current/update_smoke.exe'
 $workbook = Join-Path $test 'preserved-workbook.slate'
@@ -118,6 +158,8 @@ $workbookHash = (Get-FileHash -LiteralPath $workbook -Algorithm SHA256).Hash
 $holders = @()
 $downloader = $null
 $coordinator = $null
+$restartStarted = $null
+$slatePath = Join-Path $previousRoot 'current/slate.exe'
 try {
     foreach ($number in 1, 2) {
         $holders += Start-Process -FilePath $probe -ArgumentList @(
@@ -128,9 +170,9 @@ try {
     }
     $downloader = Start-Process -FilePath $probe -ArgumentList @(
         '--stage-stable-upgrade', ('"' + $release + '"'), $previous, $Version
-    ) -WindowStyle Hidden -PassThru -RedirectStandardError (Join-Path $test 'download.log')
+    ) -WindowStyle Hidden -PassThru -RedirectStandardError (Join-Path $diagnostics 'download.log')
     if (!$downloader.WaitForExit(60000) -or $downloader.ExitCode -ne 0) {
-        Get-Content -LiteralPath (Join-Path $test 'download.log') -ErrorAction SilentlyContinue
+        Get-Content -LiteralPath (Join-Path $diagnostics 'download.log') -ErrorAction SilentlyContinue
         throw 'Velopack did not discover and stage the candidate update.'
     }
     Assert-Artifact (Join-Path $previousRoot "packages/$packageName") $asset.Size $asset.SHA256
@@ -150,6 +192,7 @@ try {
     Start-Sleep -Milliseconds 750
     Assert-Installed $previousRoot $previous
     if ($holders[1].HasExited) { throw 'The second guard holder did not survive the first exit.' }
+    $restartStarted = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     'stop' | Set-Content -LiteralPath (Join-Path $test 'stop-2')
     if (!$holders[1].WaitForExit(10000) -or $holders[1].ExitCode -ne 0) { throw 'The second guard holder did not exit.' }
     if (!$coordinator.WaitForExit(90000) -or $coordinator.ExitCode -ne 0) {
@@ -162,23 +205,45 @@ try {
         throw 'Upgrade modified the workbook.'
     }
 
-    $slatePath = Join-Path $previousRoot 'current/slate.exe'
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
     do {
-        $restarted = @(Get-Process -Name slate -ErrorAction SilentlyContinue | Where-Object Path -eq $slatePath)
-        if ($restarted.Count -gt 0) { break }
+        $window = Get-Process -Name slate -ErrorAction SilentlyContinue |
+            Where-Object { $_.Path -eq $slatePath -and $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like 'Slate*' } |
+            Select-Object -First 1
+        if ($null -ne $window) { break }
         Start-Sleep -Milliseconds 200
     } while ([DateTime]::UtcNow -lt $deadline)
-    if ($restarted.Count -eq 0) { throw 'The coordinator did not restart the updated Slate process.' }
+    if ($null -eq $window) { throw 'No Slate window opened after the coordinator restarted the updated app.' }
     Start-Sleep -Seconds 2
-    if (!(Get-Process -Name slate -ErrorAction SilentlyContinue | Where-Object Path -eq $slatePath)) {
-        throw 'The restarted Slate process exited during startup.'
+    $window.Refresh()
+    if ($window.HasExited -or $window.MainWindowHandle -eq 0 -or !$window.Responding) {
+        throw 'The updated Slate window did not stay responsive.'
     }
+    $activity = @(Read-SlateStartupActivity $restartStarted | Where-Object pid -eq $window.Id)
+    $graphics = $activity | Where-Object { $_.name -eq 'slate.graphics' -and $_.detail -match 'device=llvmpipe' } |
+        Select-Object -First 1
+    $startup = $activity | Where-Object { $_.kind -eq 'startup' -and $_.detail -match 'first_frame:' } |
+        Select-Object -First 1
+    if (!$graphics -or !$startup) {
+        throw 'The updated Slate window did not record llvmpipe and its first frame.'
+    }
+    @("Responsive Slate window from PID $($window.Id)", $graphics.detail, $startup.detail) |
+        Tee-Object -FilePath (Join-Path $diagnostics 'restart.txt')
 
-    Install-Suite (Join-Path $release $setupName) $cleanRoot
-    Assert-Installed $cleanRoot $Version
-    Assert-AppBytes $cleanRoot $hashes
     Write-Output "PASS: published stable $previous installer, candidate $Version clean install, coordinated upgrade, restart and workbook preservation."
+} catch {
+    $updateErrorPath = Join-Path $previousRoot 'atlas-update-error.txt'
+    if (Test-Path -LiteralPath $updateErrorPath -PathType Leaf) {
+        Copy-Item -LiteralPath $updateErrorPath -Destination $diagnostics -ErrorAction SilentlyContinue
+    }
+    if ($null -ne $restartStarted) {
+        try {
+            Save-SlateStartupDiagnostics $slatePath $restartStarted
+            Read-SlateStartupActivity $restartStarted | Select-Object pid, name, detail | Format-List
+        }
+        catch { Write-Warning "Could not save Slate startup diagnostics. $_" }
+    }
+    throw
 } finally {
     foreach ($process in ($holders + @($downloader, $coordinator))) {
         if ($null -ne $process -and !$process.HasExited) { $process.Kill() }

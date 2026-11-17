@@ -43,6 +43,13 @@ two hours for that result; missing, failed, cancelled or timed-out checks block
 publication. Stable tags must point to a commit with that same verified main
 CI result. The Linux and Windows test commands remain independent and unchanged.
 
+The stable Windows workflow preserves the verified release assets, then tests a
+clean install and an upgrade from the current public stable installer. It checks
+the installed app hashes, workbook preservation, and a responsive Slate window
+after restart. The disposable Windows runner uses checksum-pinned Mesa llvmpipe
+to supply OpenGL for this check. The download contains the original verified
+package, and desktop verification uses the installed Windows graphics driver.
+
 ## Artifact reuse and promotion
 
 [Release readiness](dev-loop.md#release-readiness-and-fixed-candidates) owns candidate

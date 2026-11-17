@@ -24,6 +24,8 @@ jobs:
       channel: ${{ steps.version.outputs.channel }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -127,24 +129,39 @@ jobs:
         env:
           WINDOWS_SIGN_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
         run: ./scripts/package-windows.ps1 -Version $env:ATLAS_RELEASE_VERSION -Channel $env:ATLAS_RELEASE_CHANNEL
-      - name: Verify candidate setup and upgrade from the published stable suite
-        if: steps.version.outputs.channel == 'stable'
-        shell: pwsh
-        env:
-          CANDIDATE_RELEASE_DIR: ${{ steps.package.outputs.release_dir }}
-        run: ./scripts/test-windows-stable-upgrade.ps1 -ReleaseDirectory $env:CANDIDATE_RELEASE_DIR -Version $env:ATLAS_RELEASE_VERSION
       - name: Preserve installer and update assets
         uses: actions/upload-artifact@v4
         with:
           name: windows-${{ steps.version.outputs.channel }}
           path: ${{ steps.package.outputs.release_dir }}/*
           if-no-files-found: error
+          overwrite: true
       - name: Remove temporary certificate
         if: always()
         shell: pwsh
         run: |
           $certificate = Join-Path $env:RUNNER_TEMP 'atlas-signing.pfx'
           if (Test-Path -LiteralPath $certificate) { Remove-Item -LiteralPath $certificate }
+      - name: Install the pinned software renderer for the hosted stable smoke
+        if: steps.version.outputs.channel == 'stable'
+        shell: pwsh
+        run: ./scripts/install-windows-smoke-renderer.ps1
+      - name: Verify candidate setup and upgrade from the published stable suite
+        id: stable_smoke
+        if: steps.version.outputs.channel == 'stable'
+        shell: pwsh
+        env:
+          CANDIDATE_RELEASE_DIR: ${{ steps.package.outputs.release_dir }}
+          GALLIUM_DRIVER: llvmpipe
+        run: ./scripts/test-windows-stable-upgrade.ps1 -ReleaseDirectory $env:CANDIDATE_RELEASE_DIR -Version $env:ATLAS_RELEASE_VERSION
+      - name: Preserve stable smoke diagnostics on failure
+        if: failure() && steps.stable_smoke.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-stable-smoke-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/atlas-stable-smoke-diagnostics/
+          if-no-files-found: warn
+          retention-days: 7
 
   publish:
     needs: build
