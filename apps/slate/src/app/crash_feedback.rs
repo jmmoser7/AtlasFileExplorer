@@ -18,7 +18,10 @@ impl Review {
 
 impl SlateApp {
     pub(super) fn review_crash_report(&mut self, ctx: &egui::Context) {
-        if self.crash_feedback.pending() || !self.feedback.can_prefill() {
+        if self.crash_feedback.pending() || !self.feedback.can_review_bug() {
+            return;
+        }
+        if self.feedback.reopen_reviewed_bug() {
             return;
         }
         let repaint = ctx.clone();

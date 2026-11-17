@@ -52,6 +52,15 @@ impl From<SupervisorFailure> for Completion {
     }
 }
 
+impl Completion {
+    fn runtime_ms(self, started: u64, ended: u64) -> Option<u64> {
+        match self {
+            Self::ProcessExit => ended.checked_sub(started),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Serialize)]
 struct Evidence {
     native_exception: bool,
@@ -104,7 +113,7 @@ impl RunDiagnostics {
     ) -> Self {
         Self {
             completion,
-            duration_ms: ended.checked_sub(started),
+            duration_ms: completion.runtime_ms(started, ended),
             evidence: Evidence {
                 native_exception,
                 session_checkpoint: session.is_some(),
@@ -179,8 +188,8 @@ pub fn submission_summary(report_dir: &Path) -> io::Result<CrashSubmission> {
     let exit_code = report["exit_code"]
         .as_i64()
         .and_then(|code| code.try_into().ok());
-    let completion = serde_json::from_value(report["diagnostics"]["completion"].clone())
-        .unwrap_or_else(|_| {
+    let completion: Completion =
+        serde_json::from_value(report["diagnostics"]["completion"].clone()).unwrap_or_else(|_| {
             if exit_code.is_some() {
                 Completion::ProcessExit
             } else {
@@ -190,7 +199,7 @@ pub fn submission_summary(report_dir: &Path) -> io::Result<CrashSubmission> {
     let duration_seconds = report["started_unix_ms"]
         .as_u64()
         .zip(report["ended_unix_ms"].as_u64())
-        .and_then(|(start, end)| end.checked_sub(start))
+        .and_then(|(start, end)| completion.runtime_ms(start, end))
         .map(|duration| duration / 1000);
     let native_exception = report["native_exception"].as_bool().unwrap_or(false)
         || storage::has_native_exception(report_dir);
@@ -314,6 +323,29 @@ mod tests {
     use super::*;
     use crate::crash_report::tests::TempDir;
     use std::fs;
+
+    #[test]
+    fn legacy_recovery_time_is_not_reported_as_runtime() {
+        let temp = TempDir::new();
+        let dir = &temp.0;
+        capture::write_json(
+            &dir.join("report.json"),
+            &serde_json::json!({
+                "schema_version": 1,
+                "app": "slate",
+                "version": "1.0.10",
+                "started_unix_ms": 100_001,
+                "ended_unix_ms": 178_585_001,
+                "success": false,
+                "exit_code": null,
+                "exit_status": "supervisor error: Previous run ended without a recorded exit status; it may have been terminated or interrupted",
+            }),
+        )
+        .unwrap();
+        let submission = serde_json::to_value(submission_summary(dir).unwrap()).unwrap();
+        assert_eq!(submission["completion"], "unknown");
+        assert_eq!(submission["duration_seconds"], serde_json::Value::Null);
+    }
 
     #[test]
     fn legacy_report_sends_only_allowlisted_crash_facts() {

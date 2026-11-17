@@ -132,6 +132,13 @@ mod tests {
         let text = capture::read_tail(&dir.join("report.json"), 8192).unwrap();
         let report: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(report["diagnostics"]["completion"], "interrupted");
+        assert_eq!(
+            report["diagnostics"]["duration_ms"],
+            serde_json::Value::Null
+        );
+        let submission =
+            serde_json::to_value(super::super::submission_summary(&dir).unwrap()).unwrap();
+        assert_eq!(submission["duration_seconds"], serde_json::Value::Null);
         assert!(report["exit_status"]
             .as_str()
             .unwrap()

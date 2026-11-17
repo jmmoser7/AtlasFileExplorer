@@ -96,7 +96,7 @@ pub fn window(app: &mut SlateApp, ctx: &egui::Context) {
             if atlas_shell::feedback::online_delivery_available("slate")
                 && ui
                     .add_enabled(
-                        app.feedback.can_prefill() && !app.crash_feedback.pending(),
+                        app.feedback.can_review_bug() && !app.crash_feedback.pending(),
                         egui::Button::new("Review latest report to send").small(),
                     )
                     .on_hover_text(

@@ -89,6 +89,7 @@ pub struct FeedbackHub {
     send: send::State,
     /// Last user-chosen position of the shared feedback dialog.
     pub(crate) dialog_pos: Option<eframe::egui::Pos2>,
+    reviewed_bug: bool,
     form_return: FeedbackPhase,
     dispatch_depth: u32,
 }
@@ -117,6 +118,7 @@ impl Default for FeedbackHub {
             capture_rx: None,
             send: send::State::default(),
             dialog_pos: None,
+            reviewed_bug: false,
             form_return: FeedbackPhase::BugForm,
             dispatch_depth: 0,
         }
@@ -131,6 +133,7 @@ impl FeedbackHub {
     }
 
     pub fn begin_form(&mut self, kind: FeedbackKind) {
+        self.reviewed_bug = false;
         self.kind = Some(kind);
         self.phase = match kind {
             FeedbackKind::Bug => FeedbackPhase::BugForm,
@@ -139,7 +142,7 @@ impl FeedbackHub {
     }
 
     /// A prefilled report must leave an existing suggestion or retry intact.
-    pub fn can_prefill(&self) -> bool {
+    fn can_prefill(&self) -> bool {
         self.phase == FeedbackPhase::Closed
             && !self.send.pending()
             && !self.screenshot_pending
@@ -151,11 +154,28 @@ impl FeedbackHub {
             && self.recorded_steps.is_empty()
     }
 
+    pub fn can_review_bug(&self) -> bool {
+        self.can_prefill() || self.reviewed_bug_closed()
+    }
+
+    fn reviewed_bug_closed(&self) -> bool {
+        self.reviewed_bug && self.phase == FeedbackPhase::Closed && !self.send.pending()
+    }
+
+    pub fn reopen_reviewed_bug(&mut self) -> bool {
+        if !self.reviewed_bug_closed() {
+            return false;
+        }
+        self.phase = FeedbackPhase::BugForm;
+        true
+    }
+
     pub fn review_bug(&mut self, description: String) -> bool {
         if !self.can_prefill() {
             return false;
         }
         self.begin_form(FeedbackKind::Bug);
+        self.reviewed_bug = true;
         self.description = description;
         true
     }
@@ -273,6 +293,7 @@ impl FeedbackHub {
         self.attachments.clear();
         self.attach_note = None;
         self.kind = None;
+        self.reviewed_bug = false;
         self.send = send::State::default();
     }
 

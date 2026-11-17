@@ -297,6 +297,14 @@ mod tests {
         assert_eq!(text.title, "Slate crash report");
         assert_eq!(text.body, "Slate crash report\n\nExit code: 1");
         assert!(hub.attachments.is_empty());
+
+        hub.description.push_str("\nUser notes");
+        hub.phase = super::super::FeedbackPhase::Closed;
+        assert!(hub.can_review_bug());
+        assert!(hub.reopen_reviewed_bug());
+        assert_eq!(hub.phase, super::super::FeedbackPhase::BugForm);
+        assert!(hub.description.ends_with("User notes"));
+        assert!(!hub.send.pending());
     }
 
     #[test]

@@ -8,10 +8,11 @@ exception handler records the exception code, module-relative location, and
 access operation when available. A subsequent launch can recover an interrupted
 report after confirming its processes have ended.
 
-The local report also records the release channel, supervision outcome, elapsed
-time, and whether native exception metadata, a session checkpoint, or stderr
-was captured. Windows exit statuses and a checkpoint can help narrow down the
-cause. An unobserved exit stays unknown, even when both processes have ended.
+The local report also records the release channel, supervision outcome, and
+whether native exception metadata, a session checkpoint, or stderr was
+captured. Runtime is available for an observed process exit. Windows exit
+statuses and a checkpoint can help narrow down the cause. An unobserved exit
+stays unknown, even when both processes have ended.
 
 The optional summary in Suggestion Box contains the release version, platform,
 exit information, evidence flags, last known Slate view, bounded frame timing,
