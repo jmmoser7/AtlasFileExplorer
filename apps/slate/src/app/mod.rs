@@ -2300,6 +2300,9 @@ fn sample_workbook_cover_media(doc: &slate_doc::SlateDoc, limit: usize) -> Vec<P
 impl eframe::App for SlateApp {
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         self.dialogs.gate_input(raw_input);
+        if self.board_tool == board::BoardTool::Brush && self.paint_layer_host().is_some() {
+            dispatch::input_state::supply_brush_release_motion(&mut raw_input.events);
+        }
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {

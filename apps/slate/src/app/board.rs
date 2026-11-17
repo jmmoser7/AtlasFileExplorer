@@ -702,11 +702,10 @@ impl SlateApp {
         let hosted_brush = (self.board_tool == BoardTool::Brush)
             .then(|| self.paint_layer_host())
             .flatten();
-        // egui hit-tests the latest pointer. Keep a stroke whose press sample
-        // is on the image when later samples in that frame reach its editor.
-        let brush_crosses_editor = drawing_available
+        // Keep the original image press when later samples reach the editor
+        // or a floating dock layer in the same frame.
+        let brush_crosses_chrome = drawing_available
             && popup_capture
-            && node_toolbar_captures
             && !presence_capture
             && !agent_controls_capture
             && !tip_captures
@@ -714,8 +713,10 @@ impl SlateApp {
             && !shot_captures
             && !selection_capture
             && hosted_brush.zip(pointer).is_some_and(|(image, end)| {
-                self.pointer_on_shape_chrome(end)
-                    && self.external_image_brush_editor_at(ui.ctx(), image, end)
+                ((node_toolbar_captures
+                    && self.pointer_on_shape_chrome(end)
+                    && self.external_image_brush_editor_at(ui.ctx(), image, end))
+                    || (!node_toolbar_captures && dock_nav.over_chrome))
                     && ui.input(|input| {
                         use egui::PointerButton::Primary;
 
@@ -734,7 +735,7 @@ impl SlateApp {
             });
         if ordered_drawing
             && (drawing_can_start
-                || brush_crosses_editor
+                || brush_crosses_chrome
                 || matches!(self.board_drag, Some(BoardDrag::FreehandBrush { .. })))
         {
             let events = ui.input(|i| i.events.clone());
@@ -758,7 +759,7 @@ impl SlateApp {
                         let image_press = hosted_brush
                             .is_some_and(|image| self.point_in_image_paint_window(image, world));
                         let canvas_press = drawing_can_start && (resp.hovered() || image_press);
-                        let brush_drag = brush_crosses_editor
+                        let brush_drag = brush_crosses_chrome
                             && image_press
                             && !modifiers.alt
                             && !modifiers.shift;

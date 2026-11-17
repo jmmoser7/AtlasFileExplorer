@@ -71,6 +71,42 @@ pub(in crate::app) fn space_input_interrupted(input: &egui::InputState) -> bool 
         })
 }
 
+/// Native input can batch a primary press and a displaced release without a
+/// matching move. egui only measures click-distance on move samples, so give
+/// it the final sample before it assigns the release to a widget.
+pub(in crate::app) fn supply_brush_release_motion(events: &mut Vec<egui::Event>) {
+    use egui::{Event, PointerButton::Primary};
+
+    let mut last = None;
+    let mut moves = Vec::new();
+    for (index, event) in events.iter().enumerate() {
+        match *event {
+            Event::PointerButton {
+                pos,
+                button: Primary,
+                pressed: true,
+                ..
+            } => last = Some(pos),
+            Event::PointerMoved(pos) if last.is_some() => last = Some(pos),
+            Event::PointerButton {
+                pos,
+                button: Primary,
+                pressed: false,
+                ..
+            } => {
+                if last.take().is_some_and(|p| p != pos) {
+                    moves.push((index, Event::PointerMoved(pos)));
+                }
+            }
+            Event::PointerGone | Event::WindowFocused(false) => last = None,
+            _ => {}
+        }
+    }
+    for (index, event) in moves.into_iter().rev() {
+        events.insert(index, event);
+    }
+}
+
 /// Tracks a live Space press so release can decide tap (repeat) vs hold (pan).
 #[derive(Default)]
 pub struct SpaceTap {

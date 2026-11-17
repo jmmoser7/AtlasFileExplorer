@@ -410,7 +410,7 @@ fn external_image_brush_commits_a_dab_and_a_drag_to_the_image() {
     assert_eq!(h.app.tab().journal.undo_depth(), before);
 }
 
-fn click_external_image_panel(h: &mut Harness, time: &mut f64, panel: Panel) {
+pub(super) fn click_external_image_panel(h: &mut Harness, time: &mut f64, panel: Panel) {
     let xf = h.app.board_xf();
     let state = h.app.shape_properties.last_chrome.as_ref().unwrap();
     let index = state

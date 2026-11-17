@@ -413,10 +413,30 @@ pub(super) fn show(
             app.start_property_desktop_sample(panel.unwrap_or(Panel::Fill), gesture);
         }
     }
-    let on_image = ctx.pointer_latest_pos().is_some_and(|pointer| {
-        let point = xf.s2w(pointer);
-        slate_doc::geom::point_in_node_outline(&host, point.x, point.y, 0.0)
-    });
+    // Press and release can arrive together. A hosted Brush press on the
+    // image keeps the editor open even if its release is over other chrome.
+    let brush_press = (panel == Some(Panel::Brush) && app.paint_layer_host() == Some(id))
+        .then(|| {
+            ctx.input(|input| {
+                input.events.iter().find_map(|event| match *event {
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        ..
+                    } => Some(pos),
+                    _ => None,
+                })
+            })
+        })
+        .flatten()
+        .filter(|&pos| ctx.layer_id_at(pos) == Some(ui.layer_id()));
+    let on_image = brush_press
+        .or_else(|| ctx.pointer_latest_pos())
+        .is_some_and(|pointer| {
+            let point = xf.s2w(pointer);
+            slate_doc::geom::point_in_node_outline(&host, point.x, point.y, 0.0)
+        });
     let on_results = app.result_strip_contains(&ctx, id, xf.rect_w2s(host.rect), z);
     // The shared popup already closed on this press. Like Studio's
     // studioDismissedMenu event, that dismissal owns the press before the

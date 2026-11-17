@@ -1,6 +1,7 @@
 use super::*;
 use crate::app::tests::Harness;
 
+mod brush_dock;
 mod fallback;
 mod media_snapshot;
 mod pointer_ownership;
