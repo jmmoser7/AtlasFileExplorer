@@ -58,8 +58,9 @@ Slate automatically uses the bundled CPU renderer for Intel graphics build
 `30.0.101.3118`, which was observed distorting frames and hanging in the driver.
 **Slate (Software graphics)** in the Windows Start menu starts with the same
 renderer on other computers. Software graphics may run slower on complex 3D
-boards. Pass `--native-graphics` to prefer the Windows graphics driver for one
-launch. The software renderer loads from Slate's installation directory.
+boards and uses zero window multisampling by default to reduce CPU load. Pass
+`--native-graphics` to prefer the Windows graphics driver for one launch. The
+software renderer loads from Slate's installation directory.
 
 ## Artifact reuse and promotion
 

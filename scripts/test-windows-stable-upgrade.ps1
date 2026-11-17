@@ -236,12 +236,14 @@ try {
         throw 'The updated Slate window did not stay responsive.'
     }
     $activity = @(Read-SlateStartupActivity $restartStarted | Where-Object pid -eq $window.Id)
-    $graphics = $activity | Where-Object { $_.name -eq 'slate.graphics' -and $_.detail -match 'device=llvmpipe' } |
+    $graphics = $activity | Where-Object {
+        $_.name -eq 'slate.graphics' -and $_.detail -match 'device=llvmpipe' -and $_.detail -match 'msaa=0$'
+    } |
         Select-Object -First 1
     $startup = $activity | Where-Object { $_.kind -eq 'startup' -and $_.detail -match 'first_frame:' } |
         Select-Object -First 1
     if (!$graphics -or !$startup) {
-        throw 'The updated Slate window did not record llvmpipe and its first frame.'
+        throw 'The updated Slate window did not record its first frame with the default software graphics settings.'
     }
     @("Responsive Slate window from PID $($window.Id)", $graphics.detail, $startup.detail) |
         Tee-Object -FilePath (Join-Path $diagnostics 'restart.txt')

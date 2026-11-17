@@ -4,6 +4,18 @@ pub mod app;
 
 pub use app::SlateApp;
 
+pub(crate) fn window_msaa_samples() -> u16 {
+    // A multisampled window makes software rasterization much more expensive.
+    if cfg!(windows)
+        && std::env::var_os("ATLAS_WGL_PROVIDER_DLL").is_some()
+        && std::env::var_os("ATLAS_MSAA_SAMPLES").is_none()
+    {
+        0
+    } else {
+        atlas_shell::native_msaa_samples()
+    }
+}
+
 /// Launch the standalone Slate window.
 pub fn run() -> eframe::Result {
     run_with_crash_report(None)
@@ -18,7 +30,7 @@ pub fn run_with_crash_report(report_dir: Option<&std::path::Path>) -> eframe::Re
         .map(std::path::PathBuf::from)
         .filter(|p| p.is_file());
 
-    let msaa = atlas_shell::native_msaa_samples();
+    let msaa = window_msaa_samples();
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([1440.0, 900.0])
