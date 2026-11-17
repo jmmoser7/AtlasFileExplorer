@@ -1,0 +1,12 @@
+Slate includes the x64 OpenGL libraries from the Mesa 25.2.8 Windows MSVC build.
+
+The Mesa source distribution includes its license notices.
+https://archive.mesa3d.org/mesa-25.2.8.tar.xz
+
+The Windows build scripts and exact binary distribution are available here.
+https://github.com/pal1000/mesa-dist-win/tree/25.2.8
+https://github.com/pal1000/mesa-dist-win/releases/tag/25.2.8
+
+The llvmpipe CPU renderer includes LLVM 21.1.7. Its license and related
+third-party notices are in LLVM-LICENSE.txt.
+https://github.com/llvm/llvm-project/tree/llvmorg-21.1.7

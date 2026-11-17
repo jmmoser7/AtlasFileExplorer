@@ -1,0 +1,425 @@
+diff --git a/src/api/wgl/config.rs b/src/api/wgl/config.rs
+index 2be7a777..3255b9c9 100644
+--- a/src/api/wgl/config.rs
++++ b/src/api/wgl/config.rs
+@@ -21,0 +22 @@ use super::display::Display;
++use super::provider::Provider;
+@@ -121 +122,2 @@ impl Display {
+-            let pixel_format_index = gl::ChoosePixelFormat(hdc, &pixel_format_descriptor);
++            let pixel_format_index =
++                (self.inner.provider.choose_pixel_format)(hdc, &pixel_format_descriptor);
+@@ -127 +129 @@ impl Display {
+-            if gl::DescribePixelFormat(
++            if (self.inner.provider.describe_pixel_format)(
+@@ -301,2 +303,21 @@ impl Config {
+-        let descriptor =
+-            self.inner.descriptor.as_ref().map(|desc| desc as _).unwrap_or(std::ptr::null());
++        let provider = self.inner.display.inner.provider;
++        let mut described = MaybeUninit::<PIXELFORMATDESCRIPTOR>::uninit();
++        let descriptor = if let Some(descriptor) = self.inner.descriptor.as_ref() {
++            descriptor as *const _
++        } else if provider.is_mesa() {
++            // Mesa expects the descriptor from its own pixel format table.
++            if unsafe {
++                (provider.describe_pixel_format)(
++                    hdc,
++                    self.inner.pixel_format_index,
++                    mem::size_of::<PIXELFORMATDESCRIPTOR>() as u32,
++                    described.as_mut_ptr(),
++                )
++            } == 0
++            {
++                return Err(IoError::last_os_error().into());
++            }
++            described.as_ptr()
++        } else {
++            std::ptr::null()
++        };
+@@ -305 +326 @@ impl Config {
+-            if gl::SetPixelFormat(hdc, self.inner.pixel_format_index, descriptor) == 0 {
++            if (provider.set_pixel_format)(hdc, self.inner.pixel_format_index, descriptor) == 0 {
+@@ -502 +523,4 @@ impl fmt::Debug for ConfigInner {
+-pub(crate) fn choose_dummy_pixel_format(hdc: HDC) -> Result<(i32, PIXELFORMATDESCRIPTOR)> {
++pub(super) fn choose_dummy_pixel_format(
++    provider: &Provider,
++    hdc: HDC,
++) -> Result<(i32, PIXELFORMATDESCRIPTOR)> {
+@@ -532 +556 @@ pub(crate) fn choose_dummy_pixel_format(hdc: HDC) -> Result<(i32, PIXELFORMATDES
+-    let pixel_format_index = unsafe { gl::ChoosePixelFormat(hdc, &descriptor) };
++    let pixel_format_index = unsafe { (provider.choose_pixel_format)(hdc, &descriptor) };
+@@ -539 +563 @@ pub(crate) fn choose_dummy_pixel_format(hdc: HDC) -> Result<(i32, PIXELFORMATDES
+-        if gl::DescribePixelFormat(
++        if (provider.describe_pixel_format)(
+diff --git a/src/api/wgl/context.rs b/src/api/wgl/context.rs
+index d0c08884..b5ea0571 100644
+--- a/src/api/wgl/context.rs
++++ b/src/api/wgl/context.rs
+@@ -10 +10 @@ use glutin_wgl_sys::wgl::types::HGLRC;
+-use glutin_wgl_sys::{wgl, wgl_extra};
++use glutin_wgl_sys::wgl_extra;
+@@ -48,9 +48,12 @@ impl Display {
+-        let (context, supports_surfaceless) =
+-            if self.inner.client_extensions.contains("WGL_ARB_create_context") {
+-                self.create_context_arb(hdc, share_ctx, context_attributes)?
+-            } else {
+-                unsafe {
+-                    let raw = wgl::CreateContext(hdc as *const _);
+-                    if raw.is_null() {
+-                        return Err(IoError::last_os_error().into());
+-                    }
++        let (context, supports_surfaceless) = if self
++            .inner
++            .client_extensions
++            .contains("WGL_ARB_create_context")
++        {
++            self.create_context_arb(hdc, share_ctx, context_attributes)?
++        } else {
++            unsafe {
++                let raw = (self.inner.provider.create_context)(hdc) as HGLRC;
++                if raw.is_null() {
++                    return Err(IoError::last_os_error().into());
++                }
+@@ -58,4 +61,6 @@ impl Display {
+-                    // Context sharing.
+-                    if !share_ctx.is_null() && wgl::ShareLists(share_ctx, raw) == 0 {
+-                        return Err(IoError::last_os_error().into());
+-                    }
++                // Context sharing.
++                if !share_ctx.is_null()
++                    && (self.inner.provider.share_lists)(share_ctx as isize, raw as isize) == 0
++                {
++                    return Err(IoError::last_os_error().into());
++                }
+@@ -332,2 +337,3 @@ impl PossiblyCurrentGlContext for PossiblyCurrentContext {
+-                let hdc = wgl::GetCurrentDC();
+-                if wgl::MakeCurrent(hdc, std::ptr::null()) == 0 {
++                let provider = self.inner.display.inner.provider;
++                let hdc = (provider.get_current_dc)();
++                if (provider.make_current)(hdc, 0) == 0 {
+@@ -342 +348,3 @@ impl PossiblyCurrentGlContext for PossiblyCurrentContext {
+-        unsafe { wgl::GetCurrentContext() == *self.inner.raw }
++        unsafe {
++            (self.inner.display.inner.provider.get_current_context)() == *self.inner.raw as isize
++        }
+@@ -431 +439 @@ impl ContextInner {
+-            if wgl::MakeCurrent(std::ptr::null(), self.raw.cast()) == 0 {
++            if (self.display.inner.provider.make_current)(0, *self.raw as isize) == 0 {
+@@ -449 +457,3 @@ impl ContextInner {
+-            if wgl::MakeCurrent(surface.raw.hdc() as _, self.raw.cast()) == 0 {
++            if (self.display.inner.provider.make_current)(surface.raw.hdc(), *self.raw as isize)
++                == 0
++            {
+@@ -469 +479 @@ impl Drop for ContextInner {
+-            wgl::DeleteContext(*self.raw);
++            (self.display.inner.provider.delete_context)(*self.raw as isize);
+diff --git a/src/api/wgl/display.rs b/src/api/wgl/display.rs
+index 14469382..ec5d61fb 100644
+--- a/src/api/wgl/display.rs
++++ b/src/api/wgl/display.rs
+@@ -3 +2,0 @@
+-use std::borrow::Cow;
+@@ -5,2 +4,2 @@ use std::collections::HashSet;
+-use std::ffi::{self, CStr, OsStr};
+-use std::os::windows::ffi::OsStrExt;
++use std::ffi::{self, CStr};
++use std::fmt;
+@@ -8 +6,0 @@ use std::sync::Arc;
+-use std::{env, fmt};
+@@ -10 +7,0 @@ use std::{env, fmt};
+-use glutin_wgl_sys::wgl;
+@@ -12 +8,0 @@ use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
+-use windows_sys::Win32::Foundation::HMODULE;
+@@ -14 +9,0 @@ use windows_sys::Win32::Graphics::Gdi::HDC;
+-use windows_sys::Win32::System::LibraryLoader as dll_loader;
+@@ -24,0 +20 @@ use super::context::NotCurrentContext;
++use super::provider::Provider;
+@@ -28,3 +23,0 @@ use super::WglExtra;
+-/// The name of the OpenGL DLL to use.
+-pub(crate) static GLUTIN_WGL_OPENGL_DLL_ENV: &str = "GLUTIN_WGL_OPENGL_DLL";
+-
+@@ -59,8 +52 @@ impl Display {
+-        let dll_name: Cow<'_, str> = env::var(GLUTIN_WGL_OPENGL_DLL_ENV)
+-            .map(Into::into)
+-            .unwrap_or_else(|_| Cow::Borrowed("opengl32.dll"));
+-        let name = OsStr::new(dll_name.as_ref()).encode_wide().chain(Some(0)).collect::<Vec<_>>();
+-        let lib_opengl32 = unsafe { dll_loader::LoadLibraryW(name.as_ptr()) };
+-        if lib_opengl32 == 0 {
+-            return Err(ErrorKind::NotFound.into());
+-        }
++        let provider = Provider::selected()?;
+@@ -72,0 +59 @@ impl Display {
++                        provider,
+@@ -84 +71,6 @@ impl Display {
+-        let inner = Arc::new(DisplayInner { lib_opengl32, wgl_extra, features, client_extensions });
++        let inner = Arc::new(DisplayInner {
++            provider,
++            wgl_extra,
++            features,
++            client_extensions,
++        });
+@@ -183,10 +175 @@ impl GlDisplay for Display {
+-        unsafe {
+-            let addr = addr.as_ptr();
+-            let fn_ptr = wgl::GetProcAddress(addr);
+-            if !fn_ptr.is_null() {
+-                fn_ptr.cast()
+-            } else {
+-                dll_loader::GetProcAddress(self.inner.lib_opengl32, addr.cast())
+-                    .map_or(std::ptr::null(), |fn_ptr| fn_ptr as *const _)
+-            }
+-        }
++        self.inner.provider.get_proc_address(addr)
+@@ -220 +203 @@ pub(crate) struct DisplayInner {
+-    pub(crate) lib_opengl32: HMODULE,
++    pub(super) provider: &'static Provider,
+diff --git a/src/api/wgl/mod.rs b/src/api/wgl/mod.rs
+index 9fd7ec37..53c12035 100644
+--- a/src/api/wgl/mod.rs
++++ b/src/api/wgl/mod.rs
+@@ -10 +10 @@ use std::os::windows::ffi::OsStrExt;
+-use glutin_wgl_sys::{wgl, wgl_extra};
++use glutin_wgl_sys::wgl_extra;
+@@ -13 +13 @@ use windows_sys::Win32::Foundation::{HMODULE, HWND};
+-use windows_sys::Win32::Graphics::{Gdi as gdi, OpenGL as gl};
++use windows_sys::Win32::Graphics::Gdi as gdi;
+@@ -20,0 +21 @@ pub mod display;
++mod provider;
+@@ -31,2 +32,2 @@ impl WglExtra {
+-    fn new() -> Self {
+-        Self(wgl_extra::Wgl::load_with(|addr| unsafe {
++    fn new(provider: &provider::Provider) -> Self {
++        Self(wgl_extra::Wgl::load_with(|addr| {
+@@ -34,2 +35 @@ impl WglExtra {
+-            let addr = addr.as_ptr();
+-            wgl::GetProcAddress(addr).cast()
++            provider.get_proc_address(&addr)
+@@ -48,0 +49 @@ unsafe fn load_extra_functions(
++    provider: &provider::Provider,
+@@ -118,2 +119,2 @@ unsafe fn load_extra_functions(
+-        let (pixel_format_index, descriptor) = config::choose_dummy_pixel_format(hdc)?;
+-        if gl::SetPixelFormat(hdc, pixel_format_index, &descriptor) == 0 {
++        let (pixel_format_index, descriptor) = config::choose_dummy_pixel_format(provider, hdc)?;
++        if (provider.set_pixel_format)(hdc, pixel_format_index, &descriptor) == 0 {
+@@ -125,2 +126,2 @@ unsafe fn load_extra_functions(
+-        let context = gl::wglCreateContext(hdc);
+-        if gl::wglMakeCurrent(hdc, context) == 0 {
++        let context = (provider.create_context)(hdc);
++        if (provider.make_current)(hdc, context) == 0 {
+@@ -133 +134 @@ unsafe fn load_extra_functions(
+-    let wgl_extra = WGL_EXTRA.get_or_init(WglExtra::new);
++    let wgl_extra = WGL_EXTRA.get_or_init(|| WglExtra::new(provider));
+@@ -137,2 +138,10 @@ unsafe fn load_extra_functions(
+-        wm::DestroyWindow(win);
+-        gl::wglDeleteContext(context);
++        if provider.is_mesa() {
++            // Release the Mesa bootstrap context while its original drawable is still valid.
++            (provider.make_current)(0, 0);
++            (provider.delete_context)(context);
++            gdi::ReleaseDC(win, hdc);
++            wm::DestroyWindow(win);
++        } else {
++            wm::DestroyWindow(win);
++            (provider.delete_context)(context);
++        }
+diff --git a/src/api/wgl/provider.rs b/src/api/wgl/provider.rs
+new file mode 100644
+index 00000000..5cae8946
+--- /dev/null
++++ b/src/api/wgl/provider.rs
+@@ -0,0 +1,177 @@
++use std::ffi::{c_void, CStr, OsStr, OsString};
++use std::os::windows::ffi::{OsStrExt, OsStringExt};
++use std::path::{Path, PathBuf};
++use std::{env, mem};
++
++use once_cell::sync::OnceCell;
++use windows_sys::Win32::Foundation::{FreeLibrary, BOOL, HMODULE, PROC};
++use windows_sys::Win32::Graphics::Gdi::HDC;
++use windows_sys::Win32::Graphics::OpenGL::{self as gl, HGLRC, PIXELFORMATDESCRIPTOR};
++use windows_sys::Win32::System::LibraryLoader as loader;
++
++use crate::error::{ErrorKind, Result};
++
++const ATLAS_WGL_PROVIDER_DLL: &str = "ATLAS_WGL_PROVIDER_DLL";
++const MESA_ICD: &str = "libgallium_wgl.dll";
++
++/// One process owns both the WGL extension table and its originating provider.
++static PROVIDER: OnceCell<Provider> = OnceCell::new();
++
++#[derive(Debug)]
++pub(super) struct Provider {
++    library: HMODULE,
++    mesa: bool,
++    pub choose_pixel_format: unsafe extern "system" fn(HDC, *const PIXELFORMATDESCRIPTOR) -> i32,
++    pub describe_pixel_format:
++        unsafe extern "system" fn(HDC, i32, u32, *mut PIXELFORMATDESCRIPTOR) -> i32,
++    pub set_pixel_format: unsafe extern "system" fn(HDC, i32, *const PIXELFORMATDESCRIPTOR) -> BOOL,
++    pub swap_buffers: unsafe extern "system" fn(HDC) -> BOOL,
++    pub create_context: unsafe extern "system" fn(HDC) -> HGLRC,
++    pub delete_context: unsafe extern "system" fn(HGLRC) -> BOOL,
++    pub get_current_context: unsafe extern "system" fn() -> HGLRC,
++    pub get_current_dc: unsafe extern "system" fn() -> HDC,
++    pub make_current: unsafe extern "system" fn(HDC, HGLRC) -> BOOL,
++    pub share_lists: unsafe extern "system" fn(HGLRC, HGLRC) -> BOOL,
++    wgl_get_proc_address: unsafe extern "system" fn(*const u8) -> PROC,
++}
++
++impl Provider {
++    pub(super) fn selected() -> Result<&'static Self> {
++        PROVIDER.get_or_try_init(|| {
++            if let Some(path) = env::var_os(ATLAS_WGL_PROVIDER_DLL) {
++                Self::mesa(Path::new(&path))
++            } else {
++                Self::system()
++            }
++        })
++    }
++
++    fn system() -> Result<Self> {
++        let name = env::var_os("GLUTIN_WGL_OPENGL_DLL").unwrap_or_else(|| "opengl32.dll".into());
++        let name: Vec<_> = name.encode_wide().chain(Some(0)).collect();
++        // SAFETY: name is a null-terminated Windows string.
++        let library = unsafe { loader::LoadLibraryW(name.as_ptr()) };
++        if library == 0 {
++            return Err(ErrorKind::NotFound.into());
++        }
++        Ok(Self {
++            library,
++            mesa: false,
++            choose_pixel_format: gl::ChoosePixelFormat,
++            describe_pixel_format: gl::DescribePixelFormat,
++            set_pixel_format: gl::SetPixelFormat,
++            swap_buffers: gl::SwapBuffers,
++            create_context: gl::wglCreateContext,
++            delete_context: gl::wglDeleteContext,
++            get_current_context: gl::wglGetCurrentContext,
++            get_current_dc: gl::wglGetCurrentDC,
++            make_current: gl::wglMakeCurrent,
++            share_lists: gl::wglShareLists,
++            wgl_get_proc_address: gl::wglGetProcAddress,
++        })
++    }
++
++    fn mesa(path: &Path) -> Result<Self> {
++        if !path.is_absolute() {
++            return Err(ErrorKind::NotSupported("ATLAS_WGL_PROVIDER_DLL must be absolute").into());
++        }
++        let expected_icd = path.with_file_name(MESA_ICD).canonicalize()?;
++        Self::mesa_icd_loaded_from(&expected_icd)?;
++        let name: Vec<_> = OsStr::new(path).encode_wide().chain(Some(0)).collect();
++        // SAFETY: name is null-terminated. The absolute DLL path controls the search for its
++        // paired Mesa ICD; other dependencies may resolve from System32.
++        let library = unsafe {
++            loader::LoadLibraryExW(
++                name.as_ptr(),
++                0,
++                loader::LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | loader::LOAD_LIBRARY_SEARCH_SYSTEM32,
++            )
++        };
++        if library == 0 {
++            return Err(std::io::Error::last_os_error().into());
++        }
++        let provider = Self::mesa_icd_loaded_from(&expected_icd).and_then(|loaded| {
++            if !loaded {
++                return Err(ErrorKind::NotSupported("Mesa WGL did not load its paired ICD").into());
++            }
++            Self::mesa_exports(library)
++        });
++        if provider.is_err() {
++            // SAFETY: No provider or callbacks survive a failed load.
++            unsafe { FreeLibrary(library) };
++        }
++        provider
++    }
++
++    fn mesa_icd_loaded_from(expected: &Path) -> Result<bool> {
++        let name: Vec<_> = OsStr::new(MESA_ICD).encode_wide().chain(Some(0)).collect();
++        // SAFETY: name is null-terminated. A process-wide provider owns the loaded module.
++        let module = unsafe { loader::GetModuleHandleW(name.as_ptr()) };
++        if module == 0 {
++            return Ok(false);
++        }
++        let mut path = vec![0; 32768];
++        // SAFETY: path is writable for its supplied length.
++        let len =
++            unsafe { loader::GetModuleFileNameW(module, path.as_mut_ptr(), path.len() as u32) }
++                as usize;
++        if len == 0 || len >= path.len() {
++            return Err(std::io::Error::last_os_error().into());
++        }
++        let loaded = PathBuf::from(OsString::from_wide(&path[..len])).canonicalize()?;
++        if loaded != expected {
++            return Err(
++                ErrorKind::NotSupported("Mesa WGL ICD loaded from a different directory").into(),
++            );
++        }
++        Ok(true)
++    }
++
++    fn mesa_exports(library: HMODULE) -> Result<Self> {
++        macro_rules! export {
++            ($name:literal) => {{
++                let name = concat!($name, "\0");
++                // SAFETY: The Mesa module is loaded and the export name is null-terminated.
++                let address = unsafe { loader::GetProcAddress(library, name.as_ptr()) }.ok_or(
++                    ErrorKind::NotSupported(concat!("Mesa WGL is missing ", $name)),
++                )?;
++                // SAFETY: Each selected export has the exact Windows ABI of its named WGL
++                // operation. The destination field specifies that operation's signature.
++                unsafe { mem::transmute::<unsafe extern "system" fn() -> isize, _>(address) }
++            }};
++        }
++        Ok(Self {
++            library,
++            mesa: true,
++            choose_pixel_format: export!("wglChoosePixelFormat"),
++            describe_pixel_format: export!("wglDescribePixelFormat"),
++            set_pixel_format: export!("wglSetPixelFormat"),
++            swap_buffers: export!("wglSwapBuffers"),
++            create_context: export!("wglCreateContext"),
++            delete_context: export!("wglDeleteContext"),
++            get_current_context: export!("wglGetCurrentContext"),
++            get_current_dc: export!("wglGetCurrentDC"),
++            make_current: export!("wglMakeCurrent"),
++            share_lists: export!("wglShareLists"),
++            wgl_get_proc_address: export!("wglGetProcAddress"),
++        })
++    }
++
++    pub(super) fn is_mesa(&self) -> bool {
++        self.mesa
++    }
++
++    pub(super) fn get_proc_address(&self, name: &CStr) -> *const c_void {
++        // SAFETY: name is null-terminated and the provider is kept loaded for the process.
++        unsafe {
++            let resolved = (self.wgl_get_proc_address)(name.as_ptr().cast())
++                .map_or(std::ptr::null(), |function| function as *const c_void);
++            if resolved.is_null() {
++                loader::GetProcAddress(self.library, name.as_ptr().cast())
++                    .map_or(std::ptr::null(), |function| function as *const c_void)
++            } else {
++                resolved
++            }
++        }
++    }
++}
+diff --git a/src/api/wgl/surface.rs b/src/api/wgl/surface.rs
+index 6ec93ce6..b73c7e7b 100644
+--- a/src/api/wgl/surface.rs
++++ b/src/api/wgl/surface.rs
+@@ -13,0 +14 @@ use windows_sys::Win32::Foundation::{HWND, RECT};
++use windows_sys::Win32::Graphics::Gdi as gdi;
+@@ -15 +15,0 @@ use windows_sys::Win32::Graphics::Gdi::HDC;
+-use windows_sys::Win32::Graphics::{Gdi as gdi, OpenGL as gl};
+@@ -210 +210 @@ impl<T: SurfaceTypeTrait> GlSurface<T> for Surface<T> {
+-            if gl::SwapBuffers(self.raw.hdc()) == 0 {
++            if (self.display.inner.provider.swap_buffers)(self.raw.hdc()) == 0 {
+@@ -244,0 +245 @@ impl<T: SurfaceTypeTrait> GlSurface<T> for Surface<T> {
++            && unsafe { (self.display.inner.provider.get_current_dc)() == self.raw.hdc() }
+@@ -248 +249 @@ impl<T: SurfaceTypeTrait> GlSurface<T> for Surface<T> {
+-        context.is_current()
++        self.is_current(context)
+@@ -252 +253 @@ impl<T: SurfaceTypeTrait> GlSurface<T> for Surface<T> {
+-        context.is_current()
++        self.is_current(context)

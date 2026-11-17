@@ -27,7 +27,7 @@ $previewNotes
 Workbooks and settings are preserved during updates. Save your work and close all suite windows when an update is ready. See [distribution documentation](https://github.com/$repository/blob/$Commit/docs/distribution.md).
 "@ | Set-Content -LiteralPath $notes -Encoding utf8
 
-# Stable releases are created as drafts and exposed only after every asset lands.
+# Stable assets stay in a draft until the exact package is checked on a Windows desktop.
 # The preview release is a rolling opt-in feed. Upload binaries before its feed.
 $existing = gh release view $tag --repo $repository --json 'id,isDraft,targetCommitish' 2>$null
 $exists = $LASTEXITCODE -eq 0
@@ -56,9 +56,9 @@ foreach ($asset in @($assets | Where-Object { $_ -notin $feeds }) + $feeds) {
     gh release upload $tag $asset.FullName --repo $repository --clobber
     if ($LASTEXITCODE -ne 0) { throw "Upload failed: $($asset.Name)" }
 }
-if ($Channel -eq 'preview') {
-    gh release edit $tag --repo $repository --draft=false --prerelease --latest=false --title $title --notes-file $notes
-} else {
-    gh release edit $tag --repo $repository --draft=false --latest --title $title --notes-file $notes
+if ($Channel -eq 'stable') {
+    Write-Output "Verified stable $tag staged as a draft for the Windows desktop check."
+    return
 }
+gh release edit $tag --repo $repository --draft=false --prerelease --latest=false --title $title --notes-file $notes
 if ($LASTEXITCODE -ne 0) { throw 'Could not publish the release.' }

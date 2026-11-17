@@ -22,10 +22,12 @@ through Home/recents. Open tab layout is not restored by the updater.
 
 ## Release channels
 
-- **Stable:** explicitly publish a `vX.Y.Z` tag matching `workspace.package.version`
-  in `Cargo.toml`. The Windows workflow tests, builds, packages, verifies and then
-  publishes an immutable versioned release. Friends on stable receive that version
-  on their next launch. Set the next workspace version before tagging again.
+- **Stable:** push a `vX.Y.Z` tag matching `workspace.package.version` in
+  `Cargo.toml`. The Windows workflow tests, packages, verifies, and uploads the
+  installer and update assets to a GitHub draft release. Verify the exact draft
+  package on the Windows desktop. Then publish it as latest with
+  `gh release edit vX.Y.Z --draft=false --latest`. Installed stable copies
+  receive it on their next launch. Set the next workspace version before tagging again.
 - **Preview:** every successful `main` build publishes `X.Y.Z-preview.RUN_NUMBER`
   to the reserved rolling `preview` release. Install its Setup.exe to opt in.
   Preview has a separate installation ID and shortcuts. It does not replace the
@@ -47,8 +49,17 @@ The stable Windows workflow preserves the verified release assets, then tests a
 clean install and an upgrade from the current public stable installer. It checks
 the installed app hashes, workbook preservation, and a responsive Slate window
 after restart. The disposable Windows runner uses checksum-pinned Mesa llvmpipe
-to supply OpenGL for this check. The download contains the original verified
-package, and desktop verification uses the installed Windows graphics driver.
+from the package to supply OpenGL for this check. The package files are checked
+both after a clean install and after applying the update.
+
+### Windows graphics compatibility
+
+Slate automatically uses the bundled CPU renderer for Intel graphics build
+`30.0.101.3118`, which was observed distorting frames and hanging in the driver.
+**Slate (Software graphics)** in the Windows Start menu starts with the same
+renderer on other computers. Software graphics may run slower on complex 3D
+boards. Pass `--native-graphics` to prefer the Windows graphics driver for one
+launch. The software renderer loads from Slate's installation directory.
 
 ## Artifact reuse and promotion
 

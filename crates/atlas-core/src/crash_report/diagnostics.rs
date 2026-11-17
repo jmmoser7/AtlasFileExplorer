@@ -1,6 +1,6 @@
 //! Local crash classifications and the separate, allowlisted submission.
 
-use super::{capture, storage};
+use super::{capture, storage, GraphicsCheckpoint};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, Read};
@@ -99,6 +99,8 @@ pub(super) struct RunDiagnostics {
     last_view: Option<View>,
     peak_frame_ms: Option<u32>,
     native: Option<NativeFingerprint>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    graphics: Option<GraphicsCheckpoint>,
 }
 
 impl RunDiagnostics {
@@ -122,6 +124,7 @@ impl RunDiagnostics {
             last_view: session.and_then(session_view),
             peak_frame_ms: session.and_then(peak_frame_ms),
             native: native_exception.then(|| native_fingerprint(dir)).flatten(),
+            graphics: GraphicsCheckpoint::read(dir),
         }
     }
 }
@@ -144,6 +147,8 @@ pub struct CrashSubmission {
     last_view: Option<View>,
     peak_frame_ms: Option<u32>,
     native: Option<NativeFingerprint>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    graphics: Option<GraphicsCheckpoint>,
 }
 
 /// Read a completed report directory selected from `recent_reports`.
@@ -229,6 +234,8 @@ pub fn submission_summary(report_dir: &Path) -> io::Result<CrashSubmission> {
         native: native_exception
             .then(|| native_fingerprint(report_dir))
             .flatten(),
+        graphics: GraphicsCheckpoint::from_report(&report["diagnostics"]["graphics"])
+            .or_else(|| GraphicsCheckpoint::read(report_dir)),
     })
 }
 

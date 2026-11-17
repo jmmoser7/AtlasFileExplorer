@@ -40,10 +40,10 @@ for 0.31.1 with a smaller change. **Remove the OpenGL patch when the workspace m
 ### What the patch does
 
 `change_gl_context` takes the early-out on every platform. On Windows the check
-is `surface_is_current`: glutin's context comparison, plus the missing half -
-it asks WGL for the bound device context (`wglGetCurrentDC`) and compares that
-DC's window (`WindowFromDC`) with the surface's window. EGL surfaces keep
-glutin's own comparison, which already checks the bound surfaces.
+uses glutin's `Surface::is_current`. The
+[Atlas Glutin patch](../glutin/ATLAS-PATCH.md) checks the current context and
+device context together through the selected WGL provider. EGL surfaces use
+glutin's existing comparison of the bound surfaces.
 
 With one viewport the context is made current once and stays current. With
 several (Slate's linked File Atlas window) it switches only when the target

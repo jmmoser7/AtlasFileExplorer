@@ -3,6 +3,84 @@ use super::*;
 use atlas_commands::CommandId;
 
 #[test]
+fn feedback_over_advanced_produces_valid_meshes_on_empty_and_populated_boards() {
+    for (case, populated) in [("empty", false), ("populated", true)] {
+        let mut h = Harness::new(case);
+        h.app.leave_home();
+        h.app.ensure_work_tab();
+        h.app.doc_mut().view.active_view = ViewKind::Board;
+        if populated {
+            h.seed_frame(None);
+            add_rect(&mut h.app, -220.0, -90.0);
+            picture_from(&mut h, "feedback-overlap.png", 210.0);
+        }
+
+        let mut raster = FrameRaster::new(800, 650);
+        assert!(h.app.dispatch(&h.ctx, CommandId("app.preferences"), None));
+        rasterize_feedback_frames(&mut h, &mut raster);
+        let settings = raster.px.clone();
+        assert!(h.app.dispatch(&h.ctx, CommandId("app.feedback.open"), None));
+        rasterize_feedback_frames(&mut h, &mut raster);
+
+        let advanced = egui::AreaState::load(&h.ctx, egui::Id::new("Advanced"))
+            .expect("Advanced window was laid out")
+            .rect();
+        let feedback_id = egui::Id::new(("feedback-dialog", "slate", true, false));
+        let feedback = egui::AreaState::load(&h.ctx, feedback_id)
+            .expect("Feedback picker was laid out")
+            .rect();
+        let size = egui::vec2(raster.w as f32, raster.h as f32);
+        let screen = ERect::from_min_size(Pos2::ZERO, size);
+        let overlap = advanced.intersect(feedback).intersect(screen);
+        assert!(overlap.is_positive(), "{case}: {advanced:?}, {feedback:?}");
+
+        let changed = raster
+            .px
+            .iter()
+            .zip(&settings)
+            .enumerate()
+            .filter(|(index, (after, before))| {
+                let point = Pos2::new(
+                    (index % raster.w) as f32 + 0.5,
+                    (index / raster.w) as f32 + 0.5,
+                );
+                overlap.contains(point) && after != before
+            })
+            .count();
+        assert!(changed > 100, "{case}: Feedback must paint over Advanced");
+    }
+}
+
+fn rasterize_feedback_frames(h: &mut Harness, raster: &mut FrameRaster) {
+    // A compact window keeps the standard Advanced and Feedback placements
+    // overlapping. Advance the egui clock so open animations settle predictably.
+    let size = egui::vec2(raster.w as f32, raster.h as f32);
+    for frame in 1..=8 {
+        let time = h.ctx.input(|input| input.time) + 0.05;
+        let output = h.frame_output(|input| {
+            input.screen_rect = Some(ERect::from_min_size(Pos2::ZERO, size));
+            input.time = Some(time);
+        });
+        raster.apply(&output.textures_delta);
+        let primitives = h.ctx.tessellate(output.shapes, output.pixels_per_point);
+        for prim in &primitives {
+            if let egui::epaint::Primitive::Mesh(mesh) = &prim.primitive {
+                assert!(mesh.is_valid(), "mesh indices must reference its vertices");
+                assert!(mesh
+                    .vertices
+                    .iter()
+                    .all(|vertex| vertex.pos.is_finite() && vertex.uv.is_finite()));
+            }
+        }
+        if frame == 8 {
+            raster.sync_fonts(&h.ctx);
+            raster.px.fill([0.0, 0.0, 0.0, 1.0]);
+            raster.draw(&primitives);
+        }
+    }
+}
+
+#[test]
 fn escape_commits_placed_polyline_vertices_as_one_undo_step() {
     let mut h = grip_board("feedback_polyline_escape");
     h.app.set_board_tool(board::BoardTool::Polyline);

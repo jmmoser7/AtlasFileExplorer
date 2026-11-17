@@ -35,9 +35,10 @@ installers include Slate and File Atlas.
 
 ### Update the stable release notes
 
-1. Publish the versioned stable GitHub Release through the Windows release
-   workflow in [distribution.md](../docs/distribution.md). Verify the
-   installer downloads successfully from that release.
+1. Run the Windows release workflow to stage the versioned GitHub draft.
+   Verify the exact installer on the Windows desktop, publish it as latest,
+   and download the public installer to confirm it matches. Follow the
+   [Windows distribution instructions](../docs/distribution.md).
 2. Add an entry to `website/release-history.json` in descending publication
    order. Include the stable tag, publication date, and the actual installer
    URL under `/releases/download/<tag>/`. Keep each older installer pinned

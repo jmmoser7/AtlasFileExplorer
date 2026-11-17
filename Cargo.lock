@@ -411,7 +411,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-agent"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "png",
  "serde",
@@ -421,7 +421,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-ai"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "atlas-agent",
  "atlas-codex",
@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-codex"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "atlas-agent",
  "base64 0.22.1",
@@ -455,7 +455,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-comfy"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "atlas-agent",
  "atlas-curl",
@@ -464,7 +464,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-commands"
-version = "1.0.12"
+version = "1.0.13"
 
 [[package]]
 name = "atlas-connector"
@@ -488,7 +488,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-core"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "cfb",
  "clipboard-win",
@@ -511,14 +511,14 @@ dependencies = [
 
 [[package]]
 name = "atlas-curl"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "atlas-ollama"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "atlas-agent",
  "atlas-curl",
@@ -529,7 +529,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-openai"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "atlas-agent",
  "atlas-curl",
@@ -539,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-packs"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "atlas-connector",
  "dirs",
@@ -549,7 +549,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-relay"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "crossbeam-channel",
  "rcgen",
@@ -563,7 +563,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-segment"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "crossbeam-channel",
  "serde",
@@ -572,11 +572,11 @@ dependencies = [
 
 [[package]]
 name = "atlas-session"
-version = "1.0.12"
+version = "1.0.13"
 
 [[package]]
 name = "atlas-shell"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "atlas-core",
  "atlas-curl",
@@ -599,7 +599,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-subscription"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "atlas-agent",
  "base64 0.22.1",
@@ -609,7 +609,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-update"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "serde",
  "serde_json",
@@ -975,7 +975,7 @@ dependencies = [
 
 [[package]]
 name = "collage"
-version = "1.0.12"
+version = "1.0.13"
 
 [[package]]
 name = "color_quant"
@@ -1894,8 +1894,6 @@ dependencies = [
 [[package]]
 name = "glutin"
 version = "0.32.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12124de845cacfebedff80e877bb37b5b75c34c5a4c89e47e1cdd67fb6041325"
 dependencies = [
  "bitflags 2.13.0",
  "cfg_aliases",
@@ -2674,7 +2672,7 @@ dependencies = [
 
 [[package]]
 name = "model-preview"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2722,7 +2720,7 @@ dependencies = [
 
 [[package]]
 name = "native-file-atlas"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "atlas-ai",
  "atlas-commands",
@@ -3720,7 +3718,7 @@ dependencies = [
 
 [[package]]
 name = "rhino-mesh"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "flate2",
 ]
@@ -4119,7 +4117,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "slate"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "atlas-agent",
  "atlas-ai",
@@ -4159,7 +4157,7 @@ dependencies = [
 
 [[package]]
 name = "slate-artifact"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "atlas-core",
  "image",
@@ -4919,7 +4917,7 @@ dependencies = [
 
 [[package]]
 name = "vector-ink"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "earcutr",
  "i_overlay",
@@ -6027,7 +6025,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "code-lens",
  "proc-macro2",

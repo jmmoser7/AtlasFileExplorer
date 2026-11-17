@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-exclude = ["vendor/rfd", "vendor/eframe"]
+exclude = ["vendor/rfd", "vendor/eframe", "vendor/glutin"]
 members = [
     "crates/atlas-core",
     "crates/atlas-packs",
@@ -35,7 +35,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.0.12"
+version = "1.0.13"
 edition = "2021"
 
 # Pinned upstream picker with an opt-in Windows overwrite-confirmation policy.
@@ -45,6 +45,8 @@ rfd = { path = "vendor/rfd" }
 # on Windows (frame cost, and a suspected trigger of a native crash in the Intel
 # GL driver). Upstream fixed this in 0.37.0; see vendor/eframe/ATLAS-PATCH.md.
 eframe = { path = "vendor/eframe" }
+# Pinned WGL provider dispatch for opt-in software graphics. See vendor/glutin/ATLAS-PATCH.md.
+glutin = { path = "vendor/glutin" }
 
 [workspace.dependencies]
 # Shared third-party deps — always reference these from member crates so the

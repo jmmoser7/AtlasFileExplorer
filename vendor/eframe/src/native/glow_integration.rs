@@ -898,52 +898,17 @@ fn change_gl_context(
     *current_gl_context = Some(not_current.make_current(gl_surface).unwrap());
 }
 
-/// ATLAS PATCH: is `gl_surface` the surface `gl_context` is current on, on this thread?
-#[cfg(not(target_os = "windows"))]
+/// Glutin compares both the WGL context and the selected provider's bound device context.
 fn surface_is_current(
     gl_context: &glutin::context::PossiblyCurrentContext,
     gl_surface: &glutin::surface::Surface<glutin::surface::WindowSurface>,
 ) -> bool {
-    gl_surface.is_current(gl_context)
-}
-
-/// ATLAS PATCH: is `gl_surface` the surface `gl_context` is current on, on this thread?
-///
-/// glutin's WGL `Surface::is_current` only compares the rendering context, never
-/// the device context, so with several viewports it answers `true` for every
-/// surface. Ask WGL which device context is bound and compare its window with
-/// the window behind `gl_surface`.
-#[cfg(target_os = "windows")]
-#[allow(unsafe_code)]
-fn surface_is_current(
-    gl_context: &glutin::context::PossiblyCurrentContext,
-    gl_surface: &glutin::surface::Surface<glutin::surface::WindowSurface>,
-) -> bool {
-    use glutin::surface::{AsRawSurface as _, RawSurface};
-    use std::ffi::c_void;
-
-    #[link(name = "opengl32")]
-    extern "system" {
-        fn wglGetCurrentDC() -> *mut c_void;
-    }
-    #[link(name = "user32")]
-    extern "system" {
-        fn WindowFromDC(hdc: *mut c_void) -> *mut c_void;
-    }
-
-    if always_switch_gl_context() || !gl_surface.is_current(gl_context) {
+    #[cfg(target_os = "windows")]
+    if always_switch_gl_context() {
         return false;
     }
 
-    match gl_surface.raw_surface() {
-        RawSurface::Wgl(surface_hwnd) => {
-            // SAFETY: both calls only read thread-local WGL state and window state.
-            let bound_dc = unsafe { wglGetCurrentDC() };
-            !bound_dc.is_null() && unsafe { WindowFromDC(bound_dc) }.cast_const() == surface_hwnd
-        }
-        // Every other backend (EGL / ANGLE) compares the bound surfaces itself.
-        _ => true,
-    }
+    gl_surface.is_current(gl_context)
 }
 
 /// ATLAS PATCH: `ATLAS_GL_ALWAYS_SWITCH=1` restores upstream's behavior of

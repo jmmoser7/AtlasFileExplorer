@@ -66,6 +66,19 @@ function Assert-AppBytes([string]$Root, $ExpectedHashes) {
     }
 }
 
+function Assert-SoftwareShortcut([string]$Root) {
+    $programs = [Environment]::GetFolderPath('Programs')
+    $shortcutPath = Join-Path $programs 'Slate (Software graphics).lnk'
+    if (!(Test-Path -LiteralPath $shortcutPath -PathType Leaf)) {
+        throw 'The Windows Start menu is missing the Slate software graphics shortcut.'
+    }
+    $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
+    if ($shortcut.TargetPath -ne (Join-Path $Root 'current/slate.exe') -or
+        $shortcut.WorkingDirectory -ne $Root -or $shortcut.Arguments -ne '--software-graphics') {
+        throw "The Slate software graphics shortcut does not target the installation at $Root."
+    }
+}
+
 function Save-SlateStartupDiagnostics([string]$SlatePath, [long]$StartedAfter) {
     $localData = [Environment]::GetFolderPath('LocalApplicationData')
     $reports = Join-Path $localData 'NativeFileAtlas/crash-reports/slate'
@@ -76,7 +89,7 @@ function Save-SlateStartupDiagnostics([string]$SlatePath, [long]$StartedAfter) {
         if ($run.executable.path -ne $SlatePath -or $run.started_unix_ms -lt $StartedAfter) { continue }
 
         $destination = New-Item -Path (Join-Path $diagnostics $directory.Name) -ItemType Directory
-        foreach ($name in @('run.json', 'report.json', 'native-exception.txt', 'stderr.log')) {
+        foreach ($name in @('run.json', 'report.json', 'graphics.json', 'native-exception.txt', 'stderr.log')) {
             $source = Join-Path $directory.FullName $name
             if (Test-Path -LiteralPath $source -PathType Leaf) {
                 Copy-Item -LiteralPath $source -Destination $destination.FullName
@@ -134,7 +147,8 @@ Assert-Artifact $package $asset.Size $asset.SHA256
 $hashes = @{}
 $zip = [IO.Compression.ZipFile]::OpenRead($package)
 try {
-    foreach ($name in @('slate.exe', 'native-file-atlas.exe', 'slate-video-worker.exe')) {
+    foreach ($name in @('slate.exe', 'native-file-atlas.exe', 'slate-video-worker.exe',
+        'runtime/software-gl/opengl32.dll', 'runtime/software-gl/libgallium_wgl.dll')) {
         $entry = $zip.GetEntry("lib/app/$name")
         if (!$entry) { throw "The candidate update archive does not contain $name." }
         $stream = $entry.Open()
@@ -148,6 +162,7 @@ Assert-Installed $previousRoot $previous
 Install-Suite (Join-Path $release $setupName) $cleanRoot
 Assert-Installed $cleanRoot $Version
 Assert-AppBytes $cleanRoot $hashes
+Assert-SoftwareShortcut $cleanRoot
 Write-Output "Verified clean install of stable $Version."
 Copy-Item -LiteralPath $fixture -Destination (Join-Path $previousRoot 'current/update_smoke.exe')
 $probe = Join-Path $previousRoot 'current/update_smoke.exe'
@@ -201,6 +216,7 @@ try {
     }
     Assert-Installed $previousRoot $Version
     Assert-AppBytes $previousRoot $hashes
+    Assert-SoftwareShortcut $previousRoot
     if ((Get-FileHash -LiteralPath $workbook -Algorithm SHA256).Hash -ne $workbookHash) {
         throw 'Upgrade modified the workbook.'
     }

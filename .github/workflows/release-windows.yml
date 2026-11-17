@@ -142,17 +142,13 @@ jobs:
         run: |
           $certificate = Join-Path $env:RUNNER_TEMP 'atlas-signing.pfx'
           if (Test-Path -LiteralPath $certificate) { Remove-Item -LiteralPath $certificate }
-      - name: Install the pinned software renderer for the hosted stable smoke
-        if: steps.version.outputs.channel == 'stable'
-        shell: pwsh
-        run: ./scripts/install-windows-smoke-renderer.ps1
       - name: Verify candidate setup and upgrade from the published stable suite
         id: stable_smoke
         if: steps.version.outputs.channel == 'stable'
         shell: pwsh
         env:
           CANDIDATE_RELEASE_DIR: ${{ steps.package.outputs.release_dir }}
-          GALLIUM_DRIVER: llvmpipe
+          ATLAS_SOFTWARE_GL: '1'
         run: ./scripts/test-windows-stable-upgrade.ps1 -ReleaseDirectory $env:CANDIDATE_RELEASE_DIR -Version $env:ATLAS_RELEASE_VERSION
       - name: Preserve stable smoke diagnostics on failure
         if: failure() && steps.stable_smoke.outcome == 'failure'
@@ -183,7 +179,7 @@ jobs:
         with:
           name: windows-${{ needs.build.outputs.channel }}
           path: release
-      - name: Publish verified release
+      - name: Upload verified release files
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

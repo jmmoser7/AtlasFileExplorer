@@ -29,6 +29,8 @@ try {
     foreach ($file in @('slate.exe', 'native-file-atlas.exe', 'slate-video-worker.exe',
         'HeadlessRhino.exe', 'HeadlessRhino-README.md', 'pdfium.dll', 'PDFium-LICENSE',
         'DEJAVU-LICENSE.txt', 'install-shortcuts.ps1', 'runtime/node.exe', 'runtime/LICENSE',
+        'runtime/software-gl/opengl32.dll', 'runtime/software-gl/libgallium_wgl.dll', 'runtime/software-gl/Mesa-LICENSE.rst',
+        'runtime/software-gl/LLVM-LICENSE.txt', 'runtime/software-gl/NOTICE.txt', 'runtime/software-gl/licenses/MIT',
         'runtime/node_modules/npm/bin/npm-cli.js', 'cursor-sidecar/index.mjs',
         'cursor-sidecar/artifacts.mjs', 'cursor-sidecar/artifact-generation-v1.md',
         'cursor-sidecar/board-link.mjs', 'cursor-sidecar/board-link-v1.md',
@@ -52,13 +54,19 @@ try {
         Write-Fixture (Join-Path $release "releases.$channel.json") (@{Assets=@($asset)} | ConvertTo-Json -Depth 4)
         Verify $channel
         $checks++
-        foreach ($required in @('HeadlessRhino.exe', 'HeadlessRhino-README.md', 'slate-video-worker.exe')) {
+        foreach ($required in @('HeadlessRhino.exe', 'HeadlessRhino-README.md', 'slate-video-worker.exe',
+            'runtime/software-gl/opengl32.dll', 'runtime/software-gl/libgallium_wgl.dll')) {
             $path = Join-Path $stage $required
             Remove-Item -LiteralPath $path
             Expect-Rejection $channel "Package is missing $required"
             $checks++
             Write-Fixture $path
         }
+        $shadow = Join-Path $stage 'opengl32.dll'
+        Write-Fixture $shadow
+        Expect-Rejection $channel 'The software OpenGL provider belongs only in runtime/software-gl'
+        $checks++
+        Remove-Item -LiteralPath $shadow
         foreach ($binary in @('RhinoCommon.dll', 'Rhino.exe', 'rHcOmMoN_c.DlL', 'RhinoLibrary.dll')) {
             $path = Join-Path $stage "runtime/nested/$binary"
             Write-Fixture $path

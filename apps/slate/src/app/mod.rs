@@ -79,7 +79,7 @@ mod clipboard;
 mod clipboard_image;
 pub mod commands;
 mod crash_feedback;
-mod diagnostics;
+pub(super) mod diagnostics;
 mod dispatch;
 mod enscape_host;
 mod external_drop;

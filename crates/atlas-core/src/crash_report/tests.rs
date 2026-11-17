@@ -61,9 +61,17 @@ fn subprocess_fixture() {
     let Some(dir) = std::env::var_os("ATLAS_CRASH_TEST_DIR") else {
         return;
     };
-    install_panic_hook(PathBuf::from(dir));
+    let dir = PathBuf::from(dir);
+    install_panic_hook(dir.clone());
     match std::env::var("ATLAS_CRASH_TEST_ACTION").as_deref() {
         Ok("exit") => std::process::exit(7),
+        Ok("graphics") => {
+            GraphicsCheckpoint::from_gl("Intel", "private device", "Build 30.0.101.3118", 4, 6, 4)
+                .unwrap()
+                .write(&dir)
+                .unwrap();
+            std::process::exit(7);
+        }
         Ok("panic") => {
             let workers: Vec<_> = (0..2)
                 .map(|index| {
@@ -105,6 +113,39 @@ fn abnormal_subprocess_exit_is_reported_and_can_be_acknowledged() {
     assert!(temp.unread().is_empty());
     assert!(path.exists(), "acknowledge must keep evidence");
     acknowledge(path.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn graphics_checkpoint_stays_with_exact_run_and_reaches_review_summary() {
+    let temp = TempDir::new();
+    let mut run = temp.start();
+    let mut unrelated = temp.start();
+    let mut process = child(&mut run, "graphics");
+    let mut other_process = child(&mut unrelated, "exit");
+    let report = run.finish(process.wait().unwrap()).unwrap().unwrap();
+    let other_report = unrelated
+        .finish(other_process.wait().unwrap())
+        .unwrap()
+        .unwrap();
+    let dir = report.parent().unwrap();
+    let expected = serde_json::json!({
+        "renderer_family": "Intel",
+        "gl_major": 4,
+        "gl_minor": 6,
+        "requested_msaa": 4,
+        "driver_build": [30, 0, 101, 3118],
+    });
+    let completed: serde_json::Value = serde_json::from_slice(&fs::read(&report).unwrap()).unwrap();
+    assert_eq!(completed["diagnostics"]["graphics"], expected);
+    fs::remove_file(dir.join("graphics.json")).unwrap();
+    let review = serde_json::to_value(submission_summary(dir).unwrap()).unwrap();
+    assert_eq!(review["graphics"], expected);
+    assert_eq!(review["evidence"]["session_checkpoint"], false);
+    let other = submission_summary(other_report.parent().unwrap()).unwrap();
+    assert!(serde_json::to_value(other)
+        .unwrap()
+        .get("graphics")
+        .is_none());
 }
 
 #[test]

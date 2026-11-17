@@ -1,5 +1,27 @@
 //! Infrequent graphics identity captured by the existing activity recorder.
 use eframe::glow::{self, HasContext};
+use std::path::Path;
+
+pub(crate) fn checkpoint_graphics(report_dir: &Path, gl: &glow::Context, msaa: u16) {
+    // The GL context is current in the native creation callback.
+    let (vendor, renderer) = unsafe {
+        (
+            gl.get_parameter_string(glow::VENDOR),
+            gl.get_parameter_string(glow::RENDERER),
+        )
+    };
+    let version = gl.version();
+    if let Some(checkpoint) = atlas_core::crash_report::GraphicsCheckpoint::from_gl(
+        &vendor,
+        &renderer,
+        &version.vendor_info,
+        version.major,
+        version.minor,
+        msaa,
+    ) {
+        let _ = checkpoint.write(report_dir);
+    }
+}
 
 pub(super) fn record_graphics(gl: Option<&glow::Context>) {
     let Some(gl) = gl else {

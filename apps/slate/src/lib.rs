@@ -6,11 +6,19 @@ pub use app::SlateApp;
 
 /// Launch the standalone Slate window.
 pub fn run() -> eframe::Result {
+    run_with_crash_report(None)
+}
+
+/// Launch the window with the supervising process's exact crash report directory.
+#[doc(hidden)]
+pub fn run_with_crash_report(report_dir: Option<&std::path::Path>) -> eframe::Result {
     let initial_doc = std::env::args()
-        .nth(1)
+        .skip(1)
+        .find(|arg| !matches!(arg.as_str(), "--software-graphics" | "--native-graphics"))
         .map(std::path::PathBuf::from)
         .filter(|p| p.is_file());
 
+    let msaa = atlas_shell::native_msaa_samples();
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([1440.0, 900.0])
@@ -22,12 +30,17 @@ pub fn run() -> eframe::Result {
             // (icon + menus + window buttons — see atlas_shell::menubar).
             .with_decorations(false),
         vsync: true,
-        multisampling: atlas_shell::native_msaa_samples(),
+        multisampling: msaa,
         ..Default::default()
     };
     eframe::run_native(
         "Slate",
         options,
-        Box::new(|cc| Ok(Box::new(app::SlateApp::new(cc, initial_doc)))),
+        Box::new(move |cc| {
+            if let (Some(dir), Some(gl)) = (report_dir, cc.gl.as_deref()) {
+                app::diagnostics::checkpoint_graphics(dir, gl, msaa);
+            }
+            Ok(Box::new(app::SlateApp::new(cc, initial_doc)))
+        }),
     )
 }

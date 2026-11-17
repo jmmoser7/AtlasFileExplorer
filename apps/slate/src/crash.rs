@@ -3,9 +3,11 @@
 
 use atlas_core::crash_report::{self, RunReport, SupervisorFailure};
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
+#[cfg(windows)]
+mod graphics_mode;
 #[cfg(windows)]
 mod native;
 mod stderr;
@@ -26,7 +28,7 @@ pub fn run() -> ExitCode {
         if let Err(error) = native::install(&dir) {
             eprintln!("Native exception details unavailable: {error}");
         }
-        return run_window();
+        return run_window(Some(&dir));
     }
 
     notify_previous_reports();
@@ -37,7 +39,7 @@ pub fn run() -> ExitCode {
                 "Crash reports unavailable",
                 &format!("Slate could not create its local crash report folder.\n{error}\n\nSlate will open, but this run cannot save crash reports."),
             );
-            return run_window();
+            return run_window(None);
         }
     };
     match monitor(report) {
@@ -49,8 +51,14 @@ pub fn run() -> ExitCode {
     }
 }
 
-fn run_window() -> ExitCode {
-    match slate::run() {
+fn run_window(report_dir: Option<&Path>) -> ExitCode {
+    #[cfg(windows)]
+    if let Err(error) = graphics_mode::prepare() {
+        eprintln!("Slate software graphics unavailable: {error}");
+        message("Slate graphics could not start", &error.to_string());
+        return ExitCode::FAILURE;
+    }
+    match slate::run_with_crash_report(report_dir) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("Slate window failed: {error}");

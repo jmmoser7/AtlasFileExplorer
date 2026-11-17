@@ -11,6 +11,7 @@
 
 mod capture;
 mod diagnostics;
+mod graphics;
 mod panic_hook;
 mod recovery;
 mod storage;
@@ -19,6 +20,7 @@ mod storage;
 mod tests;
 
 pub use diagnostics::{submission_summary, CrashSubmission, SupervisorFailure};
+pub use graphics::GraphicsCheckpoint;
 pub use panic_hook::install_panic_hook;
 pub use storage::{acknowledge, recent_reports, reports_dir, unread_reports, ReportSummary};
 

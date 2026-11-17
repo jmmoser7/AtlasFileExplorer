@@ -66,6 +66,40 @@ Copy-Item -LiteralPath (Join-Path $pdf 'licenses') -Destination (Join-Path $stag
 $nodeArchive = Get-VerifiedArchive 'https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip' '158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541' 'node-v24.21.0-win-x64.zip'
 Expand-Archive -LiteralPath $nodeArchive -DestinationPath $build
 Copy-Item -LiteralPath (Join-Path $build 'node-v24.21.0-win-x64') -Destination (Join-Path $stage 'runtime') -Recurse
+
+# Slate loads this matched Mesa WGL pair from its private runtime directory.
+# Leave the system OpenGL installation and the suite's root DLL search alone.
+$mesaBin = Get-VerifiedArchive 'https://github.com/pal1000/mesa-dist-win/releases/download/25.2.8/mesa3d-25.2.8-release-msvc.7z' 'e47cfe0be35f0c40c3d488c0e965d10656154ed55cfdfe4f4d79d4395672dc02' 'mesa3d-25.2.8-release-msvc.7z'
+$mesaSource = Get-VerifiedArchive 'https://archive.mesa3d.org/mesa-25.2.8.tar.xz' '097842f3e49d996868b38688db87b006f7d4541e93ce86d2f341d8b3e7be7c93' 'mesa-25.2.8.tar.xz'
+$llvmLicense = Get-VerifiedArchive 'https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-21.1.7/llvm/LICENSE.TXT' '8d85c1057d742e597985c7d4e6320b015a9139385cff4cbae06ffc0ebe89afee' 'llvm-21.1.7-LICENSE.txt'
+$mesaRuntime = New-Item -ItemType Directory -Path (Join-Path $stage 'runtime/software-gl')
+& tar.exe -xf $mesaBin -C $build 'x64/opengl32.dll' 'x64/libgallium_wgl.dll'
+if ($LASTEXITCODE -ne 0) { throw 'Mesa Windows renderer extraction failed.' }
+& tar.exe -xf $mesaSource -C $build 'mesa-25.2.8/licenses' 'mesa-25.2.8/docs/license.rst' 'mesa-25.2.8/src/util/xxhash.h'
+if ($LASTEXITCODE -ne 0) { throw 'Mesa source license extraction failed.' }
+foreach ($dll in @('opengl32.dll', 'libgallium_wgl.dll')) {
+    Copy-Item -LiteralPath (Join-Path $build "x64/$dll") -Destination $mesaRuntime.FullName
+}
+Copy-Item -LiteralPath (Join-Path $build 'mesa-25.2.8/licenses') -Destination $mesaRuntime.FullName -Recurse
+Copy-Item -LiteralPath (Join-Path $build 'mesa-25.2.8/docs/license.rst') -Destination (Join-Path $mesaRuntime.FullName 'Mesa-LICENSE.rst')
+Copy-Item -LiteralPath (Join-Path $build 'mesa-25.2.8/src/util/xxhash.h') -Destination (Join-Path $mesaRuntime.FullName 'licenses/Mesa-xxhash-NOTICE.txt')
+Copy-Item -LiteralPath $llvmLicense -Destination (Join-Path $mesaRuntime.FullName 'LLVM-LICENSE.txt')
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'distribution/mesa-graphics-notice.txt') -Destination (Join-Path $mesaRuntime.FullName 'NOTICE.txt')
+$mesaNotices = @(
+    @{ Name='zlib-1.3.1-LICENSE'; Url='https://raw.githubusercontent.com/madler/zlib/v1.3.1/LICENSE'; Sha='845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243' },
+    @{ Name='zstd-1.5.7-LICENSE'; Url='https://raw.githubusercontent.com/facebook/zstd/v1.5.7/LICENSE'; Sha='7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8' },
+    @{ Name='DirectX-Headers-1.618.2-LICENSE'; Url='https://raw.githubusercontent.com/microsoft/DirectX-Headers/v1.618.2/LICENSE'; Sha='903df5512f7d02609fed0c780a9b704f5a3eeb6e4d84ebe42a29845c81899a3c' },
+    @{ Name='libva-2.22.0-COPYING'; Url='https://raw.githubusercontent.com/intel/libva/2.22.0/COPYING'; Sha='c86a782ee845b52472dae9b9d79fb915d333628ac0efe49cdce63644814931de' },
+    @{ Name='SPIRV-Tools-sdk-1.4.328.1-LICENSE'; Url='https://raw.githubusercontent.com/KhronosGroup/SPIRV-Tools/vulkan-sdk-1.4.328.1/LICENSE'; Sha='cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30' },
+    @{ Name='SPIRV-Headers-sdk-1.4.328.1-LICENSE'; Url='https://raw.githubusercontent.com/KhronosGroup/SPIRV-Headers/vulkan-sdk-1.4.328.1/LICENSE'; Sha='ea43b1de38a6f90c488800d66dec1ed671e68cda530266bc96951fb5b6307613' },
+    @{ Name='LLVM-xxhash-NOTICE'; Url='https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-21.1.7/llvm/lib/Support/xxhash.cpp'; Sha='b47e89a65e40f34c7e336a58f1902c958b7bd90b3370bd497c8cb788eb40c2d4' },
+    @{ Name='Mesa-Windows-build-LICENSE'; Url='https://raw.githubusercontent.com/pal1000/mesa-dist-win/25.2.8/LICENSE'; Sha='9cd0121dc070f0ac65c1fc266bee74bdbbc22cea4210ae72ae0c1f076448d4cc' }
+)
+foreach ($notice in $mesaNotices) {
+    $file = Get-VerifiedArchive $notice.Url $notice.Sha "$($notice.Name).txt"
+    Copy-Item -LiteralPath $file -Destination (Join-Path $mesaRuntime.FullName 'licenses')
+}
+
 $sidecar = New-Item -ItemType Directory -Path (Join-Path $stage 'cursor-sidecar')
 foreach ($file in @('index.mjs', 'artifacts.mjs', 'artifact-generation-v1.md', 'board-link.mjs', 'board-link-v1.md', 'attachments.mjs', 'models.mjs', 'activity.mjs', 'policy.mjs', 'install.mjs', 'supervise.mjs', 'package.json', 'package-lock.json', 'README.md', 'SETUP.md')) {
     Copy-Item -LiteralPath (Join-Path $repo "docs/agent/cursor-sidecar/$file") -Destination $sidecar.FullName

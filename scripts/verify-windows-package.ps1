@@ -2,6 +2,9 @@
 param([Parameter(Mandatory)][string]$AppDirectory, [Parameter(Mandatory)][string]$ReleaseDirectory,
     [Parameter(Mandatory)][string]$Channel, [Parameter(Mandatory)][string]$Version)
 $ErrorActionPreference = 'Stop'
+if (Test-Path -LiteralPath (Join-Path $AppDirectory 'opengl32.dll')) {
+    throw 'The software OpenGL provider belongs only in runtime/software-gl.'
+}
 foreach ($file in @('HeadlessRhino.exe', 'HeadlessRhino-README.md')) {
     if (-not (Test-Path -LiteralPath (Join-Path $AppDirectory $file) -PathType Leaf)) {
         throw "Package is missing $file (required for stable and preview)."
@@ -15,6 +18,8 @@ foreach ($commercial in Get-ChildItem -LiteralPath $AppDirectory -File -Recurse 
     }
 }
 foreach ($file in @('slate.exe', 'native-file-atlas.exe', 'slate-video-worker.exe', 'pdfium.dll', 'runtime/node.exe', 'runtime/node_modules/npm/bin/npm-cli.js',
+    'runtime/software-gl/opengl32.dll', 'runtime/software-gl/libgallium_wgl.dll', 'runtime/software-gl/Mesa-LICENSE.rst',
+    'runtime/software-gl/LLVM-LICENSE.txt', 'runtime/software-gl/NOTICE.txt', 'runtime/software-gl/licenses/MIT',
     'runtime/LICENSE', 'cursor-sidecar/index.mjs', 'cursor-sidecar/artifacts.mjs', 'cursor-sidecar/artifact-generation-v1.md', 'cursor-sidecar/board-link.mjs', 'cursor-sidecar/board-link-v1.md', 'cursor-sidecar/attachments.mjs', 'cursor-sidecar/models.mjs', 'cursor-sidecar/activity.mjs', 'cursor-sidecar/policy.mjs',
     'cursor-sidecar/install.mjs', 'cursor-sidecar/supervise.mjs', 'cursor-sidecar/package-lock.json', 'PDFium-LICENSE', 'DEJAVU-LICENSE.txt', 'install-shortcuts.ps1')) {
     if (-not (Test-Path -LiteralPath (Join-Path $AppDirectory $file) -PathType Leaf)) { throw "Package is missing $file" }
