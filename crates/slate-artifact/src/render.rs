@@ -2529,8 +2529,10 @@ mod tests {
                     let ink = rasterize(&butt, scale);
                     let other_cap = rasterize(&square_cap, scale);
                     let different_pixels = ink
-                        .chunks_exact(4)
-                        .zip(other_cap.chunks_exact(4))
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .zip(other_cap.as_chunks::<4>().0)
                         .filter(|(a, b)| a != b)
                         .count();
                     assert_eq!(different_pixels, 0, "end caps changed {label}");
@@ -2559,8 +2561,10 @@ mod tests {
                             scale,
                         );
                         let alpha_error: u64 = ink
-                            .chunks_exact(4)
-                            .zip(reference.chunks_exact(4))
+                            .as_chunks::<4>()
+                            .0
+                            .iter()
+                            .zip(reference.as_chunks::<4>().0)
                             .map(|(a, b)| u64::from(a[3].abs_diff(b[3])))
                             .sum();
                         let area = alpha_error as f64 / (255.0 * f64::from(scale * scale));

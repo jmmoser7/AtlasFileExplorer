@@ -278,8 +278,10 @@ mod tests {
 
     #[test]
     fn a_crash_review_prefills_a_bug_without_sending_or_replacing_a_draft() {
-        let mut hub = FeedbackHub::default();
-        hub.description = "Unsent feedback".into();
+        let mut hub = FeedbackHub {
+            description: "Unsent feedback".into(),
+            ..Default::default()
+        };
         assert!(!hub.review_bug("Crash summary".into()));
         assert_eq!(hub.description, "Unsent feedback");
         hub.description.clear();
