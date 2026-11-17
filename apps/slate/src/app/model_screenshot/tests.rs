@@ -215,9 +215,10 @@ fn the_screenshot_button_opens_a_menu_that_stays_open() {
 #[test]
 fn the_screenshot_menu_opens_clear_of_its_icon_on_a_higher_layer() {
     let (mut h, id) = selected_model("shot_menu_clear");
-    // Exercise the attached apron, rather than a narrow host's squircle fallback.
+    // Leave room for the full model strip so the test exercises its attached apron.
     h.app.patch_nodes(&[id], |node| {
-        node.rect.w = 560.0;
+        node.rect.x -= (720.0 - node.rect.w) * 0.5;
+        node.rect.w = 720.0;
         node.rect.h = 240.0;
     });
     h.app.tab_mut().cam.z = 1.0;

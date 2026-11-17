@@ -11,10 +11,9 @@
 //! arrows (nudge with a selection, pan without), and Board type-to-command
 //! (bare letters wait ~700 ms for a second character to open the canvas palette).
 mod feedback;
-mod input_state;
+pub(super) mod input_state;
 mod keys;
 mod select_all;
-pub(super) use input_state::space_input_interrupted;
 pub use input_state::{BareLetterHold, SpaceTap};
 mod media;
 mod selection;

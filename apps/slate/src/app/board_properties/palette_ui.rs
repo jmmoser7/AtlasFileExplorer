@@ -33,72 +33,7 @@ impl SlateApp {
         let live = self.property_chrome_is_live(vertex_bounds.is_some());
         image_palette::dismiss_if_inactive(&ctx, self, live);
         if live {
-            let items = live_property_strip_items(self, &self.shape_properties.nodes);
-            let count = match self.shape_properties.nodes.as_slice() {
-                [node] => image_palette::control_count(self, node).unwrap_or(items.len()),
-                _ => items.len(),
-            };
-            // D13 / D11: a panel whose squircle a vertex pick took off the
-            // strip commits its pending edits and closes.
-            if self
-                .shape_properties
-                .panel
-                .is_some_and(|panel| !items.contains(&StripItem::Panel(panel)))
-                && !self.shape_property_points().is_empty()
-            {
-                self.apply_shape_preview(&ctx, true);
-            }
-            if let Some(bounds) = vertex_bounds.or(self.shape_properties.bounds) {
-                let generation = self.shape_properties.generation;
-                let bottom = self
-                    .shape_properties
-                    .last_chrome
-                    .as_ref()
-                    .filter(|last| {
-                        last.bounds == bounds
-                            && last.count == count
-                            && last.generation == generation
-                            && last.picked_vertices == vertex_bounds.is_some()
-                    })
-                    .map(|last| last.bottom)
-                    .unwrap_or_else(|| {
-                        let outlines: Vec<_> = self
-                            .shape_properties
-                            .nodes
-                            .iter()
-                            .filter(|_| vertex_bounds.is_none())
-                            .filter_map(|node| slate_doc::geom::node_closed_poly(node, 0.25))
-                            .flatten()
-                            .collect();
-                        chrome::strip_bottom(
-                            Rect::from_min_size(
-                                Pos2::new(bounds.x, bounds.y),
-                                Vec2::new(bounds.w, bounds.h),
-                            ),
-                            &outlines,
-                            chrome::strip_size(count).x,
-                        )
-                    });
-                self.shape_properties.last_chrome = Some(LastChrome {
-                    host: match self.shape_properties.ids.as_slice() {
-                        [host] => Some((self.tab().id, *host)),
-                        _ => None,
-                    },
-                    bounds,
-                    items: items.clone(),
-                    count,
-                    generation,
-                    picked_vertices: vertex_bounds.is_some(),
-                    bottom,
-                    blister: property_strip::rectangular_blister(
-                        self,
-                        &self.shape_properties.nodes,
-                        items.len(),
-                    ),
-                    image: image_palette::attached(self, true),
-                    media: None,
-                });
-            }
+            self.update_live_property_chrome(&ctx, vertex_bounds);
         }
         let fade = chrome::strip_fade(&ctx, Id::new("selection_property_strip"), live);
         if fade <= 0.0 || self.board_crop.is_some() {

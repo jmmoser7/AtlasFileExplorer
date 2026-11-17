@@ -89,9 +89,60 @@ pub struct FeedbackHub {
     send: send::State,
     /// Last user-chosen position of the shared feedback dialog.
     pub(crate) dialog_pos: Option<eframe::egui::Pos2>,
-    reviewed_bug: bool,
+    reviewed_bug: BugReview,
     form_return: FeedbackPhase,
     dispatch_depth: u32,
+}
+
+#[derive(Default)]
+enum BugReview {
+    #[default]
+    None,
+    Active(FeedbackDraft),
+    Suspended(FeedbackDraft),
+}
+
+struct FeedbackDraft {
+    kind: Option<FeedbackKind>,
+    description: String,
+    links_text: String,
+    reproduce_wanted: bool,
+    recorded_steps: Vec<RecordedStep>,
+    attachments: Vec<(PathBuf, Vec<u8>)>,
+    attach_note: Option<String>,
+    capture_rx: Option<std::sync::mpsc::Receiver<Option<Vec<u8>>>>,
+    send: send::State,
+}
+
+impl FeedbackDraft {
+    fn take(hub: &mut FeedbackHub) -> Self {
+        // An unreceived viewport screenshot has no draft identity. Cancel it
+        // at the boundary. An encoding already assigned to this draft can finish.
+        hub.screenshot_pending = false;
+        Self {
+            kind: hub.kind.take(),
+            description: std::mem::take(&mut hub.description),
+            links_text: std::mem::take(&mut hub.links_text),
+            reproduce_wanted: std::mem::take(&mut hub.reproduce_wanted),
+            recorded_steps: std::mem::take(&mut hub.recorded_steps),
+            attachments: std::mem::take(&mut hub.attachments),
+            attach_note: hub.attach_note.take(),
+            capture_rx: hub.capture_rx.take(),
+            send: std::mem::take(&mut hub.send),
+        }
+    }
+
+    fn restore(self, hub: &mut FeedbackHub) {
+        hub.kind = self.kind;
+        hub.description = self.description;
+        hub.links_text = self.links_text;
+        hub.reproduce_wanted = self.reproduce_wanted;
+        hub.recorded_steps = self.recorded_steps;
+        hub.attachments = self.attachments;
+        hub.attach_note = self.attach_note;
+        hub.capture_rx = self.capture_rx;
+        hub.send = self.send;
+    }
 }
 
 /// Largest dropped image read into a report.
@@ -118,7 +169,7 @@ impl Default for FeedbackHub {
             capture_rx: None,
             send: send::State::default(),
             dialog_pos: None,
-            reviewed_bug: false,
+            reviewed_bug: BugReview::None,
             form_return: FeedbackPhase::BugForm,
             dispatch_depth: 0,
         }
@@ -127,13 +178,17 @@ impl Default for FeedbackHub {
 
 impl FeedbackHub {
     pub fn open_picker(&mut self) {
-        if !self.send.pending() {
+        if self.can_leave_form() {
+            self.leave_review(true);
             self.phase = FeedbackPhase::KindPicker;
         }
     }
 
     pub fn begin_form(&mut self, kind: FeedbackKind) {
-        self.reviewed_bug = false;
+        if !self.can_leave_form() {
+            return;
+        }
+        self.leave_review(true);
         self.kind = Some(kind);
         self.phase = match kind {
             FeedbackKind::Bug => FeedbackPhase::BugForm,
@@ -141,12 +196,40 @@ impl FeedbackHub {
         };
     }
 
+    fn can_leave_form(&self) -> bool {
+        !(self.send.pending() || self.reviewing_bug() && self.recording())
+    }
+
+    fn close_form(&mut self) {
+        if self.can_leave_form() {
+            self.leave_review(true);
+            self.phase = FeedbackPhase::Closed;
+        }
+    }
+
+    fn reviewing_bug(&self) -> bool {
+        matches!(self.reviewed_bug, BugReview::Active(_))
+    }
+
+    fn leave_review(&mut self, suspend: bool) {
+        self.reviewed_bug = match std::mem::take(&mut self.reviewed_bug) {
+            BugReview::Active(ordinary) => {
+                let review = FeedbackDraft::take(self);
+                ordinary.restore(self);
+                if suspend {
+                    BugReview::Suspended(review)
+                } else {
+                    BugReview::None
+                }
+            }
+            other => other,
+        };
+    }
+
     /// A prefilled report must leave an existing suggestion or retry intact.
     fn can_prefill(&self) -> bool {
-        self.phase == FeedbackPhase::Closed
-            && !self.send.pending()
-            && !self.screenshot_pending
-            && self.capture_rx.is_none()
+        self.closed_for_review()
+            && matches!(self.reviewed_bug, BugReview::None)
             && self.description.is_empty()
             && self.links_text.is_empty()
             && !self.reproduce_wanted
@@ -154,18 +237,27 @@ impl FeedbackHub {
             && self.recorded_steps.is_empty()
     }
 
-    pub fn can_review_bug(&self) -> bool {
-        self.can_prefill() || self.reviewed_bug_closed()
+    fn closed_for_review(&self) -> bool {
+        self.phase == FeedbackPhase::Closed
+            && !self.send.pending()
+            && !self.screenshot_pending
+            && self.capture_rx.is_none()
     }
 
-    fn reviewed_bug_closed(&self) -> bool {
-        self.reviewed_bug && self.phase == FeedbackPhase::Closed && !self.send.pending()
+    pub fn can_review_bug(&self) -> bool {
+        self.can_prefill()
+            || (self.closed_for_review() && matches!(self.reviewed_bug, BugReview::Suspended(_)))
     }
 
     pub fn reopen_reviewed_bug(&mut self) -> bool {
-        if !self.reviewed_bug_closed() {
+        if !self.closed_for_review() || !matches!(self.reviewed_bug, BugReview::Suspended(_)) {
             return false;
         }
+        let BugReview::Suspended(review) = std::mem::take(&mut self.reviewed_bug) else {
+            unreachable!();
+        };
+        self.reviewed_bug = BugReview::Active(FeedbackDraft::take(self));
+        review.restore(self);
         self.phase = FeedbackPhase::BugForm;
         true
     }
@@ -174,8 +266,9 @@ impl FeedbackHub {
         if !self.can_prefill() {
             return false;
         }
-        self.begin_form(FeedbackKind::Bug);
-        self.reviewed_bug = true;
+        self.reviewed_bug = BugReview::Active(FeedbackDraft::take(self));
+        self.kind = Some(FeedbackKind::Bug);
+        self.phase = FeedbackPhase::BugForm;
         self.description = description;
         true
     }
@@ -286,6 +379,10 @@ impl FeedbackHub {
 
     pub fn reset_after_submit(&mut self) {
         self.phase = FeedbackPhase::Closed;
+        if self.reviewing_bug() {
+            self.leave_review(false);
+            return;
+        }
         self.description.clear();
         self.links_text.clear();
         self.reproduce_wanted = false;
@@ -293,7 +390,6 @@ impl FeedbackHub {
         self.attachments.clear();
         self.attach_note = None;
         self.kind = None;
-        self.reviewed_bug = false;
         self.send = send::State::default();
     }
 

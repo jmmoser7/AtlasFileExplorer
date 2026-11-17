@@ -299,12 +299,49 @@ mod tests {
         assert!(hub.attachments.is_empty());
 
         hub.description.push_str("\nUser notes");
-        hub.phase = super::super::FeedbackPhase::Closed;
+        hub.close_form();
         assert!(hub.can_review_bug());
         assert!(hub.reopen_reviewed_bug());
         assert_eq!(hub.phase, super::super::FeedbackPhase::BugForm);
         assert!(hub.description.ends_with("User notes"));
         assert!(!hub.send.pending());
+    }
+
+    #[test]
+    fn ordinary_feedback_and_crash_review_keep_separate_drafts() {
+        let mut hub = FeedbackHub::default();
+        assert!(hub.review_bug("Crash summary".into()));
+        hub.description.push_str("\nEdited in crash review");
+        hub.links_text = "https://example.test/crash".into();
+        hub.close_form();
+
+        hub.open_picker();
+        hub.begin_form(FeedbackKind::Feature);
+        assert!(hub.description.is_empty());
+        assert!(hub.links_text.is_empty());
+        assert!(!hub.reopen_reviewed_bug());
+        hub.description = "Ordinary feature draft".into();
+        hub.links_text = "https://example.test/feature".into();
+        hub.close_form();
+
+        assert!(hub.reopen_reviewed_bug());
+        assert_eq!(hub.kind, Some(FeedbackKind::Bug));
+        assert_eq!(hub.description, "Crash summary\nEdited in crash review");
+        assert_eq!(hub.links_text, "https://example.test/crash");
+
+        // Back also restores the ordinary draft, including when it is opened
+        // as a regular bug report rather than a feature.
+        hub.open_picker();
+        hub.begin_form(FeedbackKind::Bug);
+        assert_eq!(hub.description, "Ordinary feature draft");
+        assert_eq!(hub.links_text, "https://example.test/feature");
+        hub.close_form();
+
+        assert!(hub.reopen_reviewed_bug());
+        hub.reset_after_submit();
+        assert_eq!(hub.description, "Ordinary feature draft");
+        assert_eq!(hub.links_text, "https://example.test/feature");
+        assert!(!hub.reopen_reviewed_bug());
     }
 
     #[test]

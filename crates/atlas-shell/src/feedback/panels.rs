@@ -58,8 +58,13 @@ pub(super) fn show(
     };
     let mut close = false;
     let mut header_drag = Vec2::ZERO;
+    let window_id = if hub.reviewing_bug() {
+        Id::new(("feedback-crash-review", app))
+    } else {
+        Id::new(("feedback-dialog", app, picker, bug))
+    };
     let shown = egui::Window::new(title)
-        .id(Id::new(("feedback-dialog", app, picker, bug)))
+        .id(window_id)
         .title_bar(false)
         .collapsible(false)
         .resizable([false, true])
@@ -125,7 +130,8 @@ pub(super) fn show(
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
                             if ui.add_enabled(!sending, egui::Button::new("Back")).clicked() {
-                                hub.phase = FeedbackPhase::KindPicker;
+                                hub.open_picker();
+                                return;
                             }
                             let ready = !sending && !hub.description.trim().is_empty();
                             let (save, email, send) = ui
@@ -202,8 +208,8 @@ pub(super) fn show(
     if let Some(shown) = shown {
         hub.dialog_pos = Some(shown.response.rect.min + header_drag);
     }
-    if close && !sending {
-        hub.phase = FeedbackPhase::Closed;
+    if close {
+        hub.close_form();
     }
     out
 }

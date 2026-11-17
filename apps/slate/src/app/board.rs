@@ -300,7 +300,7 @@ impl SlateApp {
         let wp = pointer.map(|p| xf.s2w(p));
         let (space, space_interrupted, dedicated_pan_input) = ui.input(|i| {
             let pointer = &i.pointer;
-            let space_interrupted = super::dispatch::space_input_interrupted(i);
+            let space_interrupted = super::dispatch::input_state::space_input_interrupted(i);
             (
                 !space_interrupted && i.key_down(egui::Key::Space),
                 space_interrupted,
