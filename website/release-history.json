@@ -27,7 +27,7 @@
     "tag": "v1.0.12",
     "date": "2026-11-17",
     "download": "https://github.com/jmmoser7/AtlasFileExplorer/releases/download/v1.0.12/AtlasSuite-stable-Setup.exe",
-    "hold_notice": "We paused the 1.0.12 rollout while we investigate distorted graphics on some Windows computers. The issue has also been reported in earlier builds, including 1.0.10.",
+    "hold_notice": "The 1.0.12 rollout remains on hold because Slate can display distorted text and geometry on some Windows computers. The issue was also reported in 1.0.10 and 1.0.11. Slate 1.0.13 is the current stable release and uses software graphics on the affected Intel driver.",
     "patches": [
       "Cleared playback overlays while Board videos play and removed file-type badges from media cards.",
       "Clarified Save image to canvas and Save video to canvas, kept the model picker arrow beside shortened labels, and showed more of long image layer names."
