@@ -1,5 +1,27 @@
 [
   {
+    "tag": "v1.0.12",
+    "date": "2026-11-17",
+    "download": "https://github.com/jmmoser7/AtlasFileExplorer/releases/download/v1.0.12/AtlasSuite-stable-Setup.exe",
+    "patches": [
+      "Cleared playback overlays while Board videos play and removed file-type badges from media cards.",
+      "Clarified Save image to canvas and Save video to canvas, kept the model picker arrow beside shortened labels, and showed more of long image layer names."
+    ],
+    "regression_fixes": [
+      "Board video holds the paused frame and resumes from the scrubbed position.",
+      "Zoom can start on the first drag after dismissing the Windows system menu. Short Hand drags pan immediately.",
+      "Rapid Brush dabs commit as separate strokes, and drags that start on the image still commit when released over the dock. Double-click in Select still opens Crop.",
+      "Restored Undo for image layer deletion and kept committed ink visible during subsequent Board edits.",
+      "Selection shadows follow expanded image and video panels while zooming. Closed fillets and chamfers join cleanly."
+    ],
+    "feature_additions": [
+      "Native 3D full screen uses the whole viewport, with display swatches and a high-contrast Materials control docked at the bottom.",
+      "Close a Polygonal Lasso at its starting point or with Ctrl-click.",
+      "Send a suggestion anonymously from Slate to the same private inbox as the website. Attachments and recorded steps stay local.",
+      "Use Review latest report to send in Advanced settings to inspect a crash summary before sharing it. The full diagnostic files stay on your device."
+    ]
+  },
+  {
     "tag": "slate-feedback-20261116",
     "date": "2026-11-16",
     "base_version": "1.0.8",
