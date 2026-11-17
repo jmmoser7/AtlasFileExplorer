@@ -1,10 +1,22 @@
 //! Transient keyboard sequence state.
 use atlas_commands::CommandId;
+use eframe::egui;
 use std::time::Instant;
 
 impl super::SlateApp {
-    pub(crate) fn frame_input(&mut self, ctx: &eframe::egui::Context) {
+    pub(crate) fn frame_input(&mut self, ctx: &egui::Context) {
         let _span = atlas_core::session_log::span("slate.input");
+        let space_interrupted = ctx.input_mut(|input| {
+            let interrupted = space_input_interrupted(input);
+            if interrupted {
+                // The OS window menu may receive Space's key-up instead.
+                input.keys_down.remove(&egui::Key::Space);
+            }
+            interrupted
+        });
+        if space_interrupted {
+            self.space_tap = SpaceTap::default();
+        }
         if ctx.memory(|memory| memory.top_modal_layer().is_some()) {
             return;
         }
@@ -17,7 +29,7 @@ impl super::SlateApp {
             && self.desktop_sample.is_none()
             && !self.presence_captures_shortcut(ctx)
         {
-            self.hotkeys(ctx);
+            self.hotkeys(ctx, space_interrupted);
         }
         self.drop_stale_portal_chrome();
     }
@@ -40,6 +52,23 @@ impl super::SlateApp {
         }
         slate
     }
+}
+
+pub(in crate::app) fn space_input_interrupted(input: &egui::InputState) -> bool {
+    !input.focused
+        || input.modifiers.alt
+        || input.raw.events.iter().any(|event| {
+            matches!(event, egui::Event::WindowFocused(false))
+                || matches!(
+                    event,
+                    egui::Event::Key {
+                        key: egui::Key::Space,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } if modifiers.alt
+                )
+        })
 }
 
 /// Tracks a live Space press so release can decide tap (repeat) vs hold (pan).

@@ -50,7 +50,8 @@ fn recover_at(root: &Path, session_dir: &Path, state: impl Fn(u32) -> ProcessSta
             session_dir: session_dir.to_owned(),
             run,
         };
-        let _ = report.finish_error(
+        let _ = report.finish_diagnostic_error(
+            super::diagnostics::Completion::Interrupted,
             "Previous run ended without a recorded exit status; it may have been terminated or interrupted",
         );
     }
@@ -128,7 +129,11 @@ mod tests {
         assert!(dir.join("report.json").exists());
         assert!(!dir.join(".active").exists());
         assert_eq!(temp.unread().len(), 1);
-        assert!(capture::read_tail(&dir.join("report.json"), 8192)
+        let text = capture::read_tail(&dir.join("report.json"), 8192).unwrap();
+        let report: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(report["diagnostics"]["completion"], "interrupted");
+        assert!(report["exit_status"]
+            .as_str()
             .unwrap()
             .contains("terminated or interrupted"));
     }

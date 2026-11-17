@@ -74,6 +74,13 @@ struct Live {
     rgba: Vec<u8>,
 }
 
+impl Live {
+    fn display(&self) -> (u64, u32, u32, &[u8]) {
+        let stamp = 0x8000_0000_0000_0000 | (self.time.max(0.0) * 1000.0) as u64;
+        (stamp, self.w, self.h, &self.rgba)
+    }
+}
+
 struct ShownTex {
     stamp: u64,
     tex: egui::TextureHandle,
@@ -92,6 +99,8 @@ pub(crate) struct VideoBoard {
     lru: Vec<NodeId>,
     /// Set by a pan. Stays after the pointer leaves. Absent until the first pan or pause.
     paused: HashMap<NodeId, f32>,
+    /// Last live frame and its paused position, bounded by resident video sources.
+    paused_frames: HashMap<NodeId, (f32, Live)>,
     hover: Option<(NodeId, f32)>,
     play: Option<Play>,
     live: Option<Live>,
@@ -111,6 +120,7 @@ impl Default for VideoBoard {
             strips: HashMap::new(),
             lru: Vec::new(),
             paused: HashMap::new(),
+            paused_frames: HashMap::new(),
             hover: None,
             play: None,
             live: None,
@@ -143,13 +153,8 @@ impl SlateApp {
             if !play.looped && play.started.is_some() {
                 let t = play_clock(play, now);
                 if t >= play.end - 1.0e-3 {
-                    let id = play.id;
                     let end = play.end;
-                    self.video.play = None;
-                    self.video.paused.insert(id, end);
-                    if let Some(pool) = self.video.pool.as_ref() {
-                        pool.stop();
-                    }
+                    self.finish_video_playback(Some(end));
                 }
             }
         }
@@ -172,15 +177,13 @@ impl SlateApp {
         adjust: &ImageAdjust,
     ) -> Option<egui::TextureHandle> {
         self.sync_video_context();
-        self.current_video_source(id)?;
-        let stamp = self.video_stamp(id)?;
+        let (stamp, w, h, rgba) = self.video_display_frame(id)?;
         if let Some(shown) = self.video.textures.get(&id) {
             if shown.stamp == stamp {
                 return Some(shown.tex.clone());
             }
         }
-        let (w, h, rgba) = self.video_copy(id)?;
-        let mut image = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
+        let mut image = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], rgba);
         if !adjust.is_identity() {
             image = super::imagefx::adjusted(&image, adjust);
         }
@@ -206,40 +209,40 @@ impl SlateApp {
         Some(tex)
     }
 
-    fn video_stamp(&self, id: NodeId) -> Option<u64> {
+    fn video_display_frame(&self, id: NodeId) -> Option<(u64, u32, u32, &[u8])> {
         self.current_video_source(id)?;
-        if let Some(play) = &self.video.play {
-            if play.id == id {
-                let live = self
-                    .video
-                    .live
-                    .as_ref()
-                    .filter(|l| l.id == id && l.token == play.token)?;
-                return Some(0x8000_0000_0000_0000 | (live.time.max(0.0) * 1000.0) as u64);
+        let time = if let Some(play) = self.video.play.as_ref().filter(|play| play.id == id) {
+            if let Some(live) = self
+                .video
+                .live
+                .as_ref()
+                .filter(|live| live.id == id && live.token == play.token)
+            {
+                return Some(live.display());
             }
+            // Keep the ready scrub frame in view until this playback run decodes.
+            play.from
+        } else {
+            self.video.paused.get(&id).copied()?
+        };
+        let held = self.video.paused_frames.get(&id);
+        if let Some((_, live)) = held.filter(|(at, _)| (*at - time).abs() < 1.0e-4) {
+            return Some(live.display());
         }
-        let time = self.video.paused.get(&id).copied()?;
-        let strip = self.video.strips.get(&id)?;
-        let (index, _) = nearest_slot(strip, time)?;
-        Some(index as u64 + 1)
+        if let Some((index, slot)) = self
+            .video
+            .strips
+            .get(&id)
+            .and_then(|strip| nearest_slot(strip, time))
+        {
+            return Some((index as u64 + 1, slot.w, slot.h, &slot.rgba));
+        }
+        held.map(|(_, live)| live.display())
     }
 
     fn video_copy(&self, id: NodeId) -> Option<(u32, u32, Vec<u8>)> {
-        self.current_video_source(id)?;
-        if let Some(play) = &self.video.play {
-            if play.id == id {
-                let live = self
-                    .video
-                    .live
-                    .as_ref()
-                    .filter(|l| l.id == id && l.token == play.token)?;
-                return Some((live.w, live.h, live.rgba.clone()));
-            }
-        }
-        let time = self.video.paused.get(&id).copied()?;
-        let strip = self.video.strips.get(&id)?;
-        let (_, slot) = nearest_slot(strip, time)?;
-        Some((slot.w, slot.h, slot.rgba.clone()))
+        let (_, w, h, rgba) = self.video_display_frame(id)?;
+        Some((w, h, rgba.to_vec()))
     }
 
     fn video_shown(&self, id: NodeId) -> Option<f32> {
@@ -362,16 +365,36 @@ impl SlateApp {
     }
 
     fn stop_other_video(&mut self, except: NodeId) {
-        let Some(play) = self.video.play.as_ref() else {
+        if self
+            .video
+            .play
+            .as_ref()
+            .is_some_and(|play| play.id != except)
+        {
+            self.finish_video_playback(None);
+        }
+    }
+
+    fn finish_video_playback(&mut self, end: Option<f32>) {
+        let Some(play) = self.video.play.take() else {
             return;
         };
-        if play.id == except {
-            return;
+        let live = self
+            .video
+            .live
+            .take()
+            .filter(|live| live.id == play.id && live.token == play.token);
+        let time = end.unwrap_or_else(|| {
+            live.as_ref().map_or_else(
+                || play_clock(&play, Instant::now()),
+                |live| live.time.clamp(play.start, play.end),
+            )
+        });
+        self.video.paused.insert(play.id, time);
+        self.video.hover = None;
+        if let Some(live) = live {
+            self.video.paused_frames.insert(play.id, (time, live));
         }
-        let id = play.id;
-        let t = play_clock(play, Instant::now());
-        self.video.play = None;
-        self.video.paused.insert(id, t);
         if let Some(pool) = self.video.pool.as_ref() {
             pool.stop();
         }

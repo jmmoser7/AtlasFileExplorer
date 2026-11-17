@@ -41,6 +41,7 @@ impl VideoBoard {
         self.strips.remove(&id);
         self.sources.remove(&id);
         self.paused.remove(&id);
+        self.paused_frames.remove(&id);
         self.textures.remove(&id);
         self.lru.retain(|node| *node != id);
     }
@@ -56,6 +57,7 @@ impl VideoBoard {
         self.sources.clear();
         self.strips.clear();
         self.paused.clear();
+        self.paused_frames.clear();
         self.textures.clear();
         self.lru.clear();
         self.hover = None;

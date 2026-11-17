@@ -111,7 +111,7 @@ pub(super) fn show(
                         ui.add_space(15.0);
                         ui.label(
                             RichText::new(if send_available {
-                                "Send shares your description, typed links, app name, and version. Attachments and recorded steps stay in your local report."
+                                "Send shares your description, typed links, app name, and version with the online Suggestion Box. Attachments and recorded steps stay local."
                             } else {
                                 "Saved locally with app details and any recorded steps."
                             })
@@ -136,19 +136,27 @@ pub(super) fn show(
                                         let send = send_available
                                             && ui.add_enabled(
                                                 ready && !hub.screenshot_pending && hub.capture_rx.is_none(),
-                                                egui::Button::new(if sending {
-                                                    "Sending…"
-                                                } else {
-                                                    "Send anonymously"
-                                                }),
+                                                egui::Button::new(
+                                                    RichText::new(if sending {
+                                                        "Sending…"
+                                                    } else {
+                                                        "Send anonymously"
+                                                    })
+                                                    .color(action_ink),
+                                                )
+                                                .fill(action),
                                             ).clicked();
                                         let save = ui
                                             .add_enabled(
                                                 ready,
-                                                egui::Button::new(
-                                                    RichText::new("Save report").color(action_ink),
-                                                )
-                                                .fill(action),
+                                                if send_available {
+                                                    egui::Button::new("Save report")
+                                                } else {
+                                                    egui::Button::new(
+                                                        RichText::new("Save report").color(action_ink),
+                                                    )
+                                                    .fill(action)
+                                                },
                                             )
                                             .clicked();
                                         let email = ui

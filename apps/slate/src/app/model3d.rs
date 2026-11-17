@@ -1511,7 +1511,9 @@ impl SlateApp {
             .model3d
             .live
             .iter()
-            .filter(|(_, v)| self.presenting.is_none() && v.idle())
+            .filter(|(id, v)| {
+                self.presenting.is_none() && !self.portal_is_maximized(**id) && v.idle()
+            })
             .map(|(id, _)| *id)
             .collect();
         for id in idle {

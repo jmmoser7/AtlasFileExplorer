@@ -241,7 +241,7 @@ impl SlateApp {
             .paint_layer_texture_cache
             .get(&host.id)
             .is_none_or(|entry| entry.key != key);
-        if stale && self.image_rasters.needs_host(host.id, key) {
+        if stale && self.image_rasters.needs_composite(host.id) {
             let mut display_img = img.clone();
             display_img.paint_layers = Self::renderer_layers(img, &result);
             display_img.result_layers.clear();
@@ -275,6 +275,7 @@ impl SlateApp {
         let Some(texture) = self
             .paint_layer_texture_cache
             .get(&host.id)
+            .filter(|entry| entry.tab == self.tab().id && entry.result == result)
             .map(|entry| entry.texture.clone())
         else {
             return;

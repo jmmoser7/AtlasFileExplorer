@@ -2,7 +2,12 @@
 use super::*;
 
 impl SlateApp {
+    #[cfg(test)]
     pub(crate) fn video_pointer(&mut self, world: Pos2) {
+        self.scrub_video_pointer(world, true);
+    }
+
+    fn scrub_video_pointer(&mut self, world: Pos2, moved: bool) {
         self.sync_video_context();
         let Some(id) = self.board_pick_node(world.x, world.y) else {
             self.video.hover = None;
@@ -32,6 +37,15 @@ impl SlateApp {
             self.video.hover = None;
             return;
         }
+        if !moved
+            && self.video.paused.contains_key(&id)
+            && self.video.hover.is_none_or(|(hovered, _)| hovered != id)
+        {
+            // A pause click leaves the pointer on the clip. Scrub again only
+            // when it moves, so the paused frame persists even off the Play button.
+            self.video.hover = None;
+            return;
+        }
         self.video.hover = Some((id, u));
         self.ensure_strip(id);
         if let Some((start, end)) = self.video_window(id) {
@@ -55,17 +69,7 @@ impl SlateApp {
             return;
         };
         if self.video.play.as_ref().is_some_and(|p| p.id == id) {
-            let t = self
-                .video
-                .play
-                .as_ref()
-                .map(|p| play_clock(p, Instant::now()))
-                .unwrap_or(vid.opts.start);
-            self.video.play = None;
-            self.video.paused.insert(id, t);
-            if let Some(pool) = self.video.pool.as_ref() {
-                pool.stop();
-            }
+            self.finish_video_playback(None);
             return;
         }
         // A decoder failure belongs to that request. An explicit Play is a
@@ -121,6 +125,7 @@ impl SlateApp {
         // Both automatic and click-to-start clips enter at the trim start.
         for id in members {
             self.video.paused.remove(id);
+            self.video.paused_frames.remove(id);
         }
         if let Some(id) = members.iter().copied().find(|id| {
             self.video_at(*id)
@@ -134,12 +139,12 @@ impl SlateApp {
         self.stop_other_video(NodeId(0));
     }
 
-    pub(crate) fn update_video_hover(&mut self, world: Option<Pos2>, live: bool) {
+    pub(crate) fn update_video_hover(&mut self, world: Option<Pos2>, live: bool, moved: bool) {
         let body = self
             .board_hover_hit
             .is_none_or(|hit| hit == crate::app::board_handles::BoardHitTarget::Body);
         if let Some(world) = world.filter(|_| live && body) {
-            self.video_pointer(world);
+            self.scrub_video_pointer(world, moved);
         } else {
             self.video_clear_hover();
         }

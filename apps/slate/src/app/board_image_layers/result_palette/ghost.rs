@@ -26,6 +26,7 @@ impl SlateApp {
         let Some(texture) = self
             .paint_layer_texture_cache
             .get(&ghost.id)
+            .filter(|entry| entry.tab == self.tab().id && entry.result == result)
             .map(|entry| entry.texture.clone())
         else {
             return;
@@ -94,9 +95,16 @@ mod tests {
             egui::TextureOptions::LINEAR,
         );
         let texture_id = texture.id();
-        h.app
-            .paint_layer_texture_cache
-            .insert(id, PaintLayerTextureCache { key: 0, texture });
+        let tab = h.app.tab().id;
+        h.app.paint_layer_texture_cache.insert(
+            id,
+            PaintLayerTextureCache {
+                tab,
+                result: ImageResultId::Item(item),
+                key: 0,
+                texture,
+            },
+        );
         let xf = h.app.board_xf();
         let output = h.ctx.run(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {

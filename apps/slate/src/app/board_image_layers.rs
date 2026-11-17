@@ -67,6 +67,8 @@ pub(crate) enum LayerMarkEdit {
 
 #[derive(Clone)]
 pub(crate) struct PaintLayerTextureCache {
+    tab: u64,
+    result: ImageResultId,
     key: u128,
     texture: egui::TextureHandle,
 }

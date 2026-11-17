@@ -41,6 +41,7 @@ impl SlateApp {
             saving: phase == CapturePhase::Saving,
             clock,
             destination: None,
+            save_to_file_on_pause: false,
         });
     }
 }
@@ -100,6 +101,7 @@ fn begin_session(h: &mut Harness, node: NodeId, path: PathBuf, canvas: bool, vid
         saving: false,
         clock: RecordingClock::default(),
         destination: None,
+        save_to_file_on_pause: false,
     });
     generation
 }

@@ -2438,6 +2438,140 @@ mod tests {
     use super::*;
 
     #[test]
+    fn closed_polyline_fillets_rasterize_without_end_caps() {
+        use slate_doc::scene::{ShapeNode, Stroke, StrokeSpan};
+        use std::sync::Arc;
+
+        let square = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        let triangle = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
+        let cases = [
+            (&square[..], 96, 96, Corner::Rounded { radius: 4.0 }, false),
+            (&square[..], 96, 64, Corner::Rounded { radius: 14.0 }, false),
+            (&square[..], 96, 64, Corner::Rounded { radius: 45.0 }, false),
+            (
+                &triangle[..],
+                96,
+                64,
+                Corner::Rounded { radius: 14.0 },
+                true,
+            ),
+            (&triangle[..], 96, 64, Corner::Chamfer { cut: 14.0 }, true),
+        ];
+        let pad = 8_u32;
+        for (vertices, width, height, corner, sharp_start) in cases {
+            let rect = WorldRect::new(0.0, 0.0, width as f32, height as f32);
+            let frame_w = width + 2 * pad;
+            let frame_h = height + 2 * pad;
+            let stroke = Stroke {
+                width: 8.0,
+                ..Default::default()
+            };
+            let rasterize = |body: &str, scale: u32| {
+                let (w, h) = (frame_w * scale, frame_h * scale);
+                let svg = format!(
+                    r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {frame_w} {frame_h}"><g transform="translate({pad} {pad})">{body}</g></svg>"#
+                );
+                crate::rasterize_paint_layers_svg(&svg, w, h).expect("shape raster")
+            };
+            for tipped in [false, true] {
+                let path = Arc::new(PathData {
+                    start: vertices[0],
+                    segs: vertices[1..]
+                        .iter()
+                        .map(|&to| PathSeg::Line { to })
+                        .collect(),
+                    closed: true,
+                    corner_amounts: if sharp_start {
+                        let mut amounts = vec![None; vertices.len()];
+                        amounts[0] = Some(0.0);
+                        amounts
+                    } else {
+                        Vec::new()
+                    },
+                    tips: if tipped {
+                        (0..vertices.len())
+                            .map(|i| StrokeSpan {
+                                width: if i % 2 == 0 { 8.0 } else { 4.0 },
+                                ..StrokeSpan::of(&stroke)
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    },
+                    ..Default::default()
+                });
+                let exported = |cap| {
+                    let shape = ShapeNode {
+                        shape: ShapeKind::Path,
+                        sides: 4,
+                        phase_deg: 0.0,
+                        fill: None,
+                        stroke: Stroke { cap, ..stroke },
+                        corner,
+                        flip: false,
+                        path: Some(Arc::clone(&path)),
+                        text: None,
+                    };
+                    let node = Scene::default().build_node(rect, NodeKind::Shape(shape.clone()));
+                    let mut html = String::new();
+                    render_path(&mut html, &node, &shape, rect);
+                    let (_, svg) = html.split_once("<svg ").expect("shape SVG");
+                    let (_, svg) = svg.split_once('>').expect("SVG opening tag");
+                    svg.split_once("</svg>")
+                        .expect("SVG closing tag")
+                        .0
+                        .to_owned()
+                };
+                let butt = exported(StrokeCap::Butt);
+                let square_cap = exported(StrokeCap::Square);
+                for scale in [1, 2, 4] {
+                    let label = format!("{width}×{height}, {corner:?}, sharp start {sharp_start}, tipped {tipped}, {scale}×");
+                    let ink = rasterize(&butt, scale);
+                    let other_cap = rasterize(&square_cap, scale);
+                    let different_pixels = ink
+                        .chunks_exact(4)
+                        .zip(other_cap.chunks_exact(4))
+                        .filter(|(a, b)| a != b)
+                        .count();
+                    assert_eq!(different_pixels, 0, "end caps changed {label}");
+
+                    let stride = frame_w * scale;
+                    let alpha_at = |x, y| {
+                        let pixel = (y * scale) * stride + x * scale;
+                        ink[pixel as usize * 4 + 3]
+                    };
+                    assert_eq!(alpha_at(pad, pad + height / 2), 255, "left edge of {label}");
+                    assert_eq!(alpha_at(pad + 24, pad + 24), 0, "empty interior of {label}");
+                    if sharp_start {
+                        // The 90° miter fills this exterior pixel; butt and square
+                        // caps on the two individual edges disagree here.
+                        assert_eq!(alpha_at(pad - 2, pad - 2), 255, "start join of {label}");
+                    }
+
+                    if let (false, false, Corner::Rounded { radius }) =
+                        (tipped, sharp_start, corner)
+                    {
+                        let radius = radius.min(width.min(height) as f32 * 0.5);
+                        let reference = rasterize(
+                            &format!(
+                                r#"<rect width="{width}" height="{height}" rx="{radius}" ry="{radius}" fill="none" stroke="black" stroke-width="8"/>"#
+                            ),
+                            scale,
+                        );
+                        let alpha_error: u64 = ink
+                            .chunks_exact(4)
+                            .zip(reference.chunks_exact(4))
+                            .map(|(a, b)| u64::from(a[3].abs_diff(b[3])))
+                            .sum();
+                        let area = alpha_error as f64 / (255.0 * f64::from(scale * scale));
+                        eprintln!("{label}: alpha difference from rounded SVG rect = {area:.3} square world units");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn chamfered_rect_svg_exports_the_boards_straight_cuts() {
         let rel = WorldRect::new(12.0, 7.0, 100.0, 60.0);
         let svg_for = |corner: Corner| {

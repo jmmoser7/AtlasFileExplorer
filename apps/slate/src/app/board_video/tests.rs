@@ -99,9 +99,129 @@ fn visible_play_control_preserves_position_and_ordinary_click_toggles_player() {
         .expect("visible Play must start the player");
     assert_eq!(play.id, id);
     assert_eq!(play.from, 2.0);
-    // The same ordinary click pauses; no separate Studio-only action exists.
-    h.app.video_click(id);
+    // An ordinary click on the playing card pauses without a visible control.
+    let pause = at + egui::vec2(0.0, 24.0);
+    for pressed in [true, false] {
+        h.frame_with(|input| {
+            input.events.push(egui::Event::PointerMoved(pause));
+            input.events.push(egui::Event::PointerButton {
+                pos: pause,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        });
+    }
     assert!(!h.app.video_playing_for_test(id));
+}
+
+#[test]
+fn pending_play_displays_scrub_frame_until_the_first_live_frame() {
+    let mut h = Harness::new("video_startup_retains_scrub_frame");
+    h.app.hold_video_decoder_for_test();
+    let id = clip(&mut h, "movie.mp4");
+    seed(&mut h, id, 31);
+    h.app.video_click(id);
+    let token = h.app.video.play.as_ref().unwrap().token;
+    assert_eq!(h.app.video_copy(id).unwrap().2[0], 31);
+
+    h.app.apply_video_event(VideoEvent::Play {
+        id: id.0,
+        token,
+        time: 3.0,
+        frame: frame(45),
+    });
+    assert_eq!(h.app.video_copy(id).unwrap().2[0], 45);
+}
+
+#[test]
+fn pausing_cold_playback_holds_the_last_frame_until_the_pointer_scrubs() {
+    let mut h = Harness::new("video_pause_holds_last_frame");
+    h.app.hold_video_decoder_for_test();
+    let id = clip(&mut h, "movie.mp4");
+    h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    h.app.zoom_to_rect(rect);
+    h.frame();
+    h.app.video_probe_for_test(id, 10.0);
+    let strip = h.app.video.strips[&id].token;
+    h.app.video_click(id);
+    let token = h.app.video.play.as_ref().unwrap().token;
+    h.app.apply_video_event(VideoEvent::Play {
+        id: id.0,
+        token,
+        time: 7.0,
+        frame: frame(45),
+    });
+
+    let screen = h.app.board_xf().rect_w2s(rect);
+    let pause = Pos2::new(screen.left() + screen.width() * 0.24, screen.center().y);
+    for pressed in [true, false] {
+        h.frame_with(|input| {
+            input.events.push(egui::Event::PointerMoved(pause));
+            input.events.push(egui::Event::PointerButton {
+                pos: pause,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        });
+    }
+    assert!(!h.app.video_playing_for_test(id));
+    assert_eq!(h.app.video_shown(id), Some(7.0));
+    assert_eq!(h.app.video_copy(id).unwrap().2[0], 45);
+
+    h.app.apply_video_event(VideoEvent::Strip {
+        id: id.0,
+        token: strip,
+        index: 0,
+        time: 1.0,
+        frame: frame(31),
+    });
+    h.frame();
+    assert_eq!(h.app.video_shown(id), Some(7.0));
+    assert_eq!(h.app.video_copy(id).unwrap().2[0], 45);
+
+    h.app.video_click(id);
+    assert_eq!(h.app.video.play.as_ref().unwrap().from, 7.0);
+    assert_eq!(h.app.video_copy(id).unwrap().2[0], 45);
+    h.app.video_click(id);
+
+    let scrub = Pos2::new(screen.left() + screen.width() * 0.1, screen.center().y);
+    h.frame_with(|input| input.events.push(egui::Event::PointerMoved(scrub)));
+    assert!((h.app.video_shown(id).unwrap() - 1.0).abs() < 0.01);
+    assert_eq!(h.app.video_copy(id).unwrap().2[0], 31);
+}
+
+#[test]
+fn playing_video_omits_the_board_playback_chrome() {
+    let mut h = Harness::new("video_running_chrome");
+    let id = clip(&mut h, "movie.mp4");
+    seed(&mut h, id, 31);
+    let ctx = egui::Context::default();
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    let xf = BoardXf {
+        center: Pos2::ZERO,
+        offset: egui::Vec2::ZERO,
+        z: 1.0,
+    };
+    let paint = |app: &SlateApp| {
+        ctx.run(egui::RawInput::default(), |ctx| {
+            let layer = egui::LayerId::new(egui::Order::Middle, egui::Id::new("video-chrome"));
+            app.paint_video_chrome(&ctx.layer_painter(layer), &xf, &node);
+        })
+        .shapes
+    };
+
+    assert!(
+        !paint(&h.app).is_empty(),
+        "paused video paints playback chrome"
+    );
+    h.app.video_click(id);
+    assert!(
+        paint(&h.app).is_empty(),
+        "active playback paints no readouts"
+    );
 }
 
 #[test]

@@ -156,6 +156,7 @@ impl SlateApp {
             saving: false,
             clock: RecordingClock::default(),
             destination: None,
+            save_to_file_on_pause: false,
         });
     }
 }

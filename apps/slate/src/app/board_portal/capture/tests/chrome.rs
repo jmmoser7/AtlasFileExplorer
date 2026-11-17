@@ -68,6 +68,31 @@ fn assert_external_capture_controls(h: &mut Harness, node: NodeId) {
 }
 
 #[test]
+fn maximized_model_fills_the_viewport_and_keeps_capture_apron_geometry() {
+    let (mut h, node) = selected_host("fullscreen-model", true);
+    let original = h.app.doc().scene.node(node).unwrap().rect;
+    assert!(h.app.portal_maximize(node));
+    h.frame();
+    let screen = h.app.canvas_rect;
+    assert_eq!(h.app.portal_capture_source_rect(node), Some(screen));
+    let camera = h.app.model_screenshot_button().expect("docked toolbar");
+    assert!(screen.contains_rect(camera));
+    assert!(screen.bottom() - camera.bottom() < 64.0);
+
+    h.app
+        .portal_capture_test_status(node, CapturePhase::Paused, 2.0);
+    let captured = h.app.portal_capture_source_rect(node).unwrap();
+    assert!(screen.contains_rect(captured));
+    assert!(captured.bottom() < screen.bottom());
+    assert!((captured.width() / captured.height() - original.w / original.h).abs() < 0.001);
+
+    h.app.portal_capture_cancel();
+    assert_eq!(h.app.portal_capture_source_rect(node), Some(screen));
+    assert!(h.app.portal_restore());
+    assert_eq!(h.app.doc().scene.node(node).unwrap().rect, original);
+}
+
+#[test]
 fn selected_model_and_portal_capture_suspend_notches_until_every_session_phase_ends() {
     for model in [false, true] {
         let (mut h, node) = selected_host("capture-chrome-lifecycle", model);

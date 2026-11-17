@@ -2,6 +2,39 @@
 use super::*;
 
 impl SlateApp {
+    pub(super) fn model_capture_context(&mut self, response: &egui::Response, still: bool) {
+        let dark = self.dark_mode;
+        let metrics = crate::app::board::board_menu::layout().metrics;
+        let to_file = if still {
+            &mut self.portal_chrome.capture_still_to_file
+        } else {
+            &mut self.portal_chrome.capture_video_to_file
+        };
+        let canvas = if still {
+            "Save image to canvas"
+        } else {
+            "Save video to canvas"
+        };
+        response.context_menu(|ui| {
+            use atlas_shell::menu::{MenuIcon, Row};
+
+            metrics.prepare(ui, dark);
+            for (label, file) in [(canvas, false), ("File", true)] {
+                if metrics
+                    .row(
+                        ui,
+                        Row::new(MenuIcon::None, label).checked(*to_file == Some(file)),
+                        dark,
+                    )
+                    .clicked()
+                {
+                    *to_file = Some(file);
+                    ui.close_menu();
+                }
+            }
+        });
+    }
+
     pub(super) fn model_connector_context(
         &self,
         response: &egui::Response,
@@ -80,7 +113,12 @@ impl SlateApp {
                 .copied()
                 .filter(|_| !was_open)
             {
-                self.dispatch(ctx, CommandId("portal.capture"), Some(id.0.to_string()));
+                let command = match self.portal_chrome.capture_still_to_file {
+                    Some(true) if self.model_has_viewport(id) => "portal.capture.still.file",
+                    Some(false) if self.model_has_viewport(id) => "portal.capture.still.canvas",
+                    _ => "portal.capture",
+                };
+                self.dispatch(ctx, CommandId(command), Some(id.0.to_string()));
             }
         }
     }

@@ -29,6 +29,26 @@ impl SlateApp {
         cmds: Vec<SceneCmd>,
         author: slate_doc::scene::CmdAuthor,
     ) -> bool {
+        self.commit_scene_with_composite_fallback(cmds, author, false)
+    }
+
+    pub(crate) fn commit_scene_layer_extension(&mut self, cmd: SceneCmd) -> bool {
+        let growing = matches!(&cmd, SceneCmd::LayerNodePatch { before, after, .. }
+            if before.opacity == after.opacity
+                && matches!((&before.kind, &after.kind), (NodeKind::Shape(old), NodeKind::Shape(new)) if old.stroke == new.stroke));
+        self.commit_scene_with_composite_fallback(
+            vec![cmd],
+            slate_doc::scene::CmdAuthor::Human,
+            growing,
+        )
+    }
+
+    fn commit_scene_with_composite_fallback(
+        &mut self,
+        cmds: Vec<SceneCmd>,
+        author: slate_doc::scene::CmdAuthor,
+        retain_previous_composite: bool,
+    ) -> bool {
         let _span = atlas_core::session_log::span("slate.scene.commit");
         atlas_core::session_log::count("slate.scene.cmds", cmds.len() as u32);
         if self.refuse_read_only_edit() {
@@ -68,11 +88,34 @@ impl SlateApp {
         } else {
             Vec::new()
         };
+        // Discard only composites whose existing pixels a command can change.
+        // Appends can keep the previous texture until the worker paints the new mark.
+        let invalidate_composites: Vec<_> = if retain_previous_composite {
+            Vec::new()
+        } else {
+            cmds.iter()
+                .filter_map(|cmd| match cmd {
+                    SceneCmd::LayerNodeRemove { host, .. }
+                    | SceneCmd::LayerNodePatch { host, .. } => Some(*host),
+                    SceneCmd::Add { node, .. } | SceneCmd::Remove { node, .. } => {
+                        matches!(&node.kind, NodeKind::Image(_)).then_some(node.id)
+                    }
+                    SceneCmd::Patch { before, after } => {
+                        (matches!(&before.kind, NodeKind::Image(_))
+                            || matches!(&after.kind, NodeKind::Image(_)))
+                        .then_some(before.id)
+                    }
+                    SceneCmd::LayerNodeAdd { .. } | SceneCmd::Presentations { .. } => None,
+                })
+                .collect()
+        };
         let ok = self.commit_scene_in(self.tab().id, cmds, author);
         if ok {
             self.restore_image_paint_focus(image_focus);
             self.remember_document_colors(colors);
-            self.paint_layer_texture_cache.clear();
+            for host in invalidate_composites {
+                self.paint_layer_texture_cache.remove(&host);
+            }
         }
         self.note_scene_change();
         if ok && !mentions.is_empty() {
@@ -151,6 +194,7 @@ impl SlateApp {
             }
         };
         if undone {
+            self.paint_layer_texture_cache.clear();
             if let Some(step) = creation_step {
                 self.discard_undone_generator_creation(doc, step);
             }
@@ -173,6 +217,7 @@ impl SlateApp {
             }
         };
         if depth.is_some() {
+            self.paint_layer_texture_cache.clear();
             self.restore_image_paint_focus(image_focus);
         }
         depth

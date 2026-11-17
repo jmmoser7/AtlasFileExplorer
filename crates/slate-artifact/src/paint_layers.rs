@@ -136,6 +136,19 @@ struct CachedStamp {
 const STAMP_KEEP_BUILDS: u64 = 64;
 
 impl LayerStamps {
+    /// Bound memory held between worker requests after a large raster build.
+    pub fn limit_retained_bytes(&mut self, max_bytes: usize) {
+        let bytes = self
+            .map
+            .values()
+            .filter_map(|cached| cached.stamp.as_ref())
+            .map(|(pixmap, _, _)| pixmap.data().len())
+            .fold(0usize, usize::saturating_add);
+        if bytes > max_bytes {
+            self.map.clear();
+        }
+    }
+
     fn get(
         &mut self,
         frame: &LayerFrame,

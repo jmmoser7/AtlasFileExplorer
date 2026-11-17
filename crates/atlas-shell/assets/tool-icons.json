@@ -1,5 +1,7 @@
 {
   "Rhino": {"path":"M3 16 5 10 10 8 15 9 18 7 19 3 21 9 22 12 19 14 18 18 15 18 14 15 9 15 8 19 5 19 5 15ZM10 8 10 5 13 8M19 11H19.1","filled":false},
+  "ViewportDisplay": {"path":"M5 3 H19 Q21 3 21 5 V19 Q21 21 19 21 H5 Q3 21 3 19 V5 Q3 3 5 3Z M12 6 L17.5 9 V15 L12 18 L6.5 15 V9Z M6.5 9 L12 12 L17.5 9 M12 14V14.5 M12 16.5V17","filled":false},
+  "VideoCamera": {"path":"M4 6 H14 Q16 6 16 8 V16 Q16 18 14 18 H4 Q2 18 2 16 V8 Q2 6 4 6Z M16 10 L22 7 V17 L16 14Z","filled":false},
   "AlignLeft": {"path":"M4 4V20M19 12H8M12 7 7 12 12 17","filled":false},
   "AlignCenterH": {"path":"M4 19H20M12 4V16M7 11 12 16 17 11","filled":false},
   "AlignRight": {"path":"M20 4V20M5 12H16M12 7 17 12 12 17","filled":false},

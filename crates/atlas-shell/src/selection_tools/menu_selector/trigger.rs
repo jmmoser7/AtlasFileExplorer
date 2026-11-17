@@ -52,25 +52,28 @@ pub(super) fn paint(
         Pos2::new(label_right - suffix_width, rect.bottom()),
     );
     let painter = super::presentation::ink_painter(ui, label_rect, zoom);
-    let text_bounds = canvas_text::layout_rows(
-        &painter,
-        label.to_owned(),
-        canvas_scale::font(if capsule_style { 9.0 } else { 11.0 }, zoom),
-        if label_danger {
-            theme.danger
-        } else if needs_key_label(label) {
-            theme.sub
-        } else {
-            theme.ink
-        },
-        (label_rect.width() - if capsule_style { 14.0 } else { 8.0 } * zoom).max(0.0),
-        1,
-    )
-    .paint_anchored(
+    let font = canvas_scale::font(if capsule_style { 9.0 } else { 11.0 }, 1.0);
+    let label_pad = if capsule_style { 14.0 } else { 8.0 };
+    let available = (label_rect.width() / zoom - label_pad).max(0.0);
+    let layout = canvas_text::world_layout_spec(
+        ui.ctx(),
+        label,
+        &canvas_text::WorldSpec::label(font, available),
+    );
+    let label_ink = if label_danger {
+        theme.danger
+    } else if needs_key_label(label) {
+        theme.sub
+    } else {
+        theme.ink
+    };
+    let label = canvas_text::world_text(ui.ctx(), &layout, zoom);
+    let clipped = label.galley().elided;
+    let text_bounds = label.paint_anchored(
         &painter,
         label_rect.left_center() + Vec2::new(if capsule_style { 10.0 } else { 4.0 } * zoom, 0.0),
         Align2::LEFT_CENTER,
-        theme.ink,
+        label_ink,
     );
     if suffix_width > 0.0 {
         let suffix_rect = Rect::from_min_max(
@@ -116,6 +119,9 @@ pub(super) fn paint(
         // Keep the caret adjacent to the next control even for short model
         // captions without an effort suffix; its slot already reserves room.
         center.x = (label_right + 7.0 * zoom).min(rect.right() - 4.0 * zoom);
+        if clipped && suffix_width == 0.0 {
+            center.x = center.x.min(text_bounds.right() + 6.0 * zoom);
+        }
         center.y = text_bounds.center().y;
     }
     if capsule_style {
@@ -381,10 +387,17 @@ mod tests {
                         })
                         .reduce(|a, b| a.union(b))
                         .expect("the no-suffix trigger paints its trailing caret");
-                    assert!(
-                        (caret.center().x - (rect.right() - 5.0 * zoom)).abs() < 0.01,
-                        "short and elided captions share the trailing caret datum: {witness}"
-                    );
+                    if text.1.galley.elided {
+                        assert!(
+                            caret.left() - ink.right() < 7.0 * zoom,
+                            "the caret follows the visible end of the clipped caption: {witness}"
+                        );
+                    } else {
+                        assert!(
+                            (caret.center().x - (rect.right() - 5.0 * zoom)).abs() < 0.01,
+                            "a complete caption keeps the trailing caret datum: {witness}"
+                        );
+                    }
                     assert!(
                         ink.right() < caret.left(),
                         "the existing caption ellipsis budget protects the caret: {witness}"

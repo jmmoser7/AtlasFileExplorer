@@ -1,6 +1,13 @@
 use super::SlateApp;
 use eframe::egui::{self, Pos2, Rect, Vec2};
 
+pub(crate) struct ZoomGesture {
+    pub(crate) origin: Pos2,
+    tab: u64,
+    started_at: f64,
+    dragged: bool,
+}
+
 impl SlateApp {
     /// Wheel events carry the modifier state at the notch, which can differ
     /// from the frame snapshot when the chord and wheel arrive together.
@@ -138,50 +145,123 @@ impl SlateApp {
         self.zoom_armed
     }
 
-    /// while armed, the primary button belongs to the tool — click = ×1.5 at
+    fn zoom_board_point(&self, ui: &egui::Ui, resp: &egui::Response, point: Pos2) -> bool {
+        let ctx = ui.ctx();
+        let local = ctx
+            .layer_transform_from_global(resp.layer_id)
+            .unwrap_or_default()
+            * point;
+        resp.interact_rect.contains(local)
+            && ctx.layer_id_at(point).is_some_and(|layer| {
+                layer == resp.layer_id
+                    || layer == atlas_shell::selection_tools::selection_chrome_layer()
+            })
+            && !self
+                .shape_properties
+                .chrome_hits
+                .iter()
+                .any(|rect| rect.contains(point))
+    }
+
+    /// While armed, the primary button belongs to the tool — click = ×1.5 at
     /// the pointer, Alt+click = ÷1.5, drag = zoom-window marquee (release
     /// fits that world rect through the existing fit plumbing). Right-drag
     /// still pans. Camera-only, never journaled. Returns whether the tool is
     /// live (callers then skip their own primary-button semantics).
-    /// `suppress` blocks new marquees while another gesture owns the primary
-    /// button (Space pan, hand pan).
+    /// `suppress` blocks new marquees while a Space, middle or right gesture
+    /// pans the canvas.
     pub(crate) fn zoom_tool_frame(
         &mut self,
         ui: &egui::Ui,
         resp: &egui::Response,
         rect: Rect,
+        can_start: bool,
         suppress: bool,
     ) -> bool {
         if !self.zoom_tool_active() {
             return false;
         }
-        let pointer = ui.ctx().pointer_latest_pos();
-        let now = ui.input(|i| i.time);
-
-        if resp.drag_started_by(egui::PointerButton::Primary) && !suppress {
-            self.zoom_marquee = ui.input(|i| i.pointer.press_origin()).or(pointer);
+        let tab = self.tab().id;
+        if suppress
+            || self
+                .zoom_marquee
+                .as_ref()
+                .is_some_and(|gesture| gesture.tab != tab)
+        {
+            self.zoom_marquee = None;
         }
-        // Release fits the dragged world rect (tiny drags do nothing).
-        if resp.drag_stopped_by(egui::PointerButton::Primary) {
-            if let (Some(a), Some(p)) = (self.zoom_marquee.take(), pointer) {
-                let r = Rect::from_two_pos(a, p);
-                if r.width() > 8.0 && r.height() > 8.0 {
-                    let world = Rect::from_min_max(
-                        self.screen_to_world(r.min),
-                        self.screen_to_world(r.max),
-                    );
-                    self.fit_view(world);
-                    self.bump_grid_fade(now);
+        if !can_start && self.zoom_marquee.is_none() {
+            return false;
+        }
+        let (pointer, now, primary_down, events) = ui.input(|input| {
+            (
+                input.pointer.latest_pos(),
+                input.time,
+                input.pointer.primary_down(),
+                input.events.clone(),
+            )
+        });
+        let (click_distance, click_duration) = ui.ctx().options(|options| {
+            (
+                options.input_options.max_click_dist,
+                options.input_options.max_click_duration,
+            )
+        });
+
+        // Classify the complete gesture at its event coordinates, including
+        // when press, movement and release all arrive in the same frame.
+        if !suppress {
+            for event in events {
+                match event {
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        ..
+                    } if can_start && self.zoom_board_point(ui, resp, pos) => {
+                        self.zoom_marquee = Some(ZoomGesture {
+                            origin: pos,
+                            tab,
+                            started_at: now,
+                            dragged: false,
+                        });
+                    }
+                    egui::Event::PointerMoved(pos) => {
+                        if let Some(gesture) = &mut self.zoom_marquee {
+                            gesture.dragged |= gesture.origin.distance(pos) > click_distance;
+                        }
+                    }
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: false,
+                        modifiers,
+                    } => {
+                        let Some(gesture) = self.zoom_marquee.take() else {
+                            continue;
+                        };
+                        if gesture.dragged || gesture.origin.distance(pos) > click_distance {
+                            let window = Rect::from_two_pos(gesture.origin, pos);
+                            if window.width() > 8.0 && window.height() > 8.0 {
+                                let world = Rect::from_min_max(
+                                    self.screen_to_world(window.min),
+                                    self.screen_to_world(window.max),
+                                );
+                                self.fit_view(world);
+                                self.bump_grid_fade(now);
+                            }
+                        } else if now - gesture.started_at <= click_duration {
+                            self.zoom_at(pos, if modifiers.alt { 1.0 / 1.5 } else { 1.5 });
+                            self.bump_grid_fade(now);
+                        }
+                    }
+                    egui::Event::PointerGone => self.zoom_marquee = None,
+                    _ => {}
                 }
             }
         }
-        // Click steps the zoom at the pointer; Alt inverts.
-        if resp.clicked() {
-            if let Some(p) = pointer {
-                let alt = ui.input(|i| i.modifiers.alt);
-                self.zoom_at(p, if alt { 1.0 / 1.5 } else { 1.5 });
-                self.bump_grid_fade(now);
-            }
+        if !primary_down {
+            self.zoom_marquee = None;
         }
 
         // Marquee preview on the foreground layer (above canvas content).
@@ -190,8 +270,9 @@ impl SlateApp {
             egui::Order::Foreground,
             egui::Id::new("slate_zoom_tool"),
         ));
-        if let (Some(a), Some(p)) = (self.zoom_marquee, pointer) {
-            let r = Rect::from_two_pos(a, p);
+        let dragged = self.zoom_marquee.as_ref().filter(|gesture| gesture.dragged);
+        if let (Some(gesture), Some(p)) = (dragged, pointer) {
+            let r = Rect::from_two_pos(gesture.origin, p);
             fg.rect_filled(r, 0.0, palette.select.gamma_multiply(0.10));
             fg.rect_stroke(
                 r,
@@ -200,7 +281,9 @@ impl SlateApp {
                 egui::StrokeKind::Inside,
             );
         }
-        if resp.hovered() || self.zoom_marquee.is_some() {
+        if (can_start && !suppress && pointer.is_some_and(|p| self.zoom_board_point(ui, resp, p)))
+            || self.zoom_marquee.is_some()
+        {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         }
         // Mode hint chip (lower-left, like Atlas).

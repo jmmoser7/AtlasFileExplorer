@@ -88,11 +88,11 @@ fn context_visibility_and_delete_are_independently_undoable() {
     assert_eq!(layers(&h, image), before);
 }
 
-fn edit_layer_name(h: &mut Harness, image: NodeId, name: &str) {
+fn open_image_layer_menu(h: &mut Harness, image: NodeId) -> egui::FullOutput {
     let center = layer_palette_layout(h, image).layers[0];
+    move_to(h, center);
     for pressed in [true, false] {
         h.frame_with(|input| {
-            input.events.push(egui::Event::PointerMoved(center));
             input.events.push(egui::Event::PointerButton {
                 pos: center,
                 button: egui::PointerButton::Secondary,
@@ -101,8 +101,37 @@ fn edit_layer_name(h: &mut Harness, image: NodeId, name: &str) {
             });
         });
     }
+    render(h)
+}
+
+#[test]
+fn the_image_layer_popup_owns_the_delete_click_and_undo_restores_ink() {
+    let (mut h, image) = painted_image("layer_context_delete_click");
+    let before = layers(&h, image);
+    let depth = h.app.tab().journal.undo_depth();
+    let output = open_image_layer_menu(&mut h, image);
+    let delete = text_rect(&output, "Delete layer")
+        .expect("the right-click popup contains Delete layer")
+        .center();
+    assert_eq!(
+        h.ctx.layer_id_at(delete).map(|layer| layer.order),
+        Some(atlas_shell::selection_tools::POPUP_ORDER)
+    );
+    assert!(!layer_palette_layout(&h, image).capsule.contains(delete));
+    move_to(&mut h, delete);
+    button(&mut h, delete, true);
+    assert_eq!(h.app.shape_properties.panel, Some(Panel::Layers));
+    button(&mut h, delete, false);
+    assert!(layers(&h, image).is_empty());
+    assert_eq!(h.app.tab().journal.undo_depth(), depth + 1);
+    assert!(text_rect(&render(&mut h), "Delete layer").is_none());
+    h.app.board_undo();
+    assert_eq!(layers(&h, image), before);
+}
+
+fn edit_layer_name(h: &mut Harness, image: NodeId, name: &str) {
     let current = h.app.image_paint_layer_choices(image)[0].1.clone();
-    let output = render(h);
+    let output = open_image_layer_menu(h, image);
     assert!(text_rect(&output, "Save name").is_none());
     let field = text_rect(&output, &current).expect("inline layer name field");
     click(h, field.center());

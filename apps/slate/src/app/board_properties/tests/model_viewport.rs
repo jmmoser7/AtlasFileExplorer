@@ -35,6 +35,7 @@ fn model_viewports_offer_display_measure_screenshot_then_filters() {
             "display",
             "measure",
             "screenshot",
+            "video capture",
             "maximize",
             "filter",
             "rhino",

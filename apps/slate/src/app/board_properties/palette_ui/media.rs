@@ -7,6 +7,7 @@ pub(in crate::app::board_properties) struct PreparedBlister {
     pub(in crate::app::board_properties) host: NodeId,
     pub(in crate::app::board_properties) count: usize,
     pub(in crate::app::board_properties) presentation: chrome::BlisterPresentation,
+    pub(in crate::app::board_properties) world_apron: Option<Rect>,
 }
 
 impl SlateApp {
@@ -63,7 +64,19 @@ impl SlateApp {
             host,
             count,
             presentation,
+            world_apron: None,
         });
+    }
+
+    pub(super) fn prepare_media_apron(&mut self, area: Rect, xf: &BoardXf) {
+        if let Some(blister) = self
+            .shape_properties
+            .last_chrome
+            .as_mut()
+            .and_then(|state| state.media.as_mut())
+        {
+            blister.world_apron = Some(Rect::from_two_pos(xf.s2w(area.min), xf.s2w(area.max)));
+        }
     }
 
     pub(in crate::app::board_properties) fn clear_prepared_media_blister(&mut self) {

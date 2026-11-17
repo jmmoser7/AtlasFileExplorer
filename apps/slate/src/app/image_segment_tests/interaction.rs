@@ -246,6 +246,31 @@ fn lasso_body_clicks_collect_vertices_shift_constrains_and_close_pins() {
 }
 
 #[test]
+fn lasso_ctrl_click_adds_the_last_vertex_and_closes_the_selection() {
+    let (mut h, id) = fixture("image_lasso_ctrl_close");
+    image_tools(&mut h, id);
+    h.app.start_image_lasso(id);
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    let xf = h.app.board_xf();
+    let [first, second, third] = [[0.2, 0.2], [0.7, 0.2], [0.6, 0.7]]
+        .map(|[x, y]| xf.w2s(Pos2::new(rect.x + x * rect.w, rect.y + y * rect.h)));
+    click_board(&mut h, first);
+    click_board(&mut h, second);
+    for pressed in [true, false] {
+        button(
+            &mut h,
+            third,
+            egui::PointerButton::Primary,
+            pressed,
+            egui::Modifiers::CTRL,
+        );
+    }
+    assert!(!h.app.image_lasso_active(id));
+    let contours = h.app.image_selection_clip(id).unwrap();
+    assert_eq!(contours[0].len(), 3);
+}
+
+#[test]
 fn right_click_hover_pins_and_opens_existing_selection_context_menu() {
     let (mut h, id) = fixture("image_mask_context");
     let point = inject(&mut h, id);

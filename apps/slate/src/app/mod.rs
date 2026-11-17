@@ -78,6 +78,7 @@ pub mod chrome;
 mod clipboard;
 mod clipboard_image;
 pub mod commands;
+mod crash_feedback;
 mod diagnostics;
 mod dispatch;
 mod enscape_host;
@@ -539,6 +540,7 @@ pub struct SlateApp {
     /// Frame/activity recorder shared with File Atlas. Test builds stay in memory.
     pub(crate) session_log: atlas_core::session_log::SessionLog,
     pub(crate) feedback: atlas_shell::feedback::FeedbackHub,
+    crash_feedback: crash_feedback::Review,
     /// Process-start phases, flushed at the end of the first frame.
     boot: Option<atlas_core::session_log::Startup>,
 
@@ -712,8 +714,8 @@ pub struct SlateApp {
     /// Z zoom tool: transient app-level mode over Board/Grid/Venn (camera
     /// only, never journaled). The underlying tool re-arms on disarm.
     pub(crate) zoom_armed: bool,
-    /// Screen-space origin of a live zoom-window marquee.
-    pub(crate) zoom_marquee: Option<egui::Pos2>,
+    /// Primary pointer gesture owned by the armed Zoom tool.
+    pub(crate) zoom_marquee: Option<canvas::ZoomGesture>,
 }
 
 impl SlateApp {
@@ -977,6 +979,7 @@ impl SlateApp {
             } else {
                 atlas_core::session_log::SessionLog::new("slate")
             },
+            crash_feedback: crash_feedback::Review::default(),
             feedback: {
                 let mut hub = atlas_shell::feedback::FeedbackHub::default();
                 hub.prefs = atlas_shell::feedback::FeedbackPrefs::load("slate");
@@ -2163,6 +2166,7 @@ impl SlateApp {
             atlas_shell::feedback::paint_recording_chrome(ctx, self.canvas_rect, &self.palette());
         }
         let palette = self.palette();
+        self.poll_crash_report_review();
         self.feedback.app_text_editing = self.text_edit.is_some();
         let fb = atlas_shell::feedback::dialogs(
             ctx,

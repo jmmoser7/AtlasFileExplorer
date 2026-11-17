@@ -1327,7 +1327,7 @@ impl SlateApp {
             extend(world);
             super::board_image_layers::LayerMarkEdit::Patch
         });
-        cmd.is_some_and(|cmd| self.commit_scene(vec![cmd]))
+        cmd.is_some_and(|cmd| self.commit_scene_layer_extension(cmd))
     }
 
     /// Where the live Shift segment starts: the end of the last brush mark,

@@ -10,6 +10,7 @@
 //! environment inventory, or secret-store reads. Nothing is uploaded.
 
 mod capture;
+mod diagnostics;
 mod panic_hook;
 mod recovery;
 mod storage;
@@ -17,8 +18,9 @@ mod storage;
 #[cfg(test)]
 mod tests;
 
+pub use diagnostics::{submission_summary, CrashSubmission, SupervisorFailure};
 pub use panic_hook::install_panic_hook;
-pub use storage::{acknowledge, reports_dir, unread_reports, ReportSummary};
+pub use storage::{acknowledge, recent_reports, reports_dir, unread_reports, ReportSummary};
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -42,6 +44,8 @@ struct RunMetadata {
     started_unix_ms: u64,
     monitor_pid: u32,
     child_pid: Option<u32>,
+    #[serde(default)]
+    release_channel: Option<diagnostics::ReleaseChannel>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -62,6 +66,7 @@ struct ExitReport<'a> {
     exit_status: String,
     panic_count: usize,
     native_exception: bool,
+    diagnostics: diagnostics::RunDiagnostics,
     stderr_tail: String,
     session_latest: Option<serde_json::Value>,
     session_tail: String,
@@ -89,7 +94,7 @@ impl RunReport {
         let _ = storage::prune(&root);
         let dir = new_run_dir(&root)?;
         let run = RunMetadata {
-            schema_version: 1,
+            schema_version: 2,
             app: storage::app_component(app),
             version: capture::clip(version, 256),
             executable: executable_identity(),
@@ -97,6 +102,7 @@ impl RunReport {
             started_unix_ms: now_unix_ms(),
             monitor_pid: std::process::id(),
             child_pid: None,
+            release_channel: Some(diagnostics::ReleaseChannel::current()),
         };
         let report = Self {
             dir,
@@ -132,15 +138,33 @@ impl RunReport {
     /// Returns report.json for a nonzero/native exit or any recorded panic.
     /// Successful launches without panic evidence leave no report directory.
     pub fn finish(self, exit: ExitStatus) -> io::Result<Option<PathBuf>> {
-        self.finish_record(exit.success(), exit.code(), exit.to_string())
+        self.finish_record(
+            exit.success(),
+            exit.code(),
+            exit.to_string(),
+            diagnostics::Completion::ProcessExit,
+        )
     }
 
     /// Preserve a diagnostic when the supervisor cannot launch/wait for the app.
-    pub fn finish_error(self, error: &str) -> io::Result<PathBuf> {
+    pub fn finish_supervisor_error(
+        self,
+        stage: SupervisorFailure,
+        error: &str,
+    ) -> io::Result<PathBuf> {
+        self.finish_diagnostic_error(stage.into(), error)
+    }
+
+    fn finish_diagnostic_error(
+        self,
+        completion: diagnostics::Completion,
+        error: &str,
+    ) -> io::Result<PathBuf> {
         self.finish_record(
             false,
             None,
             format!("supervisor error: {}", capture::clip(error, 4096)),
+            completion,
         )?
         .ok_or_else(|| io::Error::other("supervisor error report was not saved"))
     }
@@ -150,6 +174,7 @@ impl RunReport {
         success: bool,
         exit_code: Option<i32>,
         exit_status: String,
+        completion: diagnostics::Completion,
     ) -> io::Result<Option<PathBuf>> {
         let panic_count = storage::panic_count(&self.dir);
         let native_exception = storage::has_native_exception(&self.dir);
@@ -164,15 +189,26 @@ impl RunReport {
             self.run.child_pid,
             self.run.started_unix_ms,
         );
+        let ended_unix_ms = now_unix_ms();
+        let diagnostics = diagnostics::RunDiagnostics::collect(
+            &self.dir,
+            completion,
+            self.run.started_unix_ms,
+            ended_unix_ms,
+            native_exception,
+            session_latest.as_ref(),
+            !stderr_tail.is_empty(),
+        );
         let report = ExitReport {
             run: &self.run,
-            ended_unix_ms: now_unix_ms(),
+            ended_unix_ms,
             success,
             exit_code,
             exit_code_hex: exit_code.map(|code| format!("0x{:08X}", code as u32)),
             exit_status,
             panic_count,
             native_exception,
+            diagnostics,
             stderr_tail,
             session_latest,
             session_tail,

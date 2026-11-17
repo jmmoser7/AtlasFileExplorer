@@ -89,6 +89,8 @@ fn abnormal_subprocess_exit_is_reported_and_can_be_acknowledged() {
     let pid = process.id();
     let path = run.finish(process.wait().unwrap()).unwrap().unwrap();
     let report: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(report["schema_version"], 2);
+    assert_eq!(report["diagnostics"]["completion"], "process_exit");
     assert_eq!(report["exit_code"], 7);
     assert_eq!(report["exit_code_hex"], "0x00000007");
     assert_eq!(report["child_pid"], pid);
@@ -285,9 +287,13 @@ fn supervisor_errors_and_dropped_unused_launches_are_handled() {
     let dir = unused.dir().to_owned();
     drop(unused);
     assert!(!dir.exists());
-    let path = temp.start().finish_error("could not start child").unwrap();
+    let path = temp
+        .start()
+        .finish_supervisor_error(SupervisorFailure::Launch, "could not start child")
+        .unwrap();
     let report: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
     assert_eq!(report["exit_code"], serde_json::Value::Null);
+    assert_eq!(report["diagnostics"]["completion"], "launch_failed");
     assert!(report["exit_status"]
         .as_str()
         .unwrap()
@@ -304,12 +310,14 @@ fn retention_keeps_twenty_reports_and_does_not_touch_an_active_monitor() {
     let active_dir = active.dir().to_owned();
     for index in 0..(RETAIN_REPORTS + 5) {
         temp.start()
-            .finish_error(&format!("failure {index}"))
+            .finish_supervisor_error(SupervisorFailure::Launch, &format!("failure {index}"))
             .unwrap();
     }
     assert_eq!(temp.unread().len(), RETAIN_REPORTS);
     assert!(active_dir.join(".active").exists());
-    active.finish_error("old session crashed now").unwrap();
+    active
+        .finish_supervisor_error(SupervisorFailure::Wait, "old session crashed now")
+        .unwrap();
     assert_eq!(temp.unread().len(), RETAIN_REPORTS);
     assert!(
         active_dir.join("report.json").exists(),
@@ -326,7 +334,9 @@ fn failed_finalization_keeps_diagnostics_and_the_recovery_marker() {
     fs::write(run.stderr_path(), "last diagnostic").unwrap();
     // A directory at the destination makes report creation fail on every OS.
     fs::create_dir(dir.join("report.json")).unwrap();
-    assert!(run.finish_error("interrupted child").is_err());
+    assert!(run
+        .finish_supervisor_error(SupervisorFailure::Wait, "interrupted child")
+        .is_err());
     assert!(dir.join(".active").is_file());
     assert_eq!(
         fs::read_to_string(dir.join("stderr.log")).unwrap(),

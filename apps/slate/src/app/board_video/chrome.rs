@@ -14,11 +14,15 @@ impl SlateApp {
         node: &slate_doc::scene::Node,
     ) {
         let id = node.id;
+        // A normal click on the card still pauses playback.
+        if self.video.play.as_ref().is_some_and(|play| play.id == id) {
+            return;
+        }
         atlas_shell::video_controls::paint(
             painter,
             xf.rect_w2s(node.rect.normalized()),
             xf.z,
-            self.video.play.as_ref().is_some_and(|play| play.id == id),
+            false,
             self.palette(),
         );
         let control = atlas_shell::video_controls::rect(xf.rect_w2s(node.rect.normalized()), xf.z);
@@ -101,8 +105,6 @@ impl SlateApp {
             .is_some_and(|pool| pool.health().status == atlas_core::video::VideoStatus::Unavailable)
         {
             "Video decoder unavailable. Click Play to retry."
-        } else if self.video.play.as_ref().is_some_and(|play| play.id == id) {
-            "Pause"
         } else {
             "Play"
         }

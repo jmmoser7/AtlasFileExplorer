@@ -65,8 +65,9 @@ enum StripItem {
     Agent(bool),
     /// Arms point-to-point measure in a 3D viewport, like Deck arms a tool.
     ModelMeasure,
-    /// Shared portal still/video capture editor.
+    /// Still capture for models and shared capture for other portal hosts.
     ModelScreenshot,
+    ModelVideo,
     ModelMaximize,
     ApplicationConnector,
 }
@@ -3495,6 +3496,7 @@ mod tests {
                 StripItem::Panel(Panel::Capture) => "capture",
                 StripItem::ModelMeasure => "measure",
                 StripItem::ModelScreenshot => "screenshot",
+                StripItem::ModelVideo => "video capture",
                 StripItem::ModelMaximize => "maximize",
                 StripItem::ApplicationConnector => "rhino",
                 StripItem::Frame(FrameAction::Present) => "present",

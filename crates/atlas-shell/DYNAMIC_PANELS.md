@@ -433,6 +433,15 @@ access) and Start or Done at the right end. No header or footer. A crosswire
 offers no Stroke editor: its red is its meaning. Square or curved routing is
 an action row in the capsule, running the board's routing command.
 
+## 3D viewport display
+
+Place the circular display swatches and the Materials switch in one centered
+row. Use the Fillet capsule dimensions for both groups: `CORNER_HEIGHT` is
+22.1 board units (1.3 × the 17-unit `CAPSULE_HEIGHT`), the radius is half the
+height, and the outline is 0.8 board units. Use `STACK_GAP` (5 board units)
+between the groups. The Materials switch appears in the same row when the
+current display mode supports imported surface colors.
+
 ## Agent editors and album index
 
 Image and Artifact generators share `selection_tools::generator`; image-only

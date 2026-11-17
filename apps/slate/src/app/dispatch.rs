@@ -14,6 +14,7 @@ mod feedback;
 mod input_state;
 mod keys;
 mod select_all;
+pub(super) use input_state::space_input_interrupted;
 pub use input_state::{BareLetterHold, SpaceTap};
 mod media;
 mod selection;
@@ -977,7 +978,7 @@ impl SlateApp {
 
     // ---------- the keyboard front-end ----------
 
-    pub(crate) fn hotkeys(&mut self, ctx: &egui::Context) {
+    fn hotkeys(&mut self, ctx: &egui::Context, space_interrupted: bool) {
         // Route the native bitmap-only Ctrl+V edge to focused chat or the board.
         let focused = ctx.input(|i| i.focused);
         let mut paste_edge = self.take_paste_chord_edge(focused);
@@ -1071,7 +1072,8 @@ impl SlateApp {
                 pointer_pressed: i.pointer.any_pressed(),
             };
             // --- Space tap = repeat-last (release-fired; Space+drag stays pan) ---
-            if i.key_pressed(egui::Key::Space)
+            if !space_interrupted
+                && i.key_pressed(egui::Key::Space)
                 && self.space_tap.pressed_at.is_none()
                 && !wants_kb
                 && !typing_sink

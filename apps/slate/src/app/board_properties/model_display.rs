@@ -27,18 +27,7 @@ fn model_display_radios(thumbs: [Option<egui::TextureId>; 5]) -> [chrome::Filter
 
 impl SlateApp {
     pub(super) fn model_display_editor_height(&self) -> f32 {
-        let materials = self
-            .shape_properties
-            .ids
-            .first()
-            .and_then(|id| self.model_display_of(*id))
-            .is_some_and(scene::ModelDisplay::uses_materials);
-        chrome::FILTER_CHIPS_HEIGHT
-            + if materials {
-                chrome::STACK_GAP + chrome::CORNER_HEIGHT
-            } else {
-                0.0
-            }
+        chrome::CORNER_HEIGHT
     }
 
     pub(super) fn model_display_editor(
@@ -60,14 +49,22 @@ impl SlateApp {
             .unwrap_or(0);
         self.ensure_model_display_swatches(id);
         let radios = model_display_radios(self.model_display_swatch_ids(ui.ctx(), id));
-        let chip_height = chrome::FILTER_CHIPS_HEIGHT * z;
-        let chip_w = chrome::filter_chips_width(radios.len(), chip_height, z);
-        let row = Rect::from_center_size(
-            Pos2::new(
-                rect.center().x,
-                rect.top() + chrome::FILTER_CHIPS_HEIGHT * z * 0.5,
-            ),
-            Vec2::new(chip_w, chip_height),
+        let height = chrome::CORNER_HEIGHT * z;
+        let chip_width = chrome::filter_chips_width(radios.len(), height, z);
+        let materials_enabled = if display.uses_materials() {
+            self.model_materials_of(id)
+        } else {
+            None
+        };
+        let gap = chrome::STACK_GAP * z;
+        let materials_width = materials_enabled.map_or(0.0, |_| {
+            (rect.width() - chip_width - gap).clamp(0.0, chrome::STACK_WIDTH * z)
+        });
+        let total_width =
+            chip_width + materials_width + if materials_width > 0.0 { gap } else { 0.0 };
+        let row = Rect::from_min_size(
+            Pos2::new(rect.center().x - total_width * 0.5, rect.top()),
+            Vec2::new(chip_width, height),
         );
         let edit = chrome::filter_capsule(
             ui,
@@ -90,17 +87,14 @@ impl SlateApp {
                 )),
             );
         }
-        if display.uses_materials() {
-            let Some(enabled) = self.model_materials_of(id) else {
-                return;
-            };
-            let materials = Rect::from_center_size(
-                Pos2::new(
-                    rect.center().x,
-                    row.bottom() + (chrome::STACK_GAP + chrome::CORNER_HEIGHT * 0.5) * z,
-                ),
-                Vec2::new(chrome::STACK_WIDTH, chrome::CORNER_HEIGHT) * z,
+        if let Some(enabled) = materials_enabled.filter(|_| materials_width > 0.0) {
+            let materials = Rect::from_min_size(
+                Pos2::new(row.right() + gap, row.top()),
+                Vec2::new(materials_width, height),
             );
+            // Keep both choices legible when this row overlays a model.
+            ui.painter()
+                .rect_filled(materials, materials.height() * 0.5, theme.panel);
             let picked = chrome::segments(
                 ui,
                 materials,
@@ -108,7 +102,10 @@ impl SlateApp {
                 ["Materials off", "Materials on"],
                 enabled as usize,
                 z,
-                theme,
+                atlas_shell::theme::Palette {
+                    sub: theme.ink,
+                    ..theme
+                },
             ) == 1;
             ui.interact(materials, ui.id().with(("model_materials_help", id.0)), egui::Sense::hover())
                 .on_hover_text("Use imported surface colors in Shaded and Hidden line. Arctic keeps white clay; Material mask and Depth are unaffected.");
@@ -131,6 +128,57 @@ mod tests {
 
     fn camera(h: &Harness, id: NodeId) -> scene::ModelCamera {
         h.app.model_node_info(id).unwrap().cam
+    }
+
+    #[test]
+    fn materials_choice_paints_legible_ink_over_an_opaque_capsule() {
+        let mut h = board();
+        let id = model_node(
+            &mut h,
+            "contrast.3dm",
+            WorldRect::new(0.0, 0.0, 240.0, 180.0),
+        );
+        h.app.shape_properties.ids = vec![id];
+        let row = Rect::from_min_size(
+            Pos2::new(20.0, 20.0),
+            Vec2::new(400.0, chrome::CORNER_HEIGHT),
+        );
+
+        for theme in [
+            atlas_shell::theme::Palette::light(),
+            atlas_shell::theme::Palette::dark(),
+        ] {
+            let output = h.ctx.run(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    h.app.model_display_editor(ui, row, 1.0, theme);
+                });
+            });
+            let inactive = output
+                .shapes
+                .iter()
+                .position(|shape| match &shape.shape {
+                    egui::Shape::Text(text) => {
+                        text.galley.text() == "Materials off" && text.fallback_color == theme.ink
+                    }
+                    _ => false,
+                })
+                .expect("inactive choice uses primary ink");
+            let label_bounds = output.shapes[inactive].shape.visual_bounding_rect();
+            assert_eq!(theme.panel.a(), 255);
+            assert!(
+                output.shapes[..inactive]
+                    .iter()
+                    .any(|shape| match &shape.shape {
+                        egui::Shape::Rect(capsule) => {
+                            capsule.fill == theme.panel
+                                && capsule.rect.contains_rect(label_bounds)
+                                && (capsule.rect.height() - chrome::CORNER_HEIGHT).abs() < 0.01
+                        }
+                        _ => false,
+                    }),
+                "the Fillet-height panel fill sits underneath the inactive label"
+            );
+        }
     }
 
     #[test]

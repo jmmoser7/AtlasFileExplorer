@@ -36,6 +36,8 @@ const WEB_CHROME_IDLE_SECS: f64 = 1.2;
 #[derive(Default)]
 pub struct PortalChrome {
     pub(crate) capture: super::board_portal::capture::CaptureRuntime,
+    pub(crate) capture_still_to_file: Option<bool>,
+    pub(crate) capture_video_to_file: Option<bool>,
     /// Portal filling the window. `None` = ordinary board view.
     pub maximized: Option<NodeId>,
     /// Portals whose identity tab is folded away.

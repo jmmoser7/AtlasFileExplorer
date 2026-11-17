@@ -1,7 +1,7 @@
 //! The launcher stays outside the GUI process so native faults cannot erase
 //! the exit status and the last activity snapshot. No network or frame work.
 
-use atlas_core::crash_report::{self, RunReport};
+use atlas_core::crash_report::{self, RunReport, SupervisorFailure};
 use std::io;
 use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
@@ -74,7 +74,10 @@ fn monitor(mut report: RunReport) -> io::Result<ExitCode> {
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            let _ = report.finish_error(&format!("Could not launch Slate: {error}"));
+            let _ = report.finish_supervisor_error(
+                SupervisorFailure::Launch,
+                &format!("Could not launch Slate: {error}"),
+            );
             return Err(error);
         }
     };
@@ -92,7 +95,10 @@ fn monitor(mut report: RunReport) -> io::Result<ExitCode> {
     let exit = match child.wait() {
         Ok(exit) => exit,
         Err(error) => {
-            let _ = report.finish_error(&format!("Could not observe Slate exit: {error}"));
+            let _ = report.finish_supervisor_error(
+                SupervisorFailure::Wait,
+                &format!("Could not observe Slate exit: {error}"),
+            );
             return Err(error);
         }
     };
@@ -123,7 +129,7 @@ fn notify_previous_reports() {
     let answer = rfd::MessageDialog::new()
         .set_title("Slate saved a crash report")
         .set_description(format!(
-            "Slate saved {} new diagnostic report(s) after an unexpected exit or Rust panic.\n\nReports stay on this computer; nothing is uploaded. You can find them anytime in Advanced settings → Crash reports.\n\nOpen the report folder now?",
+            "Slate saved {} new diagnostic report(s) after an unexpected exit or Rust panic.\n\nThe reports stay on this computer. To share a summary, go to Advanced settings → Crash reports and choose Review latest report to send. You can review it before sending.\n\nOpen the report folder now?",
             reports.len()
         ))
         .set_buttons(rfd::MessageButtons::YesNo)

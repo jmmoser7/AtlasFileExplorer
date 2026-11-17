@@ -298,11 +298,30 @@ impl SlateApp {
         let tag_popup = popup_capture && super::ui::tools::tags::editor_open(self, ui.ctx());
         let xf = self.board_xf();
         let wp = pointer.map(|p| xf.s2w(p));
-        let space = ui.input(|i| i.key_down(egui::Key::Space));
-        let hand_pan = self.board_tool == BoardTool::Pan;
-        let primary_pans = space || hand_pan;
-        let zoom_tool_owns_primary =
-            self.zoom_tool_active() && (resp.clicked() || self.zoom_marquee.is_some());
+        let (space, space_interrupted, dedicated_pan_input) = ui.input(|i| {
+            let pointer = &i.pointer;
+            let space_interrupted = super::dispatch::space_input_interrupted(i);
+            (
+                !space_interrupted && i.key_down(egui::Key::Space),
+                space_interrupted,
+                pointer.middle_down()
+                    || pointer.primary_down()
+                    || pointer.button_released(egui::PointerButton::Middle)
+                    || pointer.primary_released(),
+            )
+        });
+        let zoom_armed = self.zoom_tool_active();
+        // Zoom temporarily owns an unmodified primary gesture, even over Hand.
+        let hand_pan = !zoom_armed && self.board_tool == BoardTool::Pan;
+        let dedicated_pan = dedicated_pan_input
+            .then(|| {
+                motion::DedicatedPan::read(&resp, self.tab().id, space, space_interrupted, hand_pan)
+            })
+            .flatten()
+            .filter(|pan| pan.active());
+        let primary_pans =
+            space || hand_pan || dedicated_pan.as_ref().is_some_and(|pan| pan.primary());
+        let zoom_tool_owns_primary = zoom_armed && (resp.clicked() || self.zoom_marquee.is_some());
         let pan_released = resp.drag_stopped_by(egui::PointerButton::Middle)
             || resp.drag_stopped_by(egui::PointerButton::Secondary)
             || (primary_pans && resp.drag_stopped_by(egui::PointerButton::Primary));
@@ -318,9 +337,10 @@ impl SlateApp {
             let pan_pending = p.middle_down()
                 || p.secondary_down()
                 || (primary_pans && p.primary_down())
+                || dedicated_pan.is_some()
                 || pan_released;
             !primary_action
-                && !p.button_clicked(egui::PointerButton::Middle)
+                && (dedicated_pan.is_some() || !p.button_clicked(egui::PointerButton::Middle))
                 && !p.button_clicked(egui::PointerButton::Secondary)
                 && (wheel_pending || pan_pending || zoom_tool_owns_primary)
         });
@@ -561,7 +581,7 @@ impl SlateApp {
             rect,
             !tag_popup && !turbo_pan_active && !web_capture && !model_pointer && !presence_capture,
             dock_nav.canvas_pan() || other_toolbar_captures || shot_captures,
-            space || hand_pan,
+            primary_pans,
         );
         let brush_right =
             !modal_capture && self.drive_brush_hud(hud_pointer, secondary_down, secondary_pressed);
@@ -572,7 +592,7 @@ impl SlateApp {
         let hold_right = claim_right || brush_right;
         let pan_buttons = [
             (egui::PointerButton::Middle, true),
-            (egui::PointerButton::Primary, space || hand_pan),
+            (egui::PointerButton::Primary, primary_pans),
             (
                 egui::PointerButton::Secondary,
                 !turbo_pan_active && !(hold_right || model_pointer),
@@ -581,13 +601,18 @@ impl SlateApp {
         let stopped_pan = pan_buttons.iter().find_map(|&(button, enabled)| {
             (enabled && resp.drag_stopped_by(button)).then_some(button)
         });
-        let panning = !tag_popup
-            && !presence_capture
-            && !web_capture
+        let pan_allowed = !tag_popup && !presence_capture && !web_capture;
+        let direct_pan = dedicated_pan.filter(|_| pan_allowed);
+        if let Some(pan) = &direct_pan {
+            pan.retain(ui.ctx());
+        }
+        let primary_pan = direct_pan.as_ref().is_some_and(|pan| pan.primary());
+        let panning = pan_allowed
             && (pan_buttons
                 .iter()
                 .any(|&(button, enabled)| enabled && resp.dragged_by(button))
                 || stopped_pan.is_some()
+                || direct_pan.is_some()
                 || through_palette.is_some());
         if hand_pan && resp.hovered() {
             ui.ctx().set_cursor_icon(if panning {
@@ -597,25 +622,33 @@ impl SlateApp {
             });
         }
         if panning {
-            let delta = through_palette.unwrap_or_else(|| {
-                if let Some(button) = stopped_pan {
-                    Self::pan_release_delta(&resp, button)
-                } else {
-                    resp.drag_delta()
-                }
-            });
+            let delta = direct_pan
+                .as_ref()
+                .map(|pan| pan.delta)
+                .or(through_palette)
+                .unwrap_or_else(|| {
+                    if let Some(button) = stopped_pan {
+                        Self::pan_release_delta(&resp, button)
+                    } else {
+                        resp.drag_delta()
+                    }
+                });
             let zc = self.tab().cam.z;
             self.tab_mut().cam.offset -= delta / zc;
-            canvas_nav = true;
+            canvas_nav |= delta != Vec2::ZERO;
         }
         if canvas_nav {
             self.bump_grid_fade(now);
         }
         // Z zoom tool: while armed, the primary button belongs to the tool
         // (click = step, drag = zoom window); pans keep their buttons.
-        let zoom_tool = !button_capture
-            && !web_capture
-            && self.zoom_tool_frame(ui, &resp, rect, space || panning || hand_pan);
+        let zoom_tool = self.zoom_tool_frame(
+            ui,
+            &resp,
+            rect,
+            !button_capture && !web_capture && !over_dock_strip,
+            space || panning,
+        );
         if defer_node_chrome {
             let xf = self.board_xf();
             let property = self.shape_properties_ui(ui, &xf)
@@ -659,14 +692,50 @@ impl SlateApp {
                 | BoardTool::Eraser
                 | BoardTool::Smooth
         );
-        if ordered_drawing
-            && !space
+        let drawing_available = !space
             && !panning
             && !zoom_tool
-            && !model_toolbar_captures
             && !self.tip_numeric_eats()
             && !over_dock_strip
-            && !web_capture
+            && !web_capture;
+        let drawing_can_start = drawing_available && !model_toolbar_captures;
+        let hosted_brush = (self.board_tool == BoardTool::Brush)
+            .then(|| self.paint_layer_host())
+            .flatten();
+        // egui hit-tests the latest pointer. Keep a stroke whose press sample
+        // is on the image when later samples in that frame reach its editor.
+        let brush_crosses_editor = drawing_available
+            && popup_capture
+            && node_toolbar_captures
+            && !presence_capture
+            && !agent_controls_capture
+            && !tip_captures
+            && !frame_presentation_captures
+            && !shot_captures
+            && !selection_capture
+            && hosted_brush.zip(pointer).is_some_and(|(image, end)| {
+                self.pointer_on_shape_chrome(end)
+                    && self.external_image_brush_editor_at(ui.ctx(), image, end)
+                    && ui.input(|input| {
+                        use egui::PointerButton::Primary;
+
+                        let presses = input.events.iter().filter(|event| {
+                            matches!(
+                                event,
+                                egui::Event::PointerButton {
+                                    button: Primary,
+                                    pressed: true,
+                                    ..
+                                }
+                            )
+                        });
+                        presses.count() == 1 && !input.pointer.button_clicked(Primary)
+                    })
+            });
+        if ordered_drawing
+            && (drawing_can_start
+                || brush_crosses_editor
+                || matches!(self.board_drag, Some(BoardDrag::FreehandBrush { .. })))
         {
             let events = ui.input(|i| i.events.clone());
             for event in events {
@@ -676,8 +745,26 @@ impl SlateApp {
                         button: egui::PointerButton::Primary,
                         pressed: true,
                         modifiers,
-                    } if rect.contains(pos) && resp.hovered() => {
+                    } if rect.contains(pos) => {
                         let world = xf.s2w(pos);
+                        // The final egui hover can differ from the original
+                        // press. A press on editor controls cannot start ink.
+                        if hosted_brush.is_some()
+                            && (self.pointer_on_shape_chrome(pos)
+                                || ui.ctx().layer_id_at(pos) != Some(resp.layer_id))
+                        {
+                            continue;
+                        }
+                        let image_press = hosted_brush
+                            .is_some_and(|image| self.point_in_image_paint_window(image, world));
+                        let canvas_press = drawing_can_start && (resp.hovered() || image_press);
+                        let brush_drag = brush_crosses_editor
+                            && image_press
+                            && !modifiers.alt
+                            && !modifiers.shift;
+                        if !canvas_press && !brush_drag {
+                            continue;
+                        }
                         self.board_align_eat_press = true;
                         match self.board_tool {
                             BoardTool::Line => {
@@ -730,7 +817,9 @@ impl SlateApp {
                             _ => {}
                         }
                     }
-                    egui::Event::PointerMoved(pos) if self.board_drag.is_some() => {
+                    egui::Event::PointerMoved(pos)
+                        if self.board_drag.is_some() && !space && !panning && !zoom_tool =>
+                    {
                         self.update_gesture(xf.s2w(pos), ui.input(|i| i.modifiers));
                     }
                     egui::Event::PointerMoved(pos) if self.pen_straight.is_some() => {
@@ -1122,6 +1211,7 @@ impl SlateApp {
         // --- clicks (the armed zoom tool owns the primary button) ---
         if resp.clicked()
             && !ate_plus
+            && !primary_pan
             && !zoom_tool
             && !web_capture
             && !model_toolbar_captures
@@ -1204,7 +1294,10 @@ impl SlateApp {
                     .or(pointer)
                     .is_some_and(|p| self.curve_grip_under(p) || self.hovered_vertex(p).is_some())
         };
-        if self.canvas_media_double_clicked(ui, &resp)
+        // Rapid brush dabs must keep their paint session instead of entering crop.
+        if hosted_brush.is_none()
+            && self.canvas_media_double_clicked(ui, &resp)
+            && !primary_pan
             && (!self.board_align_eat_press || (ordered_drawing && !self.tip_numeric_eats()))
             && !zoom_tool
             && !web_capture
@@ -1324,7 +1417,7 @@ impl SlateApp {
 
         // Crop-mode hover cursors: resize arrows on the window handles,
         // Grab/Grabbing over the interior (content pan).
-        if self.board_crop.is_some() && resp.hovered() && !panning {
+        if self.board_crop.is_some() && resp.hovered() && !panning && !zoom_tool {
             if let Some(BoardDrag::CropEdge { id, handle, .. }) = &self.board_drag {
                 if let Some(n) = self.doc().scene.node(*id) {
                     let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
@@ -1370,7 +1463,11 @@ impl SlateApp {
                 .is_some_and(|g| g.hovered.is_some());
             self.hover_transform_chrome(pointer, &xf, ui.ctx(), wire_grip_hovered);
         }
-        self.update_video_hover(wp, hover_live);
+        let video_scrub_motion = ui.input(|input| {
+            input.pointer.delta() != Vec2::ZERO
+                && !input.pointer.button_released(egui::PointerButton::Primary)
+        });
+        self.update_video_hover(wp, hover_live, video_scrub_motion);
         let hover_target = if hover_live && !align_hovered {
             self.hover_preview_target(wp)
         } else {

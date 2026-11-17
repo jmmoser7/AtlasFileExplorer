@@ -56,6 +56,17 @@ fn complete(
 }
 
 #[test]
+fn regular_composite_waits_for_an_older_request_for_the_same_host() {
+    let ctx = egui::Context::default();
+    let (mut jobs, results, _requests) = injected();
+    complete(&mut jobs, &results, 1, true);
+    assert!(!jobs.needs_composite(NodeId(1)));
+    assert!(jobs.needs_composite(NodeId(2)));
+    assert_eq!(jobs.drain(&ctx).len(), 1);
+    assert!(jobs.needs_composite(NodeId(1)));
+}
+
+#[test]
 fn five_ready_rasters_are_drained_over_three_frames() {
     let ctx = egui::Context::default();
     let (mut jobs, results, _requests) = injected();

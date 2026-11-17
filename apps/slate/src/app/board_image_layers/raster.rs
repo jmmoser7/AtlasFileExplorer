@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 const READY_CAPACITY: usize = 2;
+const RETAINED_STAMP_BYTES: usize = 32 * 1024 * 1024;
 
 // The renderer needs asset records only; authored geometry/style travels in
 // the request. The mutex permits sharing SlateDoc's non-Sync derived caches.
@@ -109,8 +110,16 @@ impl ImageRasterJobs {
             let _ = std::thread::Builder::new()
                 .name(format!("slate-image-raster-{worker}"))
                 .spawn(move || {
+                    let mut stamps = slate_artifact::LayerStamps::default();
+                    let mut stamp_scope = None;
                     while let Ok(request) = requests.recv() {
-                        let mut rgba = render_request(&request);
+                        if let RasterTarget::Host { node, .. } = &request.target {
+                            let scope = (*node, request.input.size);
+                            if stamp_scope.replace(scope) != Some(scope) {
+                                stamps = slate_artifact::LayerStamps::default();
+                            }
+                        }
+                        let mut rgba = render_request(&request, &mut stamps);
                         if let Some((x, y, side)) = request.thumb_crop {
                             rgba = rgba.and_then(|pixels| {
                                 crop_square(&pixels, request.input.size.0, x, y, side)
@@ -204,6 +213,16 @@ impl ImageRasterJobs {
         !self.pending_hosts.contains(&(node, key)) && !self.tx.is_full()
     }
 
+    /// The regular composite can wait for this host's last request. Rapid
+    /// edits and wheel input should not enqueue every obsolete generation.
+    pub(super) fn needs_composite(&self, node: NodeId) -> bool {
+        !self.tx.is_full()
+            && !self
+                .pending_hosts
+                .iter()
+                .any(|(pending, _)| *pending == node)
+    }
+
     pub fn needs_thumb(&self, key: &ThumbKey, gen: u64) -> bool {
         !self.pending_thumbs.contains(&(key.clone(), gen)) && !self.tx.is_full()
     }
@@ -241,19 +260,23 @@ impl ImageRasterJobs {
     }
 }
 
-fn render_request(request: &RasterRequest) -> Option<Vec<u8>> {
+fn render_request(
+    request: &RasterRequest,
+    stamps: &mut slate_artifact::LayerStamps,
+) -> Option<Vec<u8>> {
     let mut doc = request.input.doc.lock().ok()?.clone();
     super::resolve_image_doc_paths(&mut doc, request.input.workbook.as_deref());
     if matches!(&request.target, RasterTarget::Host { .. }) {
-        let mut stamps = slate_artifact::LayerStamps::default();
-        slate_artifact::rasterize_paint_layers(
+        let result = slate_artifact::rasterize_paint_layers(
             &request.input.host,
             &request.input.image,
             request.input.size.0,
             request.input.size.1,
             Some(&doc),
-            &mut stamps,
-        )
+            stamps,
+        );
+        stamps.limit_retained_bytes(RETAINED_STAMP_BYTES);
+        result
     } else {
         let svg = slate_artifact::paint_layers_svg_with_doc(
             &request.input.host,

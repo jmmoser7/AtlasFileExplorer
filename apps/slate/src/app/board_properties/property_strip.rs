@@ -80,6 +80,7 @@ pub(super) fn node_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem>
             StripItem::Panel(Panel::ModelDisplay),
             StripItem::ModelMeasure,
             StripItem::ModelScreenshot,
+            StripItem::ModelVideo,
             StripItem::ModelMaximize,
             StripItem::Panel(Panel::Filter),
         ]);
@@ -198,6 +199,7 @@ pub(super) fn edits_picked_vertices(item: &StripItem) -> bool {
         | StripItem::Agent(_)
         | StripItem::ModelMeasure
         | StripItem::ModelScreenshot
+        | StripItem::ModelVideo
         | StripItem::ModelMaximize
         | StripItem::ApplicationConnector => false,
     }
@@ -319,7 +321,7 @@ impl SlateApp {
             ),
             StripItem::Panel(Panel::ModelDisplay) => (
                 "Viewport display",
-                Icon::Model,
+                Icon::ViewportDisplay,
                 self.shape_properties.panel == Some(Panel::ModelDisplay),
             ),
             StripItem::Panel(Panel::Grasshopper) => (
@@ -352,7 +354,16 @@ impl SlateApp {
                     .is_some_and(|id| self.model_measuring(*id)),
             ),
             StripItem::ModelScreenshot => (
-                "Capture: still image or video to File or Canvas",
+                if self
+                    .shape_properties
+                    .ids
+                    .first()
+                    .is_some_and(|id| self.model_has_viewport(*id))
+                {
+                    "Capture still image"
+                } else {
+                    "Capture: still image or video to File or Canvas"
+                },
                 Icon::Camera,
                 self.shape_properties.panel == Some(Panel::Capture)
                     || self
@@ -360,6 +371,14 @@ impl SlateApp {
                         .ids
                         .first()
                         .is_some_and(|id| self.portal_capture_status(*id).is_some()),
+            ),
+            StripItem::ModelVideo => (
+                "Record video",
+                Icon::VideoCamera,
+                self.shape_properties
+                    .ids
+                    .first()
+                    .is_some_and(|id| self.portal_capture_status(*id).is_some()),
             ),
             StripItem::Panel(Panel::Capture) => (
                 "Capture: still image or video to File or Canvas",
@@ -393,6 +412,13 @@ impl SlateApp {
     }
 
     pub(super) fn property_strip_button_available(&self, item: &StripItem) -> bool {
+        if matches!(item, StripItem::ModelVideo) {
+            return self
+                .shape_properties
+                .ids
+                .first()
+                .is_some_and(|id| self.portal_capture_can_video(*id));
+        }
         if !matches!(
             item,
             StripItem::Panel(Panel::ModelDisplay | Panel::Filter)

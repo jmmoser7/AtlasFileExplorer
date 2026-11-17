@@ -8,13 +8,22 @@ impl SlateApp {
         self.start_portal_capture(node, true, None);
     }
 
-    /// Compatibility entry points now use the same deferred destination flow.
     pub(crate) fn portal_capture_video_canvas(&mut self, node: NodeId) {
         self.portal_capture_video_start(node);
     }
 
     pub(crate) fn portal_capture_video_dialog(&mut self, node: NodeId) {
+        let was_recording = self.portal_chrome.capture.session.is_some();
         self.portal_capture_video_start(node);
+        if let Some(session) = self
+            .portal_chrome
+            .capture
+            .session
+            .as_mut()
+            .filter(|_| !was_recording)
+        {
+            session.save_to_file_on_pause = true;
+        }
     }
 
     pub(crate) fn portal_capture_pause(&mut self) {
@@ -25,8 +34,13 @@ impl SlateApp {
             return;
         }
         session.clock.pause(Instant::now());
+        let save_to_file =
+            session.encoder.is_some() && std::mem::take(&mut session.save_to_file_on_pause);
         if let Some(gpu) = self.portal_chrome.capture.gpu.as_ref() {
             gpu.cancel();
+        }
+        if save_to_file {
+            self.portal_capture_video_save_file();
         }
     }
 

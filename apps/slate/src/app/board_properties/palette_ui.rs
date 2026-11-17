@@ -13,6 +13,15 @@ mod tests;
 impl SlateApp {
     /// Paints and handles property chrome at the supplied board camera.
     pub(crate) fn shape_properties_ui(&mut self, ui: &mut egui::Ui, xf: &BoardXf) -> bool {
+        self.shape_properties_for_fullscreen_host(ui, xf, None)
+    }
+
+    pub(crate) fn shape_properties_for_fullscreen_host(
+        &mut self,
+        ui: &mut egui::Ui,
+        xf: &BoardXf,
+        fullscreen_host: Option<Rect>,
+    ) -> bool {
         self.shape_properties.result_chrome_bottom = None;
         let ctx = ui.ctx().clone();
         self.clear_image_palette_frame(&ctx);
@@ -131,8 +140,10 @@ impl SlateApp {
         }
         let theme = self.palette();
         let authored_bounds = xf.rect_w2s(chrome_state.bounds);
-        let bounds = chrome_state.host.map_or(authored_bounds, |(_, id)| {
-            self.text_review_visual_body(&ctx, id, authored_bounds, z)
+        let bounds = fullscreen_host.unwrap_or_else(|| {
+            chrome_state.host.map_or(authored_bounds, |(_, id)| {
+                self.text_review_visual_body(&ctx, id, authored_bounds, z)
+            })
         });
         let enabled =
             live && !self.tab().read_only && self.shape_properties.nodes.iter().all(|n| !n.locked);
@@ -141,11 +152,15 @@ impl SlateApp {
             self.shape_properties.edits.clear();
             self.shape_properties.number = None;
         }
-        if let Some(captures) = self.paint_image_properties(ui, xf, &chrome_state, live, enabled) {
-            return captures;
+        if fullscreen_host.is_none() {
+            if let Some(captures) =
+                self.paint_image_properties(ui, xf, &chrome_state, live, enabled)
+            {
+                return captures;
+            }
         }
         let items = chrome_state.items;
-        let blister = chrome_state.blister;
+        let blister = fullscreen_host.is_none() && chrome_state.blister;
         let presentation =
             if self.shape_properties.panel.is_some() || self.frame_presentation.is_open() {
                 chrome::BlisterPresentation::Overlay
@@ -153,7 +168,15 @@ impl SlateApp {
                 chrome::BlisterPresentation::Collapsed
             };
         let media_layout = chrome::blister_layout(bounds, z, items.len(), presentation);
-        let strip = if blister {
+        let strip = if let Some(host) = fullscreen_host.filter(|_| !items.is_empty()) {
+            let inset = atlas_shell::tokens::current().dock.bottom_margin - chrome::OBJECT_GAP * z;
+            chrome::strip_rect(
+                host.center_bottom() - Vec2::new(0.0, inset),
+                items.len(),
+                z,
+                fade,
+            )
+        } else if blister {
             self.prepare_media_blister(items.len(), presentation);
             media_layout.band
         } else if items.is_empty() {
@@ -176,6 +199,7 @@ impl SlateApp {
         let mut requested_agent = None;
         let mut requested_measure = false;
         let mut requested_screenshot = false;
+        let mut requested_video = false;
         let mut requested_connector = false;
         let mut requested_connector_draft = None;
         let mut requested_headless = None;
@@ -261,6 +285,16 @@ impl SlateApp {
                     requested_connector_draft,
                 ) = self.model_connector_context(&response, model, enabled);
             }
+            if button_live
+                && matches!(item, StripItem::ModelScreenshot | StripItem::ModelVideo)
+                && self
+                    .shape_properties
+                    .ids
+                    .first()
+                    .is_some_and(|id| self.model_has_viewport(*id))
+            {
+                self.model_capture_context(&response, *item == StripItem::ModelScreenshot);
+            }
             #[cfg(test)]
             if matches!(
                 item,
@@ -282,6 +316,7 @@ impl SlateApp {
                     StripItem::Agent(expand) => requested_agent = Some(*expand),
                     StripItem::ModelMeasure => requested_measure = true,
                     StripItem::ModelScreenshot => requested_screenshot = true,
+                    StripItem::ModelVideo => requested_video = true,
                     StripItem::ApplicationConnector => requested_connector = true,
                     StripItem::ModelMaximize => requested_maximize = true,
                 }
@@ -345,6 +380,20 @@ impl SlateApp {
             requested_maximize,
             requested_screenshot,
         );
+        if let Some(id) = self
+            .shape_properties
+            .ids
+            .first()
+            .copied()
+            .filter(|_| requested_video)
+        {
+            let command = if self.portal_chrome.capture_video_to_file == Some(true) {
+                "portal.capture.video.file"
+            } else {
+                "portal.capture.video.start"
+            };
+            self.dispatch(&ctx, CommandId(command), Some(id.0.to_string()));
+        }
         if let Some(id) = requested_headless {
             self.dispatch(
                 &ctx,
@@ -356,7 +405,7 @@ impl SlateApp {
             self.board_sel = [id].into_iter().collect();
             self.dispatch(&ctx, CommandId("portal.agent.board_access"), None);
         }
-        if !self.frame_presentation.is_open() {
+        if fullscreen_host.is_none() && !self.frame_presentation.is_open() {
             captures |= self.paint_property_dimensions(ui, xf, live, enabled);
         }
         if self.shape_properties.panel != Some(Panel::Filter) {
@@ -442,6 +491,9 @@ impl SlateApp {
                         },
                     );
                     if let Some(editor) = editor {
+                        if blister {
+                            self.prepare_media_apron(editor.area, xf);
+                        }
                         if enabled && panel == Panel::Grasshopper {
                             self.shape_properties.grasshopper_drop_area = chrome_state
                                 .host
@@ -475,7 +527,10 @@ impl SlateApp {
             let press = self.property_dismiss_press(&ctx);
             let on_host = overlay_open
                 && press.is_some()
-                && self.property_host_contains_pointer(&ctx, xf, z, blister, bounds);
+                && fullscreen_host.map_or_else(
+                    || self.property_host_contains_pointer(&ctx, xf, z, blister, bounds),
+                    |host| ctx.pointer_latest_pos().is_some_and(|p| host.contains(p)),
+                );
             if overlay_open && !captures && !on_host && press.is_some() {
                 self.dismiss_property_press(&ctx, xf, press == Some(true));
                 captures |= press != Some(true);

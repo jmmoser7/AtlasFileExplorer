@@ -74,6 +74,7 @@ struct Session {
     saving: bool,
     clock: RecordingClock,
     destination: Option<VideoDestination>,
+    save_to_file_on_pause: bool,
 }
 
 struct StillWrite {

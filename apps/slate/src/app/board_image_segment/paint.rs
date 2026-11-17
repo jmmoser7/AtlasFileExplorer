@@ -43,16 +43,20 @@ impl SlateApp {
             .as_ref()
             .filter(|draft| draft.host == host_id && draft.tab == self.tab().id)
             .and_then(|_| ui.ctx().pointer_latest_pos())
-            .map(|screen| {
+            .and_then(|screen| {
                 let world = xf.s2w(screen);
+                if !self.point_in_image_paint_window(host_id, world) {
+                    return None;
+                }
                 let (x, y) =
                     slate_doc::image_paint::world_to_host_norm(host, img, world.x, world.y);
-                self.constrain_lasso_point(
+                let point = self.constrain_lasso_point(
                     host,
                     img,
                     [x, y],
                     ui.input(|input| input.modifiers.shift),
-                )
+                );
+                Some((screen, [point[0].clamp(0.0, 1.0), point[1].clamp(0.0, 1.0)]))
             });
         let result = pinned
             .as_ref()
@@ -80,14 +84,8 @@ impl SlateApp {
             .as_ref()
             .filter(|draft| draft.host == host_id && draft.tab == self.tab().id)
         {
-            let screen_point = |point: [f32; 2]| {
-                let world = slate_doc::geom::orbit_point(
-                    center,
-                    (basis.x + point[0] * basis.w, basis.y + point[1] * basis.h),
-                    rotation,
-                );
-                xf.w2s(Pos2::new(world.0, world.1))
-            };
+            let screen_point =
+                |point| super::lasso::lasso_point_screen(xf, basis, center, rotation, point);
             let stroke = egui::Stroke::new(canvas_scale::px(1.6, xf.z), self.palette().accent);
             for pair in draft.points.windows(2) {
                 painter.line_segment([screen_point(pair[0]), screen_point(pair[1])], stroke);
@@ -99,8 +97,15 @@ impl SlateApp {
                     stroke.color,
                 );
             }
-            if let (Some(last), Some(next)) = (draft.points.last(), draft_preview) {
-                painter.line_segment([screen_point(*last), screen_point(next)], stroke);
+            if let (Some(last), Some((pointer, next))) = (draft.points.last(), draft_preview) {
+                let first = screen_point(draft.points[0]);
+                let end = if draft.points.len() >= 3 && pointer.distance(first) <= LASSO_CLOSE_PX {
+                    painter.circle_stroke(first, LASSO_CLOSE_PX * 0.65, stroke);
+                    first
+                } else {
+                    screen_point(next)
+                };
+                painter.line_segment([screen_point(*last), end], stroke);
             }
         }
         // Hover is the silhouette itself, with no capsule over the color datum.

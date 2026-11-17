@@ -37,6 +37,13 @@ pub fn unread_reports(app: &str) -> io::Result<Vec<ReportSummary>> {
     unread_at(&root)
 }
 
+/// Completed reports, including acknowledged ones, for a manual review.
+pub fn recent_reports(app: &str) -> io::Result<Vec<ReportSummary>> {
+    let mut reports = completed_at(&reports_dir(app))?;
+    sort_newest(&mut reports);
+    Ok(reports)
+}
+
 pub(super) fn unread_at(root: &Path) -> io::Result<Vec<ReportSummary>> {
     let mut reports = completed_at(root)?;
     reports.retain(|report| report.dir.join("unread").is_file());

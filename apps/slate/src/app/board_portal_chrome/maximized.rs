@@ -125,16 +125,14 @@ impl SlateApp {
         let xf = fit_xf(node.rect, host);
         let painter = ui.painter_at(screen);
         painter.rect_filled(screen, 0.0, self.palette().card);
-        self.paint_board_node(ui, &painter, &xf, node, false);
-        let controls = self.shape_properties_ui(ui, &xf);
-        let layout = layout_for_portal(
-            PortalKind::Agent,
-            host,
-            false,
-            true,
-            self.node_resolved_corner(node),
-            xf.z,
-        );
+        let controls = if host == screen {
+            self.paint_fullscreen_model_viewport(ui, &painter, node, host);
+            self.shape_properties_for_fullscreen_host(ui, &xf, Some(host))
+        } else {
+            self.paint_board_node(ui, &painter, &xf, node, false);
+            self.shape_properties_ui(ui, &xf)
+        };
+        let layout = layout_portal_frame(host, true, self.node_resolved_corner(node), xf.z);
         if tabs::portal_maximize_button(ui, &self.palette(), layout.maximize, node.id.0, true) {
             self.portal_restore();
         }

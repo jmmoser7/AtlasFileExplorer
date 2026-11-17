@@ -14,6 +14,10 @@ pub use recorder::RecordedStep;
 pub use recorder::{redact_paths_in_text, Recorder, RECORD_TIMEOUT};
 pub use ui::{advanced_section, dialogs, paint_recording_chrome, FeedbackUiOutput};
 
+pub fn online_delivery_available(app: &str) -> bool {
+    send::endpoint(app).is_some()
+}
+
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -132,6 +136,28 @@ impl FeedbackHub {
             FeedbackKind::Bug => FeedbackPhase::BugForm,
             FeedbackKind::Feature => FeedbackPhase::FeatureForm,
         };
+    }
+
+    /// A prefilled report must leave an existing suggestion or retry intact.
+    pub fn can_prefill(&self) -> bool {
+        self.phase == FeedbackPhase::Closed
+            && !self.send.pending()
+            && !self.screenshot_pending
+            && self.capture_rx.is_none()
+            && self.description.is_empty()
+            && self.links_text.is_empty()
+            && !self.reproduce_wanted
+            && self.attachments.is_empty()
+            && self.recorded_steps.is_empty()
+    }
+
+    pub fn review_bug(&mut self, description: String) -> bool {
+        if !self.can_prefill() {
+            return false;
+        }
+        self.begin_form(FeedbackKind::Bug);
+        self.description = description;
+        true
     }
 
     pub fn recording(&self) -> bool {

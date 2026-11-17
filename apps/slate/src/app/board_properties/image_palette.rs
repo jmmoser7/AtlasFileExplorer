@@ -131,6 +131,20 @@ impl SlateApp {
     pub(crate) fn image_controls_eligible(&self, id: NodeId) -> bool {
         !self.portal_capture_owns_viewport(id) && self.image_palette_eligible(id)
     }
+
+    pub(crate) fn external_image_brush_editor_at(
+        &self,
+        ctx: &egui::Context,
+        image: NodeId,
+        pos: egui::Pos2,
+    ) -> bool {
+        self.shape_properties.panel == Some(Panel::Brush)
+            && ctx.layer_id_at(pos)
+                == Some(egui::LayerId::new(
+                    chrome::POPUP_ORDER,
+                    outline::layer(image).id,
+                ))
+    }
 }
 
 pub(super) fn show(
@@ -386,6 +400,9 @@ pub(super) fn show(
         brush::finish_setting_edit(&ctx, id, app);
         app.apply_shape_preview(&ctx, true);
         app.shape_properties.panel = Some(panel);
+        if panel == Panel::Brush {
+            app.arm_image_brush(id);
+        }
     }
     if let Some(gesture) = sample {
         if panel == Some(Panel::Brush) {
@@ -475,13 +492,16 @@ fn paint_panel_body(
             (response.captures, response.sample, response.popup_hits)
         }
         Panel::Layers => {
+            let popup_start = app.shape_properties.chrome_hits.len();
             let hits = app.image_layer_palette_body(ui, layout, id, z, theme);
-            let captures = ui
-                .ctx()
-                .pointer_latest_pos()
-                .is_some_and(|p| hits.iter().any(|rect| rect.contains(p)));
+            let popup_hits = popup_start..app.shape_properties.chrome_hits.len();
+            let captures = ui.ctx().pointer_latest_pos().is_some_and(|p| {
+                hits.iter()
+                    .chain(&app.shape_properties.chrome_hits[popup_hits.clone()])
+                    .any(|rect| rect.contains(p))
+            });
             app.shape_properties.chrome_hits.extend(hits);
-            (captures, None, 0..0)
+            (captures, None, popup_hits)
         }
         _ => {
             let start = app.shape_properties.chrome_hits.len();

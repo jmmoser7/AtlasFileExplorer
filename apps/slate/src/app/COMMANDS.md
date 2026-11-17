@@ -63,25 +63,31 @@ receives `revision`. Apply journals the completed revision; Discard restores the
 previous view. Content and its pinned revision stay independent of the removable
 memory trace. Showing an earlier revision never rewrites later history.
 
-Every portal blister offers **Capture**, shared with the existing 3D viewport
-capture control. `portal.capture` opens still-image and silent-video choices;
+Every portal blister offers **Capture**. On a native 3D viewport, the Camera
+and Record video buttons each offer a right-click destination menu. The Camera
+shows **Save image to canvas** or **File**. Record video shows
+**Save video to canvas** or **File**. Choose a destination, then click the
+corresponding tool. The Camera also opens the shared capture editor before a
+destination is chosen. `portal.capture` opens still-image and silent-video choices;
 `portal.capture.still.canvas` / `.file` save PNG, JPEG, or WebP, and
 `portal.capture.video.start` starts one private MP4 recording, up to 1080p at
 30 fps. Its exterior timer stays visible after dismissing the launch palette
 or changing selection. `portal.capture.pause` freezes capture and opens
 `portal.capture.save.file` / `.save.canvas`; `portal.capture.resume` continues
 without including the paused interval. Cancelling the save picker retains the
-paused draft. `portal.capture.cancel` discards it. The old
-`portal.capture.video.canvas` / `.file` IDs now start the same deferred-output
-flow, and `portal.capture.stop` is a compatibility alias for Pause.
+paused draft. `portal.capture.cancel` discards it. The
+`portal.capture.video.canvas` ID starts the deferred-output flow.
+`portal.capture.video.file` offers the File picker on the first Pause.
+`portal.capture.stop` is a compatibility alias for Pause.
 Canvas output adds one linked media node beside its source in one undo step.
 Recording leaves source interaction live and shows Starting, Recording, Paused
 or Saving with elapsed time. Pause exposes Save File, Place Board, Resume and
 Discard. Capture follows the ordinary attached blister: its host, controls and
 hit regions pan and scale together. Right/middle drag keeps the panel open;
 a completed outside click follows the existing property-panel dismissal rule.
-Maximized capture fits the source and its board-unit apron together without
-changing the board camera.
+Native 3D full screen fills the viewport and docks the property strip at the
+bottom center. The capture assembly still fits the source and its board-unit
+apron together without changing the board camera.
 Esc closes the menu before leaving portal focus. Switching away
 from the source tab, deleting/rebinding its source, or closing the tab cancels
 the draft. Existing `board.model_screenshot*` IDs remain aliases and preserve

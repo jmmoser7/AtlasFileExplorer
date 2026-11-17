@@ -277,6 +277,27 @@ mod tests {
     }
 
     #[test]
+    fn a_crash_review_prefills_a_bug_without_sending_or_replacing_a_draft() {
+        let mut hub = FeedbackHub::default();
+        hub.description = "Unsent feedback".into();
+        assert!(!hub.review_bug("Crash summary".into()));
+        assert_eq!(hub.description, "Unsent feedback");
+        hub.description.clear();
+        hub.reproduce_wanted = true;
+        assert!(!hub.review_bug("Crash summary".into()));
+        hub.reproduce_wanted = false;
+
+        assert!(hub.review_bug("Slate crash report\n\nExit code: 1".into()));
+        assert_eq!(hub.phase, super::super::FeedbackPhase::BugForm);
+        assert!(!hub.send.pending());
+        let report = super::super::ui::prepare_report(&hub, "slate", "1.0.11").unwrap();
+        let text = Text::from_report(&report, FeedbackKind::Bug).unwrap();
+        assert_eq!(text.title, "Slate crash report");
+        assert_eq!(text.body, "Slate crash report\n\nExit code: 1");
+        assert!(hub.attachments.is_empty());
+    }
+
+    #[test]
     fn sends_only_explicit_text_and_checks_the_http_receipt() {
         let mut hub = FeedbackHub::default();
         hub.begin_form(FeedbackKind::Feature);

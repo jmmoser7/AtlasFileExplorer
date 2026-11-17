@@ -279,13 +279,6 @@ impl SlateApp {
                     }
                     self.paint_video_chrome(painter, xf, node);
                 }
-                // A 3D model card is kept as clean as a picture: its render,
-                // or its gap message, says what it is.
-                let model_card =
-                    kind == slate_doc::MediaKind::Model || self.model_node_info(node.id).is_some();
-                if !(matches!(kind, slate_doc::MediaKind::Image) || show_excerpt || model_card) {
-                    paint_ext_badge(painter, srect, &slate_doc::media::ext_badge(&path), z);
-                }
                 if (surface.is_none() || self.image_palette_frame(painter.ctx(), node.id).is_some())
                     && (!chrome || !self.paint_image_palette_stroke(painter, xf, node, img))
                 {

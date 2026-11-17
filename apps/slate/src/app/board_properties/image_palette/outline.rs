@@ -8,6 +8,7 @@ struct ActiveFrame {
     image: NodeId,
     geometry: Arc<chrome::ImageFrameGeometry>,
     layer: egui::LayerId,
+    world_apron: Option<Rect>,
 }
 
 fn frame_id() -> Id {
@@ -54,9 +55,37 @@ impl SlateApp {
             offset: egui::Vec2::ZERO,
             z: 1.0,
         };
-        self.media_host_surface_at(ctx, view, &world, node, true)
+        let outline = self
+            .media_host_surface_at(ctx, view, &world, node, true)
             .and_then(|surface| surface.outline.first().cloned())
-            .unwrap_or_else(|| self.node_screen_outline(ctx, &world, node))
+            .unwrap_or_else(|| self.node_screen_outline(ctx, &world, node));
+        let apron = self
+            .active_image_palette_frame(ctx, node.id)
+            .and_then(|frame| frame.world_apron)
+            .or_else(|| {
+                self.shape_properties
+                    .last_chrome
+                    .as_ref()
+                    .and_then(|state| state.media)
+                    .filter(|prepared| prepared.tab == self.tab().id && prepared.host == node.id)
+                    .and_then(|prepared| prepared.world_apron)
+            });
+        if let Some(apron) = apron {
+            let geometry = chrome::image_frame_geometry(
+                ctx,
+                Id::new(("media_shadow_apron", self.tab().id, node.id.0)),
+                &outline,
+                Some(apron),
+                node.rotation_deg.abs() < 0.001,
+                1.0,
+                0.0,
+                0.0,
+            );
+            if let Some(body) = geometry.body.first() {
+                return body.clone();
+            }
+        }
+        outline
     }
 
     fn media_host_surface_at(
@@ -170,11 +199,12 @@ impl SlateApp {
             .board_preview
             .select_line_weight
             * xf.z;
+        let apron = expanded.then_some(layout.overall);
         let geometry = chrome::image_frame_geometry(
             ctx,
             Id::new(("image_palette_frame_geometry", self.tab().id, host.id.0)),
             outline,
-            expanded.then_some(layout.overall),
+            apron,
             host.rotation_deg.abs() < 0.001,
             xf.z,
             stroke,
@@ -188,6 +218,8 @@ impl SlateApp {
                     image: host.id,
                     geometry,
                     layer: layer(host.id),
+                    world_apron: apron
+                        .map(|rect| Rect::from_min_max(xf.s2w(rect.min), xf.s2w(rect.max))),
                 },
             )
         });
@@ -198,13 +230,21 @@ impl SlateApp {
         ctx: &egui::Context,
         image: NodeId,
     ) -> Option<(Arc<chrome::ImageFrameGeometry>, egui::LayerId)> {
+        self.active_image_palette_frame(ctx, image)
+            .map(|frame| (frame.geometry, frame.layer))
+    }
+
+    fn active_image_palette_frame(
+        &self,
+        ctx: &egui::Context,
+        image: NodeId,
+    ) -> Option<ActiveFrame> {
         // Capture can start after the selection palette painted this frame.
         if self.portal_capture_owns_viewport(image) {
             return None;
         }
         ctx.data(|data| data.get_temp::<ActiveFrame>(frame_id()))
             .filter(|frame| frame.tab == self.tab().id && frame.image == image)
-            .map(|frame| (frame.geometry, frame.layer))
     }
 
     pub(crate) fn paint_image_palette_stroke(

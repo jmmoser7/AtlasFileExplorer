@@ -38,14 +38,25 @@ impl SlateApp {
                     if !self.host_raster_current(node, key, completion.w.max(completion.h)) {
                         continue;
                     }
+                    let Some(result) = self.image_result_id(node) else {
+                        continue;
+                    };
+                    let tab = self.tab().id;
                     let image = egui::ColorImage::from_rgba_unmultiplied(size, &rgba);
                     let texture = ctx.load_texture(
                         format!("paint-layer-{}", node.0),
                         image,
                         egui::TextureOptions::LINEAR,
                     );
-                    self.paint_layer_texture_cache
-                        .insert(node, PaintLayerTextureCache { key, texture });
+                    self.paint_layer_texture_cache.insert(
+                        node,
+                        PaintLayerTextureCache {
+                            tab,
+                            result,
+                            key,
+                            texture,
+                        },
+                    );
                     changed = true;
                 }
                 RasterTarget::Thumb { key, gen } => {

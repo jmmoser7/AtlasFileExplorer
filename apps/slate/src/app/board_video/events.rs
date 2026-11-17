@@ -120,11 +120,7 @@ impl SlateApp {
                     .is_some_and(|p| p.id == id && p.token == token)
                 {
                     let end = self.video.play.as_ref().map(|p| p.end).unwrap_or(0.0);
-                    self.video.play = None;
-                    self.video.paused.insert(id, end);
-                    if let Some(pool) = self.video.pool.as_ref() {
-                        pool.stop();
-                    }
+                    self.finish_video_playback(Some(end));
                 }
             }
             VideoEvent::Failed { id, token } => {

@@ -12,6 +12,8 @@ impl SlateApp {
     }
 
     pub(crate) fn arm_image_brush(&mut self, image: NodeId) {
+        self.zoom_armed = false;
+        self.zoom_marquee = None;
         self.transition_image_tool(image, crate::app::board::BoardTool::Brush);
     }
 

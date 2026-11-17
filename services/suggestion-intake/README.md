@@ -2,6 +2,8 @@
 
 The Slate website and app can send text suggestions anonymously to the same HTTPS endpoint. The Worker writes one JSON file per suggestion under `submissions/YYYY/MM/` in an owner-controlled private GitHub repository. Visitors receive a receipt ID. The Worker exposes no read route and records neither client IP addresses nor suggestion text in its logs.
 
+The website and Windows release workflows both read the repository Actions variable `SLATE_SUGGESTION_ENDPOINT`. In installed Slate, **Send anonymously** delivers the visible text to the same inbox. **Advanced → Crash reports → Review latest report to send** opens the Suggestion Box with a diagnostic summary. Slate sends it as a desktop bug report only after the user chooses **Send anonymously**. Raw crash files, workbook content, and attachments stay local.
+
 ## Configure GitHub
 
 1. Choose a personally owned private repository with an initialized default branch. The sample uses `jmmoser7/slate-agent-feedback`. Check the repository's access settings for pending invitations. Use a dedicated private repo if existing collaborators should keep their access to the current repo.

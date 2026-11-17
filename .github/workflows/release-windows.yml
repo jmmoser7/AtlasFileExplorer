@@ -127,6 +127,12 @@ jobs:
         env:
           WINDOWS_SIGN_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
         run: ./scripts/package-windows.ps1 -Version $env:ATLAS_RELEASE_VERSION -Channel $env:ATLAS_RELEASE_CHANNEL
+      - name: Verify candidate setup and upgrade from the published stable suite
+        if: steps.version.outputs.channel == 'stable'
+        shell: pwsh
+        env:
+          CANDIDATE_RELEASE_DIR: ${{ steps.package.outputs.release_dir }}
+        run: ./scripts/test-windows-stable-upgrade.ps1 -ReleaseDirectory $env:CANDIDATE_RELEASE_DIR -Version $env:ATLAS_RELEASE_VERSION
       - name: Preserve installer and update assets
         uses: actions/upload-artifact@v4
         with:

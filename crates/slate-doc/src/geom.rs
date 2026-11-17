@@ -117,7 +117,7 @@ fn polyline_norm_points(path: &PathData) -> Vec<[f32; 2]> {
     pts
 }
 
-fn path_cmds_to_bez_world(cmds: &[PathCmd]) -> BezPath {
+fn path_cmds_to_bez_world(cmds: &[PathCmd], closed: bool) -> BezPath {
     let mut bez = BezPath::new();
     for cmd in cmds {
         match *cmd {
@@ -129,6 +129,10 @@ fn path_cmds_to_bez_world(cmds: &[PathCmd]) -> BezPath {
                 Point::new(to[0] as f64, to[1] as f64),
             ),
         }
+    }
+    if closed {
+        // Keep the return segment so tipped strokes can sample its width and color.
+        bez.close_path();
     }
     bez
 }
@@ -146,7 +150,7 @@ pub fn path_data_to_world_bez_with_fillet(
             let world = polyline_world_points(path, rect, rotation_deg);
             if world.len() >= 3 || (world.len() >= 2 && !path.closed) {
                 let cmds = filleted_vertex_path_each(&world, &amounts, chamfer, path.closed);
-                return path_cmds_to_bez_world(&cmds);
+                return path_cmds_to_bez_world(&cmds, path.closed);
             }
         }
     }
@@ -190,7 +194,7 @@ pub fn tipped_stroke_world_path(
                 );
                 let cmds: Vec<PathCmd> = tracked.iter().map(|(cmd, _)| *cmd).collect();
                 let params = tracked.iter().map(|(_, at)| *at).collect();
-                return (path_cmds_to_bez_world(&cmds), params);
+                return (path_cmds_to_bez_world(&cmds, path.closed), params);
             }
         }
     }
@@ -420,7 +424,7 @@ pub fn regular_polygon_world_outline(
         verts
     } else {
         let cmds = filleted_vertex_path(&verts, amount, chamfer, true);
-        let bez = path_cmds_to_bez_world(&cmds);
+        let bez = path_cmds_to_bez_world(&cmds, true);
         flatten_contours(&bez, tolerance as f64)
             .into_iter()
             .next()
@@ -853,7 +857,17 @@ mod tests {
             ..Default::default()
         };
         let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
-        let t = tipped_stroke(&path, &stroke, rect, 0.0, Corner::Rounded { radius: 20.0 }).unwrap();
+        let corner = Corner::Rounded { radius: 20.0 };
+        let t = tipped_stroke(&path, &stroke, rect, 0.0, corner).unwrap();
+        let plain = path_data_to_world_bez_with_fillet(&path, rect, 0.0, corner);
+        for bez in [&plain, &t.bez] {
+            assert_eq!(
+                bez.elements().last(),
+                Some(&vector_ink::kurbo::PathEl::ClosePath)
+            );
+        }
+        assert_eq!(t.bez.elements().len(), t.widths.len() + 1);
+        assert_eq!(t.widths.first(), t.widths.last());
         let near_first: Vec<f32> = t
             .bez
             .elements()
@@ -908,9 +922,10 @@ mod tests {
             (Corner::Chamfer { cut: 30.0 }, true),
         ] {
             let drawn = path_data_to_world_bez_with_fillet(&path, rect, 0.0, corner);
-            let want = path_cmds_to_bez_world(&crate::wire::filleted_vertex_path(
-                &world, 30.0, chamfer, false,
-            ));
+            let want = path_cmds_to_bez_world(
+                &crate::wire::filleted_vertex_path(&world, 30.0, chamfer, false),
+                false,
+            );
             assert_eq!(drawn.elements().len(), want.elements().len(), "{corner:?}");
             for (a, b) in drawn.elements().iter().zip(want.elements()) {
                 assert!(
@@ -925,9 +940,10 @@ mod tests {
         // Percent amounts stay relative to the box, as before.
         let percent = Corner::RoundedPercent { percent: 50.0 };
         let drawn = path_data_to_world_bez_with_fillet(&path, rect, 0.0, percent);
-        let want = path_cmds_to_bez_world(&crate::wire::filleted_vertex_path(
-            &world, 10.0, false, false,
-        ));
+        let want = path_cmds_to_bez_world(
+            &crate::wire::filleted_vertex_path(&world, 10.0, false, false),
+            false,
+        );
         assert_eq!(format!("{drawn:?}"), format!("{want:?}"));
     }
 
@@ -1318,6 +1334,19 @@ pub fn polyline_intersects_polygon(line: &[[f32; 2]], poly: &Polygon) -> bool {
 
 /// Flattened centerlines / outlines used to test ink against a host window.
 pub fn node_stroke_polylines(n: &Node, tolerance: f32) -> Vec<Vec<[f32; 2]>> {
+    // A stationary stamped stroke has a start point and no segments.
+    if let NodeKind::Shape(shape) = &n.kind {
+        if shape.shape == ShapeKind::Path && shape.stroke.paints_as_stamp() {
+            if let Some(path) = shape
+                .path
+                .as_ref()
+                .filter(|path| !path.closed && path.segs.is_empty() && path.extra.is_empty())
+            {
+                let at = world_point(path.start, n.rect, n.rotation_deg);
+                return vec![vec![[at.x as f32, at.y as f32]]];
+            }
+        }
+    }
     if let Some(open) = node_open_polyline(n, tolerance) {
         return vec![open];
     }

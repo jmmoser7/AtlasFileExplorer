@@ -183,4 +183,16 @@ fn rounded_image_shadow_keeps_world_geometry_and_texture_through_camera_navigati
         screen_samples.len() > 1,
         "fixture must cross actual corner tessellation thresholds"
     );
+
+    h.app.shape_properties.panel = Some(Panel::Corners);
+    h.frame();
+    let now = h.ctx.input(|input| input.time);
+    h.frame_with(|input| input.time = Some(now + 0.5));
+    let expanded = h.app.media_shadow_outline(&h.ctx, &reference_xf, &node);
+    assert!(Rect::from_points(&expanded).bottom() > Rect::from_points(&reference).bottom());
+    let moved = BoardXf {
+        z: 0.73,
+        ..reference_xf
+    };
+    assert_eq!(h.app.media_shadow_outline(&h.ctx, &moved, &node), expanded);
 }

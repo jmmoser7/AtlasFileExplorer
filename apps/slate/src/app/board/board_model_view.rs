@@ -3,6 +3,47 @@
 use super::*;
 
 impl SlateApp {
+    pub(crate) fn paint_fullscreen_model_viewport(
+        &mut self,
+        ui: &egui::Ui,
+        painter: &egui::Painter,
+        node: &Node,
+        rect: Rect,
+    ) {
+        let name = self
+            .image_item(node.id)
+            .and_then(|item| self.doc().item(item))
+            .map(|item| item.file_name.clone())
+            .unwrap_or_default();
+        let corners = [
+            rect.left_top(),
+            rect.right_top(),
+            rect.right_bottom(),
+            rect.left_bottom(),
+        ];
+        let vertices = [
+            (corners[0], Pos2::new(0.0, 0.0)),
+            (corners[1], Pos2::new(1.0, 0.0)),
+            (corners[2], Pos2::new(1.0, 1.0)),
+            (corners[3], Pos2::new(0.0, 1.0)),
+        ];
+        if self.grasshopper_viewer(node.id) {
+            self.request_grasshopper(node.id, ui.ctx());
+        }
+        self.paint_model_viewport(
+            ui,
+            painter,
+            &corners,
+            &vertices,
+            rect,
+            node.id,
+            &name,
+            node.opacity.clamp(0.0, 1.0),
+            1.0,
+            false,
+        );
+    }
+
     /// An admitted right drag belongs to the model until that button releases,
     /// including when the pointer briefly crosses the viewport edge.
     pub(super) fn model_secondary_navigation(
@@ -222,7 +263,27 @@ impl SlateApp {
 
         match tex {
             Some(tex) => {
-                paint_node_texture_id(painter, tex, tex_vertices, tint);
+                let fullscreen_fallback = live_tex.is_none()
+                    && self.portal_is_maximized(node_id)
+                    && srect == self.canvas_rect;
+                let texture_size = fullscreen_fallback
+                    .then(|| {
+                        ui.ctx()
+                            .tex_manager()
+                            .read()
+                            .meta(tex)
+                            .map(|meta| meta.size)
+                    })
+                    .flatten();
+                if let Some([width, height]) = texture_size {
+                    let size = Vec2::new(width as f32, height as f32);
+                    let scale = (srect.width() / size.x).min(srect.height() / size.y);
+                    let image = Rect::from_center_size(srect.center(), size * scale);
+                    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+                    painter.image(tex, image, uv, tint);
+                } else {
+                    paint_node_texture_id(painter, tex, tex_vertices, tint);
+                }
             }
             None => {
                 let palette = self.palette();

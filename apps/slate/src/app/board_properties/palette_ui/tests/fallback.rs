@@ -251,6 +251,165 @@ fn fallback_images_keep_external_brush_and_layers_controls_at_full_width() {
     }
 }
 
+#[test]
+fn external_image_brush_commits_a_dab_and_a_drag_to_the_image() {
+    let mut h = Harness::new("external-image-brush-input");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.set_board_tool(BoardTool::Select);
+    let id = crate::app::board_flow::tests::place(&mut h, "photo.png", 0.0);
+    h.app.patch_nodes(&[id], |node| {
+        node.rect = WorldRect::new(-184.0, -115.0, 368.0, 230.0);
+    });
+    h.app.tab_mut().cam.offset = Vec2::ZERO;
+    h.app.tab_mut().cam.z = 0.72;
+    h.app.board_sel = std::iter::once(id).collect();
+    let mut time = 0.0;
+    let mut step = |h: &mut Harness, events| {
+        time += 1.0 / 60.0;
+        h.frame_with(|input| {
+            input.time = Some(time);
+            input.events = events;
+        });
+    };
+    for _ in 0..12 {
+        step(&mut h, vec![]);
+    }
+
+    let (attached, _, strip) =
+        h.app
+            .observed_image_palette_layout_for_test(&h.ctx, id, chrome::ImagePanelKind::Brush);
+    assert!(!attached);
+    let brush_index = h
+        .app
+        .shape_properties
+        .last_chrome
+        .as_ref()
+        .unwrap()
+        .items
+        .iter()
+        .position(|item| *item == StripItem::Panel(Panel::Brush))
+        .unwrap();
+    let xf = h.app.board_xf();
+    let brush = chrome::strip_button_rect(strip, brush_index, xf.z).center();
+    let primary = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.app.zoom_armed = true;
+    step(&mut h, vec![egui::Event::PointerMoved(brush)]);
+    step(&mut h, vec![primary(brush, true)]);
+    step(&mut h, vec![primary(brush, false)]);
+    assert_eq!(h.app.shape_properties.panel, Some(Panel::Brush));
+    assert_eq!(h.app.board_tool, BoardTool::Brush);
+    assert!(!h.app.zoom_tool_active());
+    assert_eq!(h.app.paint_layer_host(), Some(id));
+    assert!(h.app.image_paint_layer_choices(id).is_empty());
+    for _ in 0..12 {
+        step(&mut h, vec![]);
+    }
+
+    let xf = h.app.board_xf();
+    let dab = xf.w2s(Pos2::new(-60.0, -30.0));
+    let start = xf.w2s(Pos2::new(-90.0, -55.0));
+    let end = xf.w2s(Pos2::new(90.0, -25.0));
+    let camera_before = h.app.tab().cam.offset;
+    let undo_before = h.app.tab().journal.undo_depth();
+    step(
+        &mut h,
+        vec![
+            egui::Event::PointerMoved(dab),
+            primary(dab, true),
+            primary(dab, false),
+        ],
+    );
+    assert_eq!(h.app.image_paint_layer_choices(id).len(), 1);
+    assert_eq!(h.app.tab().journal.undo_depth(), undo_before + 1);
+    assert!(h.ctx.input(|i| i
+        .pointer
+        .button_double_clicked(egui::PointerButton::Primary)));
+    assert_eq!(h.app.board_crop, None);
+    assert_eq!(h.app.board_tool, BoardTool::Brush);
+    assert_eq!(h.app.paint_layer_host(), Some(id));
+
+    step(
+        &mut h,
+        vec![
+            egui::Event::PointerMoved(start),
+            primary(start, true),
+            egui::Event::PointerMoved(end),
+            primary(end, false),
+        ],
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), undo_before + 2);
+    step(
+        &mut h,
+        vec![egui::Event::PointerMoved(start), primary(start, true)],
+    );
+    step(&mut h, vec![egui::Event::PointerMoved(end)]);
+    step(&mut h, vec![primary(end, false)]);
+    assert_eq!(h.app.tab().journal.undo_depth(), undo_before + 3);
+
+    let (_, layout, _) =
+        h.app
+            .observed_image_palette_layout_for_test(&h.ctx, id, chrome::ImagePanelKind::Brush);
+    let brush_control =
+        chrome::image_brush_header_groups(layout.brush_header.unwrap(), xf.z)[0].center();
+    assert!(h
+        .app
+        .external_image_brush_editor_at(&h.ctx, id, brush_control));
+    for (press, release, added) in [(start, brush_control, 1), (brush_control, start, 0)] {
+        let before = h.app.tab().journal.undo_depth();
+        step(
+            &mut h,
+            vec![
+                egui::Event::PointerMoved(press),
+                primary(press, true),
+                egui::Event::PointerMoved(release),
+                primary(release, false),
+            ],
+        );
+        assert_eq!(h.app.tab().journal.undo_depth(), before + added);
+        assert_eq!(h.app.board_tool, BoardTool::Brush);
+    }
+
+    let before = h.app.tab().journal.undo_depth();
+    step(
+        &mut h,
+        vec![
+            egui::Event::PointerMoved(start),
+            primary(start, true),
+            egui::Event::PointerMoved(brush_control),
+        ],
+    );
+    assert_eq!(h.app.tab().journal.undo_depth(), before);
+    step(&mut h, vec![primary(brush_control, false)]);
+    assert_eq!(h.app.tab().journal.undo_depth(), before + 1);
+    assert_eq!(h.app.board_tool, BoardTool::Brush);
+
+    let node = h.app.doc().scene.node(id).unwrap();
+    let NodeKind::Image(image) = &node.kind else {
+        panic!("the selected image still owns its paint layer");
+    };
+    let result = h.app.image_result_id(id).unwrap();
+    let layers = slate_doc::image_paint::layers_for_result(image, &result);
+    assert_eq!(layers.len(), 1);
+    assert_eq!(layers[0].nodes.len(), 5);
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    assert_eq!(h.app.tab().cam.offset, camera_before);
+
+    let before = h.app.tab().journal.undo_depth();
+    step(&mut h, vec![egui::Event::PointerMoved(brush_control)]);
+    step(
+        &mut h,
+        vec![primary(brush_control, true), primary(brush_control, false)],
+    );
+    assert_eq!(h.app.board_tool, BoardTool::Select);
+    assert_eq!(h.app.tab().journal.undo_depth(), before);
+}
+
 fn click_external_image_panel(h: &mut Harness, time: &mut f64, panel: Panel) {
     let xf = h.app.board_xf();
     let state = h.app.shape_properties.last_chrome.as_ref().unwrap();

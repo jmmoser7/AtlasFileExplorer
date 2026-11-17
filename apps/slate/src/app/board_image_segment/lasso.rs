@@ -2,6 +2,21 @@
 use super::*;
 use crate::app::board_path::multi_point::{self, Event, Transition};
 
+pub(super) fn lasso_point_screen(
+    xf: &BoardXf,
+    basis: WorldRect,
+    center: (f32, f32),
+    rotation: f32,
+    point: [f32; 2],
+) -> Pos2 {
+    let world = slate_doc::geom::orbit_point(
+        center,
+        (basis.x + point[0] * basis.w, basis.y + point[1] * basis.h),
+        rotation,
+    );
+    xf.w2s(Pos2::new(world.0, world.1))
+}
+
 impl SlateApp {
     pub(crate) fn start_image_lasso(&mut self, image: NodeId) {
         if !matches!(
@@ -27,15 +42,16 @@ impl SlateApp {
     }
 
     pub(super) fn image_lasso_input(&mut self, ui: &egui::Ui, xf: &BoardXf) -> bool {
-        let (click, shift, screen, now) = ui.input(|input| {
+        let (click, shift, finish_chord, screen, now) = ui.input(|input| {
             (
                 input.pointer.button_pressed(egui::PointerButton::Primary),
                 input.modifiers.shift,
+                input.modifiers.ctrl || input.modifiers.command,
                 input.pointer.interact_pos(),
                 Instant::now(),
             )
         });
-        if let Some(draft) = self.image_segments.lasso.clone() {
+        if let Some(draft) = self.image_segments.lasso.as_ref() {
             if draft.tab != self.tab().id
                 || self.doc().scene.node(draft.host).is_none()
                 || self.segment_source_key(draft.host).as_deref() != Some(draft.source_key.as_str())
@@ -72,7 +88,16 @@ impl SlateApp {
                             })
                     });
                     let close_to_first = draft.points.len() >= 3
-                        && distance(draft.points[0], point) <= LASSO_CLOSE_NORM;
+                        && lasso_point_screen(
+                            xf,
+                            slate_doc::image_paint::image_content_rect(host, img),
+                            host.rect.center(),
+                            host.rotation_deg,
+                            draft.points[0],
+                        )
+                        .distance(screen)
+                            <= LASSO_CLOSE_PX;
+                    let finish_with_endpoint = finish_chord && draft.points.len() >= 2;
                     let Some(draft) = self.image_segments.lasso.as_mut() else {
                         return true;
                     };
@@ -81,11 +106,14 @@ impl SlateApp {
                         Event::Pick {
                             point,
                             close: close_to_first,
-                            finish: double_click,
+                            finish: double_click && !finish_with_endpoint,
                         },
                         multi_point::LASSO,
                     );
-                    if result == Transition::Finish {
+                    if result == Transition::Finish
+                        || (finish_with_endpoint
+                            && draft.points.len() >= multi_point::LASSO.min_finish)
+                    {
                         self.finish_image_lasso(screen);
                     } else if result == Transition::Added {
                         draft.last_click = Some(now);

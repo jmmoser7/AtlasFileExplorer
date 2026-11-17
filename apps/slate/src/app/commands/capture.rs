@@ -44,8 +44,8 @@ pub(super) const VIDEO_CANVAS: CommandSpec = spec(
 pub(super) const VIDEO_FILE: CommandSpec = spec(
     "portal.capture.video.file",
     "Board",
-    "Start portal video (File compatibility)",
-    "Compatibility alias for Start recording; Pause then choose File or Canvas",
+    "Start portal video for File",
+    "Start recording and offer the File picker on the first pause",
     None,
     Repeat::Never,
     BOARD,

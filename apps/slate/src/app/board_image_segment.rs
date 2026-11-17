@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 const LINGER: Duration = Duration::from_millis(400);
 const MOVE_RESET_PX: f32 = 8.0;
-const LASSO_CLOSE_NORM: f32 = 0.015;
+const LASSO_CLOSE_PX: f32 = 8.0;
 const LASSO_DOUBLE_CLICK: Duration = Duration::from_millis(350);
 const LASSO_DOUBLE_CLICK_PX: f32 = 8.0;
 const HIGHLIGHT: Rgba = Rgba([255, 150, 40, 100]);
@@ -401,7 +401,6 @@ impl SlateApp {
         }
     }
 }
-
 fn region_node(path: slate_doc::scene::PathData) -> Node {
     Node {
         id: NodeId(u64::MAX),
@@ -428,8 +427,4 @@ fn region_node(path: slate_doc::scene::PathData) -> Node {
             text: None,
         }),
     }
-}
-
-fn distance(a: [f32; 2], b: [f32; 2]) -> f32 {
-    (a[0] - b[0]).hypot(a[1] - b[1])
 }

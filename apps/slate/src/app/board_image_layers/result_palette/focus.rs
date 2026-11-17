@@ -20,20 +20,18 @@ impl LayerMenuOrigin {
     fn is_current(&self, app: &SlateApp) -> bool {
         app.tab().id == self.tab && app.image_result_id(self.image).as_ref() == Some(&self.result)
     }
-}
 
-#[derive(Clone)]
-struct LayerNameDraft {
-    origin: LayerMenuOrigin,
-    name: String,
+    fn draft_id(&self) -> egui::Id {
+        egui::Id::new(("image-layer-name-draft", self))
+    }
 }
 
 #[derive(Clone)]
 struct ActiveLayerMenu {
     origin: LayerMenuOrigin,
-    response: egui::Response,
-    draft: egui::Id,
-    edit: egui::Id,
+    at: egui::Pos2,
+    edit: Option<egui::Id>,
+    pass: u64,
 }
 
 fn active_layer_menu_id() -> egui::Id {
@@ -41,23 +39,21 @@ fn active_layer_menu_id() -> egui::Id {
 }
 
 impl SlateApp {
-    /// The key router runs before the menu paints. Cancel its draft there,
-    /// using egui's existing context-menu owner to dismiss the open menu.
+    /// The key router runs before the popup paints. Discard the layer draft.
     pub(crate) fn cancel_image_layer_name_draft(&mut self, ctx: &egui::Context) -> bool {
         let active = ctx.data(|data| data.get_temp::<ActiveLayerMenu>(active_layer_menu_id()));
-        let Some(active) = active
-            .filter(|menu| menu.origin.is_current(self) && menu.response.context_menu_opened())
-        else {
+        let Some(active) = active.filter(|menu| {
+            menu.origin.is_current(self) && ctx.cumulative_pass_nr().saturating_sub(menu.pass) <= 1
+        }) else {
             return false;
         };
         ctx.data_mut(|data| {
-            data.remove::<LayerNameDraft>(active.draft);
             data.remove::<ActiveLayerMenu>(active_layer_menu_id());
+            data.remove::<String>(active.origin.draft_id());
         });
-        ctx.memory_mut(|memory| memory.surrender_focus(active.edit));
-        crate::app::board::board_menu::layout()
-            .metrics
-            .context_menu(&active.response, self.dark_mode, |ui| ui.close_menu());
+        if let Some(edit) = active.edit {
+            ctx.memory_mut(|memory| memory.surrender_focus(edit));
+        }
         true
     }
 
@@ -140,132 +136,162 @@ impl SlateApp {
             result: result.clone(),
             layer: layer.id,
         };
-        let rename_id = response.id.with(("paint-layer-name", &origin));
-        let mut rename = None;
+        let ctx = &response.ctx;
+        let pass = ctx.cumulative_pass_nr();
+        let to_global = ctx
+            .layer_transform_to_global(response.layer_id)
+            .unwrap_or_default();
+        let opened_at = response
+            .interact_pointer_pos()
+            .filter(|_| response.secondary_clicked());
+        let stored = ctx.data(|data| data.get_temp::<ActiveLayerMenu>(active_layer_menu_id()));
+        let draft_id = origin.draft_id();
+        let Some(mut menu) = opened_at
+            .map(|at| ActiveLayerMenu {
+                origin: origin.clone(),
+                at,
+                edit: None,
+                pass,
+            })
+            .or_else(|| {
+                stored.filter(|menu| menu.origin == origin && pass.saturating_sub(menu.pass) <= 1)
+            })
+        else {
+            // A workbook or result switch can leave a draft behind after its
+            // popup stops painting. Apply it only when its authoring layer returns.
+            if origin.is_current(self) {
+                if let Some(name) = ctx.data_mut(|data| data.remove_temp::<String>(draft_id)) {
+                    self.commit_image_layer_name(ctx, &origin, default_name, name);
+                }
+            }
+            return;
+        };
+        let mut name = ctx
+            .data(|data| data.get_temp::<String>(draft_id))
+            .unwrap_or_else(|| default_name.to_owned());
+        let id = response.id.with(("image-layer-menu", &origin));
+        let order = atlas_shell::selection_tools::POPUP_ORDER;
+        ctx.move_to_top(egui::LayerId::new(order, id));
+        let mut rename = false;
+        let mut close = false;
         let mut action = None;
         let metrics = crate::app::board::board_menu::layout().metrics;
-        metrics.context_menu(response, self.dark_mode, |ui| {
-            let mut name = ui
-                .data(|data| data.get_temp::<LayerNameDraft>(rename_id))
-                .filter(|draft| draft.origin == origin)
-                .map(|draft| draft.name)
-                .unwrap_or_else(|| default_name.to_owned());
-            let edit = ui.add_sized(
-                [ui.available_width(), metrics.row_height],
-                egui::TextEdit::singleline(&mut name)
-                    .frame(false)
-                    .font(egui::FontId::proportional(14.0)),
-            );
-            ui.data_mut(|data| {
-                data.insert_temp(
-                    active_layer_menu_id(),
-                    ActiveLayerMenu {
-                        origin: origin.clone(),
-                        response: response.clone(),
-                        draft: rename_id,
-                        edit: edit.id,
-                    },
-                );
+        let drawn = atlas_shell::selection_tools::popup_area(ctx, id, response.layer_id)
+            .fixed_pos(menu.at)
+            .default_width(metrics.menu_width)
+            .movable(false)
+            .fade_in(false)
+            .show(ctx, |ui| {
+                metrics.frame(self.dark_mode).show(ui, |ui| {
+                    metrics.prepare(ui, self.dark_mode);
+                    let edit = ui.add_sized(
+                        [ui.available_width(), metrics.row_height],
+                        egui::TextEdit::singleline(&mut name)
+                            .frame(false)
+                            .font(egui::FontId::proportional(14.0)),
+                    );
+                    menu.edit = Some(edit.id);
+                    let enter = (edit.has_focus() || edit.lost_focus())
+                        && ui.input_mut(|input| {
+                            input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                        });
+                    rename = enter || edit.lost_focus();
+                    close = enter;
+                    for entry in crate::app::board::board_menu::entries("image-layer") {
+                        use atlas_shell::menu::{MenuIcon, Row};
+                        let row = match entry {
+                            "menu.layer_name" => continue,
+                            "board.image.layer.visibility" => {
+                                Row::new(MenuIcon::View, "Visible").checked(layer.visible)
+                            }
+                            "board.image.layer.add_image" => {
+                                Row::new(MenuIcon::Image, "Add image as layer")
+                            }
+                            "board.image.layer.duplicate" => {
+                                Row::new(MenuIcon::Duplicate, "Duplicate layer")
+                            }
+                            "board.image.layer.delete" => {
+                                Row::new(MenuIcon::Trash, "Delete layer").danger()
+                            }
+                            _ if entry.starts_with("sep:") => {
+                                metrics.separator(ui, self.dark_mode);
+                                continue;
+                            }
+                            _ => continue,
+                        };
+                        if metrics.row(ui, row, self.dark_mode).clicked() {
+                            action = Some(entry);
+                            close = true;
+                        }
+                    }
+                })
             });
-            let draft = LayerNameDraft {
-                origin: origin.clone(),
-                name,
-            };
-            ui.data_mut(|data| data.insert_temp(rename_id, draft.clone()));
-            let cancel = ui.input(|input| input.key_pressed(egui::Key::Escape));
-            let enter = (edit.has_focus() || edit.lost_focus())
-                && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
-            if cancel {
-                ui.data_mut(|data| data.remove::<LayerNameDraft>(rename_id));
-                ui.close_menu();
-            } else if enter || edit.lost_focus() {
-                rename = Some(draft);
-                ui.data_mut(|data| data.remove::<LayerNameDraft>(rename_id));
-                if enter {
-                    ui.close_menu();
-                }
-            }
-            for entry in crate::app::board::board_menu::entries("image-layer") {
-                use atlas_shell::menu::{MenuIcon, Row};
-                let row = match entry {
-                    "menu.layer_name" => continue,
-                    "board.image.layer.visibility" => {
-                        Row::new(MenuIcon::View, "Visible").checked(layer.visible)
-                    }
-                    "board.image.layer.add_image" => {
-                        Row::new(MenuIcon::Image, "Add image as layer")
-                    }
-                    "board.image.layer.duplicate" => {
-                        Row::new(MenuIcon::Duplicate, "Duplicate layer")
-                    }
-                    "board.image.layer.delete" => {
-                        Row::new(MenuIcon::Trash, "Delete layer").danger()
-                    }
-                    _ if entry.starts_with("sep:") => {
-                        metrics.separator(ui, self.dark_mode);
-                        continue;
-                    }
-                    _ => continue,
-                };
-                if metrics.row(ui, row, self.dark_mode).clicked() {
-                    action = Some(entry);
-                    ui.close_menu();
-                }
+        // The parent Layers panel uses screen-space chrome hits for
+        // dismissal. Keep its popup alive through a row's press and release.
+        let bounds = to_global * drawn.response.rect;
+        self.shape_properties.chrome_hits.push(bounds);
+        let cancel = ctx.input(|input| input.key_pressed(egui::Key::Escape));
+        let outside = opened_at.is_none()
+            && ctx.input(|input| {
+                input.pointer.any_pressed()
+                    && input
+                        .pointer
+                        .interact_pos()
+                        .is_some_and(|point| !bounds.contains(point))
+            });
+        let commit_name = !cancel && (rename || close || outside);
+        ctx.data_mut(|data| {
+            if cancel || commit_name || name == default_name {
+                data.remove::<String>(draft_id);
+            } else {
+                data.insert_temp(draft_id, name.clone());
             }
         });
-        if response
-            .ctx
-            .input(|input| input.key_pressed(egui::Key::Escape))
-        {
-            rename = None;
-            response
-                .ctx
-                .data_mut(|data| data.remove::<LayerNameDraft>(rename_id));
-        } else if !response.context_menu_opened() {
-            if let Some(draft) = response.ctx.data_mut(|data| {
-                let draft = data.get_temp::<LayerNameDraft>(rename_id);
-                data.remove::<LayerNameDraft>(rename_id);
-                draft
-            }) {
-                rename = Some(draft);
+        if cancel || close || outside {
+            ctx.data_mut(|data| data.remove::<ActiveLayerMenu>(active_layer_menu_id()));
+            if let Some(edit) = menu.edit {
+                ctx.memory_mut(|memory| memory.surrender_focus(edit));
             }
+        } else {
+            menu.pass = pass;
+            ctx.data_mut(|data| data.insert_temp(active_layer_menu_id(), menu.clone()));
         }
-        if !response.context_menu_opened() {
-            response.ctx.data_mut(|data| {
-                if data
-                    .get_temp::<ActiveLayerMenu>(active_layer_menu_id())
-                    .is_some_and(|menu| menu.response.id == response.id)
-                {
-                    data.remove::<ActiveLayerMenu>(active_layer_menu_id());
-                }
-            });
-        }
-        if !origin.is_current(self) {
-            response
-                .ctx
-                .data_mut(|data| data.remove::<LayerNameDraft>(rename_id));
+        if cancel || !origin.is_current(self) {
             return;
         }
-        let command = |id, detail| (atlas_commands::CommandId(id), Some(detail));
-        if let Some(draft) = rename.filter(|draft| draft.origin == origin) {
-            let (id, detail) = command(
-                "board.image.layer.rename",
-                serde_json::json!({
-                    "image": image.0, "layer": layer.id.0, "name": draft.name,
-                })
-                .to_string(),
-            );
-            self.dispatch(&response.ctx, id, detail);
+        if commit_name {
+            self.commit_image_layer_name(ctx, &origin, default_name, name);
         }
         if !origin.is_current(self) {
             return;
         }
         if let Some(id) = action {
-            let (id, detail) = command(
-                id,
-                serde_json::json!({ "image": image.0, "layer": layer.id.0 }).to_string(),
+            self.dispatch(
+                ctx,
+                atlas_commands::CommandId(id),
+                Some(serde_json::json!({ "image": image.0, "layer": layer.id.0 }).to_string()),
             );
-            self.dispatch(&response.ctx, id, detail);
+        }
+    }
+
+    fn commit_image_layer_name(
+        &mut self,
+        ctx: &egui::Context,
+        origin: &LayerMenuOrigin,
+        current: &str,
+        name: String,
+    ) {
+        if name != current {
+            self.dispatch(
+                ctx,
+                atlas_commands::CommandId("board.image.layer.rename"),
+                Some(
+                    serde_json::json!({
+                        "image": origin.image.0, "layer": origin.layer.0, "name": name,
+                    })
+                    .to_string(),
+                ),
+            );
         }
     }
 

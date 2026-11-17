@@ -93,6 +93,19 @@ pub fn window(app: &mut SlateApp, ctx: &egui::Context) {
                     None,
                 );
             }
+            if atlas_shell::feedback::online_delivery_available("slate")
+                && ui
+                    .add_enabled(
+                        app.feedback.can_prefill() && !app.crash_feedback.pending(),
+                        egui::Button::new("Review latest report to send").small(),
+                    )
+                    .on_hover_text(
+                        "Review a diagnostic summary before sending it to the Suggestion Box.",
+                    )
+                    .clicked()
+            {
+                app.review_crash_report(ctx);
+            }
             ui.add_space(12.0);
             ui.separator();
             ui.add_space(6.0);
