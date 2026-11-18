@@ -58,8 +58,23 @@ Each helper exited with status 1 before accepting a Grasshopper job. Windows
 recorded no application error for the helper. We identified the cause by
 capturing its short-lived error file before cleanup.
 
+In another November 18 workbook, the image provider finished writing a valid
+1829 × 860 PNG. Three seconds later, Slate recorded that it had received zero
+images for a request for one. The window kept running. Local inspection of
+the request and the provider's thread showed that the collector had looked
+under a different Windows profile. Reopening the workbook displayed the
+recovered image. The session's result count alone could not identify which
+stage had lost it.
+
 ## Follow-up work
 
+- Keep a bounded local record for failed image jobs with counts for requested,
+  discovered, decoded, registered and displayed results. Record whether the
+  client used the provider-reported output root and whether the selected
+  card's result belongs to the current request. Test a concurrent generation,
+  a truncated image and a successful generation followed by workbook reopen.
+  A user-reviewed diagnostic summary can convey these counts and outcomes
+  without including paths, thread IDs, prompts or pictures.
 - In the local viewer, order panic records by their capture sequence and show
   the first failing subsystem alongside the terminal process status. Exercise
   this with a fixture containing an initial Rust panic and a follow-on abort
