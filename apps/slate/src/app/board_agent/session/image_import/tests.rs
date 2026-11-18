@@ -108,6 +108,54 @@ fn fresh_generation_registers_without_a_human_pick_then_places_with_one_undo() {
 }
 
 #[test]
+fn generator_and_picked_result_upload_the_same_colored_and_translucent_pixels() {
+    let (mut h, node, path) = host("generated-pixel-roundtrip");
+    image::RgbaImage::from_raw(
+        2,
+        2,
+        vec![
+            240, 20, 72, 255, 34, 125, 213, 128, 0, 0, 0, 255, 225, 68, 180, 0,
+        ],
+    )
+    .unwrap()
+    .save(&path)
+    .unwrap();
+    poll(&mut h, node);
+    let item = h.app.registered_agent_image_item(node).unwrap();
+    let linked = crate::app::preview::linked_image_key(&path, "shown");
+    let placed = h.app.resolved_item_preview(item).unwrap().0;
+    let expected = [
+        egui::Color32::from_rgb(240, 20, 72),
+        egui::Color32::from_rgba_unmultiplied(34, 125, 213, 128),
+        egui::Color32::BLACK,
+        egui::Color32::TRANSPARENT,
+    ];
+    for key in [&linked, &placed] {
+        if key == &placed {
+            h.app.pick_agent_result(node, 0);
+        }
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            h.app.drain_previews(&h.ctx);
+            if let Some(resident) = h.app.preview_cache.get(key) {
+                assert_eq!(resident.tex.size(), [2, 2]);
+                assert_eq!(resident.pixels.pixels.as_slice(), &expected);
+                break;
+            }
+            if key == &linked {
+                h.app
+                    .agent_picture_texture(&h.ctx, &path, &Default::default(), 512.0);
+            } else {
+                h.app
+                    .board_texture(&h.ctx, node, item, &Default::default(), 512.0);
+            }
+            assert!(Instant::now() < deadline, "missing upload for {key}");
+            std::thread::sleep(Duration::from_millis(3));
+        }
+    }
+}
+
+#[test]
 fn deleted_or_rebound_generator_cannot_register_a_late_result() {
     let (mut h, node, _) = host("fresh-output-stale");
     h.app.agents.image_imports.note_candidate(node);

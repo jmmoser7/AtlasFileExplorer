@@ -80,9 +80,21 @@ pub(super) struct Pictures {
     pub(super) settled: bool,
 }
 
+pub(super) fn server_home(initialized: &Value) -> Option<std::path::PathBuf> {
+    initialized["codexHome"]
+        .as_str()
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_absolute())
+}
+
 impl Pictures {
-    pub(super) fn new(thread: &str, dest: std::path::PathBuf) -> Self {
-        let watch = codex_home().map(|home| home.join("generated_images").join(thread));
+    pub(super) fn new(home: Option<&Path>, thread: &str, dest: std::path::PathBuf) -> Self {
+        let watch = home
+            .filter(|_| {
+                !thread.is_empty()
+                    && Path::new(thread).file_name() == Some(std::ffi::OsStr::new(thread))
+            })
+            .map(|home| home.join("generated_images").join(thread));
         let seen = watch.as_deref().map(picture_files).unwrap_or_default();
         Self {
             watch,
@@ -118,6 +130,7 @@ impl Pictures {
             return Ok(false);
         };
         let mut arrived = false;
+        let mut failure = None;
         for path in picture_files(watch) {
             if self.seen.contains(&path) {
                 continue;
@@ -138,7 +151,16 @@ impl Pictures {
                 .count();
             let id = format!("{}-{index}", request.id);
             let copy = self.dest.join(format!("{id}.{ext}"));
-            std::fs::copy(&path, &copy).map_err(|e| e.to_string())?;
+            if let Err(error) = atlas_agent::publish_generated_image(&copy, |staged| {
+                std::fs::copy(&path, staged)
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }) {
+                if self.settled {
+                    failure = Some(format!("Codex returned an unreadable image: {error}"));
+                }
+                continue;
+            }
             self.seen.insert(path);
             self.found += 1;
             let vary = request
@@ -156,7 +178,7 @@ impl Pictures {
             });
             arrived = true;
         }
-        Ok(arrived)
+        failure.map_or(Ok(arrived), Err)
     }
 }
 

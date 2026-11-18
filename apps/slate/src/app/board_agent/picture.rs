@@ -180,6 +180,16 @@ impl SlateApp {
                     view.task().working(),
                     agent.provider == "comfy",
                 );
+            } else if images.is_empty() && !picked {
+                if let Some(reason) = self.agent_failure_reason(id) {
+                    self.paint_picture_error(
+                        painter,
+                        body,
+                        body.top() + canvas_scale::px(12.0, z),
+                        z,
+                        reason,
+                    );
+                }
             }
             return;
         }
@@ -213,25 +223,36 @@ impl SlateApp {
         }
         let view = self.generator_view(id);
         let text_top = self.paint_generator_chips(ui, painter, id, body, &view, z);
-        let ink = self.palette().overlay();
-        let failure = match self.agents.awaiting.get(&id) {
-            Some(AgentAwait::Failed { reason, .. }) => Some(reason.clone()),
-            _ => view.error.clone(),
-        };
-        if let Some(reason) = failure {
-            let text = canvas_text::world_wrapped(
-                painter.ctx(),
-                &reason,
-                egui::FontId::proportional(GENERATOR_CHIP_PX),
-                body.width() / z.max(SLATE_BOARD.min) - 24.0,
-                usize::MAX,
-                z,
-            );
-            let at = Pos2::new(body.left() + canvas_scale::px(12.0, z), text_top);
-            let back = Rect::from_min_size(at, text.size()).expand(canvas_scale::px(5.0, z));
-            paint_overlay_pill(painter, back, canvas_scale::px(6.0, z), ink.fill, &ink, z);
-            text.paint(painter, at, ink.warn);
+        if let Some(reason) = self.agent_failure_reason(id).or(view.error.as_deref()) {
+            self.paint_picture_error(painter, body, text_top, z, reason);
         }
+    }
+
+    fn paint_picture_error(
+        &self,
+        painter: &egui::Painter,
+        body: Rect,
+        text_top: f32,
+        z: f32,
+        reason: &str,
+    ) {
+        if !canvas_text::legible(canvas_scale::px(GENERATOR_CHIP_PX, z)) {
+            return;
+        }
+        let ink = self.palette().overlay();
+        let clipped = painter.with_clip_rect(painter.clip_rect().intersect(body));
+        let text = canvas_text::world_wrapped(
+            painter.ctx(),
+            reason,
+            egui::FontId::proportional(GENERATOR_CHIP_PX),
+            body.width() / z.max(SLATE_BOARD.min) - 24.0,
+            6,
+            z,
+        );
+        let at = Pos2::new(body.left() + canvas_scale::px(12.0, z), text_top);
+        let back = Rect::from_min_size(at, text.size()).expand(canvas_scale::px(5.0, z));
+        paint_overlay_pill(&clipped, back, canvas_scale::px(6.0, z), ink.fill, &ink, z);
+        text.paint(&clipped, at, ink.warn);
     }
     /// Picking a result makes it the picture's file (journaled, undoable).
     pub(crate) fn pick_agent_result(&mut self, id: NodeId, index: usize) {

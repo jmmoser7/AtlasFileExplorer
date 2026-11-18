@@ -36,7 +36,15 @@ impl Client {
             };
             let id = format!("{}-{index}", request.id);
             let dest = self.output_dir.join(format!("{id}.png"));
-            std::fs::write(&dest, bytes).map_err(|e| e.to_string())?;
+            if let Err(error) = atlas_agent::publish_generated_image(&dest, |path| {
+                std::fs::write(path, &bytes).map_err(|e| e.to_string())
+            }) {
+                failures.push(format!(
+                    "Image {} could not be saved as a complete picture: {error}",
+                    index + 1
+                ));
+                continue;
+            }
             session.bundle.images.push(ImageOutput {
                 id,
                 source: dest.to_string_lossy().into_owned(),
@@ -80,6 +88,13 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
+
+    const RGBA_PNG: &[u8] = include_bytes!("../../atlas-agent/tests/fixtures/generated-rgba.png");
+
+    fn good() -> Value {
+        json!({"b64_json":base64::engine::general_purpose::STANDARD.encode(RGBA_PNG)})
+    }
 
     #[test]
     fn mixed_invalid_response_keeps_valid_images_before_and_after_the_bad_item() {
@@ -93,9 +108,10 @@ mod tests {
             json!({"b64_json":"not base64!"}),
             json!({}),
             json!({"b64_json":""}),
+            json!({"b64_json":"iVBORw0KGgo="}),
+            json!({"b64_json":base64::engine::general_purpose::STANDARD.encode(&RGBA_PNG[..RGBA_PNG.len()-12])}),
         ] {
-            let response =
-                json!({"data":[{"b64_json":"iVBORw0KGgo="}, invalid, {"b64_json":"iVBORw0KGgo="}]});
+            let response = json!({"data":[good(), invalid, good()]});
             let mut session = AgentSession {
                 status: AgentStatus::Thinking,
                 ..Default::default()
@@ -113,6 +129,7 @@ mod tests {
                 .all(|image| Path::new(&image.source).is_file()));
             assert!(error.contains("returned 2 images; 3 were requested"));
             assert!(error.contains("Image 2"));
+            assert!(!dir.join("mixed-1.png").exists());
             assert!(matches!(session.status, AgentStatus::Error(_)));
         }
         let _ = std::fs::remove_dir_all(dir);
@@ -127,7 +144,7 @@ mod tests {
                 "id":"batch", "at":0, "prompt":"pavilion", "image":{"count":3}
             }))
             .unwrap();
-            let response = json!({"data": (0..returned).map(|_| json!({"b64_json":"iVBORw0KGgo="})).collect::<Vec<_>>()});
+            let response = json!({"data": (0..returned).map(|_| good()).collect::<Vec<_>>()});
             let mut session = AgentSession {
                 status: AgentStatus::Thinking,
                 ..Default::default()
@@ -141,7 +158,7 @@ mod tests {
             for (index, image) in session.bundle.images.iter().enumerate() {
                 assert_eq!(image.id, format!("batch-{index}"));
                 assert_eq!(image.request, "batch");
-                assert_eq!(std::fs::read(&image.source).unwrap(), b"\x89PNG\r\n\x1a\n");
+                assert_eq!(std::fs::read(&image.source).unwrap(), RGBA_PNG);
             }
             if returned == 3 {
                 assert_eq!(session.status, AgentStatus::Idle);

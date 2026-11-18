@@ -264,23 +264,38 @@ fn an_image_run_names_count_shape_and_roles_and_collects_finished_files() {
     assert!(text.ends_with("a timber pavilion at dusk"));
 
     let root = std::env::temp_dir().join(format!("atlas-codex-pictures-{}", std::process::id()));
-    let (watch, dest) = (root.join("thread"), root.join("out"));
+    let home = root.join("actual-server-home");
+    let thread = "private-generator-thread";
+    let (watch, dest) = (home.join("generated_images").join(thread), root.join("out"));
     std::fs::create_dir_all(&watch).unwrap();
     std::fs::write(watch.join("old.png"), b"old").unwrap();
-    let mut pictures = Pictures {
-        watch: Some(watch.clone()),
-        dest: dest.clone(),
-        seen: picture_files(&watch).into_iter().collect(),
-        sizes: BTreeMap::new(),
-        found: 0,
-        last_scan: None,
-        settled: false,
-    };
+    let server_home = images::server_home(&json!({"codexHome":home})).unwrap();
+    let mut pictures = Pictures::new(Some(&server_home), thread, dest.clone());
+    const PIXELS: &[u8] = include_bytes!("../../atlas-agent/tests/fixtures/generated-rgba.png");
+    let other = home.join("generated_images/someone-elses-concurrent-thread");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(other.join("unrelated.png"), PIXELS).unwrap();
+    assert!(Pictures::new(Some(&home), "../escape", dest.clone())
+        .watch
+        .is_none());
+    assert!(images::server_home(&json!({"codexHome":"relative"})).is_none());
     let mut session = session_from_thread(&json!({}));
-    std::fs::write(watch.join("new.png"), b"picture").unwrap();
+    std::fs::write(watch.join("new.png"), &PIXELS[..PIXELS.len() - 12]).unwrap();
     assert!(
         !pictures.collect(&request, &mut session).unwrap(),
         "waits one scan"
+    );
+    pictures.last_scan = None;
+    assert!(
+        !pictures.collect(&request, &mut session).unwrap(),
+        "a partial write paused across two polls is not a picture"
+    );
+    assert!(session.bundle.images.is_empty());
+    std::fs::write(watch.join("new.png"), PIXELS).unwrap();
+    pictures.last_scan = None;
+    assert!(
+        !pictures.collect(&request, &mut session).unwrap(),
+        "growth restarts the settle check"
     );
     pictures.last_scan = None;
     assert!(pictures.collect(&request, &mut session).unwrap());
@@ -291,7 +306,8 @@ fn an_image_run_names_count_shape_and_roles_and_collects_finished_files() {
     );
     assert_eq!(session.bundle.images[0].task, "vary");
     assert!(dest.join("run-0.png").is_file());
-    std::fs::write(watch.join("last.png"), b"late").unwrap();
+    assert_eq!(std::fs::read(dest.join("run-0.png")).unwrap(), PIXELS);
+    std::fs::write(watch.join("last.png"), PIXELS).unwrap();
     pictures.settle();
     assert!(pictures.collect(&request, &mut session).unwrap());
     assert_eq!(session.bundle.images.len(), 2);

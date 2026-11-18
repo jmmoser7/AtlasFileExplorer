@@ -227,6 +227,8 @@ pub use versions::*;
 
 mod images;
 pub use images::*;
+mod generated_raster;
+pub use generated_raster::publish_generated_image;
 mod deliverables;
 pub use deliverables::*;
 mod session;

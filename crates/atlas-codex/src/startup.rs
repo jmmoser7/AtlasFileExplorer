@@ -170,7 +170,8 @@ fn wait_for_readers(
 impl Client {
     pub(super) fn initialize_connection(&mut self) -> Result<(), String> {
         let result: Result<(), String> = (|| {
-            self.rpc("initialize", json!({"clientInfo":{"name":"slate","title":"Slate agent portal","version":"0.1.0"},"capabilities":{"experimentalApi":true}}))?;
+            let initialized = self.rpc("initialize", json!({"clientInfo":{"name":"slate","title":"Slate agent portal","version":"0.1.0"},"capabilities":{"experimentalApi":true}}))?;
+            self.server_home = images::server_home(&initialized).or_else(codex_home);
             self.write(json!({"method":"initialized","params":{}}))?;
             let account = self.rpc("account/read", json!({"refreshToken":false}))?;
             if account.get("account").is_none_or(Value::is_null) {

@@ -106,7 +106,11 @@ impl Client {
         // An image run asks the built-in image tool for pictures and collects
         // them from Codex's generated-images folder as they appear.
         let mut pictures = match (&request.image, &self.image_dir) {
-            (Some(_), Some(dir)) => Some(Pictures::new(&self.thread, dir.clone())),
+            (Some(_), Some(dir)) => Some(Pictures::new(
+                self.server_home.as_deref(),
+                &self.thread,
+                dir.clone(),
+            )),
             (Some(_), None) => return Err("This image run has no output folder.".into()),
             _ => None,
         };

@@ -25,8 +25,6 @@ mod images;
 mod run;
 mod session;
 mod startup;
-#[cfg(test)]
-use images::picture_files;
 use images::Pictures;
 pub use images::{image_turn, oneshot_turn};
 pub use session::session_from_thread;
@@ -47,6 +45,8 @@ pub struct Client {
     permissions: TurnPermissions,
     /// Where image runs copy their pictures, outside Codex's own folder.
     image_dir: Option<std::path::PathBuf>,
+    /// Image storage reported by this running app-server during initialization.
+    server_home: Option<std::path::PathBuf>,
     /// The folder Codex runs in; fresh threads for one-shot runs start here.
     cwd: std::path::PathBuf,
     board_session: Option<atlas_agent::collaborator::BoardLinkSession>,
@@ -178,6 +178,7 @@ impl Client {
             full_access: false,
             permissions: TurnPermissions::default(),
             image_dir: None,
+            server_home: None,
             cwd: cwd.to_path_buf(),
             board_session: None,
             board_image_workspace: None,

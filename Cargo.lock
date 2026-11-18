@@ -413,6 +413,7 @@ dependencies = [
 name = "atlas-agent"
 version = "1.0.14"
 dependencies = [
+ "image",
  "png",
  "serde",
  "serde_json",

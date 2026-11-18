@@ -66,15 +66,16 @@ pub(super) fn download_image(
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let sent = Request::get(local(&endpoint))
-        .loopback()
-        .timeout(Duration::from_secs(60))
-        .output(dest)
-        .send();
-    if sent.is_err() || !dest.is_file() {
-        return Err("ComfyUI finished without a readable image.".into());
-    }
-    Ok(())
+    atlas_agent::publish_generated_image(dest, |staged| {
+        Request::get(local(&endpoint))
+            .loopback()
+            .timeout(Duration::from_secs(60))
+            .output(staged)
+            .send()
+            .map(|_| ())
+            .map_err(|_| "ComfyUI image download failed".to_string())
+    })
+    .map_err(|error| format!("ComfyUI finished without a readable image: {error}"))
 }
 
 pub(super) struct FinishedImage {
