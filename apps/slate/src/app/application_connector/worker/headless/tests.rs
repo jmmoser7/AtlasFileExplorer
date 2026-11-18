@@ -1,5 +1,43 @@
 use super::*;
 
+#[cfg(windows)]
+#[test]
+fn grasshopper_jobs_keep_local_previews_readable_beyond_max_path() {
+    use std::os::windows::ffi::OsStrExt;
+
+    let base = std::env::temp_dir().join(format!("slate-deep-jobs-{}", atlas_agent::request_id()));
+    let mut deep = base.clone();
+    while deep.as_os_str().encode_wide().count() < 270 {
+        deep.push("spatial-study-reference-files");
+    }
+    let data = atlas_core::index::data_dir();
+    let jobs = configuration().unwrap().workspace;
+    let model_outputs = headless_data_dir("models");
+    let outputs = [
+        deep.join(jobs.strip_prefix(&data).unwrap())
+            .join("gh-worker")
+            .join("jobs")
+            .join("preview.3dm"),
+        deep.join(model_outputs.strip_prefix(&data).unwrap())
+            .join("generated.3dm"),
+    ];
+    let mut blocked = Vec::new();
+    for output in outputs {
+        std::fs::create_dir_all(output.parent().unwrap()).unwrap();
+        std::fs::write(&output, b"local geometry").unwrap();
+        if atlas_core::cloud::file_attributes(&output).is_none()
+            || atlas_core::cloud::is_dehydrated(&output)
+        {
+            blocked.push(output);
+        }
+    }
+    std::fs::remove_dir_all(base).unwrap();
+    assert!(
+        blocked.is_empty(),
+        "locally written geometry was rejected: {blocked:?}"
+    );
+}
+
 #[test]
 fn expired_task_after_native_handle_retains_receipt_as_unknown_and_cannot_publish() {
     let receipt = atlas_connector::ReplyEnvelope {

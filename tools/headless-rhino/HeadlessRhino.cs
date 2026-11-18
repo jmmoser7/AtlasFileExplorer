@@ -31,6 +31,10 @@ class HeadlessRhino {
           catch (InvalidOperationException) { return false; }
     }
     [STAThread] static int Main(string[] args) {
+        // The standalone Framework compiler otherwise gives this worker legacy
+        // path handling. Nested Grasshopper jobs can exceed MAX_PATH on Windows.
+        AppContext.SetSwitch("Switch.System.IO.UseLegacyPathHandling", false);
+        AppContext.SetSwitch("Switch.System.IO.BlockLongPaths", false);
         bool builtInsOnly = args.Length == 4 && args[3] == "built-ins-only";
         bool grasshopper = (args.Length == 3 || builtInsOnly) && args[2] == "grasshopper";
         if(args.Length != 2 && !grasshopper) return 2;

@@ -218,9 +218,16 @@ pub(crate) fn configuration() -> Result<HeadlessRhino, String> {
     Ok(HeadlessRhino {
         executable: helper,
         rhino_system: installed,
-        workspace: atlas_core::index::data_dir().join("headless-rhino/jobs"),
+        workspace: headless_data_dir("jobs"),
         timeout: Duration::from_secs(180),
     })
+}
+
+fn headless_data_dir(child: &str) -> PathBuf {
+    // The Win32 cloud-attribute check needs native separators above MAX_PATH.
+    atlas_core::index::data_dir()
+        .join("headless-rhino")
+        .join(child)
 }
 
 fn execute(
@@ -431,7 +438,7 @@ fn dispatch(
             let bytes = draft
                 .receive_publication(&publication, &cancel)
                 .map_err(NativeOutcome::not_dispatched)?;
-            let directory = atlas_core::index::data_dir().join("headless-rhino/models");
+            let directory = headless_data_dir("models");
             std::fs::create_dir_all(&directory)
                 .map_err(|e| NativeOutcome::not_dispatched(e.to_string()))?;
             let path = directory.join(format!("{}.3dm", request.ticket));

@@ -53,7 +53,7 @@ $output = if ($OutputDirectory) { [IO.Path]::GetFullPath($OutputDirectory) } els
 New-Item -ItemType Directory -Force -Path $output | Out-Null
 $references = @($rhino | ForEach-Object { "/reference:$_" })
 $sources = @(Join-Path $PSScriptRoot 'HeadlessRhino.cs')
-$options = @()
+$options = @("/win32manifest:$PSScriptRoot\HeadlessRhino.manifest")
 if ($grasshopper) {
     $references += @($grasshopper | ForEach-Object { "/reference:$_" })
     $sources += @('GrasshopperHost.cs', 'GrasshopperPorts.cs', 'GrasshopperStartup.cs', 'GrasshopperPackageCandidates.cs' | ForEach-Object { Join-Path $PSScriptRoot $_ })
