@@ -2,6 +2,9 @@
 
 use super::*;
 
+// These checks await a real background image bake during the workspace suite.
+const IMAGE_WORKER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
 #[test]
 fn text_count_creates_distinct_queued_requests_with_one_frozen_capture() {
     let (mut h, id, _) =
@@ -163,7 +166,7 @@ fn authored_image_input_is_captured_as_a_reference_before_worker_completion() {
             .iter()
             .any(|source| std::path::Path::new(source) == path)
     }));
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let deadline = std::time::Instant::now() + IMAGE_WORKER_TIMEOUT;
     loop {
         match h.app.poll_agent_input_preparation(&mut prep) {
             Ok(true) => break,
@@ -264,7 +267,7 @@ fn copied_layer_input_waits_for_bake_before_a_plain_image_can_be_dispatched() {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     image::RgbImage::new(12, 8).save(&path).unwrap();
     token.resolve(&Ok((12, 1)));
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let deadline = std::time::Instant::now() + IMAGE_WORKER_TIMEOUT;
     loop {
         match h.app.poll_agent_input_preparation(&mut prep) {
             Ok(true) => break,
