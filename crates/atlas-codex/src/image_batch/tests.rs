@@ -52,7 +52,14 @@ fn requested_images_use_frozen_single_image_turns_and_unique_collected_files() {
             passes.push(pass);
             let watch = root.join(format!("thread-{pass}"));
             std::fs::create_dir_all(&watch).unwrap();
-            std::fs::write(watch.join("result.png"), format!("picture-{pass}")).unwrap();
+            let file = std::fs::File::create(watch.join("result.png")).unwrap();
+            let mut encoder = png::Encoder::new(file, 1, 1);
+            encoder.set_color(png::ColorType::Rgba);
+            let mut writer = encoder.write_header().unwrap();
+            writer
+                .write_image_data(&[32, 120, pass as u8, 255])
+                .unwrap();
+            writer.finish().unwrap();
             let mut collector = Pictures {
                 watch: Some(watch),
                 dest: dest.clone(),
@@ -79,10 +86,11 @@ fn requested_images_use_frozen_single_image_turns_and_unique_collected_files() {
     for (index, image) in session.bundle.images.iter().enumerate() {
         assert_eq!(image.id, format!("batch-{index}"));
         assert_eq!(image.request, "batch");
-        assert_eq!(
-            std::fs::read_to_string(&image.source).unwrap(),
-            format!("picture-{index}")
-        );
+        let file = std::io::BufReader::new(std::fs::File::open(&image.source).unwrap());
+        let mut decoded = png::Decoder::new(file).read_info().unwrap();
+        let mut pixel = [0; 4];
+        decoded.next_frame(&mut pixel).unwrap();
+        assert_eq!(pixel, [32, 120, index as u8, 255]);
     }
     assert_eq!(published.last(), Some(&(3, AgentStatus::Idle)));
     assert!(published[..published.len() - 1]
