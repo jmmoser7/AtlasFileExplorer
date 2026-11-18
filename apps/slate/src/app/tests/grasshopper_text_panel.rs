@@ -94,7 +94,8 @@ impl Study {
         let start = grip(self.source, Side::Right, row);
         let node = h.app.doc().scene.node(target).unwrap();
         let end = if drop_on_edge {
-            h.app.world_to_screen(h.app.wire_port_point(node, Side::Left, 0.5))
+            h.app
+                .world_to_screen(h.app.wire_port_point(node, Side::Left, 0.5))
         } else {
             h.app.world_to_screen(Pos2::from(node.rect.center()))
         };

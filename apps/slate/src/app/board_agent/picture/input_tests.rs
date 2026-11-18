@@ -225,10 +225,7 @@ fn a_generator_with_no_result_displays_its_own_failure_on_the_canvas() {
         }),
     );
     let labels = visible(&mut h);
-    assert!(
-        labels.contains("incomplete PNG"),
-        "{labels}"
-    );
+    assert!(labels.contains("incomplete PNG"), "{labels}");
     h.app.agents.sessions.remove(&generator);
     assert!(!visible(&mut h).contains("incomplete PNG"));
 }

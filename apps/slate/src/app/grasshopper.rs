@@ -25,10 +25,10 @@ mod worker;
 use api::grasshopper_item;
 use worker::{response_status, source_revision, start_worker, viewer_id};
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 #[path = "tests/grasshopper_text_panel.rs"]
 mod panel_gestures;
+#[cfg(test)]
+mod tests;
 pub(crate) use packages::is_local_plugin as is_grasshopper_plugin;
 
 const LIVE_INTERVAL: Duration = Duration::from_millis(33);
