@@ -28,6 +28,15 @@ test('artifact mode uses the canonical stage-only offline fidelity profile', () 
   assert.equal(displayPrompt(text), req.prompt);
 });
 
+test('isolated Windows artifacts write their receipt beside the private output', () => {
+  const req = request();
+  req.artifact_draft_receipt = true;
+  const originalLink = path.join(os.tmpdir(), 'persistent-session');
+  const guide = artifactGenerationGuide(req, originalLink);
+  assert.ok(guide.includes(JSON.stringify(path.join(path.dirname(req.output_dir), 'return.json'))));
+  assert.ok(!guide.includes(JSON.stringify(path.join(originalLink, 'return.json'))));
+});
+
 test('only explicit wired input and checkpoint history enter an artifact request', () => {
   const req = request();
   req.inputs = { context: [{ text: 'ambient-not-allowed' }], wired: [{ text: 'explicit-chart-labels' }] };

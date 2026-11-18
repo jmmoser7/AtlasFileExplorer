@@ -36,8 +36,10 @@ pub fn artifact_generation_guide_in(request: &AgentRequest, link_dir: Option<&st
         .as_ref()
         .map(|run| run.staging_output.as_path())
         .unwrap_or_else(|| std::path::Path::new(""));
-    let manifest = link_dir
-        .map(|dir| std::path::Path::new(dir).join("return.json"))
+    let manifest = request
+        .artifact_provider_directory()
+        .or_else(|| link_dir.map(std::path::Path::new))
+        .map(|dir| dir.join("return.json"))
         .unwrap_or_else(|| "return.json beside session.json".into());
     let quoted = |value: &str| serde_json::to_string(value).unwrap_or_default();
     let mut guide: String = ARTIFACT_GENERATION_PROFILE
@@ -214,10 +216,21 @@ impl AgentRequest {
         text
     }
 
+    pub fn artifact_provider_directory(&self) -> Option<&std::path::Path> {
+        self.artifact
+            .as_ref()
+            .filter(|_| self.artifact_draft_receipt)?
+            .staging_output
+            .parent()
+    }
+
     /// Protocol checks without I/O. Ownership and source validation belongs to
     /// the strict history owner and is performed on the submission worker.
     pub fn validate_artifact_request(&self) -> Result<(), &'static str> {
         let Some(run) = &self.artifact else {
+            if self.artifact_draft_receipt {
+                return Err("An isolated artifact receipt requires its owned draft.");
+            }
             return Ok(());
         };
         if self.oneshot || self.image.is_some() || self.goal.is_some() {

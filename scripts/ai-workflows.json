@@ -108,6 +108,11 @@
     "saving_an_api_key_clears_the_failure",
     "a_stored_key_turns_add_api_key_into_a_normal_openai_option"
   ],
+  "windows_required_tests": {
+    "atlas-ai": [
+      "long_windows_artifact_work_starts_the_provider_and_returns_to_its_original_owner"
+    ]
+  },
   "providers": {
     "cursor": "cursor-sidecar",
     "cursor-cli": "atlas-subscription",

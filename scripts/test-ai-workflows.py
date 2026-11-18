@@ -121,7 +121,10 @@ def run_package(target, exe, out, threads, env):
         groups = {MATRIX["adapter_crates"][package]: sorted(available)}
         selected = available
     missing = [group for group, tests in groups.items() if not tests]
-    for name in MATRIX["required_tests"].get(package, []):
+    required = list(MATRIX["required_tests"].get(package, []))
+    if os.name == "nt":
+        required += MATRIX["windows_required_tests"].get(package, [])
+    for name in required:
         if not any(t.endswith("::" + name) or t == name for t in selected):
             missing.append(name)
     if not selected:

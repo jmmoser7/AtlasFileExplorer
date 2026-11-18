@@ -224,14 +224,11 @@ impl SlateApp {
         &mut self,
         portal: NodeId,
         session: &str,
-        provider: &str,
+        cwd: PathBuf,
         ws: &std::path::Path,
         policy: atlas_ai::sidecar::SidecarPolicy,
         sender: Option<atlas_ai::agent::AgentRequestSender>,
     ) {
-        if provider != "cursor" {
-            return;
-        } // configured external sidecars consume request.json
         if self.agents.sidecar_spawned.contains(session)
             || self.agents.sidecar_booting.contains(session)
         {
@@ -242,7 +239,7 @@ impl SlateApp {
             .unwrap_or_else(|| atlas_ai::agent::agent_dir(ws, session));
         #[cfg(test)]
         {
-            let _ = policy;
+            let _ = (policy, cwd);
             self.record_sidecar_dir(session, dir);
             if let Some(sender) = sender {
                 if let Err(error) = sender.send() {
@@ -256,9 +253,6 @@ impl SlateApp {
         #[cfg(not(test))]
         {
             self.record_sidecar_dir(session, dir.clone());
-            let cwd = self
-                .agent_folder_for(portal)
-                .unwrap_or_else(|| ws.to_path_buf());
             let ws = ws.to_path_buf();
             let session = session.to_string();
             let doc = self.tab().id;

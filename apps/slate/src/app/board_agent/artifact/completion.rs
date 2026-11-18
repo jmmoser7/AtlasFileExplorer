@@ -48,6 +48,7 @@ impl SlateApp {
         let running = self.agents.artifact.running.get_mut(&id).unwrap();
         running.publishing = true;
         let run = running.prepared.run.clone();
+        let provider_stage = running.prepared.provider_stage.clone();
         let plan = running.prepared.plan.clone();
         trace(
             "session.idle",
@@ -86,6 +87,11 @@ impl SlateApp {
         );
         std::thread::spawn(move || {
             let result = (|| {
+                if let Some(stage) = provider_stage {
+                    stage
+                        .import(&plan.link_dir)
+                        .map_err(|error| error.to_string())?;
+                }
                 atlas_ai::versions::validate_artifact_return(&run, &plan.link_dir)
                     .map_err(|error| error.to_string())?;
                 let (reference, revision) =

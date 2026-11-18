@@ -298,6 +298,23 @@ impl CodexLink {
                         }
                         _ => None,
                     };
+                    if let Some(working) = request.artifact_provider_directory() {
+                        if provider != "codex" || host_tools.is_some() {
+                            return Err("This artifact workspace requires the native Codex or Cursor SDK route.".into());
+                        }
+                        // This process belongs to a single draft. A subsequent ordinary
+                        // turn can restore the persisted conversation in its original cwd.
+                        client = None;
+                        staged_engine = Some(Engine::start(
+                            &provider,
+                            &dir,
+                            working,
+                            &stop,
+                            &frames,
+                            workbook.as_deref(),
+                            board_image_workspace.as_deref(),
+                        )?);
+                    }
                     if staged_engine.is_none() && client.is_none() {
                         client = Some(Engine::start(
                             &provider,

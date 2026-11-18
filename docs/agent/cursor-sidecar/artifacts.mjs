@@ -24,7 +24,8 @@ export function artifactGenerationGuide(req, linkDir = '') {
   const values = {
     staging_output: run.staging_output,
     entry_path: path.join(run.staging_output, 'index.html'),
-    return_manifest: linkDir ? path.join(linkDir, 'return.json') : 'return.json beside session.json',
+    return_manifest: req.artifact_draft_receipt ? path.join(path.dirname(run.staging_output), 'return.json')
+      : linkDir ? path.join(linkDir, 'return.json') : 'return.json beside session.json',
     request_id: req.id,
   };
   return generationProfile.replace(/\{\{(staging_output|entry_path|return_manifest|request_id)\}\}/g,

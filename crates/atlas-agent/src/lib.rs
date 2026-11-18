@@ -95,6 +95,10 @@ pub struct AgentRequest {
     /// Owned staged artifact generation; absent for ordinary chat and images.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact: Option<ArtifactRun>,
+    /// The provider returns this isolated artifact's receipt inside its own draft.
+    /// The host validates it before handing the result to the durable revision owner.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub artifact_draft_receipt: bool,
     /// Absolute folder for new files the person did not place.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_dir: Option<String>,

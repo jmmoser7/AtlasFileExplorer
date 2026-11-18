@@ -5,6 +5,8 @@ mod execution;
 mod inputs;
 mod paths;
 mod protocol;
+mod provider_stage;
+pub use provider_stage::ArtifactProviderStage;
 mod validate;
 pub use execution::ArtifactExecutionScope;
 pub use inputs::{freeze_artifact_inputs, MAX_ARTIFACT_INPUT_BYTES};

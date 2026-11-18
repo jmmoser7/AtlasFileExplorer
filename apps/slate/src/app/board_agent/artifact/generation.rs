@@ -414,9 +414,22 @@ pub(super) fn prepare(mut plan: Plan) -> Result<Prepared, String> {
         plan.request.inputs = inputs;
         plan.request.output_dir = Some(run.staging_output.to_string_lossy().into_owned());
         plan.request.artifact = Some(run.clone());
+        let provider_stage = if atlas_ai::runtime::linear_provider(&plan.provider) {
+            atlas_ai::versions::ArtifactProviderStage::prepare_if_needed(
+                &mut plan.request,
+                &work,
+                &plan.link_dir,
+                &plan.tables,
+            )
+            .map_err(|error| format!("Could not prepare the provider working files: {error}"))?
+            .map(std::sync::Arc::new)
+        } else {
+            None
+        };
         Ok(Prepared {
             plan,
             run: run.clone(),
+            provider_stage,
             input_provenance: provenance,
         })
     })();

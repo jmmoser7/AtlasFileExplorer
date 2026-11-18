@@ -58,6 +58,7 @@ struct Plan {
 struct Prepared {
     plan: Plan,
     run: ArtifactRun,
+    provider_stage: Option<std::sync::Arc<atlas_ai::versions::ArtifactProviderStage>>,
     input_provenance: Vec<atlas_agent::ArtifactInputProvenance>,
 }
 struct Running {

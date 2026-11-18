@@ -80,11 +80,18 @@ impl SlateApp {
         let policy = self.admit_agent_access(&session, &request);
         #[cfg(not(test))]
         let access_snapshot = self.agents.access_snapshot.clone();
+        let artifact_directory = request
+            .artifact_provider_directory()
+            .map(std::path::Path::to_path_buf);
         if provider == "cursor" {
             let changed = self.agents.sidecar_policies.get(&session) != Some(&policy);
             let restart = self.agents.sidecar_restart.remove(&session);
-            if changed || restart {
+            if changed || restart || artifact_directory.is_some() {
                 self.detach_cursor_sidecar(&session);
+            }
+            if artifact_directory.is_some() {
+                // The next request must start in its own working directory as well.
+                self.agents.sidecar_restart.insert(session.clone());
             }
         }
         self.agents.sidecar_policies.insert(session.clone(), policy);
@@ -179,8 +186,11 @@ impl SlateApp {
                     return false;
                 }
             }
-        } else {
-            self.ensure_agent_sidecar(portal, &session, &provider, workspace, policy, sender);
+        } else if provider == "cursor" {
+            let cwd = artifact_directory
+                .or_else(|| self.agent_folder_for(portal))
+                .unwrap_or_else(|| workspace.to_path_buf());
+            self.ensure_agent_sidecar(portal, &session, cwd, workspace, policy, sender);
         }
         true
     }
