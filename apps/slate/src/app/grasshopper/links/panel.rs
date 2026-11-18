@@ -79,13 +79,24 @@ struct OutputRevision {
 }
 
 impl OutputRevision {
-    fn borrowed(&self) -> (u64, u64, bool, Option<&str>) {
-        (
-            self.instance,
-            self.generation,
-            self.ready,
-            self.status.as_deref(),
-        )
+    fn status(view: &View) -> Option<&str> {
+        view.status.as_deref().filter(|_| view.outputs.is_none())
+    }
+
+    fn capture(view: &View) -> Self {
+        Self {
+            instance: view.instance,
+            generation: view.generation,
+            ready: view.outputs.is_some(),
+            status: Self::status(view).map(str::to_owned),
+        }
+    }
+
+    fn matches(&self, view: &View) -> bool {
+        self.instance == view.instance
+            && self.generation == view.generation
+            && self.ready == view.outputs.is_some()
+            && self.status.as_deref() == Self::status(view)
     }
 }
 
@@ -177,35 +188,27 @@ impl SlateApp {
     pub(super) fn refresh_grasshopper_panels(&mut self, tab: u64) {
         let views = &self.grasshopper.views;
         for panel in self.grasshopper.graph.panels.values_mut() {
-            let version = |wire: &GrasshopperWire| {
-                views.get(&(tab, wire.source)).map(|v| {
-                    (
-                        v.instance,
-                        v.generation,
-                        v.outputs.is_some(),
-                        v.status.as_deref().filter(|_| v.outputs.is_none()),
-                    )
-                })
-            };
-            if panel.text.is_some()
-                && panel.wires.iter().map(version).eq(panel
-                    .versions
+            let source = |wire: &GrasshopperWire| views.get(&(tab, wire.source));
+            let unchanged = panel.versions.len() == panel.wires.len()
+                && panel
+                    .wires
                     .iter()
-                    .map(|prior| prior.as_ref().map(OutputRevision::borrowed)))
-            {
+                    .zip(&panel.versions)
+                    .all(|(wire, prior)| match (source(wire), prior) {
+                        (Some(view), Some(stamp)) => stamp.matches(view),
+                        (None, None) => true,
+                        _ => false,
+                    });
+            if panel.text.is_some() && unchanged {
                 continue;
             }
             panel.versions.clear();
-            panel
-                .versions
-                .extend(panel.wires.iter().map(version).map(|revision| {
-                    revision.map(|(instance, generation, ready, status)| OutputRevision {
-                        instance,
-                        generation,
-                        ready,
-                        status: status.map(str::to_owned),
-                    })
-                }));
+            panel.versions.extend(
+                panel
+                    .wires
+                    .iter()
+                    .map(|wire| source(wire).map(OutputRevision::capture)),
+            );
             let mut text = PanelText::default();
             for (i, wire) in panel.wires.iter().enumerate() {
                 let view = views.get(&(tab, wire.source));
