@@ -418,11 +418,12 @@ fn another_tabs_stroke_with_the_same_id_never_takes_the_eraser_stand_in() {
     }
     h.app.switch_tab(first);
     let key = board_path::node_stamp_key(h.app.doc().scene.node(id).unwrap());
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut worker_released = None;
     let mut frames = 0;
     loop {
         if frames == 6 {
             h.app.brush_tiles.hold_rasters = false;
+            worker_released = Some(std::time::Instant::now());
         }
         shot(&mut h, &mut raster, |_| {});
         let xf = h.app.board_xf();
@@ -434,12 +435,13 @@ fn another_tabs_stroke_with_the_same_id_never_takes_the_eraser_stand_in() {
             );
         }
         let current = stamp_of(&h, id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
-        if frames >= 6 && current {
+        if worker_released.is_some() && current {
             break;
         }
         assert!(
-            std::time::Instant::now() < deadline,
-            "the erased bar never settled"
+            worker_released
+                .is_none_or(|start| start.elapsed() < std::time::Duration::from_secs(20)),
+            "the erased bar never settled after raster worker release (frame {frames})"
         );
         std::thread::sleep(std::time::Duration::from_millis(5));
         frames += 1;
