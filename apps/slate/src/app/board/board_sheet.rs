@@ -3,11 +3,44 @@
 use super::*;
 
 impl SlateApp {
+    pub(super) fn resize_menu_frame(
+        &mut self,
+        ctx: &egui::Context,
+        id: NodeId,
+        width: f32,
+        height: f32,
+    ) {
+        self.dispatch(
+            ctx,
+            atlas_commands::CommandId("board.objects.resize"),
+            Some(
+                serde_json::json!({
+                    "targets": [id.0.to_string()],
+                    "arguments": { "width": width, "height": height }
+                })
+                .to_string(),
+            ),
+        );
+    }
+
     // ----- overlays ---------------------------------------------------------------
 
     /// Manual frame dimensions entry (opened from Frame → Custom…).
     pub(super) fn frame_custom_dialog(&mut self, ctx: &egui::Context, canvas: Rect) {
-        if self.board_frame_custom.is_none() {
+        let Some(draft) = self.board_frame_custom.as_ref() else {
+            return;
+        };
+        let target = draft.target;
+        if target.is_some_and(|(tab, id)| {
+            tab != self.tab().id
+                || self.tab().read_only
+                || !self
+                    .doc()
+                    .scene
+                    .node(id)
+                    .is_some_and(|n| !n.locked && matches!(n.kind, NodeKind::Frame(_)))
+        }) {
+            self.board_frame_custom = None;
             return;
         }
         let palette = self.palette();
@@ -62,9 +95,13 @@ impl SlateApp {
 
         if apply {
             if let (Ok(w), Ok(h)) = (w_buf.trim().parse::<f32>(), h_buf.trim().parse::<f32>()) {
-                if w >= MIN_DRAW && h >= MIN_DRAW {
-                    self.board_frame_preset = FramePreset::Custom { w, h };
-                    self.board_tool = BoardTool::Frame;
+                if w.is_finite() && h.is_finite() && w >= MIN_DRAW && h >= MIN_DRAW {
+                    if let Some((_, id)) = target {
+                        self.resize_menu_frame(ctx, id, w, h);
+                    } else {
+                        self.board_frame_preset = FramePreset::Custom { w, h };
+                        self.board_tool = BoardTool::Frame;
+                    }
                     close = true;
                 } else {
                     self.toast("Frame width and height must be at least 8 world units.");

@@ -7,23 +7,6 @@ pub(super) fn media_flyout(app: &mut SlateApp, ui: &mut egui::Ui) {
     }
 }
 
-pub(super) fn frame_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let _ = theme;
-    let items = palette_strip_items(app, "tool.frame", &[]);
-    if let Some(id) = flyout_items(ui, &items) {
-        apply_frame_choice(app, id);
-    }
-}
-
-pub(super) fn frame_preset_icon(preset: FramePreset) -> DockIcon {
-    match preset {
-        FramePreset::Letter => DockIcon::Custom(icon_frame_letter),
-        FramePreset::Tabloid => DockIcon::Custom(icon_frame_tabloid),
-        FramePreset::Wide169 => DockIcon::Custom(icon_frame_wide),
-        FramePreset::Custom { .. } => DockIcon::Custom(icon_frame_custom),
-    }
-}
-
 pub(super) fn apply_frame_choice(app: &mut SlateApp, id: &str) {
     match id {
         "frame.letter" => app.board_frame_preset = FramePreset::Letter,
@@ -34,6 +17,7 @@ pub(super) fn apply_frame_choice(app: &mut SlateApp, id: &str) {
                 .get_or_insert_with(|| FrameCustomDraft {
                     w: "612".into(),
                     h: "792".into(),
+                    target: None,
                 });
         }
         _ => {}

@@ -9,10 +9,11 @@ pub(crate) fn palette_strip_items<'a>(
 ) -> Vec<FlyoutItem<'a>> {
     let mut items = match palette_id {
         "tool.media" => vec![
-            FlyoutItem { id: "media.image", label: "Image", description: "Images and print media: JPG, PNG, PDF, and PowerPoint.", hotkey: None, icon: DockIcon::Custom(icon_image), active: false, group: Some("media"), role: FlyoutRole::Icon },
-            FlyoutItem { id: "media.model", label: "3D", description: "Place a 3D model. OBJ, STL, glTF, and Rhino preview in the viewport. Blender, DWG, and SketchUp use the same card.", hotkey: None, icon: DockIcon::Custom(icon_model), active: false, group: Some("media"), role: FlyoutRole::Icon },
-            FlyoutItem { id: "media.video", label: "Video", description: "Place a video. Hover across it to scrub the whole clip; click to play. mp4, mov, webm, and other types the system can open.", hotkey: None, icon: DockIcon::Custom(icon_video), active: false, group: Some("media"), role: FlyoutRole::Icon },
+            FlyoutItem { id: "media.frame", label: "Frame", description: "Place a 9:16 frame. Right-click the placed frame for other sizes.", hotkey: None, icon: DockIcon::Custom(icon_frame), active: app.board_tool == BoardTool::Frame, group: Some("media"), role: FlyoutRole::Icon },
             FlyoutItem { id: "media.text", label: "Text", description: "Word, Excel, CSV, spreadsheets, and source code. Shows an excerpt when the file can be read.", hotkey: None, icon: DockIcon::Custom(icon_text_doc), active: false, group: Some("media"), role: FlyoutRole::Icon },
+            FlyoutItem { id: "media.image", label: "Image", description: "Images and print media: JPG, PNG, PDF, and PowerPoint.", hotkey: None, icon: DockIcon::Custom(icon_image), active: false, group: Some("media"), role: FlyoutRole::Icon },
+            FlyoutItem { id: "media.video", label: "Video", description: "Place a video. Hover across it to scrub the whole clip; click to play. mp4, mov, webm, and other types the system can open.", hotkey: None, icon: DockIcon::Custom(icon_video), active: false, group: Some("media"), role: FlyoutRole::Icon },
+            FlyoutItem { id: "media.model", label: "3D", description: "Place a 3D model. OBJ, STL, glTF, and Rhino preview in the viewport. Blender, DWG, and SketchUp use the same card.", hotkey: None, icon: DockIcon::Custom(icon_model), active: false, group: Some("media"), role: FlyoutRole::Icon },
         ],
         "tool.frame" => {
             let preset = app.board_frame_preset;

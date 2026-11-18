@@ -1,7 +1,7 @@
 //! Slate primary item data; shell owns painting and layout.
 use super::*;
 
-pub(super) fn items(app: &SlateApp) -> [DockItem<'static>; 8] {
+pub(super) fn items(app: &SlateApp) -> [DockItem<'static>; 7] {
     let view = app.doc().view.active_view;
     let board = view == ViewKind::Board;
     let tool = app.board_tool;
@@ -34,7 +34,7 @@ pub(super) fn items(app: &SlateApp) -> [DockItem<'static>; 8] {
         DockItem {
             id: "tool.media",
             label: "Media",
-            description: "Place images and print media, 3D models, or video. PowerPoint renders as PDF pages.",
+            description: "Place images, print media, 3D models, video, or a slide frame.",
             icon: DockIcon::Custom(icon_media),
             kind: DockItemKind::Tool,
             active: false,
@@ -42,24 +42,18 @@ pub(super) fn items(app: &SlateApp) -> [DockItem<'static>; 8] {
             gap_before: false,
         },
         DockItem {
-            id: "tool.frame",
-            label: "Frame",
-            description: "Place a slide frame — Letter, Tabloid, 16:9, or a custom size.",
-            icon: frame_preset_icon(app.board_frame_preset),
-            kind: DockItemKind::Tool,
-            active: tool == BoardTool::Frame,
-            visible: board,
-            gap_before: false,
-        },
-        DockItem {
             id: "tool.portals",
             label: "Portals",
-            description: "Drop a portal onto the board (File Atlas, Agent, Web, or a nested Slate board).",
+            description:
+                "Drop a portal onto the board (File Atlas, Agent, Web, or a nested Slate board).",
             icon: DockIcon::Custom(icon_portals),
             kind: DockItemKind::Tool,
             active: matches!(
                 tool,
-                BoardTool::AgentPortal | BoardTool::WebPortal | BoardTool::AtlasPortal | BoardTool::SlatePortal
+                BoardTool::AgentPortal
+                    | BoardTool::WebPortal
+                    | BoardTool::AtlasPortal
+                    | BoardTool::SlatePortal
             ),
             visible: board,
             gap_before: false,
@@ -95,8 +89,14 @@ pub(super) fn items(app: &SlateApp) -> [DockItem<'static>; 8] {
             gap_before: true,
         },
         DockItem {
-            id: "tool.tags", label: "Tags", description: "Show or hide tagged objects; Shift/Ctrl-click circles selects a batch.",
-            icon: DockIcon::Tags, kind: DockItemKind::Tool, active: false, visible: board, gap_before: false,
+            id: "tool.tags",
+            label: "Tags",
+            description: "Show or hide tagged objects; Shift/Ctrl-click circles selects a batch.",
+            icon: DockIcon::Tags,
+            kind: DockItemKind::Tool,
+            active: false,
+            visible: board,
+            gap_before: false,
         },
     ]
 }

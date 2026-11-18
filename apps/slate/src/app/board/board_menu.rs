@@ -10,7 +10,7 @@ pub(crate) use layout::{entries, layout};
 #[derive(Clone)]
 struct SubmenuState {
     origin: (u64, NodeId, Pos2),
-    tags: bool,
+    active: Option<&'static str>,
 }
 
 impl SlateApp {
@@ -47,14 +47,18 @@ impl SlateApp {
             .filter(|state| state.origin == origin)
             .unwrap_or(SubmenuState {
                 origin,
-                tags: false,
+                active: None,
             });
         let mut chosen = None;
         let mut bundle_chosen = None;
-        let mut tag_anchor = None;
-        let menu_rect = egui::Area::new(egui::Id::new("slate_board_menu"))
+        let mut submenu_anchor = None;
+        let mut frame_size = None;
+        let menu_id = egui::Id::new("slate_board_menu");
+        let order = atlas_shell::selection_tools::POPUP_ORDER;
+        ctx.move_to_top(egui::LayerId::new(order, menu_id));
+        let menu_rect = egui::Area::new(menu_id)
             .fixed_pos(pos)
-            .order(egui::Order::Foreground)
+            .order(order)
             .show(ctx, |ui| {
                 metrics.frame(dark).show(ui, |ui| {
                     metrics.prepare(ui, dark);
@@ -85,14 +89,16 @@ impl SlateApp {
                             self.board_menu_tags(ui, &targets);
                         } else {
                             let response = self.board_menu_row(ui, entry, node_id);
-                            if entry == "menu.tags" {
-                                tag_anchor = Some(response.rect.right_top());
+                            if matches!(entry, "menu.tags" | "menu.frame_size") {
                                 if response.hovered() || response.clicked() {
-                                    state.tags = true;
+                                    state.active = Some(entry);
+                                }
+                                if state.active == Some(entry) {
+                                    submenu_anchor = Some(response.rect.right_top());
                                 }
                             } else {
                                 if response.hovered() {
-                                    state.tags = false;
+                                    state.active = None;
                                 }
                                 if response.clicked() {
                                     chosen = Some(entry);
@@ -125,22 +131,58 @@ impl SlateApp {
             })
             .response
             .rect;
-        let submenu_rect = if state.tags {
-            tag_anchor.map(|anchor| {
-                egui::Area::new(egui::Id::new("slate_board_tags_submenu"))
+        let submenu_rect = match (state.active, submenu_anchor) {
+            (Some(active), Some(anchor)) => Some({
+                let submenu_id = egui::Id::new(("slate_board_submenu", active));
+                ctx.move_to_top(egui::LayerId::new(order, submenu_id));
+                egui::Area::new(submenu_id)
                     .fixed_pos(anchor + egui::vec2(8.0, -8.0))
-                    .order(egui::Order::Foreground)
+                    .order(order)
                     .show(ctx, |ui| {
                         metrics.frame(dark).show(ui, |ui| {
                             metrics.prepare(ui, dark);
-                            self.board_menu_tags(ui, &targets);
+                            if active == "menu.tags" {
+                                self.board_menu_tags(ui, &targets);
+                            } else {
+                                let writable = !self.tab().read_only
+                                    && self
+                                        .doc()
+                                        .scene
+                                        .node(node_id)
+                                        .is_some_and(|node| !node.locked);
+                                for preset in FramePreset::CONTEXT_SIZES {
+                                    if metrics
+                                        .row(
+                                            ui,
+                                            atlas_shell::menu::Row::new(
+                                                MenuIcon::None,
+                                                preset.label(),
+                                            )
+                                            .enabled(writable),
+                                            dark,
+                                        )
+                                        .clicked()
+                                    {
+                                        frame_size = Some(preset.size());
+                                    }
+                                }
+                                if metrics
+                                    .row(
+                                        ui,
+                                        menu::Row::new(MenuIcon::None, "Custom…").enabled(writable),
+                                        dark,
+                                    )
+                                    .clicked()
+                                {
+                                    chosen = Some("menu.frame_size_custom");
+                                }
+                            }
                         });
                     })
                     .response
                     .rect
-            })
-        } else {
-            None
+            }),
+            _ => None,
         };
         let dismissed = ctx.input(|input| {
             input.pointer.any_pressed()
@@ -160,7 +202,10 @@ impl SlateApp {
                 Some(serde_json::json!({"node":node_id,"bundled":bundled}).to_string()),
             );
         }
-        if dismissed || chosen.is_some() || bundle_chosen.is_some() {
+        if let Some((width, height)) = frame_size {
+            self.resize_menu_frame(ctx, node_id, width, height);
+        }
+        if dismissed || chosen.is_some() || bundle_chosen.is_some() || frame_size.is_some() {
             self.board_menu = None;
             ctx.data_mut(|data| data.remove::<SubmenuState>(state_id));
         } else {

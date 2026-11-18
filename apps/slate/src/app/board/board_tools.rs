@@ -18,6 +18,8 @@ pub enum FramePreset {
     Letter,
     Tabloid,
     Wide169,
+    Portrait916,
+    PortraitTabloid,
     Custom {
         w: f32,
         h: f32,
@@ -25,11 +27,21 @@ pub enum FramePreset {
 }
 
 impl FramePreset {
+    pub(crate) const CONTEXT_SIZES: [Self; 5] = [
+        Self::Portrait916,
+        Self::Wide169,
+        Self::Letter,
+        Self::PortraitTabloid,
+        Self::Tabloid,
+    ];
+
     pub fn label(self) -> &'static str {
         match self {
             FramePreset::Letter => "8.5 × 11",
             FramePreset::Tabloid => "17 × 11",
             FramePreset::Wide169 => "16:9",
+            FramePreset::Portrait916 => "9:16",
+            FramePreset::PortraitTabloid => "11 × 17",
             FramePreset::Custom { .. } => "Custom",
         }
     }
@@ -39,6 +51,8 @@ impl FramePreset {
             FramePreset::Letter => (612.0, 792.0),
             FramePreset::Tabloid => (1224.0, 792.0),
             FramePreset::Wide169 => (960.0, 540.0),
+            FramePreset::Portrait916 => (540.0, 960.0),
+            FramePreset::PortraitTabloid => (792.0, 1224.0),
             FramePreset::Custom { w, h } => (w.max(MIN_DRAW), h.max(MIN_DRAW)),
         }
     }
@@ -54,6 +68,7 @@ impl FramePreset {
 pub struct FrameCustomDraft {
     pub w: String,
     pub h: String,
+    pub target: Option<(u64, NodeId)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]

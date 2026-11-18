@@ -194,7 +194,6 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         app.dock_bar_collapsed,
         |ui, id| match id {
             "tool.media" => media_flyout(app, ui),
-            "tool.frame" => frame_flyout(app, ui, theme),
             "tool.portals" => portals_flyout(app, ui, theme),
             "tool.shapes" => shapes_flyout(app, ui, theme),
             "tool.text" => text_flyout(app, ui, theme),
@@ -246,7 +245,7 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         app.drop_dock_strip(ctx, palette_id);
     }
 
-    // Picker primaries (Media, Frame, Portals, Shapes, Text, Actions)
+    // Picker primaries (Media, Portals, Shapes, Text, Actions)
     // open the flyout only. Nested icons arm or run the chosen command.
     if clicked == Some("app.feedback.open") {
         app.dispatch(ctx, atlas_commands::CommandId("app.feedback.open"), None);
@@ -262,6 +261,11 @@ pub(crate) fn activate_flyout_id(app: &mut SlateApp, ctx: &egui::Context, id: &s
         return;
     }
     match id {
+        "media.frame" => {
+            app.board_frame_preset = FramePreset::Portrait916;
+            app.dispatch(ctx, atlas_commands::CommandId("board.tool.frame"), None);
+            return;
+        }
         "frame.letter" | "frame.tabloid" | "frame.wide" | "frame.custom" => {
             apply_frame_choice(app, id);
             return;

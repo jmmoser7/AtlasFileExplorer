@@ -27,6 +27,7 @@ impl SlateApp {
         let mut row = match entry {
             "board.crop" => Row::glyph(Icon::Crop, &label),
             "board.shape.edit" => Row::glyph(Icon::ObjectProperties, &label),
+            "menu.frame_size" => Row::glyph(Icon::Frame, &label),
             "board.model_display" => Row::glyph(Icon::Model, &label),
             "menu.layers" | "board.image.selection.layer" => Row::glyph(Icon::ChatBundle, &label),
             "board.duplicate" => Row::new(MenuIcon::Duplicate, &label),
@@ -36,7 +37,7 @@ impl SlateApp {
         if action.danger {
             row = row.danger();
         }
-        if entry == "menu.tags" {
+        if matches!(entry, "menu.tags" | "menu.frame_size") {
             row = row.chevron();
         }
         if let Some(NodeKind::Connector(conn)) = self.doc().scene.node(node).map(|n| &n.kind) {
@@ -57,6 +58,15 @@ impl SlateApp {
         id: NodeId,
     ) {
         match entry {
+            "menu.frame_size_custom" => {
+                if let Some(node) = self.doc().scene.node(id) {
+                    self.board_frame_custom = Some(FrameCustomDraft {
+                        w: node.rect.w.to_string(),
+                        h: node.rect.h.to_string(),
+                        target: Some((self.tab().id, id)),
+                    });
+                }
+            }
             "menu.layers" => {
                 self.board_sel = std::iter::once(id).collect();
                 self.sync_shape_properties();

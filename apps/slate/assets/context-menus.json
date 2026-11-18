@@ -290,6 +290,7 @@
       "label": "Frame / slide",
       "entries": [
         "board.shape.edit",
+        "menu.frame_size",
         "sep:custom-mv5hrsrh-9",
         "board.to_front",
         "board.to_back",
@@ -809,6 +810,10 @@
       "label": "Layers",
       "icon": "layers",
       "shortcut": ""
+    },
+    "menu.frame_size": {
+      "label": "Frame size",
+      "icon": "display"
     },
     "menu.tags": {
       "label": "Tags",
