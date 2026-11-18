@@ -5,6 +5,10 @@ use serde_json::json;
 mod isolation;
 
 fn host(tag: &str) -> (Harness, NodeId, PathBuf) {
+    host_with_format(tag, image::ImageFormat::Png)
+}
+
+fn host_with_format(tag: &str, format: image::ImageFormat) -> (Harness, NodeId, PathBuf) {
     let mut h = Harness::new(tag);
     h.app.leave_home();
     h.app.ensure_work_tab();
@@ -26,7 +30,7 @@ fn host(tag: &str) -> (Harness, NodeId, PathBuf) {
     .join("fresh-output.png");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     image::RgbImage::from_pixel(12, 7, image::Rgb([10, 20, 30]))
-        .save(&path)
+        .save_with_format(&path, format)
         .unwrap();
     let mut session = AgentSession::default();
     session.bundle.images.push(atlas_agent::ImageOutput {
@@ -63,7 +67,13 @@ fn poll(h: &mut Harness, node: NodeId) {
 
 #[test]
 fn fresh_generation_registers_without_a_human_pick_then_places_with_one_undo() {
-    let (mut h, node, path) = host("fresh-output-place");
+    for format in [image::ImageFormat::Png, image::ImageFormat::WebP] {
+        assert_generation_registers_and_places(format);
+    }
+}
+
+fn assert_generation_registers_and_places(format: image::ImageFormat) {
+    let (mut h, node, path) = host_with_format("fresh-output-place", format);
     let scene = h.app.doc().scene.clone();
     let selection = h.app.board_sel.clone();
     let depth = h.app.tab().journal.undo_depth();

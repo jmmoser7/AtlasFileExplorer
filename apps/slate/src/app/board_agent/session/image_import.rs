@@ -150,7 +150,7 @@ impl KnownImageImports {
 fn inspect(work: &Work) -> Result<ImportedImage, String> {
     // Canonicalization is deliberately on this worker. Reject traversal and
     // links escaping the provider's generated-output root before metadata is
-    // admitted to the linked-item owner. No file bytes are opened.
+    // admitted to the linked-item owner.
     let root = std::fs::canonicalize(&work.root)
         .map_err(|error| format!("Image output folder is unavailable: {error}"))?;
     let path = std::fs::canonicalize(&work.identity.path)
@@ -163,10 +163,17 @@ fn inspect(work: &Work) -> Result<ImportedImage, String> {
     }
     // Keep the original stable locator after checking its canonical location.
     let file = ReadyFile::read(work.identity.path.clone())?;
-    // Header probing is bounded and stays on the existing worker. Large or
-    // unsupported outputs remain importable; their dimensions are unknown.
+    // Some providers write WebP results with a .png suffix. Inspect the header
+    // on this worker so downstream consumers see the actual dimensions.
     let dimensions = (file.size <= MAX_DIMENSION_PROBE_BYTES)
-        .then(|| image::image_dimensions(&path).ok())
+        .then(|| {
+            image::ImageReader::open(&path)
+                .ok()?
+                .with_guessed_format()
+                .ok()?
+                .into_dimensions()
+                .ok()
+        })
         .flatten()
         .filter(|(width, height)| *width > 0 && *height > 0)
         .map(|(width, height)| [width, height]);
