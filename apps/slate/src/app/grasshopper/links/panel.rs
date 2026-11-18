@@ -290,21 +290,41 @@ fn format_packet(out: &mut PanelText, packet: &serde_json::Value) -> fmt::Result
 }
 
 fn write_number(out: &mut PanelText, v: &serde_json::Value) -> fmt::Result {
-    if let Some(n) = v.as_i64() {
-        write!(out, "{n}")
-    } else if let Some(n) = v.as_u64() {
-        write!(out, "{n}")
-    } else if let Some(n) = v.as_f64() {
-        write!(out, "{n}")
-    } else {
-        out.write_str("<invalid number>")
+    let Some(n) = v.as_f64() else {
+        return out.write_str("<invalid number>");
+    };
+    // Grasshopper's panel uses six decimal places on ordinary values and
+    // a short mantissa outside that range. The linked packet keeps its double.
+    let magnitude = n.abs();
+    if magnitude < 1.0e-12 {
+        return out.write_char('0');
     }
+    if !(1.0e-5..1.0e6).contains(&magnitude) {
+        let value = format!("{n:.4e}");
+        let (mantissa, exponent) = value.split_once('e').ok_or(fmt::Error)?;
+        let trimmed = mantissa.trim_end_matches('0');
+        out.write_str(trimmed)?;
+        if trimmed.ends_with('.') {
+            out.write_char('0')?;
+        }
+        out.write_char('e')?;
+        if !exponent.starts_with('-') {
+            out.write_char('+')?;
+        }
+        return out.write_str(exponent);
+    }
+    let digits = format!("{n:.6}");
+    out.write_str(digits.trim_end_matches('0').trim_end_matches('.'))
 }
 
 fn format_item(out: &mut PanelText, item: &serde_json::Value) -> fmt::Result {
     let v = &item["value"];
     match item["kind"].as_str().unwrap_or("") {
-        "number" | "integer" => write_number(out, v),
+        "number" => write_number(out, v),
+        "integer" => match v.as_i64() {
+            Some(value) => write!(out, "{value}"),
+            None => out.write_str("<invalid integer>"),
+        },
         "boolean" => out.write_str(match v.as_bool() {
             Some(true) => "True",
             Some(false) => "False",

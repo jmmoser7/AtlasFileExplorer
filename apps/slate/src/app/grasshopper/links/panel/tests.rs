@@ -52,6 +52,33 @@ fn projection_preserves_trees_nulls_unicode_and_readable_geometry_with_a_size_bo
 }
 
 #[test]
+fn number_display_matches_native_grasshopper_and_preserves_the_packet() {
+    for (value, expected) in [
+        (16.253999999999998, "16.254"),
+        (0.123456789, "0.123457"),
+        (-1.234567890123, "-1.234568"),
+        (1.234567e-7, "1.2346e-7"),
+        (1.0e-12, "1.0e-12"),
+        (1.0e-15, "0"),
+        (1.2e19, "1.2e+19"),
+        (1.0e6, "1.0e+6"),
+        (100000.0, "100000"),
+        (0.0, "0"),
+    ] {
+        let tree = packet(&[0], vec![leaf("number", json!(value))]);
+        assert_eq!(printed(&tree), expected);
+        assert_eq!(
+            tree["branches"][0]["items"][0]["value"].as_f64(),
+            Some(value)
+        );
+    }
+    assert_eq!(
+        printed(&packet(&[0], vec![leaf("integer", json!(1000000))])),
+        "1000000"
+    );
+}
+
+#[test]
 fn linked_text_panels_merge_outputs_restore_authored_content_and_repopulate_after_reopen() {
     let mut h = Harness::new("gh-panel-output");
     h.app.leave_home();
