@@ -1,12 +1,21 @@
 # Installs Slate's optional, pinned CPU model for this user. No images are uploaded.
-param([switch]$VerifyOnly)
+param([switch]$VerifyOnly, [string]$Python = 'python')
 $ErrorActionPreference = 'Stop'
 $segmentRoot = Join-Path $env:LOCALAPPDATA 'NativeFileAtlas\segmentation'
 $segmentPython = Join-Path $segmentRoot 'venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $segmentPython)) {
     if ($VerifyOnly) { throw 'Segmentation is not installed.' }
-    python -m venv (Join-Path $segmentRoot 'venv')
+    & $Python -m venv (Join-Path $segmentRoot 'venv')
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the segmentation environment.' }
+}
+$setup = Join-Path $PSScriptRoot 'setup_segmentation.py'
+& $segmentPython --version
+if ($LASTEXITCODE -ne 0) {
+    if ($VerifyOnly) { throw 'The Python interpreter used by this environment is unavailable. Rerun setup with -Python pointing to the same Python major/minor version.' }
+    & $Python $setup $segmentRoot --repair-python
+    if ($LASTEXITCODE -ne 0) { throw 'Could not reconnect the installed segmentation environment. Use -Python with its matching 64-bit Python version.' }
+    & $segmentPython $setup $segmentRoot --verify-only
+    if ($LASTEXITCODE -eq 0) { return }
 }
 & $segmentPython -c 'import sys,struct; assert (3,11) <= sys.version_info[:2] <= (3,13) and struct.calcsize("P")==8, "Use 64-bit Python 3.11-3.13 (3.13 is the validated runtime)."'
 if ($LASTEXITCODE -ne 0) { throw 'Unsupported Python runtime.' }
@@ -22,7 +31,7 @@ if (-not $VerifyOnly) {
     & $segmentPython -m pip check
     if ($LASTEXITCODE -ne 0) { throw 'Segmentation dependencies are inconsistent.' }
 }
-$segmentArgs = @((Join-Path $PSScriptRoot 'setup_segmentation.py'), $segmentRoot)
+$segmentArgs = @($setup, $segmentRoot)
 if ($VerifyOnly) { $segmentArgs += '--verify-only' }
 & $segmentPython @segmentArgs
 if ($LASTEXITCODE -ne 0) { throw 'Segmentation verification failed.' }

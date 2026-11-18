@@ -28,6 +28,12 @@ and Meta's `facebook/sam2.1-hiera-tiny` model under
 first (3.13 is the validated runtime). Dependencies and weights are machine resources, never
 workbook content. Setup requires internet access; inference is offline.
 
+If a Python update removes the original interpreter, run
+`scripts/setup-segmentation.ps1 -Python "C:\path\to\python.exe"` with an
+installed 64-bit Python of the same major and minor version. Setup reconnects
+the existing environment and verifies its installed packages and checkpoint
+before attempting any downloads.
+
 Both lockfiles beside the setup script pin every runtime and build dependency,
 including transitive packages. Pip requires their published SHA-256 hashes.
 SAM's source archive is pinned by commit and SHA-256; the checkpoint is checked

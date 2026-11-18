@@ -3,13 +3,56 @@ import argparse
 import hashlib
 import importlib.metadata as metadata
 import json
+import os
 from pathlib import Path
 import re
+import struct
+import subprocess
+import sys
+import tempfile
 from urllib.request import urlopen
 
 MODEL_URL = "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt"
 # Meta's Git LFS pointer: facebook/sam2.1-hiera-tiny, sam2.1_hiera_tiny.pt.
 MODEL_SHA256 = "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69"
+
+
+def repair_python(root):
+    """Reconnect a Windows venv to a compatible replacement for its missing base Python."""
+    venv = root / "venv"
+    cfg = venv / "pyvenv.cfg"
+    original = cfg.read_bytes()
+    text = original.decode("utf-8")
+    fields = dict(line.split(" = ", 1) for line in text.splitlines() if " = " in line)
+    previous_home = Path(fields["home"])
+    if (previous_home / "python.exe").exists():
+        raise RuntimeError("The base Python is present; the launcher failed for another reason.")
+    version = tuple(int(part) for part in fields["version"].split(".")[:2])
+    if version != sys.version_info[:2] or struct.calcsize("P") != 8:
+        raise RuntimeError(f"Select a 64-bit Python {version[0]}.{version[1]} using -Python to keep installed packages.")
+    base = Path(sys._base_executable)
+    if not base.is_file() or base.name.lower() != "python.exe":
+        raise RuntimeError("Select an installed Windows Python interpreter using -Python.")
+    replacements = {"home": str(base.parent), "executable": str(base), "version": sys.version.split()[0]}
+    lines = []
+    for line in text.splitlines(keepends=True):
+        name, sep, _ = line.partition(" = ")
+        if sep and name in replacements:
+            ending = line[len(line.rstrip("\r\n")):]
+            line = f"{name} = {replacements[name]}{ending}"
+        lines.append(line)
+    candidate = "".join(lines).encode("utf-8")
+    # Check the existing launcher with the corrected config before touching the working directory.
+    with tempfile.TemporaryDirectory(dir=venv.parent) as probe:
+        trial = Path(probe)
+        (trial / "Scripts").mkdir()
+        launcher = trial / "Scripts/python.exe"
+        launcher.write_bytes((venv / "Scripts/python.exe").read_bytes())
+        (trial / "pyvenv.cfg").write_bytes(candidate)
+        subprocess.run([str(launcher), "-I", "-S", "-c", "import sys"], check=True)
+        if cfg.read_bytes() != original:
+            raise RuntimeError("The Python configuration changed during repair. Rerun setup.")
+        os.replace(trial / "pyvenv.cfg", cfg)
 
 
 def sha256(path):
@@ -59,7 +102,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", type=Path)
     parser.add_argument("--verify-only", action="store_true")
+    parser.add_argument("--repair-python", action="store_true")
     args = parser.parse_args()
+    if args.repair_python:
+        repair_python(args.root)
+        return
     verify_packages()
     ensure_model(args.root / "model" / "sam2.1_hiera_tiny.pt", args.verify_only)
     print("Verified local object highlighting. Images stay on this machine.")
