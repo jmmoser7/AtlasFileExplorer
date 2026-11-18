@@ -245,7 +245,9 @@ def main():
         if not js_tests:
             raise RuntimeError("no Cursor sidecar tests were discovered")
         with isolated_environment() as env, (out / "cursor-sidecar.log").open("w", encoding="utf-8") as log:
-            js = subprocess.run(["node", "--test", "--test-reporter=tap", *(p.name for p in js_tests)],
+            help_text = subprocess.check_output(["node", "--help"], env=env, text=True, encoding="utf-8")
+            reporter = ["--test-reporter=tap"] if "--test-reporter" in help_text else []
+            js = subprocess.run(["node", "--test", *reporter, *(p.name for p in js_tests)],
                                 cwd=js_tests[0].parent, env=env, stdout=log, stderr=subprocess.STDOUT)
         summary = (out / "cursor-sidecar.log").read_text(encoding="utf-8", errors="replace")
         # Node's TAP reporter lists nested test names; files are a separate discovery inventory.
