@@ -13,6 +13,9 @@ use windows::Win32::System::LibraryLoader::{
 use windows_core::PCWSTR;
 
 const PROBE: &str = "--probe-protected-d3d12";
+// A healthy Intel device took over eight seconds to initialize during a busy
+// Windows build. Keep the hang bound while allowing that device to finish.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub(super) fn available(provider: &Path) -> bool {
     let Ok(exe) = std::env::current_exe() else {
@@ -30,7 +33,7 @@ pub(super) fn available(provider: &Path) -> bool {
     else {
         return false;
     };
-    let deadline = Instant::now() + Duration::from_secs(8);
+    let deadline = Instant::now() + PROBE_TIMEOUT;
     loop {
         match child.try_wait() {
             Ok(Some(status)) if status.success() => return load_compiler(provider),
