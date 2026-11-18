@@ -40,6 +40,8 @@ through Home/recents. Open tab layout is not restored by the updater.
   use GitHub's latest stable download endpoint; previews use the dedicated tag,
   so preview volume cannot hide a stable release.
 
+For releases that change AI workflows, run `python scripts/test-ai-workflows.py` from the repository root. The matrix covers board gestures, provider adapters, image publication, artifact generation and native-model inputs. On a Windows build, check a generated image on the canvas and after reopening the workbook. Record which provider and model produced the image and which live services were available for testing.
+
 The public release feed needs no login, embedded tokens or separate server.
 Do not make the distribution repository private without providing an accessible
 replacement feed. GitHub Actions uses its scoped `GITHUB_TOKEN` to publish.

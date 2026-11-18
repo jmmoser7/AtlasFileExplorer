@@ -45,6 +45,9 @@ jobs:
       - name: Publication gate regression checks
         run: node --test scripts/tests/test_wait_linux_ci.cjs
 
+      - name: AI sidecar workflow regressions
+        run: node --test docs/agent/cursor-sidecar/*.test.mjs
+
       # Match the packaged Windows engine so document tests run on Linux too.
       - name: Install pinned Pdfium for document tests
         run: |
