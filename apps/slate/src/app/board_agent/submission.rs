@@ -80,9 +80,7 @@ impl SlateApp {
         let policy = self.admit_agent_access(&session, &request);
         #[cfg(not(test))]
         let access_snapshot = self.agents.access_snapshot.clone();
-        let artifact_directory = request
-            .artifact_provider_directory()
-            .map(std::path::Path::to_path_buf);
+        let artifact_directory = request.artifact_process_directory();
         if provider == "cursor" {
             let changed = self.agents.sidecar_policies.get(&session) != Some(&policy);
             let restart = self.agents.sidecar_restart.remove(&session);

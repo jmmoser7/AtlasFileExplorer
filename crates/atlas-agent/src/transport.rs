@@ -224,6 +224,13 @@ impl AgentRequest {
             .parent()
     }
 
+    /// Legacy Windows tool launchers can treat a verbatim drive path as UNC and
+    /// silently pick a different current directory. The draft retains canonical ownership.
+    pub fn artifact_process_directory(&self) -> Option<PathBuf> {
+        self.artifact_provider_directory()
+            .map(|dir| PathBuf::from(external_paths::external_tool_path(dir).as_ref()))
+    }
+
     /// Protocol checks without I/O. Ownership and source validation belongs to
     /// the strict history owner and is performed on the submission worker.
     pub fn validate_artifact_request(&self) -> Result<(), &'static str> {

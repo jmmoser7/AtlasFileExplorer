@@ -21,10 +21,14 @@ export function artifactGenerationGuide(req, linkDir = '') {
     throw new Error('Artifact staging and history locations must be absolute.');
   }
   generationProfile ??= readFileSync(new URL('./artifact-generation-v1.md', import.meta.url), 'utf8');
+  // Keep canonical paths in the owned request. Windows shells and SDK tools use
+  // the ordinary spelling of a local drive when resolving the task workspace.
+  const stage = req.artifact_draft_receipt && process.platform === 'win32'
+    ? run.staging_output.replace(/^\\\\\?\\(?=[A-Za-z]:\\)/, '') : run.staging_output;
   const values = {
-    staging_output: run.staging_output,
-    entry_path: path.join(run.staging_output, 'index.html'),
-    return_manifest: req.artifact_draft_receipt ? path.join(path.dirname(run.staging_output), 'return.json')
+    staging_output: stage,
+    entry_path: path.join(stage, 'index.html'),
+    return_manifest: req.artifact_draft_receipt ? path.join(path.dirname(stage), 'return.json')
       : linkDir ? path.join(linkDir, 'return.json') : 'return.json beside session.json',
     request_id: req.id,
   };

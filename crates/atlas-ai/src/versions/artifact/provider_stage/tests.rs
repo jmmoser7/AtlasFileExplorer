@@ -103,9 +103,9 @@ fn long_windows_artifact_work_starts_the_provider_and_returns_to_its_original_ow
     };
     let cmd = |cwd: &Path| {
         Command::new("cmd.exe")
-            .args(["/d", "/c", "exit", "0"])
+            .args(["/d", "/c", "type", "cwd-witness.txt"])
             .current_dir(cwd)
-            .status()
+            .output()
     };
     assert!(matches!(
         cmd(&deep).unwrap_err().raw_os_error(),
@@ -116,7 +116,13 @@ fn long_windows_artifact_work_starts_the_provider_and_returns_to_its_original_ow
             .unwrap()
             .unwrap();
     let work = request.artifact_provider_directory().unwrap();
-    assert!(cmd(work).unwrap().success());
+    let witness = b"verified in the allocated task directory";
+    fs::write(work.join("cwd-witness.txt"), witness).unwrap();
+    let process_dir = request.artifact_process_directory().unwrap();
+    assert_eq!(process_dir.canonicalize().unwrap(), work);
+    let observed = cmd(&process_dir).unwrap();
+    assert!(observed.status.success());
+    assert_eq!(observed.stdout, witness);
     let output = request
         .artifact
         .as_ref()

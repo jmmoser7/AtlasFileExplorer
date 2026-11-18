@@ -35,6 +35,12 @@ test('isolated Windows artifacts write their receipt beside the private output',
   const guide = artifactGenerationGuide(req, originalLink);
   assert.ok(guide.includes(JSON.stringify(path.join(path.dirname(req.output_dir), 'return.json'))));
   assert.ok(!guide.includes(JSON.stringify(path.join(originalLink, 'return.json'))));
+  if (process.platform === 'win32') {
+    const ordinary = req.output_dir;
+    req.output_dir = req.artifact.staging_output = path.toNamespacedPath(ordinary);
+    assert.equal(artifactGenerationGuide(req, originalLink), guide);
+    assert.equal(req.artifact.staging_output, path.toNamespacedPath(ordinary));
+  }
 });
 
 test('only explicit wired input and checkpoint history enter an artifact request', () => {

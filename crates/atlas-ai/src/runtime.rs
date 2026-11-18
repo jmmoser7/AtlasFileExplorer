@@ -263,7 +263,7 @@ impl CodexLink {
                         }
                         _ => None,
                     };
-                    if let Some(working) = request.artifact_provider_directory() {
+                    if let Some(working) = request.artifact_process_directory() {
                         if provider != "codex" || host_tools.is_some() {
                             return Err("This artifact workspace requires the native Codex or Cursor SDK route.".into());
                         }
@@ -273,7 +273,7 @@ impl CodexLink {
                         staged_engine = Some(Engine::start(
                             &provider,
                             &dir,
-                            working,
+                            &working,
                             &stop,
                             &frames,
                             workbook.as_deref(),
