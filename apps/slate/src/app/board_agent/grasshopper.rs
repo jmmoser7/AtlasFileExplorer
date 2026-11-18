@@ -1,5 +1,6 @@
 //! Author Grasshopper revisions as inert files until the person chooses to run one.
 
+mod recipe;
 use super::*;
 use slate_doc::scene::ModelOutputRef;
 use std::io::Read;
@@ -19,7 +20,7 @@ pub(super) struct Run {
 
 enum Phase {
     Staging {
-        ready: Receiver<Result<PathBuf, String>>,
+        ready: Receiver<Result<(PathBuf, bool), String>>,
         request: Box<AgentRequest>,
         authored: String,
         workspace: PathBuf,
@@ -27,6 +28,7 @@ enum Phase {
     Writing {
         draft: PathBuf,
         publish: PathBuf,
+        empty_source: bool,
     },
     Checking(Receiver<Result<(PathBuf, u64, i64), String>>),
 }
@@ -163,7 +165,7 @@ impl SlateApp {
                 authored,
                 workspace,
             } => {
-                let Some(source) = worker_reply(ready)? else {
+                let Some((source, empty_source)) = worker_reply(ready)? else {
                     return Ok(false);
                 };
                 let draft = source
@@ -182,9 +184,11 @@ impl SlateApp {
                 request.output_dir = Some(draft.to_string_lossy().into_owned());
                 request.policy = atlas_agent::TurnPolicy::StagedFiles;
                 request.pending_prompt_projection = None;
-                request
-                    .prompt
-                    .push_str(&authoring_instructions(&source, &draft.join(REVISION)));
+                request.prompt.push_str(&authoring_instructions(
+                    &source,
+                    &draft.join(REVISION),
+                    empty_source,
+                ));
                 let deadline = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -199,10 +203,18 @@ impl SlateApp {
                 ) {
                     return Ok(true);
                 }
-                run.phase = Phase::Writing { draft, publish };
+                run.phase = Phase::Writing {
+                    draft,
+                    publish,
+                    empty_source,
+                };
                 Ok(false)
             }
-            Phase::Writing { draft, publish } => {
+            Phase::Writing {
+                draft,
+                publish,
+                empty_source,
+            } => {
                 if self.agents.requests.get(&node) != Some(&run.request)
                     || matches!(
                         self.agents.awaiting.get(&node),
@@ -219,9 +231,10 @@ impl SlateApp {
                 }
                 let draft = draft.clone();
                 let publish = publish.clone();
+                let empty_source = *empty_source;
                 let (tx, rx) = crossbeam_channel::bounded(1);
                 std::thread::spawn(move || {
-                    let _ = tx.send(validate_and_publish(&draft, &publish));
+                    let _ = tx.send(validate_and_publish(&draft, &publish, empty_source));
                 });
                 run.phase = Phase::Checking(rx);
                 Ok(false)
@@ -306,25 +319,27 @@ fn worker_reply<T>(ready: &Receiver<Result<T, String>>) -> Result<Option<T>, Str
     }
 }
 
-fn bounded_bytes(path: &Path) -> Result<Vec<u8>, String> {
+fn bounded_bytes_upto(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
     let metadata = std::fs::symlink_metadata(path).map_err(|error| error.to_string())?;
-    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_ARCHIVE_BYTES {
-        return Err("Expected a regular nonempty Grasshopper file up to 64 MiB".into());
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > limit {
+        return Err(format!(
+            "Expected a regular nonempty file up to {limit} bytes"
+        ));
     }
     if atlas_core::cloud::is_dehydrated(path) {
         return Err("Download the Grasshopper file before using it".into());
     }
     let mut bytes = Vec::new();
     std::fs::File::open(path)
-        .and_then(|file| file.take(MAX_ARCHIVE_BYTES + 1).read_to_end(&mut bytes))
+        .and_then(|file| file.take(limit + 1).read_to_end(&mut bytes))
         .map_err(|error| error.to_string())?;
-    if bytes.is_empty() || bytes.len() as u64 > MAX_ARCHIVE_BYTES {
+    if bytes.is_empty() || bytes.len() as u64 > limit {
         return Err("The Grasshopper file size changed while reading it".into());
     }
     Ok(bytes)
 }
 
-fn stage(source: &Path, draft: &Path) -> Result<PathBuf, String> {
+fn stage(source: &Path, draft: &Path) -> Result<(PathBuf, bool), String> {
     if !slate_doc::media::is_grasshopper(source) {
         return Err("The selected source is not a Grasshopper definition".into());
     }
@@ -336,21 +351,31 @@ fn stage(source: &Path, draft: &Path) -> Result<PathBuf, String> {
     } else {
         "source.ghx"
     };
-    let bytes = bounded_bytes(source)
+    let bytes = bounded_bytes_upto(source, MAX_ARCHIVE_BYTES)
         .map_err(|error| format!("Could not copy Grasshopper source: {error}"))?;
     std::fs::create_dir_all(draft.parent().ok_or("Grasshopper staging has no parent")?)
         .and_then(|()| std::fs::create_dir(draft))
         .map_err(|error| format!("Could not create Grasshopper staging: {error}"))?;
     let copy = draft.join(source_name);
+    let empty_source = source_name == "source.ghx" && recipe::empty_xml(&bytes);
     std::fs::write(&copy, bytes)
         .map_err(|error| format!("Could not copy Grasshopper source: {error}"))?;
-    Ok(copy)
+    Ok((copy, empty_source))
 }
 
-fn validate_and_publish(draft: &Path, output: &Path) -> Result<(PathBuf, u64, i64), String> {
+fn validate_and_publish(
+    draft: &Path,
+    output: &Path,
+    empty_source: bool,
+) -> Result<(PathBuf, u64, i64), String> {
     let missing = |error| format!("Codex did not return a valid Grasshopper definition: {error}");
     let candidate = draft.join(REVISION);
-    let bytes = bounded_bytes(&candidate).map_err(missing)?;
+    let bytes = match std::fs::symlink_metadata(&candidate) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && empty_source => {
+            recipe::from_stage(draft).map_err(missing)?
+        }
+        _ => bounded_bytes_upto(&candidate, MAX_ARCHIVE_BYTES).map_err(missing)?,
+    };
     validate_archive(&bytes).map_err(missing)?;
     let dir = output
         .parent()
@@ -398,8 +423,21 @@ fn validate_archive(bytes: &[u8]) -> Result<(), String> {
         .ok_or_else(|| "The GHX archive is missing its Grasshopper definition objects".into())
 }
 
-fn authoring_instructions(source: &Path, output: &Path) -> String {
+fn authoring_instructions(source: &Path, output: &Path, empty_source: bool) -> String {
     let marker = atlas_agent::GRASSHOPPER_AUTHORING_MARKER;
+    if empty_source {
+        return format!("{marker}{}", recipe::GUIDE);
+    }
+    if source
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("ghx"))
+    {
+        return format!("{marker}Revise the existing editable Grasshopper XML archive {source:?} and save the full result at {output:?}. \
+            Start from the copied source. Preserve unaffected components, stable InstanceGuids, defaults and wires, including named dashboard inputs. \
+            For scripted studies the UTF-8 C# program is base64 text in the Script chunk's Text item; decode, edit, and re-encode it as data. \
+            Native controls keep their defaults and ranges in their own component containers. Use ordinary text/XML editing. \
+            Do not run a compiler, solve, execute scripts, bake geometry, or issue board commands. Slate lists the resulting revision for human review.");
+    }
     format!(
         "{marker}Return exactly one editable Grasshopper definition. \
          The copied input definition is {source:?}. For edits, preserve unaffected components, \

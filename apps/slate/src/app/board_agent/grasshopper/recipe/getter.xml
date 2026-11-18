@@ -1,0 +1,41 @@
+<chunk name="Object" index="{index}">
+  <items count="2">
+    <item name="GUID" type_name="gh_guid" type_code="9">{class}</item>
+    <item name="Name" type_name="gh_string" type_code="10">{kind}</item>
+  </items>
+  <chunks count="1">
+    <chunk name="Container">
+      <items count="{items}">
+        {settings}
+        <item name="AtLeast" type_name="gh_int32" type_code="3">1</item>
+        <item name="AtMost" type_name="gh_int32" type_code="3">1</item>
+        <item name="Description" type_name="gh_string" type_code="10">Named input</item>
+        <item name="InstanceGuid" type_name="gh_guid" type_code="9">{id}</item>
+        <item name="ListCount" type_name="gh_int32" type_code="3">0</item>
+        <item name="Name" type_name="gh_string" type_code="10">{kind}</item>
+        <item name="NickName" type_name="gh_string" type_code="10">{name}</item>
+        <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+        <item name="Prompt" type_name="gh_string" type_code="10" />
+        <item name="Source" index="0" type_name="gh_guid" type_code="9">{source}</item>
+        <item name="SourceCount" type_name="gh_int32" type_code="3">1</item>
+        <item name="TreeAccess" type_name="gh_bool" type_code="1">false</item>
+      </items>
+      <chunks count="1">
+        <chunk name="Attributes">
+          <items count="2">
+            <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35">
+              <X>0</X>
+              <Y>0</Y>
+              <W>150</W>
+              <H>20</H>
+            </item>
+            <item name="Pivot" type_name="gh_drawing_pointf" type_code="31">
+              <X>{x}</X>
+              <Y>{y}</Y>
+            </item>
+          </items>
+        </chunk>
+      </chunks>
+    </chunk>
+  </chunks>
+</chunk>

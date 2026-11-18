@@ -4153,6 +4153,7 @@ dependencies = [
  "atlas-session",
  "atlas-shell",
  "atlas-update",
+ "base64 0.22.1",
  "clipboard-win",
  "crossbeam-channel",
  "eframe",

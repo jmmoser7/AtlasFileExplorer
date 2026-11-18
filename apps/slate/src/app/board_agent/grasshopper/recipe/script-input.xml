@@ -1,0 +1,35 @@
+<chunk name="InputParam" index="{index}">
+  <items count="13">
+    <item name="AllowTreeAccess" type_name="gh_bool" type_code="1">true</item>
+    <item name="Description" type_name="gh_string" type_code="10">No conversion</item>
+    <item name="InstanceGuid" type_name="gh_guid" type_code="9">{id}</item>
+    <item name="Name" type_name="gh_string" type_code="10">{arg}</item>
+    <item name="NickName" type_name="gh_string" type_code="10">{arg}</item>
+    <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+    <item name="ScriptParamAccess" type_name="gh_int32" type_code="3">0</item>
+    <item name="ScriptParameterVersion" type_name="gh_int32" type_code="3">2</item>
+    <item name="ShowTypeHints" type_name="gh_bool" type_code="1">true</item>
+    <item name="Source" index="0" type_name="gh_guid" type_code="9">{source}</item>
+    <item name="SourceCount" type_name="gh_int32" type_code="3">1</item>
+    <item name="ToolTip" type_name="gh_string" type_code="10" />
+    <item name="TypeHintID" type_name="gh_guid" type_code="9">6a184b65-baa3-42d1-a548-3915b401de53</item>
+  </items>
+  <chunks count="2">
+    <chunk name="Attributes">
+      <items count="1">
+        <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35">
+          <X>0</X>
+          <Y>0</Y>
+          <W>150</W>
+          <H>20</H>
+        </item>
+      </items>
+    </chunk>
+    <chunk name="ConverterData">
+      <items count="2">
+        <item name="AssemblyName" type_name="gh_string" type_code="10">mscorlib</item>
+        <item name="TypeName" type_name="gh_string" type_code="10">System.Object</item>
+      </items>
+    </chunk>
+  </chunks>
+</chunk>

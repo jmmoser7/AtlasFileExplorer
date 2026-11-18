@@ -9,19 +9,20 @@ fn returns_only_the_staged_grasshopper_archive_and_preserves_source() {
     let original = h.base.join("source.gh");
     std::fs::write(&original, b"binary Grasshopper input").unwrap();
     let draft = h.base.join("staging").join("run");
-    let copy = stage(&original, &draft).unwrap();
+    let (copy, empty_source) = stage(&original, &draft).unwrap();
+    assert!(!empty_source);
     assert_eq!(copy.file_name().unwrap(), "source.gh");
     assert_eq!(
         std::fs::read(&copy).unwrap(),
         std::fs::read(&original).unwrap()
     );
     let publish = h.base.join("assets").join(REVISION);
-    assert!(validate_and_publish(&draft, &publish).is_err());
+    assert!(validate_and_publish(&draft, &publish, empty_source).is_err());
     std::fs::write(draft.join(REVISION), b"<Archive></Archive>").unwrap();
-    assert!(validate_and_publish(&draft, &publish).is_err());
+    assert!(validate_and_publish(&draft, &publish, empty_source).is_err());
     assert!(!publish.exists());
     std::fs::write(draft.join(REVISION), ARCHIVE).unwrap();
-    let (saved, size, _) = validate_and_publish(&draft, &publish).unwrap();
+    let (saved, size, _) = validate_and_publish(&draft, &publish, empty_source).unwrap();
     assert_eq!(saved, publish);
     assert_eq!(size, ARCHIVE.len() as u64);
     assert_eq!(std::fs::read(&publish).unwrap(), ARCHIVE);
@@ -98,4 +99,38 @@ fn revisions_stay_inert_until_the_person_confirms() {
         Some(revised)
     );
     assert_eq!(std::fs::read(source).unwrap(), ARCHIVE);
+}
+
+#[test]
+fn a_text_recipe_only_applies_to_a_verified_blank_source_and_publishes_one_inert_archive() {
+    let h = Harness::new("grasshopper-blank-recipe");
+    let fixture = h.base.join("blank.ghx");
+    std::fs::write(&fixture,br#"<Archive><chunks><chunk name="Definition"><chunks><chunk name="DefinitionObjects"><items><item name="ObjectCount">0</item></items></chunk></chunks></chunk></chunks></Archive>"#).unwrap();
+    let draft = h.base.join("staged-blank");
+    let (copied, blank) = stage(&fixture, &draft).unwrap();
+    assert!(blank);
+    assert!(
+        authoring_instructions(&copied, &draft.join(REVISION), blank).contains("parameters.json")
+    );
+    std::fs::write(
+        draft.join("parameters.json"),
+        br#"{"version":1,"title":"Example","inputs":[]}"#,
+    )
+    .unwrap();
+    std::fs::write(draft.join("geometry.cs"), "model = Point3d.Origin;").unwrap();
+    let out = h.base.join("revision").join(REVISION);
+    assert!(validate_and_publish(&draft, &out, false).is_err());
+    assert!(!out.exists());
+    validate_and_publish(&draft, &out, blank).unwrap();
+    let bytes = std::fs::read(&out).unwrap();
+    assert!(validate_archive(&bytes).is_ok());
+    assert!(!recipe::empty_xml(&bytes));
+    assert_eq!(
+        std::fs::read(&fixture).unwrap(),
+        std::fs::read(copied).unwrap()
+    );
+    // A present invalid archive is an explicit error, even with a valid basis.
+    std::fs::write(draft.join(REVISION), b"not xml").unwrap();
+    assert!(validate_and_publish(&draft, &out, blank).is_err());
+    assert_eq!(std::fs::read(&out).unwrap(), bytes);
 }

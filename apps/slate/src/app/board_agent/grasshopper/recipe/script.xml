@@ -1,0 +1,104 @@
+<chunk name="Object" index="{index}">
+  <items count="2">
+    <item name="GUID" type_name="gh_guid" type_code="9">b6ba1144-02d6-4a2d-b53c-ec62e290eeb7</item>
+    <item name="Name" type_name="gh_string" type_code="10">C# Script</item>
+  </items>
+  <chunks count="1">
+    <chunk name="Container">
+      <items count="14">
+        <item name="Description" type_name="gh_string" type_code="10">C# scripting component</item>
+        <item name="GraftStandardOutputLines" type_name="gh_bool" type_code="1">true</item>
+        <item name="InstanceGuid" type_name="gh_guid" type_code="9">{id}</item>
+        <item name="MarshGuids" type_name="gh_bool" type_code="1">false</item>
+        <item name="MarshInputs" type_name="gh_bool" type_code="1">false</item>
+        <item name="MarshOutputs" type_name="gh_bool" type_code="1">false</item>
+        <item name="Name" type_name="gh_string" type_code="10">C# Script</item>
+        <item name="NickName" type_name="gh_string" type_code="10">{name}</item>
+        <item name="ScriptComponentVersion" type_name="gh_int32" type_code="3">3</item>
+        <item name="Tooltip" type_name="gh_string" type_code="10" />
+        <item name="UsingLibraryInputParam" type_name="gh_bool" type_code="1">false</item>
+        <item name="UsingScriptInputParam" type_name="gh_bool" type_code="1">false</item>
+        <item name="UsingScriptOutputParam" type_name="gh_bool" type_code="1">false</item>
+        <item name="UsingStandardOutputParam" type_name="gh_bool" type_code="1">false</item>
+      </items>
+      <chunks count="3">
+        <chunk name="Attributes">
+          <items count="2">
+            <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35">
+              <X>0</X>
+              <Y>0</Y>
+              <W>150</W>
+              <H>20</H>
+            </item>
+            <item name="Pivot" type_name="gh_drawing_pointf" type_code="31">
+              <X>{x}</X>
+              <Y>{y}</Y>
+            </item>
+          </items>
+        </chunk>
+        <chunk name="ParameterData">
+          <items count="{io_items}">
+            <item name="InputCount" type_name="gh_int32" type_code="3">{input_count}</item>
+            <item name="OutputCount" type_name="gh_int32" type_code="3">1</item>
+            <item name="OutputId" index="0" type_name="gh_guid" type_code="9">08908df5-fa14-4982-9ab2-1aa0927566aa</item>
+            {input_ids}
+          </items>
+          <chunks count="{io_chunks}">
+            {input_params}
+            <chunk name="OutputParam" index="0">
+              <items count="12">
+                <item name="AllowTreeAccess" type_name="gh_bool" type_code="1">false</item>
+                <item name="Description" type_name="gh_string" type_code="10">No conversion</item>
+                <item name="InstanceGuid" type_name="gh_guid" type_code="9">{output_id}</item>
+                <item name="Name" type_name="gh_string" type_code="10">model</item>
+                <item name="NickName" type_name="gh_string" type_code="10">model</item>
+                <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                <item name="ScriptParamAccess" type_name="gh_int32" type_code="3">0</item>
+                <item name="ScriptParameterVersion" type_name="gh_int32" type_code="3">2</item>
+                <item name="ShowTypeHints" type_name="gh_bool" type_code="1">true</item>
+                <item name="SourceCount" type_name="gh_int32" type_code="3">0</item>
+                <item name="ToolTip" type_name="gh_string" type_code="10" />
+                <item name="TypeHintID" type_name="gh_guid" type_code="9">6a184b65-baa3-42d1-a548-3915b401de53</item>
+              </items>
+              <chunks count="2">
+                <chunk name="Attributes">
+                  <items count="1">
+                    <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35">
+                      <X>0</X>
+                      <Y>0</Y>
+                      <W>150</W>
+                      <H>20</H>
+                    </item>
+                  </items>
+                </chunk>
+                <chunk name="ConverterData">
+                  <items count="2">
+                    <item name="AssemblyName" type_name="gh_string" type_code="10">mscorlib</item>
+                    <item name="TypeName" type_name="gh_string" type_code="10">System.Object</item>
+                  </items>
+                </chunk>
+              </chunks>
+            </chunk>
+          </chunks>
+        </chunk>
+        <chunk name="Script">
+          <items count="5">
+            <item name="MarshGuids" type_name="gh_bool" type_code="1">false</item>
+            <item name="MarshInputs" type_name="gh_bool" type_code="1">false</item>
+            <item name="MarshOutputs" type_name="gh_bool" type_code="1">false</item>
+            <item name="Text" type_name="gh_string" type_code="10">{code}</item>
+            <item name="Title" type_name="gh_string" type_code="10">{name}</item>
+          </items>
+          <chunks count="1">
+            <chunk name="LanguageSpec">
+              <items count="2">
+                <item name="Taxon" type_name="gh_string" type_code="10">*.*.csharp</item>
+                <item name="Version" type_name="gh_string" type_code="10">*.*</item>
+              </items>
+            </chunk>
+          </chunks>
+        </chunk>
+      </chunks>
+    </chunk>
+  </chunks>
+</chunk>
