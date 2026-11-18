@@ -60,6 +60,7 @@ impl SlateApp {
         self.grasshopper
             .views
             .insert(key, View::new(source, self.grasshopper.next_instance));
+        self.grasshopper.tabs_with_views.insert(key.0);
         self.grasshopper.links_dirty = true;
         ctx.request_repaint();
     }

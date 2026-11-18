@@ -7,6 +7,7 @@ pub(in crate::app::grasshopper) struct Graph {
     pub(super) incoming: HashMap<NodeId, Vec<GrasshopperWire>>,
     pub(super) downstream: HashMap<NodeId, Vec<NodeId>>,
     images: HashMap<NodeId, HashSet<PathBuf>>,
+    pub(super) panels: HashMap<NodeId, panel::Panel>,
     pub(super) dashboards: HashSet<NodeId>,
     pub(super) workbook: Option<PathBuf>,
 }
@@ -21,6 +22,19 @@ impl Graph {
         for node in &tab.doc.scene.nodes {
             if let NodeKind::Connector(conn) = &node.kind {
                 if let Some(wire) = grasshopper_wire(conn) {
+                    if wire.target_port == panel::input_port().id
+                        && panel::eligible(tab, wire.target)
+                    {
+                        if grasshopper_item(tab, wire.source).is_some() {
+                            graph
+                                .panels
+                                .entry(wire.target)
+                                .or_default()
+                                .wires
+                                .push(wire);
+                        }
+                        continue;
+                    }
                     if tab.doc.scene.node(wire.source).is_some_and(|n| matches!(&n.kind,NodeKind::Portal(p) if p.kind==slate_doc::scene::PortalKind::Web)) { graph.dashboards.insert(wire.source); }
                     if wire.source_port == image::file_port().id {
                         if let Some(path) = image::source_path(tab, wire.source) {

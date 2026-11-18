@@ -33,10 +33,17 @@ internal sealed partial class GrasshopperHost
         public PortValue[] items { get; set; }
     }
 
-    private sealed class PortValue
+    private class PortValue
     {
         public string kind { get; set; }
         public object value { get; set; }
+    }
+
+    // The native archive remains the inter-viewer transport. Text panels use the
+    // compact Grasshopper description instead of embedding serialized geometry.
+    private sealed class GeometryPortValue : PortValue
+    {
+        public string display { get; set; }
     }
 
     private sealed class Port
@@ -296,14 +303,17 @@ internal sealed partial class GrasshopperHost
                     var tree = port.Parameter.VolatileData;
                     if (tree.PathCount > 10000 || tree.DataCount > 10000)
                         throw new InvalidDataException("Grasshopper output exceeds 10,000 branches or values.");
+                    int descriptionBudget = 256 * 1024;
                     var branches = tree.Paths.Select(path => new PortBranch
                     {
                         path = path.Indices,
-                        items = tree.get_Branch(path).Cast<IGH_Goo>().Select(EncodeValue).ToArray(),
+                        items = tree.get_Branch(path).Cast<IGH_Goo>().Select(goo => EncodeValue(goo, ref descriptionBudget)).ToArray(),
                     }).ToArray();
                     var kinds = branches.SelectMany(branch => branch.items).Select(value => value.kind)
                         .Where(kind => kind != "null").Distinct().ToArray();
-                    if ((port.Kind == "data" || port.Kind == "unsupported") && kinds.Length != 0)
+                    if (kinds.Contains("display"))
+                        solvedKind = "unsupported";
+                    else if ((port.Kind == "data" || port.Kind == "unsupported") && kinds.Length != 0)
                         solvedKind = kinds.Length == 1 ? kinds[0] : "data";
                     response.outputs.Add(port.Id, new PortTree { branches = branches });
                 }
@@ -318,11 +328,12 @@ internal sealed partial class GrasshopperHost
         response.ports = descriptions.ToArray();
     }
 
-    private static PortValue EncodeValue(IGH_Goo goo)
+    private static PortValue EncodeValue(IGH_Goo goo, ref int descriptionBudget)
     {
         if (goo == null) return Leaf("null", null);
         var wrapped = goo as GH_ObjectWrapper;
-        if (wrapped != null && wrapped.Value is IGH_Goo) return EncodeValue((IGH_Goo)wrapped.Value);
+        if (wrapped != null && wrapped.Value == null) return Leaf("null", null);
+        if (wrapped != null && wrapped.Value is IGH_Goo) return EncodeValue((IGH_Goo)wrapped.Value, ref descriptionBudget);
         var integer = goo as GH_Integer;
         if (integer != null) return Leaf("integer", integer.Value);
         var number = goo as GH_Number;
@@ -338,9 +349,28 @@ internal sealed partial class GrasshopperHost
         if (goo is IGH_GeometricGoo)
         {
             var geometry = GH_Convert.ToGeometryBase(goo);
-            if (geometry != null) return Leaf("geometry", geometry.ToJSON(new SerializationOptions()));
+            if (geometry != null) return new GeometryPortValue
+            {
+                kind = "geometry", value = geometry.ToJSON(new SerializationOptions()), display = PanelDescription(goo, ref descriptionBudget)
+            };
         }
-        throw new InvalidDataException("Unsupported Grasshopper value type " + goo.TypeName + ".");
+        // An opaque plugin object can still be printed to a panel. DecodeValue
+        // rejects this display-only kind if it arrives at a typed native input.
+        return Leaf("display", PanelDescription(goo, ref descriptionBudget));
+    }
+
+    private static string PanelDescription(IGH_Goo goo, ref int budget)
+    {
+        if (budget <= 0) return "…";
+        string text;
+        try { text = goo.ToString(); }
+        catch { text = null; }
+        if (String.IsNullOrEmpty(text)) text = goo.TypeName ?? "Object";
+        int limit = Math.Min(budget, 4096);
+        budget -= Math.Min(limit, text.Length);
+        if (text.Length <= limit) return text;
+        int end = Char.IsHighSurrogate(text[limit - 1]) ? limit - 1 : limit;
+        return text.Substring(0, end) + "…";
     }
 
     private static PortValue Leaf(string kind, object value)

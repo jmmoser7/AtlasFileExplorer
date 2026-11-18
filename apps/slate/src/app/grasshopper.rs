@@ -26,6 +26,9 @@ use api::grasshopper_item;
 use worker::{response_status, source_revision, start_worker, viewer_id};
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+#[path = "tests/grasshopper_text_panel.rs"]
+mod panel_gestures;
 pub(crate) use packages::is_local_plugin as is_grasshopper_plugin;
 
 const LIVE_INTERVAL: Duration = Duration::from_millis(33);
@@ -261,6 +264,8 @@ impl Drop for Background {
 pub(super) struct Viewers {
     animation: Option<animation::Animation>,
     views: HashMap<ViewerKey, View>,
+    tabs_with_views: std::collections::HashSet<u64>,
+    panel_catalog: links::PanelCatalog,
     background: Option<Background>,
     next_instance: u64,
     graph: links::Graph,
@@ -272,6 +277,9 @@ pub(super) struct Viewers {
 impl Viewers {
     fn remove(&mut self, key: ViewerKey) {
         if let Some(view) = self.views.remove(&key) {
+            if !self.views.keys().any(|(tab, _)| *tab == key.0) {
+                self.tabs_with_views.remove(&key.0);
+            }
             self.source_poll = None;
             self.links_dirty = true;
             if let Some(background) = &self.background {

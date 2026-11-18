@@ -2,9 +2,11 @@
 mod graph;
 pub(super) mod image;
 mod literals;
+mod panel;
 use super::*;
 pub(super) use graph::Graph;
 use literals::{literal_kind, literal_packet};
+pub(super) use panel::Catalog as PanelCatalog;
 use slate_doc::scene::{
     grasshopper_wire, ConnectorEnd, GrasshopperPort, GrasshopperPortAccess,
     GrasshopperPortDirection, GrasshopperPortId, GrasshopperPortType, GrasshopperWire,
@@ -56,23 +58,46 @@ impl SlateApp {
         if self.grasshopper.graph.revision != Some(revision)
             || self.grasshopper.graph.workbook.as_deref() != self.tab().path.as_deref()
         {
-            self.grasshopper.graph = Graph::read(self.tab(), revision);
+            let mut graph = Graph::read(self.tab(), revision);
+            let old = &mut self.grasshopper.graph;
+            if old.revision.is_some_and(|r| r.0 == revision.0) && old.workbook == graph.workbook {
+                for (id, panel) in &mut graph.panels {
+                    if let Some(previous) = old.panels.get_mut(id) {
+                        panel.carry_display(previous);
+                    }
+                }
+            }
+            self.grasshopper.graph = graph;
             self.grasshopper.refresh_source_watch(self.tab().id);
             self.grasshopper.links_dirty = true;
         }
     }
 
-    pub(crate) fn grasshopper_ports(&self, id: NodeId) -> &[GrasshopperPort] {
+    /// Ports authored by the Grasshopper definition or declared by an HTML dashboard.
+    /// Ordinary Slate cards retain their own wire host and presentation.
+    pub(crate) fn grasshopper_component_ports(&self, id: NodeId) -> &[GrasshopperPort] {
         if let Some(output) = self.dashboard_output_snapshot(id) {
             return &output.ports;
-        }
-        if !self.grasshopper.views.is_empty() && self.is_grasshopper_image_source(id) {
-            return std::slice::from_ref(image::file_port());
         }
         self.grasshopper
             .views
             .get(&(self.tab().id, id))
             .map_or(&[], |view| &view.ports)
+    }
+
+    /// Logical endpoints, including adapters used by an explicit typed connection.
+    pub(crate) fn grasshopper_ports(&self, id: NodeId) -> &[GrasshopperPort] {
+        let component = self.grasshopper_component_ports(id);
+        if !component.is_empty() || !self.grasshopper.tabs_with_views.contains(&self.tab().id) {
+            return component;
+        }
+        if self.is_grasshopper_text_panel(id) {
+            return std::slice::from_ref(panel::input_port());
+        }
+        if self.is_grasshopper_image_source(id) {
+            return std::slice::from_ref(image::file_port());
+        }
+        component
     }
 
     pub(crate) fn grasshopper_output_access(
@@ -109,11 +134,12 @@ impl SlateApp {
         source_t: f32,
         target_t: f32,
     ) -> Result<NodeId, String> {
+        let panel = self.is_grasshopper_text_panel(target);
         if self.tab().read_only
             || !(self.grasshopper_viewer(source)
                 || self.dashboard_output_snapshot(source).is_some()
                 || self.is_grasshopper_image_source(source))
-            || !self.grasshopper_viewer(target)
+            || !(self.grasshopper_viewer(target) || panel)
             || [source, target]
                 .iter()
                 .any(|id| self.doc().scene.node(*id).is_some_and(|node| node.locked))
@@ -130,11 +156,22 @@ impl SlateApp {
             .iter()
             .find(|p| &p.id == target_port && p.direction == GrasshopperPortDirection::Input)
             .ok_or("That Grasshopper input is unavailable.")?;
-        if !input.kind.accepts(output.kind) {
+        if (panel && !self.can_connect_grasshopper_output_to_panel(source, output, target))
+            || (!panel && !input.kind.accepts(output.kind))
+        {
             return Err("The Grasshopper ports have incompatible types.".into());
         }
         let kind = output.kind;
         self.sync_grasshopper_graph();
+        if panel
+            && self.grasshopper.graph.panels.get(&target).is_some_and(|p| {
+                p.wires
+                    .iter()
+                    .any(|w| w.source == source && &w.source_port == source_port)
+            })
+        {
+            return Err("That output is already connected to this text panel.".into());
+        }
         if self.grasshopper.graph.reaches(target, source) {
             return Err("That connection would create a Grasshopper loop.".into());
         }
@@ -152,6 +189,9 @@ impl SlateApp {
         if !source_t.is_finite() || !target_t.is_finite() {
             return Err("Invalid Grasshopper grip position.".into());
         }
+        let source_t = self
+            .grasshopper_image_wire_anchor(source, source_port)
+            .unwrap_or(source_t);
         let endpoint = |node, side, t| ConnectorEnd::Anchored { node, side, t };
         let mut node = self.build_connector(
             endpoint(source, Side::Right, source_t),
@@ -301,6 +341,7 @@ impl SlateApp {
                 .unwrap()
                 .update_linked(Err(note));
         }
+        self.refresh_grasshopper_panels(tab);
     }
 
     fn grasshopper_inputs(&self, tab: u64, id: NodeId) -> Result<PortPackets, String> {

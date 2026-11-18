@@ -142,6 +142,44 @@ impl SlateApp {
             .is_some_and(|i| media_kind(&i.path) == MediaKind::Image)
     }
 
+    pub(crate) fn grasshopper_image_file_output(
+        &self,
+        source: NodeId,
+    ) -> Option<&'static GrasshopperPort> {
+        (self.grasshopper.tabs_with_views.contains(&self.tab().id)
+            && self.is_grasshopper_image_source(source))
+        .then(file_port)
+    }
+
+    pub(crate) fn grasshopper_image_output_for_input(
+        &self,
+        source: NodeId,
+        target: NodeId,
+        input: &GrasshopperPort,
+    ) -> Option<&'static GrasshopperPort> {
+        let output = self.grasshopper_image_file_output(source)?;
+        let view = self.grasshopper.views.get(&(self.tab().id, target))?;
+        view.ports
+            .iter()
+            .any(|p| {
+                p.id == input.id
+                    && p.direction == GrasshopperPortDirection::Input
+                    && p.kind.accepts(output.kind)
+            })
+            .then_some(output)
+    }
+
+    /// The synthetic UUID carries the binding; both old and new wires display at
+    /// the ordinary image output, even before the definition has opened.
+    pub(crate) fn grasshopper_image_wire_anchor(
+        &self,
+        source: NodeId,
+        port: &GrasshopperPortId,
+    ) -> Option<f32> {
+        (port == &file_port().id && self.is_grasshopper_image_source(source))
+            .then_some(slate_doc::agent_inputs::OUTPUT_T)
+    }
+
     pub(super) fn grasshopper_image_packet(
         &self,
         wire: &GrasshopperWire,

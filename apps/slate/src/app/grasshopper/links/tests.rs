@@ -1,3 +1,5 @@
+mod surface;
+
 use super::*;
 use crate::app::tests::Harness;
 
@@ -114,6 +116,16 @@ fn linked_image_file_feeds_a_grasshopper_text_input_and_follows_relink() {
     };
     let (source, item) = place("field.png");
     let (target, _) = place("relief.ghx");
+    assert!(h.app.grasshopper_image_file_output(source).is_none());
+    assert_eq!(
+        h.app
+            .grasshopper_image_wire_anchor(source, &image::file_port().id),
+        Some(slate_doc::agent_inputs::OUTPUT_T)
+    );
+    assert!(h
+        .app
+        .grasshopper_image_wire_anchor(source, &port(6))
+        .is_none());
     h.app.request_grasshopper(target, &h.ctx);
     let key = (h.app.tab().id, target);
     h.app.grasshopper.views.get_mut(&key).unwrap().ports = vec![GrasshopperPort {
@@ -123,9 +135,48 @@ fn linked_image_file_feeds_a_grasshopper_text_input_and_follows_relink() {
         kind: GrasshopperPortType::Text,
         access: GrasshopperPortAccess::Item,
     }];
+    assert!(h.app.grasshopper_component_ports(source).is_empty());
+    let input = &h.app.grasshopper_component_ports(target)[0];
+    assert_eq!(
+        h.app
+            .grasshopper_image_output_for_input(source, target, input),
+        Some(image::file_port())
+    );
+    let mut missing = input.clone();
+    missing.id = port(4);
+    assert!(h
+        .app
+        .grasshopper_image_output_for_input(source, target, &missing)
+        .is_none());
+    assert!(h
+        .app
+        .grasshopper_image_output_for_input(source, source, input)
+        .is_none());
+    for (kind, accepts) in [
+        (GrasshopperPortType::Number, false),
+        (GrasshopperPortType::Data, true),
+        (GrasshopperPortType::Text, true),
+    ] {
+        h.app.grasshopper.views.get_mut(&key).unwrap().ports[0].kind = kind;
+        let real = &h.app.grasshopper_component_ports(target)[0];
+        assert_eq!(
+            h.app
+                .grasshopper_image_output_for_input(source, target, real)
+                .is_some(),
+            accepts
+        );
+    }
+    let legacy = slate_doc::wire_host::grasshopper_port_t(0);
     let wire_id = h
         .app
-        .connect_grasshopper_ports(source, &image::file_port().id, target, &port(5), 0.5, 0.5)
+        .connect_grasshopper_ports(
+            source,
+            &image::file_port().id,
+            target,
+            &port(5),
+            legacy,
+            0.5,
+        )
         .unwrap();
     h.app.sync_grasshopper_graph();
     assert!(h
@@ -199,6 +250,9 @@ fn linked_image_file_feeds_a_grasshopper_text_input_and_follows_relink() {
     let NodeKind::Connector(conn) = &reloaded.scene.node(wire_id).unwrap().kind else {
         panic!()
     };
+    assert!(
+        matches!(conn.a, ConnectorEnd::Anchored{node, side: Side::Right, t} if node == source && t == slate_doc::agent_inputs::OUTPUT_T)
+    );
     let saved = grasshopper_wire(conn).unwrap();
     assert_eq!(
         (
