@@ -1,6 +1,7 @@
 {
   "adapter_crates": {
     "atlas-agent": "Typed requests, advertised model capabilities, frozen inputs, produced assets and conversation history",
+    "atlas-core": "Local and shared image thumbnails, decoded colors and transparency after reopening the workbook",
     "atlas-ai": "Provider selection, dispatch queues, model settings, history replay, file links, staged artifacts, retry and cancellation",
     "atlas-codex": "Codex and ChatGPT sign-in, supervised chat, vision, image creation/variation, tool replies and artifact collection",
     "atlas-openai": "Stored-key OpenAI text, image generation and reference edits, response validation and partial failures",
@@ -94,7 +95,11 @@
       "images_and_text_keep_their_own_handles_when_a_grasshopper_model_is_present"
     ],
     "atlas-agent": [
-      "generated_outputs_preserve_color_alpha_and_legitimate_black_pixels"
+      "generated_outputs_preserve_color_alpha_and_legitimate_black_pixels",
+      "incomplete_jpeg_and_webp_results_never_replace_the_last_good_picture"
+    ],
+    "atlas-core": [
+      "png_webp_and_webp_named_png_preserve_alpha_across_local_and_shared_cache_reopens"
     ],
     "atlas-codex": [
       "an_image_run_names_count_shape_and_roles_and_collects_finished_files"
