@@ -47,6 +47,21 @@
     ]
   },
   {
+    "tag": "v1.0.11",
+    "date": "2026-11-17",
+    "source_only": true,
+    "download": "https://github.com/jmmoser7/AtlasFileExplorer/archive/refs/tags/v1.0.11.zip",
+    "patches": [
+      "Kept suggestion drafts separate from crash reports and preserved crash-review drafts."
+    ],
+    "regression_fixes": [
+      "Restored the first Zoom drag after closing the Windows system menu. Brush strokes that start on an image now commit when released over the dock."
+    ],
+    "feature_additions": [
+      "Added anonymous in-app suggestions to the website’s private inbox and a crash summary users can review before sending."
+    ]
+  },
+  {
     "tag": "slate-feedback-20261116",
     "date": "2026-11-16",
     "base_version": "1.0.8",

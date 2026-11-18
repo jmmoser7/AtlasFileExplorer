@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 from urllib.parse import unquote, urlsplit
 
-from release_history import CATEGORIES, RELEASES
+from release_history import CATEGORIES, RELEASES, REPOSITORY, render_release_notes
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "target" / "slate-site"
@@ -69,7 +69,8 @@ home = pages[home_path]
 home_source = sources[home_path]
 history = json.loads((ROOT / "website" / "release-history.json").read_text(encoding="utf-8"))
 stable_tag = next(
-    entry["tag"] for entry in history if "base_version" not in entry and "hold_notice" not in entry
+    entry["tag"] for entry in history
+    if "base_version" not in entry and "hold_notice" not in entry and not entry.get("source_only")
 )
 stable_label = f"Build {stable_tag[1:]}"
 assert "release-notes" in home.ids and "#release-notes" in home.links, "Missing release history link"
@@ -97,5 +98,34 @@ held_tags = re.findall(
     home_source,
 )
 assert held_tags == [entry["tag"] for entry in history if "hold_notice" in entry]
+source_entries = [entry for entry in history if entry.get("source_only")]
+for entry in source_entries:
+    tag = entry["tag"]
+    article = home_source.split(f'id="release-{tag}">', 1)[1].split("</article>", 1)[0]
+    assert f'{REPOSITORY}/tree/{tag}' in article
+    assert f'href="{REPOSITORY}/archive/refs/tags/{tag}.zip">Download {tag[1:]} source (ZIP)' in article
+    assert "Source only" in article and "Windows installer unavailable" in article
+
+# A newer source tag must never become a fallback Windows download.
+sample = {
+    "tag": "v99.0.0", "date": "2099-01-01", "source_only": True,
+    "download": f"{REPOSITORY}/archive/refs/tags/v99.0.0.zip",
+    **{key: [] for key, _ in CATEGORIES},
+}
+version, _ = render_release_notes([sample, *history])
+assert version == stable_tag[1:]
+for changes in [
+    {"download": sample["download"].replace("v99.0.0", "v98.0.0")},
+    {"download": f"{RELEASES}/download/v99.0.0/AtlasSuite-stable-Setup.exe"},
+    {"source_only": False},
+    {"hold_notice": "Example"},
+]:
+    try:
+        render_release_notes([{**sample, **changes}, *history])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"Invalid source-only entry was accepted: {changes}")
+
 assert re.findall(r"<h5>([^<]+)</h5>", home_source) == [title for _, title in CATEGORIES] * len(history)
 print(f"PASS: {len(pages)} pages; {checked} local links, assets and anchors; metadata; public bundle.")

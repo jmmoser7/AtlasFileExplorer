@@ -55,6 +55,18 @@ add a `hold_notice` to the held entry. The entry keeps its pinned download and
 displays the notice. The static build label skips held entries and the live
 label follows GitHub Latest.
 
+### Record a historical version available only as source
+
+When an older public version tag has no downloadable Windows package, check
+the GitHub release and its assets, the tagged build workflow, and the annotated
+tag. Download the tagged ZIP and verify it contains the expected commit and
+version. Use the tag date and record changes supported by its commit history.
+
+Set `source_only` to `true` and use the repository's
+`/archive/refs/tags/<tag>.zip` URL for `download`. The entry links directly
+to source and identifies the unavailable Windows installer. Stable download
+labels and the update feed continue to follow published Windows builds.
+
 ### Publish notes for a Windows QA build
 
 1. Publish the tested portable ZIP on a separate dated prerelease, such as
