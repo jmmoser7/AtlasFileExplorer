@@ -33,7 +33,12 @@ const MIN_PREVIEW_FRACTION: f32 = 0.6;
 
 /// Extensions this module can thumbnail without the shell.
 pub fn handles(ext: &str) -> bool {
-    matches!(ext, "jpg" | "jpeg" | "jpe" | "jfif" | "png")
+    is_jpeg(ext) || needs_lossless_cache(ext)
+}
+
+/// These raster inputs can carry transparency that a cached JPEG cannot represent.
+pub(crate) fn needs_lossless_cache(ext: &str) -> bool {
+    matches!(ext, "png" | "webp")
 }
 
 fn is_jpeg(ext: &str) -> bool {
@@ -75,14 +80,8 @@ pub fn thumbnail(path: &Path, want_px: u32) -> Option<(u32, u32, Vec<u8>)> {
         return scaled_jpeg_oriented(&head, want_px, turn);
     }
 
-    // PNG has neither an embedded preview nor a scaled decode, so the pixels
-    // have to be decoded: 15 ms at 1080p, 347 ms at 48 MP. We still do it
-    // ourselves, because the shell can only beat that when Explorer happens to
-    // have the file cached already — on a miss it decodes the same pixels after
-    // a COM round trip, and on a folder nobody has browsed a miss is the norm.
-    let bytes = std::fs::read(path).ok()?;
-    let img = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png).ok()?;
-    Some(fit(img, want_px))
+    // Generated PNG and WebP may be named alike. Use the bounded content-aware decoder.
+    crate::preview::decode_preview(path, want_px, None)
 }
 
 /// Read at most `limit` bytes from the current position.

@@ -2611,7 +2611,7 @@ impl AtlasApp {
         std::thread::spawn(move || {
             let mut requests = Vec::new();
             for (id, path, key, size) in items {
-                if pool.has_local(&key) {
+                if pool.has_local_for_path(&key, &path) {
                     // Already generated: re-warming would only burn worker
                     // time. Publish to the shared project tier if missing.
                     if let Some(sh) = &shared {

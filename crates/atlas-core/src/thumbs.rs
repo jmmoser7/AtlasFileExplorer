@@ -1,7 +1,7 @@
 //! Thumbnail pipeline.
 //!
 //! Priority order:
-//!   1. Disk cache (JPEG, keyed by hash of path|size|mtime|version)
+//!   1. Disk cache (lossless PNG for PNG/WebP sources, otherwise JPEG)
 //!   2. Shared project cache (`.atlas-cache`)
 //!   3. Extraction — format-dependent:
 //!      - PDF / Office Open XML / SVG: built-in extractors first (pdfium page 1,
@@ -21,6 +21,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 mod lifetime;
 mod worker;
+
+#[cfg(test)]
+mod alpha_tests;
 
 #[cfg(windows)]
 use windows::core::PCWSTR;
@@ -307,7 +310,14 @@ impl ThumbPool {
     /// Whether a finished thumbnail for `key` already exists in the local
     /// disk cache. Used to skip redundant background warm jobs.
     pub fn has_local(&self, key: &str) -> bool {
-        self.cache_dir.join(format!("{key}.jpg")).exists()
+        self.cache_dir.join(format!("{key}.jpg")).is_file()
+            || self.cache_dir.join(format!("{key}.png")).is_file()
+    }
+
+    /// Whether this source has a cache entry with its current encoding. Legacy
+    /// JPEG entries for PNG/WebP sources discarded alpha and need re-extraction.
+    pub fn has_local_for_path(&self, key: &str, source: &Path) -> bool {
+        self.cache_dir.join(cache_filename(key, source)).is_file()
     }
 
     /// Queue a background cache-warming job. Runs only when hot requests are
@@ -380,16 +390,18 @@ impl ThumbPool {
         &self.cache_dir
     }
 
-    /// Copy an existing local cache JPEG into the shared project tier if
+    /// Copy an existing local thumbnail into the shared project tier if
     /// present locally but not yet published (e.g. after upgrading, or when
     /// thumbnails were built before shared-cache discovery).
     pub fn sync_to_shared(&self, key: &str, shared_dir: &Path) {
-        let local = self.cache_dir.join(format!("{key}.jpg"));
-        if !local.exists() {
-            return;
+        for extension in ["png", "jpg"] {
+            let name = format!("{key}.{extension}");
+            let local = self.cache_dir.join(&name);
+            if local.is_file() {
+                publish_shared(&local, &shared_dir.join(name));
+                return;
+            }
         }
-        let shared = shared_dir.join(format!("{key}.jpg"));
-        publish_shared(&local, &shared);
     }
 
     /// Drop all queued requests from older generations (root changed).
@@ -585,7 +597,7 @@ fn publish_shared(local: &Path, shared: &Path) {
     if let Some(dir) = shared.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let tmp = shared.with_extension(format!("tmp{}", std::process::id()));
+    let tmp = cache_temp_path(shared);
     if std::fs::copy(local, &tmp).is_ok() && std::fs::rename(&tmp, shared).is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
@@ -595,6 +607,14 @@ fn file_ext(path: &Path) -> String {
     path.extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default()
+}
+
+fn cache_filename(key: &str, source: &Path) -> String {
+    if crate::rasterthumb::needs_lossless_cache(&file_ext(source)) {
+        format!("{key}.png")
+    } else {
+        format!("{key}.jpg")
+    }
 }
 
 /// PDF, SVG, and modern Office files get reliable content from built-in
@@ -740,23 +760,53 @@ fn fallback_thumbnail(
 
 fn load_cached(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
     let bytes = std::fs::read(path).ok()?;
-    let img = image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg).ok()?;
+    let format = image::ImageFormat::from_path(path).ok()?;
+    let img = image::load_from_memory_with_format(&bytes, format).ok()?;
     let rgba = img.to_rgba8();
     let (w, h) = (rgba.width(), rgba.height());
     Some((w, h, rgba.into_raw()))
 }
 
 fn save_cached(path: &Path, w: u32, h: u32, rgba: &[u8]) {
-    let Some(buf) = image::RgbaImage::from_raw(w, h, rgba.to_vec()) else {
+    use image::ImageEncoder;
+    if u64::from(w)
+        .checked_mul(u64::from(h))
+        .and_then(|n| n.checked_mul(4))
+        != Some(rgba.len() as u64)
+    {
         return;
-    };
-    let rgb = image::DynamicImage::ImageRgba8(buf).to_rgb8();
-    let tmp = path.with_extension("tmp");
-    let mut out = Vec::new();
-    let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 82);
-    if enc.encode_image(&rgb).is_ok() && std::fs::write(&tmp, &out).is_ok() {
-        let _ = std::fs::rename(&tmp, path);
     }
+    let mut out = Vec::new();
+    let encoded = if path.extension().is_some_and(|ext| ext == "png") {
+        image::codecs::png::PngEncoder::new(&mut out).write_image(
+            rgba,
+            w,
+            h,
+            image::ExtendedColorType::Rgba8,
+        )
+    } else {
+        let Some(buf) = image::RgbaImage::from_raw(w, h, rgba.to_vec()) else {
+            return;
+        };
+        let rgb = image::DynamicImage::ImageRgba8(buf).to_rgb8();
+        let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 82);
+        enc.encode_image(&rgb)
+    };
+    if encoded.is_ok() {
+        let tmp = cache_temp_path(path);
+        if std::fs::write(&tmp, &out).is_ok() && std::fs::rename(&tmp, path).is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+    }
+}
+
+fn cache_temp_path(path: &Path) -> PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    path.with_extension(format!(
+        "tmp-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ))
 }
 
 /// Explorer's existing thumbnail cache only — skips the scaled file-icon

@@ -56,15 +56,13 @@ pub(super) fn run(shared: Arc<Shared>, tx: Sender<ThumbResult>, cache_dir: PathB
             continue;
         }
 
-        let cache_file = cache_dir.join(format!("{}.jpg", req.key));
+        let filename = cache_filename(&req.key, &req.path);
+        let cache_file = cache_dir.join(&filename);
         let icon_file = cache_dir.join(format!("{}.icon.jpg", req.key));
-        let shared_file = req
-            .shared_dir
-            .as_ref()
-            .map(|d| d.join(format!("{}.jpg", req.key)));
+        let shared_file = req.shared_dir.as_ref().map(|d| d.join(&filename));
         let image = load_cached(&cache_file)
             .inspect(|_img| {
-                // Any tier: if we have a local JPEG and the shared tier is
+                // Any tier: if we have a local thumbnail and the shared tier is
                 // missing it, publish now. Hot on-demand views are the main
                 // way thumbnails first land in the project cache.
                 if let Some(sf) = &shared_file {
@@ -72,7 +70,7 @@ pub(super) fn run(shared: Arc<Shared>, tx: Sender<ThumbResult>, cache_dir: PathB
                 }
             })
             .or_else(|| {
-                // Shared project tier: pull the ready-made JPEG onto local
+                // Shared project tier: pull the ready-made thumbnail onto local
                 // disk (one small copy) and decode from there.
                 let sf = shared_file.as_ref()?;
                 std::fs::copy(sf, &cache_file).ok()?;

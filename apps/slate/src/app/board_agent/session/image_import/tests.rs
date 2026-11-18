@@ -109,27 +109,28 @@ fn fresh_generation_registers_without_a_human_pick_then_places_with_one_undo() {
 
 #[test]
 fn generator_and_picked_result_upload_the_same_colored_and_translucent_pixels() {
+    assert_generator_pixels(2);
+    assert_generator_pixels(atlas_core::thumbs::THUMB_PX as u32 + 1);
+}
+
+fn assert_generator_pixels(width: u32) {
     let (mut h, node, path) = host("generated-pixel-roundtrip");
-    image::RgbaImage::from_raw(
-        2,
-        2,
-        vec![
-            240, 20, 72, 255, 34, 125, 213, 128, 0, 0, 0, 255, 225, 68, 180, 0,
-        ],
-    )
-    .unwrap()
-    .save(&path)
-    .unwrap();
+    let colors = [
+        [240, 20, 72, 255],
+        [34, 125, 213, 128],
+        [0, 0, 0, 255],
+        [225, 68, 180, 0],
+    ];
+    let source = image::RgbaImage::from_fn(width, 2, |x, y| {
+        image::Rgba(colors[((y * width + x) % 4) as usize])
+    });
+    source.save(&path).unwrap();
+    let size = [width as usize, 2];
+    let expected = egui::ColorImage::from_rgba_unmultiplied(size, source.as_raw());
     poll(&mut h, node);
     let item = h.app.registered_agent_image_item(node).unwrap();
     let linked = crate::app::preview::linked_image_key(&path, "shown");
     let placed = h.app.resolved_item_preview(item).unwrap().0;
-    let expected = [
-        egui::Color32::from_rgb(240, 20, 72),
-        egui::Color32::from_rgba_unmultiplied(34, 125, 213, 128),
-        egui::Color32::BLACK,
-        egui::Color32::TRANSPARENT,
-    ];
     for key in [&linked, &placed] {
         if key == &placed {
             h.app.pick_agent_result(node, 0);
@@ -137,19 +138,32 @@ fn generator_and_picked_result_upload_the_same_colored_and_translucent_pixels() 
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             h.app.drain_previews(&h.ctx);
-            if let Some(resident) = h.app.preview_cache.get(key) {
-                assert_eq!(resident.tex.size(), [2, 2]);
-                assert_eq!(resident.pixels.pixels.as_slice(), &expected);
-                break;
-            }
-            if key == &linked {
+            h.app.drain_thumbs(&h.ctx);
+            let drawn = if key == &linked {
                 h.app
-                    .agent_picture_texture(&h.ctx, &path, &Default::default(), 512.0);
+                    .agent_picture_texture(&h.ctx, &path, &Default::default(), 512.0)
             } else {
                 h.app
-                    .board_texture(&h.ctx, node, item, &Default::default(), 512.0);
+                    .board_texture(&h.ctx, node, item, &Default::default(), 512.0)
+            };
+            // A picked image at or below the thumbnail tier uses that upload at native size.
+            let resident = if key == &placed && width <= atlas_core::thumbs::THUMB_PX as u32 {
+                h.app.thumb_pixels.get(key).map(|image| image.as_ref())
+            } else {
+                h.app
+                    .preview_cache
+                    .get(key)
+                    .map(|entry| entry.pixels.as_ref())
+            };
+            if let (Some(texture), Some(image)) = (drawn, resident) {
+                assert_eq!(texture.size(), size);
+                assert_eq!(image.pixels, expected.pixels);
+                break;
             }
-            assert!(Instant::now() < deadline, "missing upload for {key}");
+            assert!(
+                Instant::now() < deadline,
+                "missing {width}-pixel upload for {key}"
+            );
             std::thread::sleep(Duration::from_millis(3));
         }
     }
