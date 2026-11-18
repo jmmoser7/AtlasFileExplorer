@@ -2,6 +2,10 @@
 
 use super::*;
 
+mod background;
+#[cfg(test)]
+mod background_tests;
+pub(super) use background::{BackgroundImage, BackgroundJob, ViewRequest};
 mod generation;
 mod loading;
 pub(super) use generation::PosterGeneration;

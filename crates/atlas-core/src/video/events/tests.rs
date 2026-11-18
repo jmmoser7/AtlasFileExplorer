@@ -1,4 +1,22 @@
 use super::*;
+
+#[test]
+fn only_an_empty_to_ready_transition_wakes_the_video_consumer() {
+    let mut events = Events::new();
+    let wakes = std::sync::Arc::new(AtomicU64::new(0));
+    let counter = wakes.clone();
+    events.wake = Some(Box::new(move || {
+        counter.fetch_add(1, Ordering::Relaxed);
+    }));
+    let ended = || VideoEvent::Ended { id: 1, token: 2 };
+    assert!(events.push_in_context(ended(), 0));
+    assert!(events.push_in_context(ended(), 0));
+    assert_eq!(wakes.load(Ordering::Relaxed), 1);
+    assert!(events.pop().is_some());
+    assert!(events.pop().is_some());
+    assert!(events.push_in_context(ended(), 0));
+    assert_eq!(wakes.load(Ordering::Relaxed), 2);
+}
 fn frame(bytes: usize) -> VideoFrame {
     VideoFrame {
         w: 1,

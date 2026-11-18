@@ -437,13 +437,11 @@ fn a_backward_clip_edge_cannot_hide_an_opaque_foreground_triangle() {
     );
     assert!((alpha.unwrap() - 1.0).abs() < 1e-5);
     let (_, color) = sample(&output, point).unwrap();
-    assert!(
-        color
-            .unwrap()
-            .iter()
-            .zip([1.0, 0.0, 0.0, 1.0])
-            .all(|(actual, expected)| (*actual - expected).abs() < 1e-5)
-    );
+    assert!(color
+        .unwrap()
+        .iter()
+        .zip([1.0, 0.0, 0.0, 1.0])
+        .all(|(actual, expected)| (*actual - expected).abs() < 1e-5));
 }
 
 #[test]

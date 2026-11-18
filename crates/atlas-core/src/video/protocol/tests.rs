@@ -2,6 +2,19 @@ use super::*;
 use std::io::Cursor;
 
 #[test]
+fn native_opening_packet_is_keyed_and_rejects_trailing_data() {
+    let mut bytes = Vec::new();
+    write_opening(&mut bytes, 14, 51).unwrap();
+    assert!(matches!(
+        read_output(&mut Cursor::new(&bytes)).unwrap(),
+        Output::Opening { id: 14, token: 51 }
+    ));
+    bytes[4..8].copy_from_slice(&18u32.to_le_bytes());
+    bytes.push(1);
+    assert!(read_output(&mut Cursor::new(bytes)).is_err());
+}
+
+#[test]
 fn protocol_roundtrips_jobs_and_frames_without_changing_pixels() {
     let job = Job::Play {
         id: 8,

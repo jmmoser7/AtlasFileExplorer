@@ -9,6 +9,7 @@ pub mod authored_text;
 pub mod bumper;
 pub mod create_style;
 pub mod crosstalk;
+pub mod dashboard_outputs;
 mod doc;
 mod error;
 pub mod field;

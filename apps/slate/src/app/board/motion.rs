@@ -10,6 +10,9 @@ struct PanCapture {
     button: egui::PointerButton,
     requires_hand: bool,
     position: egui::Pos2,
+    // Keep the subpixel remainder across delivered pointer samples. A small
+    // delta can otherwise round away on every frame far from the world origin.
+    precise_offset: Option<[f64; 2]>,
     moved: bool,
     pass: u64,
 }
@@ -45,6 +48,30 @@ impl DedicatedPan {
         let from_global = ctx
             .layer_transform_from_global(resp.layer_id)
             .unwrap_or_default();
+        // egui does not establish a drag owner when the press and release are
+        // delivered in the same frame. This is common after an idle software
+        // rendered frame. Recover a complete, unclaimed canvas gesture from
+        // its original button positions without capturing an overlay's press.
+        let batched_press = if resp.hovered() {
+            ctx.input(|input| {
+                input.events.iter().find_map(|event| match *event {
+                    egui::Event::PointerButton {
+                        pos,
+                        button,
+                        pressed: true,
+                        ..
+                    } if (button == Middle || (button == Primary && primary_pans))
+                        && input.pointer.button_released(button) =>
+                    {
+                        Some((pos, button))
+                    }
+                    _ => None,
+                })
+            })
+            .filter(|(pos, _)| ctx.layer_id_at(*pos) == Some(resp.layer_id))
+        } else {
+            None
+        };
         ctx.input(|input| {
             if input.key_pressed(egui::Key::Escape) {
                 return None;
@@ -75,14 +102,16 @@ impl DedicatedPan {
                         };
                         let owns_press =
                             pointer.button_down(button) && resp.is_pointer_button_down_on();
-                        ((owns_press || clicked) && resp.interact_rect.contains(from_global * pos))
-                            .then_some(PanCapture {
-                                button,
-                                requires_hand: button == Primary && !space,
-                                position: pos,
-                                moved: false,
-                                pass,
-                            })
+                        ((owns_press || clicked || batched_press == Some((pos, button)))
+                            && resp.interact_rect.contains(from_global * pos))
+                        .then_some(PanCapture {
+                            button,
+                            requires_hand: button == Primary && !space,
+                            position: pos,
+                            precise_offset: None,
+                            moved: false,
+                            pass,
+                        })
                     })
                 })?;
             let release = input.events.iter().find_map(|event| match *event {
@@ -117,6 +146,19 @@ impl DedicatedPan {
 
     pub(super) fn active(&self) -> bool {
         !self.released || self.capture.moved
+    }
+
+    pub(super) fn apply_to(&mut self, camera: &mut Camera) {
+        let [x, y] = self
+            .capture
+            .precise_offset
+            .filter(|[x, y]| *x as f32 == camera.offset.x && *y as f32 == camera.offset.y)
+            .unwrap_or([f64::from(camera.offset.x), f64::from(camera.offset.y)]);
+        let z = f64::from(camera.z);
+        let x = x - f64::from(self.delta.x) / z;
+        let y = y - f64::from(self.delta.y) / z;
+        self.capture.precise_offset = Some([x, y]);
+        camera.offset = egui::vec2(x as f32, y as f32);
     }
 
     pub(super) fn retain(&self, ctx: &egui::Context) {

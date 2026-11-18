@@ -43,4 +43,28 @@ pub(crate) fn picture_item(h: &Harness, id: NodeId) -> slate_doc::ItemId {
     }
 }
 
-// ---------- per-vertex stroke width (P1.curve.vertex-style) ----------
+/// Seed a decoded linked image and return its actual frame texture for pixel and mesh tests.
+pub(crate) fn ready_image(h: &mut Harness, item: slate_doc::ItemId, name: &str) -> egui::TextureId {
+    use crate::app::preview::{PreviewEntry, PX_EXACT};
+    let (key, path, _, _) = h.app.resolved_item_preview(item).unwrap();
+    let decoded = image::open(path).unwrap().to_rgba8();
+    let pixels = egui::ColorImage::from_rgba_unmultiplied(
+        [decoded.width() as usize, decoded.height() as usize],
+        decoded.as_raw(),
+    );
+    let tex = h
+        .ctx
+        .load_texture(name, pixels.clone(), egui::TextureOptions::LINEAR);
+    let id = tex.id();
+    h.app.preview_cache.insert(
+        key,
+        PreviewEntry {
+            tex,
+            bytes: pixels.pixels.len() * 4,
+            pixels: std::sync::Arc::new(pixels),
+            px: PX_EXACT,
+            last_used: 0,
+        },
+    );
+    id
+}

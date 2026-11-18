@@ -11,6 +11,8 @@ uniform vec3 u_up;
 uniform vec3 u_depth;
 uniform float u_mode;
 uniform float u_materials;
+uniform bool u_navigating;
+uniform float u_opacity;
 uniform float u_ground;
 uniform float u_roughness;
 uniform float u_metallic;
@@ -25,6 +27,7 @@ float shadow(vec3 n) {
     vec3 q=v_shadow.xyz/v_shadow.w*.5+.5;
     if(any(lessThan(q,vec3(0.0)))||any(greaterThan(q,vec3(1.0)))) return 1.0;
     float bias=max(.00035*(1.0-max(dot(n,u_light),0.0)),.00012);
+    if(u_navigating) return step(q.z-bias,texture(u_shadow_tex,q.xy).r);
     float blockers=0.0, count=0.0;
     for(int i=0;i<8;i++) {
         float d=texture(u_shadow_tex,q.xy+disk[i]*.0025).r;
@@ -58,14 +61,15 @@ void main() {
     float ndl=max(dot(n,u_light),0.0);
     float hemi=.5+.5*dot(n,u_up);
     vec3 ambient=base*(.53+.15*hemi);
-    vec3 direct=base*ndl*.43*shadow(n);
+    float visibility=diagram?1.0:shadow(n);
+    vec3 direct=base*ndl*.43*visibility;
     if(diagram){ ambient=base*(.90+.10*ndl);direct=vec3(0.0); }
     if(!clay && !diagram && u_materials>.5) {
         float rough=clamp(u_roughness,.08,1.0);
         vec3 h=normalize(u_light+v);
         vec3 f0=mix(vec3(.04),base,u_metallic);
         float power=max(2.0,2.0/(rough*rough)-2.0);
-        direct+=f0*pow(max(dot(n,h),0.0),power)*(.5+u_metallic)*shadow(n);
+        direct+=f0*pow(max(dot(n,h),0.0),power)*(.5+u_metallic)*visibility;
     }
     vec3 emission=(!clay && u_materials>.5)?u_emission:vec3(0.0);
     vec3 col=ambient+direct+emission;
@@ -73,5 +77,5 @@ void main() {
     float peak=max(max(col.r,col.g),col.b);
     col/=1.0+max(peak-.9,0.0)*.4;
     float share=clay?clamp(dot(ambient,vec3(.333))/max(dot(ambient+direct+emission,vec3(.333)),.001),0.0,1.0):1.0;
-    frag=vec4(pow(max(col,vec3(0.0)),vec3(1.0/2.2)),share);
+    frag=vec4(pow(max(col,vec3(0.0)),vec3(1.0/2.2)),clay?share:u_opacity);
 }

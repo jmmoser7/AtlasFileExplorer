@@ -3,6 +3,8 @@ use super::*;
 
 mod filters;
 mod lighting;
+mod refinement;
+pub(super) use refinement::LiveDraw;
 mod shaders;
 mod surface;
 mod targets;
@@ -14,10 +16,12 @@ use shaders::*;
 const GROUND_EXTENT: f32 = 60.0;
 const DEFAULT_PART_COLOR: [f32; 3] = [0.78, 0.78, 0.76];
 
+#[derive(Clone)]
 struct DrawRange {
     offset: i32,
     count: i32,
     color: [f32; 3],
+    opacity: f32,
     mask: [f32; 3],
     roughness: f32,
     metallic: f32,
@@ -25,11 +29,35 @@ struct DrawRange {
     texture: Option<glow::Texture>,
 }
 
+struct NavigationMesh {
+    draws: Vec<DrawRange>,
+    offset: i32,
+    count: i32,
+    error: f32,
+}
+
+struct BoundedDraw {
+    center: [f32; 3],
+    half: [f32; 3],
+    draw: DrawRange,
+}
+
+struct TranslucentDraw {
+    draw: DrawRange,
+    center: [f32; 3],
+}
+
 pub struct GpuModel {
     vao: glow::VertexArray,
     vbo: glow::Buffer,
     ebo: glow::Buffer,
     draws: Vec<DrawRange>,
+    surface_draws: Vec<DrawRange>,
+    bounded_draws: Vec<BoundedDraw>,
+    opaque_indices: i32,
+    generation: u64,
+    navigation: Option<NavigationMesh>,
+    translucent: Vec<TranslucentDraw>,
     textures: Vec<glow::Texture>,
     ground_offset: i32,
     edge_vao: glow::VertexArray,
@@ -38,6 +66,19 @@ pub struct GpuModel {
     shadow: lighting::Shadow,
     pub(super) bounds_min: [f32; 3],
     pub(super) bounds_max: [f32; 3],
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum FrameQuality {
+    Final,
+    Navigating,
+    CaptureGround,
+}
+
+impl GpuModel {
+    pub(super) fn large_scene(&self) -> bool {
+        self.draws.len() >= 256 || self.ground_offset / 12 >= 25_000
+    }
 }
 
 pub struct ModelEngine {
@@ -58,6 +99,7 @@ pub struct ModelEngine {
     u_fx_invert: glow::UniformLocation,
     u_fx_overlay: glow::UniformLocation,
     u_fx_flip: glow::UniformLocation,
+    software: bool,
     srgb_display: bool,
     srgb_framebuffer: bool,
     pub(super) render_passes: AtomicU64,
@@ -66,6 +108,9 @@ pub struct ModelEngine {
 }
 
 pub(super) struct LiveTarget {
+    refinement: Option<refinement::Refinement>,
+    lower_motion_resolution: bool,
+    standby: Option<StandbyDisplay>,
     msaa_fbo: glow::Framebuffer,
     color_rb: glow::Renderbuffer,
     depth_rb: glow::Renderbuffer,
@@ -80,6 +125,12 @@ pub(super) struct LiveTarget {
     pub(super) display: glow::Texture,
     pub(super) egui_id: Option<egui::TextureId>,
     pub(super) size: (i32, i32),
+}
+
+struct StandbyDisplay {
+    fbo: glow::Framebuffer,
+    texture: glow::Texture,
+    egui_id: Option<egui::TextureId>,
 }
 
 const LIVE_TARGET_IDLE_PX: i32 = 16;
@@ -137,6 +188,8 @@ impl ModelEngine {
                     "u_depth",
                     "u_mode",
                     "u_materials",
+                    "u_navigating",
+                    "u_opacity",
                     "u_ground",
                     "u_shadow_tex",
                     "u_base_tex",
@@ -167,6 +220,10 @@ impl ModelEngine {
                 u_fx_invert: gl.get_uniform_location(fx_program, "u_invert")?,
                 u_fx_overlay: gl.get_uniform_location(fx_program, "u_overlay")?,
                 u_fx_flip: gl.get_uniform_location(fx_program, "u_flip")?,
+                software: gl
+                    .get_parameter_string(glow::RENDERER)
+                    .to_ascii_lowercase()
+                    .contains("llvmpipe"),
                 srgb_display: gl.supported_extensions().iter().any(|e| e.contains("sRGB")),
                 srgb_framebuffer: gl
                     .supported_extensions()
@@ -209,7 +266,7 @@ impl ModelEngine {
                 cam,
                 (w, h, w as f32 / h as f32),
                 adjust,
-                false,
+                FrameQuality::Final,
             )
         };
         let image = rendered
@@ -244,7 +301,7 @@ impl ModelEngine {
             &pose,
             (w, h, w as f32 / h as f32),
             adjust,
-            true,
+            FrameQuality::CaptureGround,
         );
         let image = rendered.then(|| self.read_target(&target)).flatten();
         self.free_target(target);

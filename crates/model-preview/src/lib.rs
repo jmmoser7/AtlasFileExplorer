@@ -39,6 +39,10 @@ pub struct PreviewMesh {
     pub texcoords: Vec<[f32; 2]>,
     /// Welded boundaries, creases, and possible silhouette edges, cached at import.
     pub feature_edges: Vec<FeatureEdge>,
+    /// Lower-detail indices for live navigation only, built by the parse worker.
+    pub navigation_indices: Vec<u32>,
+    /// Estimated world-space surface error of the lower-detail mesh.
+    pub navigation_error: f32,
 }
 
 /// Format-neutral geometry for one file. `format` is the registry id
@@ -65,7 +69,39 @@ impl PreviewScene {
         if meshes.iter().all(|m| m.indices.is_empty()) {
             return Err(());
         }
+        let large = meshes.iter().map(|m| m.indices.len()).sum::<usize>() >= 225_000;
+        let error_budget = (0..3)
+            .map(|i| bounds_max[i] - bounds_min[i])
+            .fold(0.0f32, f32::max)
+            / 512.0;
         for mesh in &mut meshes {
+            if large
+                && mesh.indices.len() >= 96
+                && error_budget > 0.0
+                && !mesh
+                    .material
+                    .as_ref()
+                    .is_some_and(|m| m.base_color_texture.is_some() || m.base_color[3] < 1.0)
+                && mesh
+                    .indices
+                    .iter()
+                    .all(|&index| (index as usize) < mesh.positions.len())
+            {
+                // Keep the simplifier's open-boundary topology constraints.
+                // Flat boundary runs may collapse along their outline. Parts,
+                // holes and UV seams remain separate and pruning is disabled.
+                let simplified = meshopt::simplify_decoder(
+                    &mesh.indices,
+                    &mesh.positions,
+                    (mesh.indices.len() / 256).max(2) * 3,
+                    error_budget,
+                    meshopt::SimplifyOptions::ErrorAbsolute,
+                    Some(&mut mesh.navigation_error),
+                );
+                if !simplified.is_empty() && simplified.len() <= mesh.indices.len() * 3 / 4 {
+                    mesh.navigation_indices = simplified;
+                }
+            }
             mesh.feature_edges = feature_edges(&mesh.positions, &mesh.indices, 35.0);
         }
         Ok(Self {

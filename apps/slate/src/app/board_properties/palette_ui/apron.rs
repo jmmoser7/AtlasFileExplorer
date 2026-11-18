@@ -255,6 +255,11 @@ impl SlateApp {
                 .map_or_else(
                     || {
                         let id = self.shape_properties.ids.first().copied();
+                        if let Some(height) = id
+                            .and_then(|id| self.video_image_draft_height(painter, id, width_units))
+                        {
+                            return height;
+                        }
                         let height = id
                             .filter(|id| {
                                 self.doc()

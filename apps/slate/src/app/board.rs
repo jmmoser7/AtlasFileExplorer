@@ -384,6 +384,9 @@ impl SlateApp {
             || other_toolbar_captures
             || frame_presentation_captures
             || shot_captures;
+        let model_zoom =
+            self.model_zoom_window_frame(ui, !model_toolbar_captures && !frame_body_input);
+        let model_toolbar_captures = model_toolbar_captures || model_zoom;
         let selection_capture =
             !model_toolbar_captures && !frame_body_input && self.image_selection_input(ui, &xf);
         let model_toolbar_captures = model_toolbar_captures || selection_capture;
@@ -443,6 +446,7 @@ impl SlateApp {
                 || atlas_shell::menu_wheel::wheel_owned(ui.ctx()));
         // --- camera ---
         if wheel_pending
+            && !model_zoom
             && !card_scrolls
             && !presence_capture
             && (!over_image_album || frame_presentation_captures)
@@ -601,11 +605,8 @@ impl SlateApp {
         let stopped_pan = pan_buttons.iter().find_map(|&(button, enabled)| {
             (enabled && resp.drag_stopped_by(button)).then_some(button)
         });
-        let pan_allowed = !tag_popup && !presence_capture && !web_capture;
-        let direct_pan = dedicated_pan.filter(|_| pan_allowed);
-        if let Some(pan) = &direct_pan {
-            pan.retain(ui.ctx());
-        }
+        let pan_allowed = !model_zoom && !tag_popup && !presence_capture && !web_capture;
+        let mut direct_pan = dedicated_pan.filter(|_| pan_allowed);
         let primary_pan = direct_pan.as_ref().is_some_and(|pan| pan.primary());
         let panning = pan_allowed
             && (pan_buttons
@@ -621,18 +622,18 @@ impl SlateApp {
                 egui::CursorIcon::Grab
             });
         }
-        if panning {
-            let delta = direct_pan
-                .as_ref()
-                .map(|pan| pan.delta)
-                .or(through_palette)
-                .unwrap_or_else(|| {
-                    if let Some(button) = stopped_pan {
-                        Self::pan_release_delta(&resp, button)
-                    } else {
-                        resp.drag_delta()
-                    }
-                });
+        if let Some(pan) = direct_pan.as_mut() {
+            pan.apply_to(&mut self.tab_mut().cam);
+            pan.retain(ui.ctx());
+            canvas_nav |= pan.delta != Vec2::ZERO;
+        } else if panning {
+            let delta = through_palette.unwrap_or_else(|| {
+                if let Some(button) = stopped_pan {
+                    Self::pan_release_delta(&resp, button)
+                } else {
+                    resp.drag_delta()
+                }
+            });
             let zc = self.tab().cam.z;
             self.tab_mut().cam.offset -= delta / zc;
             canvas_nav |= delta != Vec2::ZERO;
@@ -642,13 +643,14 @@ impl SlateApp {
         }
         // Z zoom tool: while armed, the primary button belongs to the tool
         // (click = step, drag = zoom window); pans keep their buttons.
-        let zoom_tool = self.zoom_tool_frame(
-            ui,
-            &resp,
-            rect,
-            !button_capture && !web_capture && !over_dock_strip,
-            space || panning,
-        );
+        let zoom_tool = model_zoom
+            || self.zoom_tool_frame(
+                ui,
+                &resp,
+                rect,
+                !button_capture && !web_capture && !over_dock_strip,
+                space || panning,
+            );
         if defer_node_chrome {
             let xf = self.board_xf();
             let property = self.shape_properties_ui(ui, &xf)

@@ -5,6 +5,8 @@ use crate::app::tests::Harness;
 use atlas_core::video::{VideoEvent, VideoFrame};
 
 mod lifecycle;
+#[cfg(windows)]
+mod native_playback;
 mod startup;
 
 fn clip(harness: &mut Harness, name: &str) -> NodeId {

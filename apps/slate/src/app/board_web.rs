@@ -127,6 +127,9 @@ pub const POPUP_MIN_CSS: (u32, u32) = (240, 160);
 // States (D30) and level of detail (D23)
 // ---------------------------------------------------------------------------
 
+mod outputs;
+#[cfg(test)]
+pub(crate) use outputs::controller::install_script as controller_install_script;
 mod state;
 pub use state::{WebHealth, WebState};
 
@@ -225,6 +228,13 @@ impl WebRequest {
 /// every state above run and be tested on a machine with no WebView2 at all
 /// (Art. I.3).
 pub trait WebHost {
+    fn has_control_reply(&self, _id: NodeId) -> bool {
+        false
+    }
+    fn request_dashboard_outputs(&mut self, _id: NodeId) {}
+    fn take_dashboard_outputs(&mut self, _id: NodeId) -> Option<Option<String>> {
+        None
+    }
     fn request_controls(&mut self, _id: NodeId) -> bool {
         false
     }
@@ -374,6 +384,7 @@ fn default_host() -> Box<dyn WebHost> {
 // ---------------------------------------------------------------------------
 
 struct WebView {
+    outputs: outputs::PageOutputs,
     /// Locator + viewport the current derived state belongs to.
     key: String,
     state: WebState,
@@ -421,6 +432,7 @@ impl WebView {
     fn new(key: String) -> Self {
         Self {
             key,
+            outputs: Default::default(),
             state: WebState::Unknown,
             poster: None,
             poster_at: None,
@@ -452,6 +464,7 @@ impl WebView {
 
 /// Board-wide web portal state. One per app, not per portal.
 pub struct WebRuntime {
+    output_worker: Option<outputs::Worker>,
     views: HashMap<NodeId, WebView>,
     /// Geometry painted since the previous pump, including presentation.
     painted: HashSet<NodeId>,
@@ -537,6 +550,7 @@ impl Default for WebRuntime {
             pointer_inside: false,
             pointer_down: 0,
             pointer_sample: None,
+            output_worker: None,
             host: default_host(),
             uploads_this_frame: 0,
             backlog: Vec::new(),
@@ -633,6 +647,9 @@ impl WebRuntime {
         };
         if !changed {
             return;
+        }
+        if let Some(view) = self.views.get_mut(&id) {
+            view.outputs.inspected = None;
         }
         self.host_events.push((Instant::now(), open));
         let keep = Duration::from_secs(30);
@@ -1036,10 +1053,12 @@ impl SlateApp {
         self.web.source_polls.drain();
         self.drain_web_stills(ctx);
         self.pump_dashboard_controls(ctx);
+        self.pump_dashboard_outputs(ctx);
+        let dashboards = self.unsampled_grasshopper_dashboards();
         let portals = {
             let _span = atlas_core::session_log::span("slate.web.worklist");
             self.prune_web_views();
-            self.web_pump_portals()
+            self.web_pump_portals_for(&dashboards)
         };
         if portals.is_empty() {
             self.web.painted.clear();
@@ -1065,7 +1084,8 @@ impl SlateApp {
                     .agent_focus_lease
                     .as_ref()
                     .is_some_and(|(owner, _)| owner == id);
-            let demanded = focused
+            let demanded = dashboards.contains(id)
+                || focused
                 || maximized
                 || pinned
                 || self.web.text_pending.contains(id)
@@ -1113,7 +1133,7 @@ impl SlateApp {
             // A portal that already has pixels keeps saying `poster` rather
             // than regressing to `unknown` while it waits for its slot.
             view.state = state;
-            if !view.on_screen && !pinned {
+            if !view.on_screen && !pinned && !dashboards.contains(id) {
                 continue;
             }
             candidates.push(Candidate {
@@ -1132,7 +1152,18 @@ impl SlateApp {
 
         let admit_span = atlas_core::session_log::span("slate.web.admit");
         let admitted = admit(&candidates, LIVE_POOL);
-        let admitted_set: HashSet<NodeId> = admitted.iter().copied().collect();
+        let mut admitted_set: HashSet<NodeId> = admitted.iter().copied().collect();
+        for candidate in &candidates {
+            if admitted_set.len() == LIVE_POOL {
+                break;
+            }
+            if candidate.renderable
+                && dashboards.contains(&candidate.id)
+                && admitted_set.insert(candidate.id)
+            {
+                ctx.request_repaint_after(Duration::from_millis(125));
+            }
+        }
         let host_started = Instant::now();
         for (id, portal, rect) in &portals {
             let want_live = admitted_set.contains(id);
@@ -1463,6 +1494,9 @@ impl SlateApp {
                 .to_string_lossy()
                 .into_owned(),
         };
+        if let Some(view) = self.web.views.get_mut(&id) {
+            view.outputs.bind(&authored);
+        }
         let target = self.resume_target(id, &authored);
         let profile = slate_doc::scene::web_profile_name(&authored);
         let (width_css, height_css) = css_size(&web, rect);
@@ -1477,7 +1511,12 @@ impl SlateApp {
         let link_script = if matches!(kind, WebSourceKind::Remote) {
             String::new()
         } else {
-            self.dashboard_link_script(id, ctx)
+            let mut script = self.dashboard_link_script(id, ctx);
+            if let Some(view) = self.web.views.get_mut(&id) {
+                view.outputs
+                    .append_controller_script(&mut script, web.controller.as_deref());
+            }
+            script
         };
         let anchor_px = self.web.views.get(&id).and_then(|v| v.anchor_px);
         Some(WebRequest {
@@ -1843,6 +1882,9 @@ impl SlateApp {
         let mut web = p.web_ref();
         if let Some(entry) = entry {
             web.entry = entry;
+        }
+        if p.source != portal.source || web.entry != portal.web_ref().entry {
+            web.controller = None;
         }
         p.web = Some(web);
         let committed = self.commit_scene(vec![SceneCmd::Patch {

@@ -176,100 +176,17 @@ impl SlateApp {
         self.agents.flow.image_result_drag.take().is_some()
     }
 
-    fn image_agent_status(&self, id: NodeId) -> Option<std::borrow::Cow<'_, str>> {
-        self.doc()
-            .scene
-            .node(id)
-            .and_then(slate_doc::agent_chat::agent)?;
-        if let Some(reason) = self.agent_failure_reason(id) {
-            return Some(std::borrow::Cow::Borrowed(reason));
-        }
-        if self.agent_is_running(id) {
-            if self.agent_generation_dispatched(id) {
-                if let Some(activity) = self.generator_activity_headline(id) {
-                    return Some(std::borrow::Cow::Borrowed(activity));
-                }
-            }
-            return Some(std::borrow::Cow::Borrowed(
-                if self.agent_generation_dispatched(id) {
-                    "Generating image…"
-                } else {
-                    "Preparing explicit inputs…"
-                },
-            ));
-        }
-        self.generator_view(id)
-            .error
-            .clone()
-            .map(std::borrow::Cow::Owned)
-    }
-
-    fn image_agent_body_layout(
-        &self,
-        painter: &egui::Painter,
-        id: NodeId,
-        width: f32,
-    ) -> chrome::generator::GeneratorLayout {
-        let prompt = self
-            .agents
-            .prompt(id)
-            .or_else(|| self.agents.flow.drafts.get(&id).map(|d| d.prompt.as_str()))
-            .or_else(|| {
-                self.doc()
-                    .scene
-                    .node(id)
-                    .and_then(slate_doc::agent_chat::agent)
-                    .map(|a| a.instruction.as_str())
-            })
-            .unwrap_or("");
-        let lines = chrome::image_prompt_line_count(painter, prompt, width);
-        let status = self.image_agent_status(id);
-        let data = self.generator_chrome_data(id);
-        let mut state = self.generator_presentation(id).activity.unwrap_or_default();
-        let view = data.view_with_dialogue_policy(
-            &mut state,
-            self.agent_is_running(id),
-            Some(self.image_dialogue_enabled(id)),
-        );
-        chrome::image_agent_layout(
-            painter.ctx(),
-            width,
-            chrome::generator::GeneratorContent::new(
-                lines,
-                self.agent_images(id).len(),
-                status.as_deref(),
-                None,
-                &view,
-            ),
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn image_agent_body_height(&self, painter: &egui::Painter, id: NodeId) -> f32 {
-        let width = self.doc().scene.node(id).map_or(480.0, |n| n.rect.w);
-        self.image_agent_body_height_for_width(painter, id, width)
-    }
-
-    pub(crate) fn image_agent_body_height_for_width(
-        &self,
-        painter: &egui::Painter,
-        id: NodeId,
-        width_units: f32,
-    ) -> f32 {
-        self.image_agent_body_layout(painter, id, width_units.max(80.0))
-            .height
-    }
-
     pub(super) fn paint_image_agent_editor(
         &mut self,
         ui: &mut egui::Ui,
-        rect: Rect,
+        mut rect: Rect,
         id: NodeId,
         edit: chrome::AgentEdit<'_>,
         z: f32,
         theme: atlas_shell::theme::Palette,
     ) -> chrome::AgentEditResponse {
-        if !self.image_palette_eligible(id) {
+        let video_image = edit.image && self.is_video_agent_source(id);
+        if !self.image_palette_eligible(id) && !video_image {
             if self
                 .doc()
                 .scene
@@ -282,6 +199,28 @@ impl SlateApp {
                 return self.paint_bound_generator_editor(ui, rect, id, edit, z, theme);
             }
             return chrome::agent_editor(ui, rect, edit, z, theme);
+        }
+        let mut mode = None;
+        if video_image {
+            // A video source can also produce text from its current frame.
+            let row = Rect::from_min_size(
+                rect.min + egui::vec2(8.0, 4.0) * z,
+                egui::vec2(
+                    (63.0 * edit.modes.len() as f32).min((rect.width() / z - 16.0).max(1.0)),
+                    chrome::CORNER_HEIGHT,
+                ) * z,
+            );
+            let picked = chrome::segments(
+                ui,
+                row,
+                ui.id().with("agent-mode"),
+                edit.modes,
+                edit.mode,
+                z,
+                theme,
+            );
+            mode = (picked != edit.mode).then_some(picked);
+            rect.min.y += (chrome::CORNER_HEIGHT + 8.0) * z;
         }
         let images = self.agent_images(id);
         let selected_history = self.agent_shown_index(id);
@@ -427,7 +366,7 @@ impl SlateApp {
             out.submit
         };
         chrome::AgentEditResponse {
-            mode: out.mode,
+            mode: mode.or(out.mode),
             model: out.model,
             count: out.count,
             aspect: out.aspect,
@@ -473,6 +412,8 @@ impl SlateApp {
         true
     }
 }
+
+mod layout;
 
 #[cfg(test)]
 mod tests;

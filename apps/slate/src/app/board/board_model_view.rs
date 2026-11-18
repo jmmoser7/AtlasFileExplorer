@@ -171,13 +171,14 @@ impl SlateApp {
                 // model navigation, filters and aspect changes still redraw.
                 let reusable = reuse_live_resolution
                     && self.model3d.live.get(&node_id).is_some_and(|vp| {
-                        vp.rendered.is_some_and(|(camera, _, _, filter, aspect)| {
-                            let drawn_aspect = f32::from_bits(aspect);
-                            let current_aspect = srect.width() / srect.height().max(1.0);
-                            camera == vp.cam.cache_hash()
-                                && filter == adjust.cache_hash()
-                                && (drawn_aspect - current_aspect).abs() <= 0.005 * drawn_aspect
-                        })
+                        !vp.navigating_frame
+                            && vp.rendered.is_some_and(|(camera, _, _, filter, aspect)| {
+                                let drawn_aspect = f32::from_bits(aspect);
+                                let current_aspect = srect.width() / srect.height().max(1.0);
+                                camera == vp.cam.cache_hash()
+                                    && filter == adjust.cache_hash()
+                                    && (drawn_aspect - current_aspect).abs() <= 0.005 * drawn_aspect
+                            })
                     });
                 if let Some(texture) = reusable
                     .then(|| self.model3d.live_texture_id(node_id))
@@ -220,6 +221,10 @@ impl SlateApp {
                 } else {
                     poster.map(|t| t.id())
                 }
+                .or_else(|| {
+                    self.model3d
+                        .held_model_texture(self.tab().id, info, &adjust)
+                })
             })
         };
         let render_ready = rendered.is_some();

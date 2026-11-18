@@ -344,13 +344,21 @@ fn deleting_a_vertex_before_an_erased_bitmap_lands_never_paints_the_uncut_stroke
     );
     h.app.board_sel.clear();
     let key = board_path::node_stamp_key(h.app.doc().scene.node(id).expect("the bar stays"));
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut released = None;
     let mut frames = 0;
     loop {
         if frames == 6 {
             h.app.brush_tiles.hold_rasters = false;
+            released = Some(std::time::Instant::now());
         }
-        shot(&mut h, &mut raster, |_| {});
+        let out = capture_frame(&mut h, &mut raster, |_| {});
+        let current = stamp_of(&h, id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
+        let settled = released.is_some() && current && !h.app.erase_settling();
+        if settled {
+            draw_now(&h, &mut raster, out);
+        } else {
+            draw_eraser_samples(&h, &mut raster, out, cut_points(cross));
+        }
         assert_ne!(
             stamp_of(&h, id).map(|(_, g)| g.tex.id()),
             Some(uncut),
@@ -364,12 +372,11 @@ fn deleting_a_vertex_before_an_erased_bitmap_lands_never_paints_the_uncut_stroke
                 "frame {frames} after the delete: {p:?} shows the uncut bar ({r:.2})"
             );
         }
-        let current = stamp_of(&h, id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
-        if frames >= 6 && current && !h.app.erase_settling() {
+        if settled {
             break;
         }
         assert!(
-            std::time::Instant::now() < deadline,
+            released.is_none_or(|start| start.elapsed() < std::time::Duration::from_secs(20)),
             "the edited bar never settled"
         );
         std::thread::sleep(std::time::Duration::from_millis(5));

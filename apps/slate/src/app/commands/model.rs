@@ -34,6 +34,22 @@ pub(super) const MATERIALS: CommandSpec = spec(
     &["material", "surface color", "white model", "3d"],
 );
 
+pub(super) const ZOOM_WINDOW: CommandSpec = spec(
+    "board.model_zoom_window",
+    "Board",
+    "3D zoom window",
+    "Over a live model, press Z or Ctrl+W and drag a rectangle to frame it in the viewport",
+    None,
+    Repeat::Never,
+    BOARD,
+    &["rhino", "zoom", "window", "3d"],
+);
+pub(super) const ZOOM_EXTENTS: CommandSpec = spec(
+    "board.model_zoom_extents", "Board", "3D zoom extents",
+    "Over a live model, press Ctrl+Shift+E or Z then E to fit the entire model in its current orientation",
+    None, Repeat::Never, BOARD, &["rhino", "fit", "extents", "3d"],
+);
+
 pub(super) const MEASURE: CommandSpec = spec(
     "board.model_measure",
     "Board",

@@ -407,6 +407,7 @@ fn authoring_instructions(source: &Path, output: &Path) -> String {
          Never change the original or substitute a baked 3DM. Prefer an embedded C# Script component \
          unless the person asks otherwise. Expose requested controls as named typed Grasshopper inputs \
          with defaults, appropriate ranges and wires, such as Number Sliders or a Colour Swatch. \
+         For an HTML dashboard controller, expose matching typed input parameters with RH_IN groups, stable InstanceGuids and requested item/list/tree access. \
          Use RhinoCommon for parametric geometry and return visible geometry and preview materials. \
          For example, a chair definition should expose Seat Height, Back Height, Chair Width and Chair Color \
          when requested. Use GH_IO/Grasshopper SDK serialization (GH_Archive.AppendObject(document, \

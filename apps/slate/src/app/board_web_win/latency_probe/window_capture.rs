@@ -166,9 +166,8 @@ impl WindowCapture {
                                         scene_area.right as usize * 4,
                                     )
                                 };
-                                for pixel in row.chunks_exact(4).step_by(11) {
-                                    signature = (signature
-                                        ^ u32::from_le_bytes(pixel.try_into().unwrap()) as u64)
+                                for pixel in row.as_chunks::<4>().0.iter().step_by(11) {
+                                    signature = (signature ^ u32::from_le_bytes(*pixel) as u64)
                                         .wrapping_mul(0x100000001b3);
                                 }
                             }

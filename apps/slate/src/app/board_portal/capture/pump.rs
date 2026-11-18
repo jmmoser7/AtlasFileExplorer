@@ -292,6 +292,21 @@ impl SlateApp {
         }
     }
 
+    pub(crate) fn queue_completed_canvas_video(
+        &mut self,
+        node: NodeId,
+        path: PathBuf,
+        size: [u32; 2],
+    ) {
+        let Some(source) = self.portal_capture_source(node) else {
+            std::thread::spawn(move || {
+                let _ = std::fs::remove_file(path);
+            });
+            return;
+        };
+        self.queue_video_publication(source, true, size, path, None, None);
+    }
+
     fn queue_portal_capture_publication(
         &mut self,
         session: Session,
@@ -309,8 +324,20 @@ impl SlateApp {
                 return;
             }
         };
+        self.queue_video_publication(source, canvas, size, path, destination, video_elapsed);
+    }
+
+    fn queue_video_publication(
+        &mut self,
+        source: Source,
+        canvas: bool,
+        size: [u32; 2],
+        path: PathBuf,
+        destination: Option<VideoDestination>,
+        video_elapsed: Option<f32>,
+    ) {
         let (tx, result) = crossbeam_channel::bounded(1);
-        let owned_path = destination.as_ref().map(|_| path.clone());
+        let owned_path = (canvas || destination.is_some()).then(|| path.clone());
         let spawn = std::thread::Builder::new()
             .name("portal-capture-metadata".into())
             .spawn(move || {
@@ -320,7 +347,11 @@ impl SlateApp {
                     let _ = std::fs::remove_file(path);
                     published
                 } else {
-                    ReadyFile::read(path)
+                    let ready = ReadyFile::read(path.clone());
+                    if canvas && ready.is_err() {
+                        let _ = std::fs::remove_file(path);
+                    }
+                    ready
                 };
                 if let Err(error) = tx.try_send(ready) {
                     if canvas {

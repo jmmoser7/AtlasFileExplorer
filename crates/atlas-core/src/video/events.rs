@@ -17,6 +17,7 @@ pub(super) enum Enqueue {
 }
 
 pub(super) struct Events {
+    pub(super) wake: Option<Box<dyn Fn() + Send + Sync>>,
     queue: Mutex<Queue>,
     status: AtomicU8,
     pub failures: AtomicU64,
@@ -38,6 +39,7 @@ struct Opening {
 impl Events {
     pub fn new() -> Self {
         Self {
+            wake: None,
             queue: Mutex::new(Queue {
                 items: VecDeque::new(),
                 bytes: 0,
@@ -63,6 +65,7 @@ impl Events {
             return Enqueue::Stale;
         }
         let mut first_queued = None;
+        let was_empty = queue.items.is_empty();
         // Preserve the opening frame until the consumer sees it. While the
         // UI is stalled, retain just that opening plus the newest later frame.
         if let VideoEvent::Play {
@@ -131,6 +134,12 @@ impl Events {
         }
         queue.bytes += bytes;
         queue.items.push_back(event);
+        drop(queue);
+        if was_empty {
+            if let Some(wake) = &self.wake {
+                wake();
+            }
+        }
         Enqueue::Accepted
     }
     #[cfg(test)]

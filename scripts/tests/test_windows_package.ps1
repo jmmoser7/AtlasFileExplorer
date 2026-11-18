@@ -37,7 +37,7 @@ try {
         'cursor-sidecar/attachments.mjs', 'cursor-sidecar/models.mjs',
         'cursor-sidecar/activity.mjs', 'cursor-sidecar/policy.mjs',
         'cursor-sidecar/install.mjs', 'cursor-sidecar/supervise.mjs',
-        'cursor-sidecar/package-lock.json')) {
+        'cursor-sidecar/package-lock.json', 'Rust-licenses/meshopt-notices.txt')) {
         Write-Fixture (Join-Path $stage $file)
     }
     foreach ($notice in @('OFL.txt', 'UFL.txt', 'emoji-icon-font-mit-license.txt')) {
@@ -55,7 +55,7 @@ try {
         Verify $channel
         $checks++
         foreach ($required in @('HeadlessRhino.exe', 'HeadlessRhino-README.md', 'slate-video-worker.exe',
-            'runtime/software-gl/opengl32.dll', 'runtime/software-gl/libgallium_wgl.dll')) {
+            'runtime/software-gl/opengl32.dll', 'runtime/software-gl/libgallium_wgl.dll', 'Rust-licenses/meshopt-notices.txt')) {
             $path = Join-Path $stage $required
             Remove-Item -LiteralPath $path
             Expect-Rejection $channel "Package is missing $required"

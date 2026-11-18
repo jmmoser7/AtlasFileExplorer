@@ -1,5 +1,6 @@
 use super::events::{Enqueue, Events};
 use super::process::Decoder;
+use super::protocol::Output;
 use super::{Job, VideoEvent, VideoStatus};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -7,6 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const STALL_LIMIT: Duration = Duration::from_secs(10);
+mod opening;
+use opening::Opening;
 
 pub(super) struct Request {
     pub job: Job,
@@ -81,6 +84,7 @@ struct Active {
     request: Request,
     decoder: Decoder,
     progress: Instant,
+    opening: Option<Opening>,
     pending_event: Option<VideoEvent>,
 }
 
@@ -110,10 +114,13 @@ fn begin(request: Request, events: &Events, fault: Option<&str>) -> Result<Activ
         Ok(decoder) => {
             events.worker_pid.store(decoder.id(), Ordering::Relaxed);
             events.status(VideoStatus::Decoding);
+            let now = Instant::now();
+            let opening = Some(Opening::new(now, decoder.cpu_time()));
             Ok(Active {
                 request,
                 decoder,
-                progress: Instant::now(),
+                progress: now,
+                opening,
                 pending_event: None,
             })
         }
@@ -223,16 +230,28 @@ pub(super) fn supervise(
                     // This delay belongs to the consumer, not the codec. Keep
                     // polling Play/stop/context at the top of every iteration.
                     run.progress = Instant::now();
-                    Ok(Ok(event))
+                    Ok(Ok(Output::Event(event)))
                 } else {
                     run.decoder.receive()
                 };
                 match received {
-                    Ok(Ok(event))
+                    Ok(Ok(Output::Opening { id, token }))
+                        if (id, token) == run.request.job.key() && run.opening.is_some() =>
+                    {
+                        run.opening.as_mut().unwrap().admit();
+                    }
+                    Ok(Ok(Output::Event(event)))
                         if event.key() == run.request.job.key()
                             && compatible(&run.request.job, &event) =>
                     {
                         run.progress = Instant::now();
+                        if matches!(event, VideoEvent::Play { .. } | VideoEvent::Strip { .. }) {
+                            run.opening = None;
+                        } else if let Some(opening) = run.opening.as_mut() {
+                            // A compatible older worker can prove admission
+                            // through a duration packet before its first pixels.
+                            opening.admit();
+                        }
                         let terminal = event.terminal();
                         let failed = matches!(event, VideoEvent::Failed { .. });
                         match events.enqueue_in_context(event, run.request.epoch) {
@@ -258,11 +277,15 @@ pub(super) fn supervise(
                     Err(crossbeam_channel::TryRecvError::Empty) => break,
                 }
             }
-            if completion.is_none()
-                && run.pending_event.is_none()
-                && run.progress.elapsed() > STALL_LIMIT
-            {
-                completion = Some((true, true));
+            if completion.is_none() && run.pending_event.is_none() {
+                let now = Instant::now();
+                let stalled = match run.opening.as_mut() {
+                    Some(opening) => opening.stalled(now, || run.decoder.cpu_time()),
+                    None => now.duration_since(run.progress) > STALL_LIMIT,
+                };
+                if stalled {
+                    completion = Some((true, true));
+                }
             }
         }
         if let Some((failed, abnormal)) = completion {

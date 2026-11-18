@@ -45,6 +45,7 @@ impl SlateApp {
                 view.source = source;
                 view.source_revision = None;
                 view.invalidate(Duration::ZERO);
+                self.grasshopper.source_poll = None;
                 self.grasshopper.links_dirty = true;
                 ctx.request_repaint();
                 return;
@@ -54,6 +55,7 @@ impl SlateApp {
             self.clear_grasshopper_preview(key.0, id);
             self.grasshopper.remove(key);
         }
+        self.grasshopper.source_poll = None;
         self.grasshopper.next_instance += 1;
         self.grasshopper
             .views
@@ -152,11 +154,59 @@ impl SlateApp {
         })
     }
 
-    pub(crate) fn grasshopper_control_count(&self, id: NodeId) -> usize {
-        self.grasshopper
-            .views
-            .get(&(self.tab().id, id))
-            .map_or(0, |view| view.controls.len())
+    pub(crate) fn grasshopper_control_counts(&self, id: NodeId) -> (usize, usize) {
+        let Some(view) = self.grasshopper.views.get(&(self.tab().id, id)) else {
+            return (0, 0);
+        };
+        let hidden = view
+            .controls
+            .iter()
+            .filter(|control| self.grasshopper_control_hidden(id, &control.id))
+            .count();
+        (view.controls.len() - hidden, hidden)
+    }
+
+    pub(crate) fn grasshopper_control_hidden(
+        &self,
+        id: NodeId,
+        control: &GrasshopperControlId,
+    ) -> bool {
+        grasshopper_item(self.tab(), id)
+            .and_then(|(image, _)| image.grasshopper_hidden_controls.as_deref())
+            .is_some_and(|hidden| hidden.contains(control))
+    }
+
+    pub(crate) fn grasshopper_set_control_hidden(
+        &mut self,
+        id: NodeId,
+        control: &GrasshopperControlId,
+        hidden: bool,
+    ) {
+        if self.tab().read_only
+            || !self.grasshopper_viewer(id)
+            || self.doc().scene.node(id).is_none_or(|node| node.locked)
+            || self.grasshopper_control(id, control).is_none()
+            || self.grasshopper_control_hidden(id, control) == hidden
+        {
+            return;
+        }
+        self.last_board_edit = None;
+        self.patch_nodes(&[id], |node| {
+            if let NodeKind::Image(image) = &mut node.kind {
+                if hidden {
+                    image
+                        .grasshopper_hidden_controls
+                        .get_or_insert_with(Box::default)
+                        .insert(control.clone());
+                } else if let Some(controls) = &mut image.grasshopper_hidden_controls {
+                    controls.remove(control);
+                    if controls.is_empty() {
+                        image.grasshopper_hidden_controls = None;
+                    }
+                }
+            }
+        });
+        self.last_board_edit = None;
     }
 
     pub(crate) fn grasshopper_control(
@@ -218,7 +268,7 @@ impl SlateApp {
         value: GrasshopperValue,
         phase: EditPhase,
     ) {
-        if self.tab().read_only {
+        if self.tab().read_only || self.grasshopper_animation_control(id).is_some() {
             return;
         }
         let key = (self.tab().id, id);

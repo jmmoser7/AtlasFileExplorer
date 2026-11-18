@@ -74,7 +74,7 @@ pub(super) fn native_canvas_probe() {
     let samples = report["samples"].as_array().unwrap();
     assert_eq!(
         samples.len(),
-        if scene == "live-model" { 80 } else { 120 },
+        if scene == "live-model" { 80 } else { 121 },
         "each gesture frame was independently observed"
     );
     assert!(
@@ -90,6 +90,22 @@ pub(super) fn native_canvas_probe() {
         "normal wheel input changed zoom"
     );
     if scene != "live-model" {
+        // The initial stationary capture is the pixel reference for the first
+        // movement. Later fast gestures cannot hide an idle-onset failure.
+        for phase in ["pan", "zoom"] {
+            let first = samples
+                .iter()
+                .find(|sample| sample["phase"] == phase)
+                .unwrap();
+            assert_eq!(
+                first["response_changed"], true,
+                "{phase} changed the camera on arrival"
+            );
+            assert_eq!(
+                first["response_pixels_changed"], true,
+                "{phase} changed composed pixels on arrival"
+            );
+        }
         assert!(
             samples
                 .iter()

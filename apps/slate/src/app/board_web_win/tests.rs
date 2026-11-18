@@ -1,3 +1,5 @@
+mod spline;
+
 #[test]
 fn pointer_tracks_physical_capture_resolution() {
     let point = super::capture_point(320.0, 180.0, 3.0);

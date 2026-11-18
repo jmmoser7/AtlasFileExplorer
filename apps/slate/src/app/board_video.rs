@@ -88,6 +88,7 @@ struct ShownTex {
 }
 
 pub(crate) struct VideoBoard {
+    ctx: egui::Context,
     pool: Option<atlas_core::video::VideoPool>,
     #[cfg(test)]
     decoder_held: bool,
@@ -109,9 +110,10 @@ pub(crate) struct VideoBoard {
     textures: HashMap<NodeId, ShownTex>,
 }
 
-impl Default for VideoBoard {
-    fn default() -> Self {
+impl VideoBoard {
+    pub(super) fn new(ctx: &egui::Context) -> Self {
         Self {
+            ctx: ctx.clone(),
             pool: None,
             #[cfg(test)]
             decoder_held: false,
@@ -145,8 +147,7 @@ impl SlateApp {
         self.sync_video_context();
         let events: [Option<atlas_core::video::VideoEvent>; 8] =
             std::array::from_fn(|_| self.video.pool.as_ref().and_then(|pool| pool.try_recv()));
-        let playing = self.video.play.is_some();
-        let inflight = self.video.strips.values().any(|s| s.inflight);
+        let batch_full = events.last().is_some_and(Option::is_some);
         for ev in events.into_iter().flatten() {
             self.apply_video_event(ev);
         }
@@ -156,13 +157,18 @@ impl SlateApp {
                 if t >= play.end - 1.0e-3 {
                     let end = play.end;
                     self.finish_video_playback(Some(end));
+                } else {
+                    ctx.request_repaint_after(std::time::Duration::from_secs_f32(
+                        (play.end - t).min(60.0),
+                    ));
                 }
             }
         }
-        if self.video.play.is_some() {
+        // The decoder wakes an idle window on its first result and on each
+        // subsequent empty-to-ready transition. Drain large filmstrips in
+        // bounded batches; display frames only when pixels actually arrive.
+        if batch_full {
             ctx.request_repaint();
-        } else if inflight || playing {
-            ctx.request_repaint_after(std::time::Duration::from_millis(40));
         }
     }
 
@@ -253,9 +259,6 @@ impl SlateApp {
 
     fn video_window(&self, id: NodeId) -> Option<(f32, f32)> {
         self.current_video_source(id)?;
-        if self.video.strips.get(&id).is_some_and(|s| s.failed) {
-            return None;
-        }
         let (opts, _, _) = self.video_view(id)?;
         let duration = self
             .video

@@ -15,10 +15,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod animation;
 mod api;
 mod links;
 mod packages;
 mod schedule;
+mod source_watch;
 mod worker;
 use api::grasshopper_item;
 use worker::{response_status, source_revision, start_worker, viewer_id};
@@ -136,6 +138,10 @@ impl View {
         if changed {
             self.authored = saved.cloned().unwrap_or_default();
         }
+        self.update_desired(changed);
+    }
+
+    fn update_desired(&mut self, changed: bool) {
         if !std::mem::take(&mut self.draft_changed) && !changed {
             return;
         }
@@ -253,18 +259,20 @@ impl Drop for Background {
 
 #[derive(Default)]
 pub(super) struct Viewers {
+    animation: Option<animation::Animation>,
     views: HashMap<ViewerKey, View>,
     background: Option<Background>,
     next_instance: u64,
     graph: links::Graph,
     links_dirty: bool,
-    next_source_poll: Option<Instant>,
-    source_poll: Option<Receiver<Vec<SourceRevisionUpdate>>>,
+    source_poll: Option<source_watch::Watch>,
+    image_revisions: links::image::Revisions,
 }
 
 impl Viewers {
     fn remove(&mut self, key: ViewerKey) {
         if let Some(view) = self.views.remove(&key) {
+            self.source_poll = None;
             self.links_dirty = true;
             if let Some(background) = &self.background {
                 let _ = background
@@ -272,80 +280,6 @@ impl Viewers {
                     .send(Work::Close(viewer_id(key.0, view.instance)));
             }
         }
-    }
-
-    fn poll_sources(&mut self, ctx: &egui::Context, tab: u64) -> bool {
-        let mut changed = false;
-        if let Some(rx) = &self.source_poll {
-            match rx.try_recv() {
-                Ok(revisions) => {
-                    self.source_poll = None;
-                    for revision in revisions {
-                        let Some(view) = self.views.get_mut(&revision.key) else {
-                            continue;
-                        };
-                        if view.instance == revision.instance
-                            && view.source.key == revision.source_key
-                            && view.source_revision == revision.before
-                            && revision.before != revision.current
-                        {
-                            view.source_revision = revision.current;
-                            if revision.before.is_some() || view.due.is_none() {
-                                view.invalidate(Duration::ZERO);
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-                Err(crossbeam_channel::TryRecvError::Disconnected) => self.source_poll = None,
-                Err(crossbeam_channel::TryRecvError::Empty) => return false,
-            }
-        }
-        let now = Instant::now();
-        if let Some(due) = self.next_source_poll.filter(|due| *due > now) {
-            if self.views.keys().any(|(doc, _)| *doc == tab) {
-                ctx.request_repaint_after(due - now);
-            }
-            return changed;
-        }
-        let active: Vec<_> = self
-            .views
-            .iter()
-            .filter(|(key, _)| key.0 == tab)
-            .map(|(&key, view)| {
-                (
-                    key,
-                    view.instance,
-                    view.source_revision.clone(),
-                    view.source.clone(),
-                )
-            })
-            .collect();
-        if active.is_empty() {
-            return changed;
-        }
-        self.next_source_poll = Some(now + Duration::from_millis(750));
-        let (tx, rx) = crossbeam_channel::bounded(1);
-        let ctx = ctx.clone();
-        std::thread::spawn(move || {
-            let revisions = active
-                .into_iter()
-                .map(|(key, instance, before, source)| {
-                    let current = source_revision(&source).ok();
-                    SourceRevisionUpdate {
-                        key,
-                        instance,
-                        source_key: source.key,
-                        before,
-                        current,
-                    }
-                })
-                .collect();
-            let _ = tx.send(revisions);
-            ctx.request_repaint();
-        });
-        self.source_poll = Some(rx);
-        changed
     }
 
     fn take_completed_bakes(&mut self, tab: u64) -> Vec<(NodeId, BakedFile)> {

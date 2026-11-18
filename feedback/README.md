@@ -30,9 +30,20 @@ Installed builds without a repo root use
 `%LOCALAPPDATA%\NativeFileAtlas\feedback\` unless overridden in
 **Advanced → Suggestion box**.
 
-No network or account is required. **Email…** saves the report folder first,
-then opens a `mailto:` summary naming it; attach files from that folder
-manually. `feedback/client/` is gitignored: bundles are user content.
+In the published Slate build, **Send anonymously** delivers the report text,
+links, app name, report type and version to the same private inbox as the
+website suggestion box. A failed delivery keeps the local report. Retry
+**Send anonymously** to reuse its suggestion ID.
+
+For a crash, open **Advanced → Crash reports**, review the latest summary in
+the suggestion box, and choose **Send anonymously** when ready. Screenshots,
+recordings and the full crash report stay on the computer. The
+[crash diagnostic notes](../docs/crash-diagnostic-gaps.md) describe the fields
+in the summary and the gaps observed in previous reports.
+
+**Save report** works offline. **Email…** saves the folder and opens a draft
+that names it. Attach any files you want to share manually. Local report
+bundles in `feedback/client/` are excluded from Git.
 
 ## Resolution and interactive acceptance
 

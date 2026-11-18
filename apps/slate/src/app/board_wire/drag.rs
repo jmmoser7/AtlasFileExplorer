@@ -14,10 +14,9 @@ impl SlateApp {
         if let Some(from) = from.filter(|f| self.is_crosstalk_port(*f)) {
             return self.crosstalk_snap(world, from.0, snap_w);
         }
-        if let Some(from) = from.filter(|(node, _, t)| {
-            self.grasshopper_viewer(*node)
-                && slate_doc::wire_host::grasshopper_port_row(*t).is_some()
-        }) {
+        if let Some(from) =
+            from.filter(|(node, side, t)| self.grasshopper_grip(*node, *side, *t).is_some())
+        {
             return self.grasshopper_wire_snap(world, from, snap_w);
         }
         let exclude = from.map(|f| f.0);
@@ -190,10 +189,7 @@ impl SlateApp {
                     self.crosstalk_link(from.0, to);
                 }
             }
-            WireMode::Add { from }
-                if self.grasshopper_viewer(from.0)
-                    && slate_doc::wire_host::grasshopper_port_row(from.2).is_some() =>
-            {
+            WireMode::Add { from } if self.grasshopper_grip(from.0, from.1, from.2).is_some() => {
                 if let Some(to) = wd.snap {
                     self.finish_grasshopper_wire(from, to);
                 }

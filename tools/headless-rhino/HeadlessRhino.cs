@@ -14,10 +14,27 @@ class HeadlessRhino {
     static int meshCount, vertices, faces;
     static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = 262144 };
     [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] static extern bool SetDllDirectory(string path);
+    // The mailbox loop observes EOF once startup finishes. Also watch the app
+    // during SDK/plugin startup, when a dead owner could leave the startup mutex held.
+    static System.Diagnostics.Process grasshopperOwner;
+    static bool WatchGrasshopperOwner() {
+        string value = Environment.GetEnvironmentVariable("SLATE_GRASSHOPPER_OWNER_PID");
+        if (String.IsNullOrEmpty(value)) return true;
+        int pid;
+        if (!Int32.TryParse(value, out pid) || pid <= 0) return false;
+        try {
+            grasshopperOwner = System.Diagnostics.Process.GetProcessById(pid);
+            grasshopperOwner.Exited += (sender, args) => Environment.Exit(0);
+            grasshopperOwner.EnableRaisingEvents = true;
+            return !grasshopperOwner.HasExited;
+        } catch (ArgumentException) { return false; }
+          catch (InvalidOperationException) { return false; }
+    }
     [STAThread] static int Main(string[] args) {
         bool builtInsOnly = args.Length == 4 && args[3] == "built-ins-only";
         bool grasshopper = (args.Length == 3 || builtInsOnly) && args[2] == "grasshopper";
         if(args.Length != 2 && !grasshopper) return 2;
+        if(grasshopper && !WatchGrasshopperOwner()) return 0;
         system=Path.GetFullPath(args[0]); job=Path.GetFullPath(args[1]);
         SetDllDirectory(system);
         Environment.SetEnvironmentVariable("PATH",system+";"+Environment.GetEnvironmentVariable("PATH"));

@@ -17,6 +17,8 @@ impl eframe::App for QualityApp {
 }
 
 mod fixture;
+mod navigation;
+use navigation::{benchmark_linked_model, check_refinement, check_translucent_roof};
 
 fn check_gl(gl: &glow::Context, stage: &str) -> Result<(), String> {
     let error = unsafe { gl.get_error() };
@@ -366,12 +368,16 @@ fn large_arctic(
 }
 
 fn run_checks(gl: Arc<glow::Context>, directory: &Path) -> Result<String, String> {
+    if let Some(path) = std::env::var_os("SLATE_BENCH_LINKED_MODEL") {
+        return benchmark_linked_model(gl, Path::new(&path));
+    }
     let scene = fixture::write_scene(directory)?;
     let triangles: usize = scene.meshes.iter().map(|mesh| mesh.indices.len() / 3).sum();
     unsafe { while gl.get_error() != glow::NO_ERROR {} }
     let engine =
         ModelEngine::new(gl.clone()).ok_or("Production model shaders did not compile/link")?;
     check_gl(&gl, "shader construction")?;
+    check_translucent_roof(&engine)?;
     let admission_start = Instant::now();
     let model = engine
         .upload(&scene)
@@ -402,6 +408,16 @@ fn run_checks(gl: Arc<glow::Context>, directory: &Path) -> Result<String, String
         ),
     )
     .map_err(|e| e.to_string())?;
+    for display in ModelDisplay::ALL {
+        let cam = ModelCamera {
+            display,
+            ..Default::default()
+        };
+        let image = engine
+            .render(&model, &cam, 256, 192, None)
+            .ok_or("mode reference unavailable")?;
+        check_refinement(&engine, &model, cam, (256, 192, 256.0 / 192.0), &image)?;
+    }
     let outcome = render_cases(&engine, &model, directory);
     engine.free(model);
     check_gl(&gl, "cleanup")?;
@@ -421,6 +437,7 @@ fn model_render_quality_real_gl() {
         vsync: false,
         run_and_return: true,
         viewport: egui::ViewportBuilder::default()
+            .with_visible(std::env::var_os("SLATE_BENCH_LINKED_MODEL").is_none())
             .with_inner_size([900.0, 650.0])
             .with_title("Slate model render quality"),
         event_loop_builder: Some(Box::new(|builder| {

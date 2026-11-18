@@ -29,6 +29,128 @@ fn model_double_click_enters_selected_and_unselected_viewports() {
     }
 }
 
+#[test]
+fn rhino_zoom_window_and_extents_keep_inline_and_maximized_board_cameras_fixed() {
+    use egui::{Event, Key, Modifiers, PointerButton};
+    for maximized in [false, true] {
+        let (mut h, id) = live_model("rhino_zoom_window");
+        if maximized {
+            assert!(h.app.portal_maximize(id));
+        }
+        h.frame();
+        let rect = if maximized {
+            h.app.canvas_rect
+        } else {
+            h.app
+                .board_xf()
+                .rect_w2s(h.app.doc().scene.node(id).unwrap().rect)
+        };
+        let board = h.app.tab().cam;
+        let before = h.app.model3d.live[&id].cam;
+        let start = rect.center() + rect.size() * 0.18;
+        let end = rect.center() - rect.size() * 0.06;
+        let key = |key, modifiers| Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        };
+        for _ in 0..3 {
+            h.frame_with(|i| i.events.push(Event::PointerMoved(start)));
+        }
+        let mods = Modifiers::CTRL;
+        let alias = Key::W;
+        h.frame_with(|i| {
+            i.events.push(key(alias, mods));
+            i.events.push(Event::Key {
+                key: alias,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: mods,
+            });
+            i.modifiers = Modifiers::NONE;
+        });
+        assert!(
+            h.app.model3d.live[&id].zoom_window.is_some(),
+            "zoom window armed, maximized={maximized}"
+        );
+        let click = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        h.frame_with(|i| i.events.push(click(start, true)));
+        h.frame_with(|i| i.events.push(Event::PointerMoved(end)));
+        h.frame_with(|i| i.events.push(click(end, false)));
+        let after = h.app.model3d.live[&id].cam;
+        assert!(h.app.model3d.live[&id].zoom_window.is_none());
+        assert!((after.distance / before.distance - 0.24).abs() < 0.001);
+        assert_ne!(after.target, before.target);
+        let mods = Modifiers::CTRL | Modifiers::SHIFT;
+        h.frame_with(|i| {
+            i.events.push(key(Key::E, mods));
+            i.events.push(Event::Key {
+                key: Key::E,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: mods,
+            });
+            i.modifiers = Modifiers::NONE;
+        });
+        let fit = h.app.model3d.live[&id].cam;
+        assert!(fit.distance > after.distance);
+        assert_eq!(
+            (fit.yaw, fit.pitch, fit.display, fit.materials),
+            (before.yaw, before.pitch, before.display, before.materials)
+        );
+        assert_eq!(
+            (h.app.tab().cam.offset, h.app.tab().cam.z),
+            (board.offset, board.z)
+        );
+        assert_eq!(h.app.portal_is_maximized(id), maximized);
+    }
+}
+
+#[test]
+fn rhino_zoom_window_escape_leaves_model_live_and_outside_keys_belong_to_board() {
+    use egui::{Event, Key, Modifiers};
+    let (mut h, id) = live_model("rhino_zoom_cancel");
+    h.frame();
+    let rect = h
+        .app
+        .board_xf()
+        .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+    let key = |key, pressed| Event::Key {
+        key,
+        physical_key: None,
+        pressed,
+        repeat: false,
+        modifiers: Modifiers::NONE,
+    };
+    let board = h.app.tab().cam;
+    let cam = h.app.model3d.live[&id].cam;
+    h.frame_with(|i| i.events.push(Event::PointerMoved(rect.center())));
+    h.frame_with(|i| i.events.push(key(Key::Z, true)));
+    h.frame_with(|i| i.events.push(key(Key::Z, false)));
+    assert!(h.app.model3d.live[&id].zoom_window_armed());
+    h.frame_with(|i| i.events.push(key(Key::Escape, true)));
+    assert!(!h.app.model3d.live[&id].zoom_window_armed());
+    assert_eq!(cam, h.app.model3d.live[&id].cam);
+    let outside = h.app.canvas_rect.left_bottom() + egui::vec2(8.0, -8.0);
+    assert!(!rect.contains(outside));
+    h.frame_with(|i| i.events.push(Event::PointerMoved(outside)));
+    h.frame_with(|i| i.events.push(key(Key::Z, true)));
+    assert!(!h.app.model3d.live[&id].zoom_window_armed());
+    assert_eq!(
+        (board.offset, board.z),
+        (h.app.tab().cam.offset, h.app.tab().cam.z)
+    );
+}
+
 fn check_model_entry(compact: bool, selected: bool) {
     let (mut h, id) = live_model("model_entry");
     h.app.lock_model(id);

@@ -53,7 +53,7 @@ internal sealed partial class GrasshopperHost : IDisposable
                     reports.SetValue(scripting, true, null);
             }
             File.WriteAllText(Path.Combine(root, "progress.txt"), builtInsOnly
-                ? "Loading Grasshopper's built-in components after plug-in crash protection"
+                ? "Loading Grasshopper's built-in components in recovery mode"
                 : "Loading Grasshopper and installed components");
             var plugin = RhinoApp.GetPlugInObject("Grasshopper");
             var runHeadless = plugin == null ? null : plugin.GetType().GetMethod("RunHeadless");
@@ -77,10 +77,12 @@ internal sealed partial class GrasshopperHost : IDisposable
         if (filter == null)
             throw new InvalidOperationException("This Grasshopper version cannot start with built-in components only.");
         var components = Path.Combine(Path.GetDirectoryName(typeof(GH_ComponentServer).Assembly.Location), "Components");
+        var tracked = GrasshopperStartup.TrackedPluginPaths();
         var files = Directory.GetFiles(components, "*.gha")
-            .Where(path => !Path.GetFileName(path).Equals("GhPython.gha", StringComparison.OrdinalIgnoreCase)).ToArray();
+            .Where(path => !Path.GetFileName(path).Equals("GhPython.gha", StringComparison.OrdinalIgnoreCase)
+                && !tracked.Contains(Path.GetFullPath(path))).ToArray();
         if (files.Length == 0)
-            throw new InvalidOperationException("The Rhino installation does not contain Grasshopper components.");
+            throw new InvalidOperationException("No built-in Grasshopper components are available for recovery. Resolve plug-in crash protection in Rhino and retry.");
         System.Environment.SetEnvironmentVariable("GRASSHOPPER_PLUGINS", null);
         filter.Invoke(null, new object[] { files });
     }
@@ -913,7 +915,7 @@ internal sealed partial class GrasshopperHost : IDisposable
         public string source_path { get; set; }
         public string source_revision { get; set; }
         public Dictionary<string, Value> overrides { get; set; }
-        public Dictionary<string, PortTree> inputs { get; set; }
+        public Dictionary<string, InputTree> inputs { get; set; }
         public string[] library_ids { get; set; }
         public string library_id { get; set; }
         public string[] component_ids { get; set; }

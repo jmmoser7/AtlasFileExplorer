@@ -44,6 +44,9 @@ fn an_unmodified_wheel_notch_applies_in_its_arrival_frame_without_a_tail() {
     let world = h.app.screen_to_world(point);
     let mut time = h.ctx.input(|i| i.time);
     let mut notch = |h: &mut Harness, delta: f32| {
+        // The first native input after the canvas sleeps must still update
+        // the camera immediately, including when reversing the previous zoom.
+        time += 3.0;
         let start = h.app.tab().cam.z;
         let expected = start * atlas_core::display::SLATE_BOARD.wheel_factor(delta);
         for frame in 0..28 {
@@ -71,6 +74,106 @@ fn an_unmodified_wheel_notch_applies_in_its_arrival_frame_without_a_tail() {
     notch(&mut h, 120.0);
     notch(&mut h, -120.0);
     assert!((h.app.tab().cam.z - 1.0).abs() < 0.0001);
+}
+
+#[test]
+fn a_linked_picture_tracks_fractional_pan_from_idle_to_release() {
+    for (tool, button) in [
+        (board::BoardTool::Select, egui::PointerButton::Middle),
+        (board::BoardTool::Pan, egui::PointerButton::Primary),
+    ] {
+        let mut h = grip_board("regions_linked_pan_idle");
+        let picture = picture_from(&mut h, "linked-pan.png", -80.0);
+        let item = picture_item(&h, picture);
+        let texture = ready_image(&mut h, item, "linked-pan-test");
+        h.app.set_board_tool(tool);
+        let origin = |ctx: &egui::Context, out: egui::FullOutput| {
+            ctx.tessellate(out.shapes, out.pixels_per_point)
+                .into_iter()
+                .find_map(|clip| {
+                    if let egui::epaint::Primitive::Mesh(mesh) = clip.primitive {
+                        if mesh.texture_id == texture {
+                            return Some(mesh.calc_bounds().min);
+                        }
+                    }
+                    None
+                })
+                .expect("linked image contributes a textured mesh")
+        };
+        let start = h.app.canvas_rect.center() - EVec2::new(150.0, 80.0);
+        let before = h.frame_output(|input| input.events.push(egui::Event::PointerMoved(start)));
+        let reference = origin(&h.ctx, before);
+        let camera = h.app.tab().cam;
+        let idle_until = h.ctx.input(|i| i.time) + 3.0;
+        let button_event = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let first = EVec2::new(7.5, -4.25);
+        let next = first + EVec2::new(0.5, -0.25);
+        let last = next + EVec2::new(0.25, 0.5);
+        for (i, (delta, events)) in [
+            (
+                first,
+                vec![
+                    button_event(start, true),
+                    egui::Event::PointerMoved(start + first * 0.5),
+                    egui::Event::PointerMoved(start + first),
+                ],
+            ),
+            (next, vec![egui::Event::PointerMoved(start + next)]),
+            (
+                last,
+                vec![
+                    button_event(start + last, false),
+                    egui::Event::PointerMoved(start + last + EVec2::splat(8.0)),
+                ],
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let out = h.frame_output(|input| {
+                input.time = Some(idle_until + i as f64 / 120.0);
+                input.events = events;
+            });
+            assert_eq!(h.app.tab().cam.offset, camera.offset - delta / camera.z);
+            let actual = origin(&h.ctx, out) - reference;
+            assert!(
+                (actual - delta).length() < 0.002,
+                "{tool:?} frame {i} image moved {actual:?}, expected {delta:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn small_pan_samples_accumulate_at_large_world_coordinates() {
+    let mut h = grip_board("regions_large_world_pan");
+    h.app.tab_mut().cam.offset = EVec2::splat(1_000_000.0);
+    h.app.tab_mut().cam.z = 22.0;
+    let start = h.app.canvas_rect.center();
+    h.frame_with(|input| {
+        input.events.push(egui::Event::PointerMoved(start));
+        input.events.push(egui::Event::PointerButton {
+            pos: start,
+            button: egui::PointerButton::Middle,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+    });
+    for frame in 1..=32 {
+        let pixels = frame as f32 * 0.25;
+        h.frame_with(|input| {
+            input
+                .events
+                .push(egui::Event::PointerMoved(start + EVec2::splat(pixels)))
+        });
+        let expected = (1_000_000.0_f64 - f64::from(pixels) / 22.0) as f32;
+        assert_eq!(h.app.tab().cam.offset, EVec2::splat(expected));
+    }
 }
 
 #[test]
@@ -297,7 +400,9 @@ fn saved_board_point_detail_reopens_and_a_one_unit_image_resizes_without_an_init
     let tab_id = h.app.tab().id;
     h.app.save_doc_to(tab_id, path.clone());
     assert!(path.exists());
-    drop(h); // Close the first app and release its workbook write lease.
+    drop(h);
+    // Native shutdown drains queued lease releases before the process exits.
+    slate_doc::Lease::flush_pending_releases(std::time::Duration::from_secs(2)).unwrap();
     let mut reopened = grip_board("regions_reopened_point_detail");
     reopened.app.open_doc_at(path);
     reopened.frame();

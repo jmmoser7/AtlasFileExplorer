@@ -693,7 +693,12 @@ Camera-only — never journaled, never repeatable.
   window math in the node's local (unrotated) axes.
 - **3D viewports** (placed `.3dm` models) invert the drag convention while
   *unlocked*: drag = orbit, Shift+drag = pan, scroll = zoom — Rhino
-  semantics inside the node. **Double-click a locked viewport to unlock it**
+  semantics inside the node. Hover an unlocked inline or maximized model
+  and press **Z** or **Ctrl+W**, then drag the window's opposite corners.
+  **Ctrl+Shift+E** or **Z** then **E** fits the model in its current orientation.
+  Escape cancels an armed window. The command palette also offers **3D zoom
+  window** and **3D zoom extents** for the selected live viewport.
+  **Double-click a locked viewport to unlock it**
   (double-click enters crop mode for croppable images and opens the file for
   the remaining kinds). Esc or a primary press outside the node locks it
   again. Orbit drags also select the

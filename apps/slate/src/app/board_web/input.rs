@@ -93,6 +93,24 @@ impl WebRuntime {
         self.last_page_input = Some(Instant::now());
     }
 
+    fn note_dashboard_gesture(&mut self, id: NodeId, events: &[WebInput]) {
+        if self.agent_focus_lease.is_none()
+            && events.iter().any(|input| {
+                matches!(
+                    input,
+                    WebInput::Down { .. }
+                        | WebInput::Up { .. }
+                        | WebInput::Key { .. }
+                        | WebInput::Text(_)
+                )
+            })
+        {
+            if let Some(view) = self.views.get_mut(&id) {
+                view.outputs.authored_input = true;
+            }
+        }
+    }
+
     pub(super) fn recently_interactive(&self) -> bool {
         self.pointer_down != 0
             || self
@@ -149,6 +167,7 @@ impl SlateApp {
             if self.presenting.is_some() {
                 let events = self.web_keyboard_events(ui);
                 if !events.is_empty() {
+                    self.web.note_dashboard_gesture(id, &events);
                     for event in events {
                         self.web.host.send_input(id, event);
                     }
@@ -167,33 +186,46 @@ impl SlateApp {
         let mut events = Vec::new();
         let mut buttons = self.web.pointer_down;
         ui.input(|i| {
-            for (button, bit) in [
-                (egui::PointerButton::Primary, 1u8),
-                (egui::PointerButton::Secondary, 2),
-                (egui::PointerButton::Middle, 4),
-            ] {
-                if i.pointer.button_pressed(button) {
-                    buttons |= bit;
+            // A slow paint can deliver an entire physical drag in one frame.
+            // Keep each edge at its original position and forward held motion in order.
+            for event in &i.events {
+                let (pos, edge) = match *event {
+                    egui::Event::PointerMoved(pos) => (pos, None),
+                    egui::Event::PointerButton {
+                        pos,
+                        button,
+                        pressed,
+                        ..
+                    } => {
+                        let code = match button {
+                            egui::PointerButton::Primary => 0,
+                            egui::PointerButton::Secondary => 1,
+                            egui::PointerButton::Middle => 2,
+                            _ => continue,
+                        };
+                        (pos, Some((code, pressed)))
+                    }
+                    _ => continue,
+                };
+                if buttons == 0 && !page_owns_point(layout, pos) {
+                    continue;
                 }
-                if i.pointer.button_released(button) {
-                    buttons &= !bit;
+                let (x, y) = css_point_for_screen(layout, css_w as f32, css_h as f32, pos);
+                events.extend(self.web.pointer_move(x, y, buttons));
+                if let Some((button, pressed)) = edge {
+                    let bit = 1 << button;
+                    if pressed {
+                        buttons |= bit;
+                        events.push(WebInput::Down { x, y, button });
+                    } else if buttons & bit != 0 {
+                        buttons &= !bit;
+                        events.push(WebInput::Up { x, y, button });
+                    }
+                    events.extend(self.web.pointer_move(x, y, buttons));
                 }
             }
-            if let Some(event) = self.web.pointer_move(x, y, buttons) {
-                events.push(event);
-            }
-            for (button, code) in [
-                (egui::PointerButton::Primary, 0u8),
-                (egui::PointerButton::Secondary, 1),
-                (egui::PointerButton::Middle, 2),
-            ] {
-                if i.pointer.button_pressed(button) {
-                    events.push(WebInput::Down { x, y, button: code });
-                }
-                if i.pointer.button_released(button) {
-                    events.push(WebInput::Up { x, y, button: code });
-                }
-            }
+            // Focus or the page transform can change under a stationary pointer.
+            events.extend(self.web.pointer_move(x, y, buttons));
             if !i.modifiers.command {
                 let d = i.raw_scroll_delta;
                 if d.y != 0.0 {
@@ -217,6 +249,7 @@ impl SlateApp {
         self.web.pointer_down = buttons;
         events.extend(self.web_keyboard_events(ui));
         let interacting = events.iter().any(page_input_is_interactive);
+        self.web.note_dashboard_gesture(id, &events);
         for event in events {
             self.web.host.send_input(id, event);
         }

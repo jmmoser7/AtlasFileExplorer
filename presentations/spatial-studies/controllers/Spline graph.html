@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Spline graph</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;height:100%}body{background:#161d21;color:#edf0ec;font:14px/1.35 "Segoe UI",sans-serif;display:grid;grid-template-rows:auto 1fr auto;padding:14px;gap:9px}header,footer,nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap}header{justify-content:space-between}h1{font-weight:550;font-size:20px;letter-spacing:-.03em;margin:0}button,select{font:inherit;color:#edf0ec;background:#293438;border:1px solid #465459;border-radius:4px;padding:4px 9px;cursor:pointer}button:disabled{opacity:.45}canvas{width:100%;height:100%;min-height:64px;display:block;background:#1b2529;touch-action:none;border:1px solid #48565a;border-radius:4px;cursor:crosshair}canvas:focus-visible{outline:2px solid #a8d4c5}footer{justify-content:space-between;color:#b5c5c6;font-size:12px}output{font-variant-numeric:tabular-nums}
+</style></head><body>
+<header><h1>Spline graph</h1><nav aria-label="Curve controls"><select aria-label="Selected curve" id="curve"></select><button id="add">Add curve</button><button id="remove">Remove</button></nav></header>
+<canvas id="plot" tabindex="0" aria-label="Facade depth graph. Drag a control point. Double-click to add a point. Use brackets to select a point and arrow keys to move it."></canvas>
+<footer><span>Drag a curve or handle · Double-click to add a point</span><output id="status" aria-live="polite"></output></footer>
+<script id="slate-outputs" data-slate-controller="d7436103-4e1b-46c7-a2ab-983d454fc101" type="application/slate-outputs+json">{"version":1,"outputs":[{"id":"f2ca3d77-27e4-42b2-8771-814396130001","name":"Depth field","type":"text","access":"item","value":""}]}</script>
+<script>
+const columns=72, rows=40;
+const curves=[
+ [[0,.27],[.19,.31],[.47,.66],[.69,.56],[1,.73]],
+ [[0,.68],[.24,.61],[.49,.43],[.74,.32],[1,.48]],
+ [[0,.47],[.24,.41],[.55,.35],[.77,.58],[1,.58]]
+];
+const originalCurves=structuredClone(curves);
+function heightAt(curve,x){
+  let i=0;while(i+2<curve.length&&curve[i+1][0]<x)i++;
+  const a=curve[i],b=curve[i+1],p=curve[Math.max(0,i-1)],q=curve[Math.min(curve.length-1,i+2)];
+  const span=b[0]-a[0],t=(x-a[0])/span,t2=t*t,t3=t2*t;
+  const m0=(b[1]-p[1])/(b[0]-p[0])*span,m1=(q[1]-a[1])/(q[0]-a[0])*span;
+  return (2*t3-3*t2+1)*a[1]+(t3-2*t2+t)*m0+(-2*t3+3*t2)*b[1]+(t3-t2)*m1;
+}
+function fieldAt(x,y){
+  let v=0;for(const curve of curves){const d=(y-heightAt(curve,x))/.115;v+=.64*Math.exp(-.5*d*d)}
+  return Math.min(1,v*.85);
+}
+function unpackField(){return Array.from({length:rows*columns},(_,i)=>fieldAt((i%columns)/(columns-1),Math.floor(i/columns)/(rows-1)).toFixed(3)).join(',')}
+const el=document.getElementById('slate-outputs'), declaration=JSON.parse(el.textContent);
+const canvas=document.getElementById('plot'),ctx=canvas.getContext('2d'),select=document.getElementById('curve');
+const palette=['#91d6c7','#efb97a','#c9a8d8','#a3b7e3','#e2afad','#d3d594','#aac1a2','#91c8d9'];
+let active=0,handle=2,drag=null,curveDrag=null,scheduled=false;
+function options(){
+ select.replaceChildren(...curves.map((_,i)=>new Option('Curve '+(i+1),i)));select.value=active;
+ document.getElementById('remove').disabled=curves.length<=1;document.getElementById('add').disabled=curves.length>=8;
+}
+const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
+function draw(){
+ scheduled=false;const w=canvas.clientWidth,h=canvas.clientHeight,d=Math.min(2,devicePixelRatio||1);
+ if(!w||!h)return;canvas.width=Math.round(w*d);canvas.height=Math.round(h*d);ctx.setTransform(d,0,0,d,0,0);
+ for(let j=0;j<rows;j++)for(let i=0;i<columns;i++){
+  const t=fieldAt(i/(columns-1),j/(rows-1));ctx.fillStyle='rgb('+[26+t*58,38+t*65,43+t*63].map(Math.round).join(',')+')';
+  ctx.fillRect(i*w/columns,j*h/rows,w/columns+.75,h/rows+.75);
+ }
+ ctx.strokeStyle='#cfdfd819';ctx.lineWidth=1;ctx.beginPath();
+ for(let i=1;i<8;i++){ctx.moveTo(i*w/8,0);ctx.lineTo(i*w/8,h)}
+ for(let j=1;j<6;j++){ctx.moveTo(0,j*h/6);ctx.lineTo(w,j*h/6)}ctx.stroke();
+ curves.forEach((curve,i)=>{
+  ctx.strokeStyle=palette[i%palette.length];ctx.lineWidth=i===active?2.7:1.7;ctx.beginPath();
+  for(let x=0;x<=w;x+=2){const y=heightAt(curve,x/w)*h;if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)}ctx.stroke();
+  curve.forEach(([x,y],p)=>{ctx.fillStyle=i===active?'#182428':ctx.strokeStyle;ctx.beginPath();ctx.arc(x*w,y*h,i===active&&p===handle?6:4,0,Math.PI*2);ctx.fill();ctx.stroke()});
+ });
+ document.getElementById('status').textContent=curves.length+' curves · '+columns+' fins';
+}
+function update(){declaration.outputs[0].value=unpackField();el.textContent=JSON.stringify(declaration);if(!scheduled){scheduled=true;requestAnimationFrame(draw)}}
+function commit(){el.dispatchEvent(new CustomEvent('slate-controller-edit',{detail:{curves,active,handle}}))}
+el.addEventListener('slate-controller-restore',event=>{
+ const data=event.detail;
+ const next=data===null?originalCurves:data?.curves;
+ if(!Array.isArray(next)||next.length<1||next.length>8||!next.every(c=>
+   Array.isArray(c)&&c.length>=2&&c.length<=20&&c.every((p,i)=>
+    Array.isArray(p)&&p.length===2&&p.every(n=>Number.isFinite(n)&&n>=0&&n<=1)
+    &&(i===0?p[0]===0:p[0]>c[i-1][0])&&(i!==c.length-1||p[0]===1))))return;
+ curves.splice(0,curves.length,...structuredClone(next));
+ active=clamp(Number.isInteger(data?.active)?data.active:0,0,curves.length-1);
+ handle=clamp(Number.isInteger(data?.handle)?data.handle:2,0,curves[active].length-1);
+ options();update();
+});
+function point(e){const r=canvas.getBoundingClientRect();return [clamp((e.clientX-r.left)/r.width,0,1),clamp((e.clientY-r.top)/r.height,0,1)]}
+function movePoint(x,y){const c=curves[active];c[handle]=[handle===0?0:handle===c.length-1?1:clamp(x,c[handle-1][0]+.015,c[handle+1][0]-.015),clamp(y,.01,.99)];update()}
+canvas.onpointerdown=e=>{
+ const [x,y]=point(e);let best=16,hit=null;
+ curves.forEach((curve,i)=>curve.forEach(([a,b],j)=>{const distance=Math.hypot((a-x)*canvas.clientWidth,(b-y)*canvas.clientHeight);if(distance<best){best=distance;hit=[i,j]}}));
+ if(hit){[active,handle]=hit;curveDrag=null}
+ else{
+   let distance=12,chosen=-1;curves.forEach((c,i)=>{const dy=Math.abs(heightAt(c,x)-y)*canvas.clientHeight;if(dy<distance){chosen=i;distance=dy}});
+   if(chosen<0)return;active=chosen;handle=1;curveDrag={x,y,knots:curves[active].map(p=>[...p])};
+ }
+ drag=e.pointerId;options();canvas.setPointerCapture(e.pointerId);canvas.focus();draw();
+};
+canvas.onpointermove=e=>{
+ if(e.pointerId!==drag)return;const [x,y]=point(e);if(!curveDrag){movePoint(x,y);return}
+ const k=curveDrag.knots,last=k.length-1,ys=k.map(p=>p[1]);
+ const dx=clamp(x-curveDrag.x,.015-k[1][0],.985-k[last-1][0]),dy=clamp(y-curveDrag.y,.01-Math.min(...ys),.99-Math.max(...ys));
+ curves[active]=k.map(([a,b],i)=>[i===0||i===last?a:a+dx,b+dy]);update();
+};
+canvas.onpointerup=e=>{if(drag===e.pointerId)commit()};
+canvas.onlostpointercapture=()=>{drag=null;curveDrag=null};
+canvas.ondblclick=e=>{const [x,y]=point(e),c=curves[active];if(c.length>=20||c.some(p=>Math.abs(p[0]-x)<.035))return;handle=c.findIndex(p=>p[0]>x);if(handle<1)return;c.splice(handle,0,[x,y]);update();commit()};
+canvas.onkeydown=e=>{
+ const c=curves[active],p=c[handle],step=e.shiftKey?.04:.008;
+ if(e.key==='['||e.key===']'){handle=(handle+(e.key==='['?-1:1)+c.length)%c.length;draw()}
+ else if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key))movePoint(p[0]+(e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0),p[1]+(e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0));else return;e.preventDefault();commit();
+};
+select.onchange=()=>{active=+select.value;handle=1;draw();commit()};
+document.getElementById('add').onclick=()=>{if(curves.length>=8)return;const i=curves.length;curves.push([[0,.52],[.22,.24+.06*(i%4)],[.5,.55],[.78,.78-.07*(i%4)],[1,.5]]);active=i;handle=2;options();update();commit()};
+document.getElementById('remove').onclick=()=>{if(curves.length<=1)return;curves.splice(active,1);active=Math.min(active,curves.length-1);handle=1;options();update();commit()};
+new ResizeObserver(draw).observe(canvas);options();update();
+</script></body></html>

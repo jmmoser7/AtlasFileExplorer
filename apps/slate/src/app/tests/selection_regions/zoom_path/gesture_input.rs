@@ -1,6 +1,39 @@
 //! Zoom marquee, tool ownership, and Windows keyboard interruption tests.
 use super::*;
 
+#[test]
+fn a_complete_pan_delivered_in_one_frame_after_idle_uses_the_full_drag() {
+    for (tool, button) in [
+        (board::BoardTool::Pan, egui::PointerButton::Primary),
+        (board::BoardTool::Select, egui::PointerButton::Middle),
+    ] {
+        let mut h = grip_board("regions_single_frame_pan");
+        h.app.board_tool = tool;
+        let start = h.app.canvas_rect.center() + EVec2::new(-80.0, -20.0);
+        let delta = EVec2::new(126.0, 54.0);
+        let end = start + delta;
+        let event = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(start)));
+        let camera = h.app.tab().cam;
+        h.frame_with(|input| {
+            input.events.extend([
+                event(start, true),
+                egui::Event::PointerMoved(start + delta * 0.5),
+                egui::Event::PointerMoved(end),
+                event(end, false),
+            ])
+        });
+        assert_eq!(h.app.tab().cam.offset, camera.offset - delta / camera.z);
+        h.frame();
+        assert_eq!(h.app.tab().cam.offset, camera.offset - delta / camera.z);
+    }
+}
+
 fn navigation_button(pos: Pos2, button: egui::PointerButton, pressed: bool) -> egui::Event {
     egui::Event::PointerButton {
         pos,

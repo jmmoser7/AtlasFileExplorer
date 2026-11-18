@@ -8,7 +8,10 @@ impl SlateApp {
             return None;
         }
         if self.video.pool.is_none() {
-            self.video.pool = Some(atlas_core::video::VideoPool::spawn());
+            let ctx = self.video.ctx.clone();
+            self.video.pool = Some(atlas_core::video::VideoPool::spawn_with_wake(move || {
+                ctx.request_repaint()
+            }));
         }
         self.video.pool.as_ref()
     }

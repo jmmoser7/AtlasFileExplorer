@@ -2,6 +2,43 @@
 use super::*;
 
 #[test]
+fn failed_grasshopper_strip_opens_above_a_caption_in_the_same_frame() {
+    use crate::app::tests::click_board;
+
+    for zoom in [0.71, 0.90] {
+        let mut h = board();
+        let frame = h.seed_frame(None);
+        h.app.patch_nodes(&[frame], |node| {
+            node.rect = WorldRect::new(-855.0, 345.0, 1710.0, 556.0);
+        });
+        let model = model_node(
+            &mut h,
+            "Timber fins.ghx",
+            WorldRect::new(158.0, 484.0, 651.0, 342.0),
+        );
+        h.app.patch_nodes(&[model], |node| {
+            if let NodeKind::Image(image) = &mut node.kind {
+                image.corner = scene::Corner::Rounded { radius: 8.0 };
+            }
+        });
+        let caption = text_node(&mut h, WorldRect::new(-811.0, 850.0, 1600.0, 27.2));
+        h.app.board_sel = [model].into_iter().collect();
+        h.app.tab_mut().cam.offset = egui::vec2(0.0, 625.0);
+        h.app.tab_mut().cam.z = zoom;
+        for _ in 0..14 {
+            h.frame();
+        }
+        let button = strip_button(&h, Panel::Grasshopper).center();
+        let world = h.app.board_xf().s2w(button);
+        assert_eq!(h.app.board_pick_node(world.x, world.y), Some(caption));
+        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(button)));
+        click_board(&mut h, button);
+        assert_eq!(h.app.shape_properties.panel, Some(Panel::Grasshopper));
+        assert_eq!(h.app.board_sel, [model].into_iter().collect());
+    }
+}
+
+#[test]
 fn grasshopper_inputs_have_a_native_squircle_before_the_first_solve() {
     let mut h = board();
     let rect = WorldRect::new(0.0, 0.0, 240.0, 180.0);

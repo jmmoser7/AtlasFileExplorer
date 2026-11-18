@@ -32,6 +32,9 @@ pub struct ImageNode {
     /// Input values authored in this viewer. The linked definition stays intact.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grasshopper: Option<Box<GrasshopperOverrides>>,
+    /// Hidden property rows for this definition instance, keyed by the native control ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grasshopper_hidden_controls: Option<Box<std::collections::BTreeSet<GrasshopperControlId>>>,
     /// Explicit values supplied to exposed input markers in the definition.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grasshopper_literals: Option<Box<GrasshopperOverrides>>,
@@ -76,6 +79,7 @@ impl ImageNode {
             model: ModelCamera::default(),
             grasshopper: None,
             grasshopper_literals: None,
+            grasshopper_hidden_controls: None,
             grasshopper_bake_source: None,
             agent: None,
             paint_layers: Vec::new(),

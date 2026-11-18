@@ -136,7 +136,9 @@ impl SlateApp {
         if tabs::portal_maximize_button(ui, &self.palette(), layout.maximize, node.id.0, true) {
             self.portal_restore();
         }
+        let zoom_window = self.model_zoom_window_frame(ui, !controls);
         if !controls
+            && !zoom_window
             && !self.application_connector_active(node.id)
             && host.contains(ui.ctx().pointer_hover_pos().unwrap_or(Pos2::ZERO))
         {

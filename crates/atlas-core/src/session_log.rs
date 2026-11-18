@@ -14,6 +14,10 @@
 //! [`count`] / [`event`] / [`mark`] can record without plumbing a handle
 //! through every hot function. UI-thread only.
 
+#[cfg(test)]
+mod persistence_tests;
+mod writer;
+
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -154,6 +158,7 @@ pub struct SessionLog {
 }
 
 struct Inner {
+    writer: Option<writer::Writer>,
     app: &'static str,
     persist: bool,
     log_path: PathBuf,
@@ -178,6 +183,15 @@ struct Inner {
     startup: Option<StartupSnap>,
     repaint_causes: String,
     last_repaint_note: Instant,
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        // Ordinary frames can leave a partial batch until the next flush interval.
+        if self.writer.is_some() && !self.pending.is_empty() {
+            self.flush(true, true);
+        }
+    }
 }
 
 struct StartupSnap {
@@ -280,6 +294,21 @@ impl SessionLog {
         } else {
             Self::persist(app)
         }
+    }
+
+    /// Persist frame samples on one background worker. Explicit marks and
+    /// startup still wait until their diagnostic files have been written.
+    pub fn with_background_writes(self) -> Self {
+        if let Ok(mut inner) = self.inner.lock() {
+            if inner.persist && inner.writer.is_none() {
+                inner.writer = writer::Writer::spawn(
+                    inner.app,
+                    inner.log_path.clone(),
+                    inner.latest_path.clone(),
+                );
+            }
+        }
+        self
     }
 
     pub fn persist(app: &'static str) -> Self {
@@ -514,6 +543,7 @@ impl Inner {
         };
         let now = Instant::now();
         Inner {
+            writer: None,
             app,
             persist,
             log_path,
@@ -553,7 +583,7 @@ impl Inner {
         line.ms = ms;
         line.detail = Some(startup.detail());
         self.queue(line);
-        self.flush(true);
+        self.flush(true, true);
     }
 
     fn enter(&mut self, name: &'static str) {
@@ -608,7 +638,7 @@ impl Inner {
         line.detail = Some(text);
         line.spans = Some(self.stack_names());
         self.queue(line);
-        self.flush(true);
+        self.flush(true, true);
     }
 
     fn end_frame(
@@ -676,13 +706,13 @@ impl Inner {
 
         if self.pending.is_empty() {
             if self.persist && self.last_latest.elapsed() >= LATEST_EVERY {
-                self.write_latest();
+                self.flush(true, false);
             }
             return;
         }
         let due = stall || self.last_flush.elapsed() >= FLUSH_EVERY;
         if due {
-            self.flush(stall);
+            self.flush(stall, false);
         }
     }
 
@@ -756,53 +786,30 @@ impl Inner {
         }
     }
 
-    fn flush(&mut self, write_latest: bool) {
-        if self.persist && !self.pending.is_empty() {
-            self.append_jsonl();
-        }
-        self.pending.clear();
+    fn flush(&mut self, checkpoint: bool, wait: bool) {
         self.last_flush = Instant::now();
-        if write_latest || self.last_latest.elapsed() >= LATEST_EVERY {
-            self.write_latest();
+        if !self.persist {
+            self.pending.clear();
+            return;
+        }
+        let latest = if checkpoint || self.last_latest.elapsed() >= LATEST_EVERY {
+            self.last_latest = self.last_flush;
+            self.latest_json()
+        } else {
+            None
+        };
+        let batch = writer::Batch {
+            lines: std::mem::take(&mut self.pending),
+            latest,
+        };
+        if let Some(writer) = &self.writer {
+            writer.submit(batch, wait);
+        } else {
+            batch.write(self.app, &self.log_path, &self.latest_path);
         }
     }
 
-    fn append_jsonl(&mut self) {
-        if self.log_path.as_os_str().is_empty() {
-            return;
-        }
-        if let Ok(meta) = std::fs::metadata(&self.log_path) {
-            if meta.len() > JSONL_ROTATE {
-                let prev = self
-                    .log_path
-                    .with_file_name(format!("{}-prev.jsonl", self.app));
-                let _ = std::fs::rename(&self.log_path, prev);
-            }
-        }
-        let mut buf = String::new();
-        for line in &self.pending {
-            if let Ok(json) = serde_json::to_string(line) {
-                buf.push_str(&json);
-                buf.push('\n');
-            }
-        }
-        if buf.is_empty() {
-            return;
-        }
-        use std::io::Write;
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.log_path)
-        {
-            let _ = f.write_all(buf.as_bytes());
-        }
-    }
-
-    fn write_latest(&mut self) {
-        if !self.persist || self.latest_path.as_os_str().is_empty() {
-            return;
-        }
+    fn latest_json(&self) -> Option<String> {
         let stalls: Vec<StallFile> = self
             .stalls
             .iter()
@@ -864,13 +871,7 @@ impl Inner {
             startup,
             repaint_causes: &self.repaint_causes,
         };
-        if let Ok(json) = serde_json::to_string_pretty(&file) {
-            let tmp = self.latest_path.with_extension("json.tmp");
-            if std::fs::write(&tmp, json).is_ok() {
-                let _ = std::fs::rename(&tmp, &self.latest_path);
-            }
-        }
-        self.last_latest = Instant::now();
+        serde_json::to_string_pretty(&file).ok()
     }
 
     fn samples(&self) -> &[f32] {
@@ -990,34 +991,6 @@ mod tests {
             stalls[0].spans
         );
         assert_eq!(stalls[0].entries, 8421);
-    }
-
-    #[test]
-    fn persist_writes_jsonl_and_latest() {
-        let dir = std::env::temp_dir().join(format!(
-            "atlas_session_log_{}_{}",
-            std::process::id(),
-            now_unix_ms()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let s = SessionLog::persist_at("test-app", dir.clone());
-        let _attach = s.attach();
-        s.set_snapshot(Snapshot {
-            entries: 12,
-            view: "tree",
-            ..Snapshot::default()
-        });
-        mark("after opening the share");
-        s.end_frame(ms(80.0), 0.090, FrameWake::default());
-        let jsonl = std::fs::read_to_string(dir.join("test-app.jsonl")).unwrap();
-        assert!(jsonl.contains("\"kind\":\"mark\""));
-        assert!(jsonl.contains("after opening the share"));
-        assert!(jsonl.contains("\"kind\":\"stall\""));
-        let latest = std::fs::read_to_string(dir.join("test-app-latest.json")).unwrap();
-        assert!(latest.contains("test-app"));
-        assert!(latest.contains("last_stalls"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

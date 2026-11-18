@@ -1150,6 +1150,7 @@ impl SlateApp {
 pub(crate) mod tests {
     mod image_blister;
     mod media_chrome;
+    mod video_agent;
     mod wire_spawn;
     use super::*;
     use slate_doc::agent_inputs::InputKind;

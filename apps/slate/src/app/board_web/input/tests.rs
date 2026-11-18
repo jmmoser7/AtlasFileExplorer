@@ -94,6 +94,45 @@ fn button_changes_forward_once_without_repeating_a_held_drag() {
 }
 
 #[test]
+fn drag_between_two_paints_reaches_the_page_in_order() {
+    let (mut h, host, _, start) = focused_page("web_one_frame_drag");
+    let middle = start + egui::vec2(8.0, 0.0);
+    let end = start + egui::vec2(20.0, 0.0);
+    h.frame_with(|input| {
+        for (pos, pressed) in [(start, true), (end, false)] {
+            input.events.push(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+            if pressed {
+                input.events.push(egui::Event::PointerMoved(middle));
+                input.events.push(egui::Event::PointerMoved(end));
+            }
+        }
+    });
+    let events = host.inputs();
+    let drag: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            WebInput::Down { x, .. } => Some(("down", *x)),
+            WebInput::Move { x, buttons: 1, .. } => Some(("held", *x)),
+            WebInput::Up { x, .. } => Some(("up", *x)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        drag.iter().map(|(kind, _)| *kind).collect::<Vec<_>>(),
+        ["down", "held", "held", "held", "up"]
+    );
+    assert_eq!(drag[0].1, drag[1].1);
+    assert!(drag[1].1 < drag[2].1 && drag[2].1 < drag[3].1);
+    assert_eq!(drag[3].1, drag[4].1);
+    assert_eq!(h.app.web.pointer_down, 0);
+}
+
+#[test]
 fn holding_a_button_keeps_capture_fast_without_synthetic_moves() {
     let mut web = WebRuntime {
         focused: Some(NodeId(1)),

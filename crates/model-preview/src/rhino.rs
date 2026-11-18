@@ -5,7 +5,7 @@ use crate::{LoadError, PreviewMaterial, PreviewMesh, PreviewScene};
 pub fn load(bytes: &[u8]) -> Result<PreviewScene, LoadError> {
     let model = rhino_mesh::read_render_meshes_from(bytes).map_err(map_err)?;
     let mut notes = model.notes;
-    notes.push("Rhino standard diffuse color and gloss are previewed; opacity is retained but surfaces currently render opaque. Texture/procedural maps, renderer plug-in materials and block instances are not interpreted.".into());
+    notes.push("Rhino standard diffuse color and gloss are previewed; Shaded displays material opacity. Texture/procedural maps, renderer plug-in materials and block instances are not interpreted.".into());
     let meshes = model
         .parts
         .into_iter()

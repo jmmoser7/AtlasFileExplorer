@@ -48,6 +48,8 @@ impl NativeBench {
             "fit_scale": self.fit_scale,
             "start_zoom": self.start_zoom,
             "baseline_detail": self.baseline_detail,
+            "gl_renderer": self.gl_renderer,
+            "synchronous_diagnostics": std::env::var_os("SLATE_LATENCY_SYNC_LOG").is_some(),
             "section_profile": {"enabled": self.profile_sections,
                 "encoding": "[egui cumulative pass, current pending request phase or null, PREVIOUS outer native-frame work ms or null, ordered [section, elapsed_ms] intervals]",
                 "previous_frame_work": "Existing eframe Frame.info().cpu_usage * 1000: PREVIOUS outer frame update+tessellation/renderer work, excluding swap/vsync wait. Not the current pending input, GPU/present time or process CPU utilization. First value may be null; discarded passes may repeat a value. Do not infer previous outer-frame identity from cumulative pass minus one, sum repeated values, or subtract separate percentiles. Getter/retention overhead is after app_ms, inside observed latency; this is optional diagnostic mode only.",

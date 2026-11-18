@@ -165,7 +165,6 @@ impl SlateApp {
         }
         self.ensure_agent_programs();
         self.ensure_agent_recents(ctx);
-        self.pump_cursor_ide(ctx);
         self.pump_agent_chats(ctx);
         self.paint_schedule_dialog(ctx);
         self.pump_agent_connection(ctx);
@@ -175,7 +174,7 @@ impl SlateApp {
             self.rejoin_agent_chats();
         }
         self.refresh_agent_connection();
-        self.pump_agent_models();
+        self.pump_agent_models(ctx);
         if let Some(id) = self.agents.focused {
             if !self.board_sel.contains(&id) && self.portal_chrome.maximized != Some(id) {
                 self.agent_blur();

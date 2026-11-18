@@ -17,6 +17,9 @@ pub struct WebPortalRef {
     /// A presentation-only dashboard can be pinned to its poster.
     pub interactive_allowed: bool,
     pub poster_capture: WebPosterCapture,
+    /// Explicit controller parameters committed by this instance of a local dashboard.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub controller: Option<Box<crate::dashboard_outputs::controller::ControllerState>>,
     /// Optional dashboard-generation capability; ordinary pages omit it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artifact: Option<Box<ArtifactGeneratorRef>>,
@@ -34,6 +37,7 @@ impl Default for WebPortalRef {
             interactive_allowed: true,
             poster_capture: WebPosterCapture::OnBind,
             artifact: None,
+            controller: None,
         }
     }
 }

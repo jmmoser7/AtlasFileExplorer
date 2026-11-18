@@ -67,7 +67,11 @@ impl SlateApp {
     fn grasshopper_expanded_control(&self) -> Option<&GrasshopperControl> {
         let node = self.shape_properties.ids.first().copied()?;
         let id = self.shape_properties.grasshopper_expanded.as_ref()?;
-        self.grasshopper_control(node, id)
+        if self.grasshopper_control_hidden(node, id) {
+            None
+        } else {
+            self.grasshopper_control(node, id)
+        }
     }
 
     pub(super) fn grasshopper_color_heading_height(&self) -> f32 {
@@ -90,7 +94,14 @@ impl SlateApp {
             return self.grasshopper_color_heading_height() + chrome::FILL_HEIGHT;
         }
         let options = expanded.map_or(0, |control| control.options.len());
-        let rows = (self.grasshopper_control_count(node) + options).min(MAX_ROWS);
+        let (visible, hidden) = self.grasshopper_control_counts(node);
+        let disclosure_rows = usize::from(hidden != 0)
+            + if self.shape_properties.grasshopper_reveal_hidden {
+                hidden
+            } else {
+                0
+            };
+        let rows = (visible + options + disclosure_rows).min(MAX_ROWS);
         ROW + rows as f32 * (ROW + GAP) + 2.0 * PANEL_INSET
     }
 
@@ -113,6 +124,7 @@ impl SlateApp {
             state.controls.iter().find(|control| {
                 control.kind == GrasshopperControlKind::Color
                     && self.shape_properties.grasshopper_expanded.as_ref() == Some(&control.id)
+                    && !self.grasshopper_control_hidden(node, &control.id)
             })
         }) {
             let body = Rect::from_min_max(Pos2::new(rect.left(), body_top), rect.max);
@@ -129,6 +141,13 @@ impl SlateApp {
             return;
         }
         let scroll_id = ui.id().with(("grasshopper-inputs", node.0));
+        let (hidden, visible): (Vec<_>, Vec<_>) = state
+            .controls
+            .iter()
+            .partition(|control| self.grasshopper_control_hidden(node, &control.id));
+        let writable = !self.tab().read_only
+            && self.grasshopper_animation_control(node).is_none()
+            && self.doc().scene.node(node).is_some_and(|node| !node.locked);
         let mut rows = ui.new_child(egui::UiBuilder::new().id_salt(scroll_id).max_rect(body));
         rows.set_clip_rect(body.intersect(ui.clip_rect()));
         rows.spacing_mut().item_spacing.y = GAP * zoom;
@@ -140,9 +159,85 @@ impl SlateApp {
             .auto_shrink([false, false])
             .show(&mut rows, |ui| {
                 ui.set_width(body.width());
-                for control in &state.controls {
+                if !hidden.is_empty() {
+                    let reveal = allocate_row(ui, zoom);
+                    let open = self.shape_properties.grasshopper_reveal_hidden;
+                    let count = hidden.len().to_string();
+                    if capsule(
+                        ui,
+                        reveal,
+                        "Reveal hidden",
+                        Some(&count),
+                        open,
+                        false,
+                        zoom,
+                        theme,
+                    )
+                    .clicked()
+                    {
+                        self.shape_properties.grasshopper_reveal_hidden = !open;
+                        ui.ctx().request_repaint();
+                    }
+                    if self.shape_properties.grasshopper_reveal_hidden {
+                        for control in hidden {
+                            ui.push_id(control.id.as_str(), |ui| {
+                                let row = allocate_row(ui, zoom);
+                                if capsule(
+                                    ui,
+                                    row,
+                                    &control.name,
+                                    Some("+"),
+                                    false,
+                                    !writable,
+                                    zoom,
+                                    theme,
+                                )
+                                .on_hover_text(format!("Reveal {}", control.name))
+                                .clicked()
+                                {
+                                    self.grasshopper_set_control_hidden(node, &control.id, false);
+                                    ui.ctx().request_repaint();
+                                }
+                            });
+                        }
+                    }
+                } else {
+                    self.shape_properties.grasshopper_reveal_hidden = false;
+                }
+                for control in visible {
                     ui.push_id(control.id.as_str(), |ui| {
-                        self.grasshopper_control_row(ui, node, control, zoom, theme);
+                        let rect = allocate_row(ui, zoom);
+                        let mut field = rect;
+                        if writable {
+                            let hide = Rect::from_min_max(
+                                Pos2::new(rect.right() - rect.height(), rect.top()),
+                                rect.max,
+                            );
+                            field.max.x = hide.left() - GAP * zoom;
+                            let action = capsule(ui, hide, "", None, false, false, zoom, theme);
+                            let label = format!("Hide {}", control.name);
+                            action.widget_info(|| {
+                                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label)
+                            });
+                            let center = hide.center();
+                            chrome::object_painter(ui).hline(
+                                (center.x - 4.0 * zoom)..=(center.x + 4.0 * zoom),
+                                center.y,
+                                egui::Stroke::new(1.0 * zoom, theme.ink),
+                            );
+                            if action.on_hover_text(label).clicked() {
+                                self.close_grasshopper_draft();
+                                if self.shape_properties.grasshopper_expanded.as_ref()
+                                    == Some(&control.id)
+                                {
+                                    self.shape_properties.grasshopper_expanded = None;
+                                }
+                                self.grasshopper_set_control_hidden(node, &control.id, true);
+                                ui.ctx().request_repaint();
+                                return;
+                            }
+                        }
+                        self.grasshopper_control_row(ui, node, control, field, zoom, theme);
                     });
                 }
             });

@@ -1,15 +1,16 @@
 use super::*;
 
 impl SlateApp {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn grasshopper_control_row(
         &mut self,
         ui: &mut egui::Ui,
         node: NodeId,
         control: &GrasshopperControl,
+        rect: Rect,
         zoom: f32,
         theme: atlas_shell::theme::Palette,
     ) {
-        let rect = allocate_row(ui, zoom);
         let editing = self
             .shape_properties
             .grasshopper_draft
@@ -28,17 +29,64 @@ impl SlateApp {
                     .zip(control.max)
                     .filter(|(min, max)| min.is_finite() && max.is_finite() && min < max)
                 {
-                    let track = labeled_control(ui, rect, &control.name, zoom, theme);
-                    let edit = chrome::scalar_capsule(
+                    let animated = self.grasshopper_animation_control(node);
+                    let running = animated == Some(&control.id);
+                    let allow_edit = animated.is_none();
+                    let can_animate = self.grasshopper_can_animate(node);
+                    let animate = Rect::from_min_max(
+                        Pos2::new(rect.right() - rect.height(), rect.top()),
+                        rect.max,
+                    );
+                    let track = labeled_control(
                         ui,
-                        track,
-                        value,
-                        min..=max,
-                        control.step,
-                        control.precision,
+                        Rect::from_min_max(
+                            rect.min,
+                            Pos2::new(animate.left() - GAP * zoom, rect.bottom()),
+                        ),
+                        &control.name,
                         zoom,
                         theme,
                     );
+                    let (action, icon) = if running {
+                        ("Cancel animation", atlas_shell::icons::Icon::Stop)
+                    } else {
+                        ("Animate slider to MP4", atlas_shell::icons::Icon::Play)
+                    };
+                    if chrome::button(
+                        ui,
+                        animate,
+                        ui.id().with("slider-animation"),
+                        action,
+                        icon,
+                        running,
+                        zoom,
+                        theme,
+                        if can_animate || running { 1.0 } else { 0.45 },
+                        can_animate || running,
+                    )
+                    .clicked()
+                    {
+                        if running {
+                            self.cancel_grasshopper_animation();
+                        } else {
+                            self.start_grasshopper_animation(node, control);
+                        }
+                        return;
+                    }
+                    let edit = ui
+                        .add_enabled_ui(allow_edit, |ui| {
+                            chrome::scalar_capsule(
+                                ui,
+                                track,
+                                value,
+                                min..=max,
+                                control.step,
+                                control.precision,
+                                zoom,
+                                theme,
+                            )
+                        })
+                        .inner;
                     match (edit.value, edit.scrubbing, active_draft) {
                         (Some(value), true, _) => {
                             Some((GrasshopperValue::Number(value), EditPhase::Preview))

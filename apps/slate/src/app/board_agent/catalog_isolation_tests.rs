@@ -58,11 +58,12 @@ fn held_catalog_pump_ingests_pending_success_and_error_without_launching_a_follo
     let (tx, rx) = unbounded();
     host.app.agents.models_rx = Some(rx);
     host.app.agents.models_started.insert("codex".into());
-    host.app.pump_agent_models();
+    host.app.pump_agent_models(&host.ctx);
     assert!(
         host.app.agents.models_rx.is_some(),
         "an existing pending receiver is retained"
     );
+    assert!(!host.app.agent_background_pending());
     assert!(!host.app.agents.catalog_ready("codex"));
     tx.send((
         "codex".into(),
@@ -73,7 +74,7 @@ fn held_catalog_pump_ingests_pending_success_and_error_without_launching_a_follo
         }]),
     ))
     .unwrap();
-    host.app.pump_agent_models();
+    host.app.pump_agent_models(&host.ctx);
     assert!(host.app.agents.catalog_ready("codex"));
     assert_eq!(host.app.agents.catalog("codex")[0].id, "injected-model");
     assert!(host.app.agents.models_started.contains("codex"));
@@ -87,7 +88,7 @@ fn held_catalog_pump_ingests_pending_success_and_error_without_launching_a_follo
     host.app.agents.models_rx = Some(rx);
     tx.send(("cursor".into(), Err("Injected catalog failure".into())))
         .unwrap();
-    host.app.pump_agent_models();
+    host.app.pump_agent_models(&host.ctx);
     assert!(!host.app.agents.catalog_ready("cursor"));
     assert_eq!(
         host.app.agents.catalog_error("cursor"),
@@ -96,9 +97,20 @@ fn held_catalog_pump_ingests_pending_success_and_error_without_launching_a_follo
     assert!(host.app.agents.models_rx.is_none());
     assert_eq!(host.app.agents.models.len(), 1);
     host.app.agents.refresh_catalog("cursor");
-    host.app.pump_agent_models();
+    host.app.pump_agent_models(&host.ctx);
     assert!(host.app.agents.hold_catalog_probes);
     assert!(host.app.agents.catalog_error("cursor").is_none());
     assert!(!host.app.agents.catalog_ready("cursor"));
     assert!(host.app.agents.models_rx.is_none());
+}
+
+#[test]
+fn disconnected_catalog_worker_releases_the_pending_slot() {
+    let mut host = host();
+    let (tx, rx) = unbounded();
+    host.app.agents.models_rx = Some(rx);
+    drop(tx);
+    host.app.pump_agent_models(&host.ctx);
+    assert!(host.app.agents.models_rx.is_none());
+    assert!(!host.app.agent_background_pending());
 }

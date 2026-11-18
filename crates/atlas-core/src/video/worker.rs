@@ -7,6 +7,11 @@ pub(super) fn stdio() -> io::Result<()> {
     #[cfg(debug_assertions)]
     diagnostic_fault(&job)?;
     let (id, token) = job.key();
+    // Older standalone consumers expect a media event as their first packet.
+    // The supervisor explicitly opts into the bounded native startup phase.
+    if std::env::args_os().any(|arg| arg == "--report-opening") {
+        protocol::write_opening(&mut io::stdout().lock(), id, token)?;
+    }
     let (sender, receiver) = crossbeam_channel::bounded(2);
     let writer = std::thread::Builder::new()
         .name("video-worker-output".into())

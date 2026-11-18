@@ -131,7 +131,9 @@ impl SlateApp {
                 continue;
             };
             let left = super::super::model3d::AUTO_LOCK.saturating_sub(vp.last_interact.elapsed());
-            let text = if vp.tool == model3d::ModelViewportTool::MeasureDistance {
+            let text = if vp.zoom_window_armed() {
+                "Drag a zoom window · Esc to cancel".to_string()
+            } else if vp.tool == model3d::ModelViewportTool::MeasureDistance {
                 if vp.measure_first.is_some() {
                     "Pick the second point".to_string()
                 } else {

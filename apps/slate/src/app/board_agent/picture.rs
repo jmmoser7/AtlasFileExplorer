@@ -332,13 +332,9 @@ impl SlateApp {
         Some(resolve_source(self.tab().path.as_deref(), &image.source))
     }
     pub(super) fn agent_background_pending(&self) -> bool {
-        self.ai.packs.in_flight()
-            || self.agents.recents_rx.is_some()
-            || self.agents.ide_inflight
-            || self.agents.chats_rx.is_some()
+        self.agents.chats_rx.is_some()
             || self.agents.connection_rx.is_some()
             || self.agents.connection_pending.is_some()
-            || self.agents.models_rx.is_some()
             || !self.agents.live_run.is_empty()
             || !self.agents.comfy_queue.is_empty()
             || self.agents.awaiting.values().any(|state| {

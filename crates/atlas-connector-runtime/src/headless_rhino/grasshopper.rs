@@ -17,6 +17,9 @@ use std::{
 };
 
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(300);
+const INSTALLED_COMPONENTS_TIMEOUT: Duration = Duration::from_secs(120);
+const RECOVERY_STARTUP_TIMEOUT: Duration = Duration::from_secs(600);
+const INSTALLED_COMPONENTS_STAGE: &str = "Loading Grasshopper and installed components";
 const JOB_TIMEOUT: Duration = Duration::from_secs(180);
 const POLL: Duration = Duration::from_millis(35);
 const MESSAGE_LIMIT: usize = 8 * 1024 * 1024;
@@ -112,14 +115,14 @@ pub struct Worker {
 
 struct StartupFailure {
     message: String,
-    plugin_crash_protection: bool,
+    retry_built_ins: bool,
 }
 
 impl From<String> for StartupFailure {
     fn from(message: String) -> Self {
         Self {
             message,
-            plugin_crash_protection: false,
+            retry_built_ins: false,
         }
     }
 }
@@ -127,6 +130,28 @@ impl From<String> for StartupFailure {
 impl From<&str> for StartupFailure {
     fn from(message: &str) -> Self {
         message.to_owned().into()
+    }
+}
+
+enum WaitError {
+    Timeout,
+    Failed(String),
+}
+
+impl From<String> for WaitError {
+    fn from(error: String) -> Self {
+        Self::Failed(error)
+    }
+}
+
+impl From<WaitError> for String {
+    fn from(error: WaitError) -> Self {
+        match error {
+            WaitError::Timeout => {
+                "Grasshopper did not respond before the Rhino worker deadline".into()
+            }
+            WaitError::Failed(message) => message,
+        }
     }
 }
 
@@ -141,17 +166,48 @@ impl Worker {
         workspace: &Path,
         cancel: &Cancellation,
     ) -> Result<Self, String> {
-        match Self::start_profile(executable, rhino_system, workspace, cancel, false) {
+        Self::start_with_limits(
+            executable,
+            rhino_system,
+            workspace,
+            cancel,
+            INSTALLED_COMPONENTS_TIMEOUT,
+            RECOVERY_STARTUP_TIMEOUT,
+        )
+    }
+
+    fn start_with_limits(
+        executable: &Path,
+        rhino_system: &Path,
+        workspace: &Path,
+        cancel: &Cancellation,
+        components_timeout: Duration,
+        recovery_timeout: Duration,
+    ) -> Result<Self, String> {
+        match Self::start_profile(
+            executable,
+            rhino_system,
+            workspace,
+            cancel,
+            STARTUP_TIMEOUT,
+            Some(components_timeout),
+        ) {
             Ok(worker) => Ok(worker),
-            Err(error) if error.plugin_crash_protection && !cancel.is_cancelled() => {
-                let mut worker =
-                    Self::start_profile(executable, rhino_system, workspace, cancel, true)
-                        .map_err(|fallback| {
-                            format!(
-                                "{} Built-in-only startup also failed: {}",
-                                error.message, fallback.message
-                            )
-                        })?;
+            Err(error) if error.retry_built_ins && !cancel.is_cancelled() => {
+                let mut worker = Self::start_profile(
+                    executable,
+                    rhino_system,
+                    workspace,
+                    cancel,
+                    recovery_timeout,
+                    None,
+                )
+                .map_err(|fallback| {
+                    format!(
+                        "{} Built-in-only startup also failed: {}",
+                        error.message, fallback.message
+                    )
+                })?;
                 worker.recovery = Some(format!(
                     "Running with Grasshopper's built-in components only. {}",
                     error.message
@@ -167,7 +223,8 @@ impl Worker {
         rhino_system: &Path,
         workspace: &Path,
         cancel: &Cancellation,
-        built_ins_only: bool,
+        timeout: Duration,
+        components_timeout: Option<Duration>,
     ) -> Result<Self, StartupFailure> {
         if cancel.is_cancelled() {
             return Err("Grasshopper startup cancelled".into());
@@ -193,8 +250,15 @@ impl Worker {
         fs::create_dir(root.0.join("jobs")).map_err(io_error)?;
 
         let mut command = Command::new(executable);
-        command.arg(rhino_system).arg(&root.0).arg("grasshopper");
-        if built_ins_only {
+        command
+            .arg(rhino_system)
+            .arg(&root.0)
+            .arg("grasshopper")
+            .env(
+                "SLATE_GRASSHOPPER_OWNER_PID",
+                std::process::id().to_string(),
+            );
+        if components_timeout.is_none() {
             command.arg("built-ins-only");
         }
         command
@@ -219,18 +283,28 @@ impl Worker {
             next_job: 0,
             recovery: None,
         };
-        if let Err(error) = worker.wait_for(&worker.root.0.join("ready"), STARTUP_TIMEOUT, cancel) {
+        if let Err(error) = worker.wait_for(
+            &worker.root.0.join("ready"),
+            timeout,
+            cancel,
+            components_timeout,
+        ) {
             let plugin_crash_protection = worker.root.0.join("plugin-crash-protection").is_file();
             let stage = read_bounded(&worker.root.0.join("progress.txt"), 512)
                 .ok()
                 .and_then(|bytes| String::from_utf8(bytes).ok());
+            let stalled_plugins = matches!(error, WaitError::Timeout)
+                && stage
+                    .as_deref()
+                    .is_some_and(|s| s.trim() == INSTALLED_COMPONENTS_STAGE);
+            let error = String::from(error);
             return Err(StartupFailure {
                 message: if plugin_crash_protection {
                     error
                 } else {
                     stage.map_or_else(|| error.clone(), |stage| format!("{error}. {stage}"))
                 },
-                plugin_crash_protection,
+                retry_built_ins: plugin_crash_protection || stalled_plugins,
             });
         }
         Ok(worker)
@@ -257,7 +331,7 @@ impl Worker {
         writeln!(self.input, "{token}").map_err(io_error)?;
         self.input.flush().map_err(io_error)?;
         let response = directory.0.join("response.json");
-        self.wait_for(&response, JOB_TIMEOUT, cancel)?;
+        self.wait_for(&response, JOB_TIMEOUT, cancel, None)?;
         let mut response: Response =
             serde_json::from_slice(&read_bounded(&response, MESSAGE_LIMIT)?).map_err(io_error)?;
         if let Some(warning) = &self.recovery {
@@ -284,33 +358,55 @@ impl Worker {
         path: &Path,
         timeout: Duration,
         cancel: &Cancellation,
-    ) -> Result<(), String> {
-        let deadline = Instant::now() + timeout;
+        mut components_timeout: Option<Duration>,
+    ) -> Result<(), WaitError> {
+        let mut deadline = Instant::now() + timeout;
+        let mut next_stage_check = Instant::now();
         loop {
-            if cancel.is_cancelled() || Instant::now() >= deadline {
+            if cancel.is_cancelled() {
                 let _ = self.child.kill();
                 let _ = self.child.wait();
-                return Err(if cancel.is_cancelled() {
-                    "Grasshopper request cancelled".into()
-                } else {
-                    "Grasshopper did not respond before the Rhino worker deadline".into()
-                });
+                return Err(WaitError::Failed("Grasshopper request cancelled".into()));
             }
             if path.is_file() {
                 return Ok(());
             }
             let error = self.root.0.join("error.txt");
             if error.is_file() || self.child.try_wait().map_err(io_error)?.is_some() {
-                return Err(read_bounded(&error, 16384)
-                    .ok()
-                    .and_then(|bytes| String::from_utf8(bytes).ok())
-                    .filter(|message| !message.trim().is_empty())
-                    .unwrap_or_else(|| "The Grasshopper worker exited during a request".into()));
+                return Err(WaitError::Failed(
+                    read_bounded(&error, 16384)
+                        .ok()
+                        .and_then(|bytes| String::from_utf8(bytes).ok())
+                        .filter(|message| !message.trim().is_empty())
+                        .unwrap_or_else(|| "The Grasshopper worker exited during a request".into()),
+                ));
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                let _ = self.child.kill();
+                let _ = self.child.wait();
+                return Err(WaitError::Timeout);
+            }
+            if let Some(grace) = components_timeout {
+                if now >= next_stage_check {
+                    next_stage_check = now + Duration::from_secs(1);
+                    if read_bounded(&self.root.0.join("progress.txt"), 512).is_ok_and(|bytes| {
+                        String::from_utf8_lossy(&bytes).trim() == INSTALLED_COMPONENTS_STAGE
+                    }) {
+                        // Installed plug-ins can hang silently without triggering Rhino's crash dialog.
+                        // Bound that stage separately from licensing, scripting and the recovery profile.
+                        deadline = deadline.min(now + grace);
+                        components_timeout = None;
+                    }
+                }
             }
             thread::sleep(POLL);
         }
     }
 }
+
+#[cfg(all(test, windows))]
+mod startup_tests;
 
 impl Drop for Worker {
     fn drop(&mut self) {

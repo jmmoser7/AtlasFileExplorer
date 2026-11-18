@@ -36,8 +36,6 @@ impl SlateApp {
         let anchor = chat_dot_center(rect, false, z);
         let running = self.agent_is_running(node.id);
         let (status_color, status_label, pulse) = agent_status_chip(
-            provider,
-            self.agents.ide,
             self.agents.session(node.id).map(|s| &s.status),
             self.agents.awaiting.get(&node.id),
             palette.accent,

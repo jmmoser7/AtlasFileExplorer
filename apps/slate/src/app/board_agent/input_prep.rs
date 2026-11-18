@@ -298,7 +298,9 @@ mod tests {
         token.resolve(&Ok((1, 1)));
         prep.receive();
         let completed = prep.done.as_ref().unwrap().1.clone();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(200);
+        // The behavior under test is completion ordering. A loaded Windows worker can
+        // take longer than a frame budget to get scheduled.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while prep.pending(1) {
             let mut completion = crossbeam_channel::Select::new();
             completion.recv(&completed);

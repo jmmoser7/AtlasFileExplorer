@@ -114,7 +114,8 @@ pub fn run_play(
     });
     let (win_start, win_end) = playback_window(start, end, open.duration);
     let mut origin_media = super::playback_origin(from, win_start, win_end);
-    if seek(open, origin_media).is_err() {
+    let mut opening = open.opening.take().filter(|_| origin_media == 0.0);
+    if opening.is_none() && seek(open, origin_media).is_err() {
         let _ = ev_tx.send(VideoEvent::Failed { id, token });
         return;
     }
@@ -129,8 +130,15 @@ pub fn run_play(
         if play_token.load(Ordering::SeqCst) != token {
             return;
         }
-        match next_sample(open, PLAY_EDGE) {
-            Ok(Sample::Frame { time, frame }) => {
+        let next = match opening.take() {
+            Some((time, frame)) => Ok(Sample::Frame { time, frame }),
+            None => read_sample(open),
+        };
+        match next {
+            Ok(Sample::Frame {
+                time,
+                frame: sample,
+            }) => {
                 diagnostics::first_decoded(time);
                 if !time.is_finite() || time > clock.media_now(origin_media, Instant::now()) + 8.0 {
                     let _ = ev_tx.send(VideoEvent::Failed { id, token });
@@ -153,9 +161,13 @@ pub fn run_play(
                 }
                 // Seeking may return earlier keyframes. Do not display preroll
                 // or let decoder startup advance the presentation clock.
-                if time < origin_media {
+                if time < origin_media || clock.skip_late_frame(time, Instant::now()) {
                     continue;
                 }
+                let Ok(frame) = copy_sample(&sample, &open.reader, open.stream, PLAY_EDGE) else {
+                    let _ = ev_tx.send(VideoEvent::Failed { id, token });
+                    return;
+                };
                 let now = Instant::now();
                 let due = clock.due(time, now);
                 if due > now {
@@ -163,9 +175,8 @@ pub fn run_play(
                     if play_token.load(Ordering::SeqCst) != token {
                         return;
                     }
-                } else if now.saturating_duration_since(due) > Duration::from_millis(120) {
-                    continue;
                 }
+                clock.frame_sent(Instant::now());
                 diagnostics::first_frame(time);
                 let _ = ev_tx.send(VideoEvent::Play {
                     id,
@@ -219,13 +230,25 @@ fn open_into<'a>(slot: &'a mut Option<Open>, path: &'a Path) -> Option<&'a mut O
     slot.as_mut()
 }
 
-enum Sample {
-    Frame { time: f32, frame: VideoFrame },
+enum Sample<T = VideoFrame> {
+    Frame { time: f32, frame: T },
     Gap,
     Eos,
 }
 
 fn next_sample(open: &Open, max_edge: u32) -> Result<Sample, ()> {
+    match read_sample(open)? {
+        Sample::Frame { time, frame } => Ok(Sample::Frame {
+            time,
+            frame: copy_sample(&frame, &open.reader, open.stream, max_edge)?,
+        }),
+        Sample::Gap => Ok(Sample::Gap),
+        Sample::Eos => Ok(Sample::Eos),
+    }
+}
+
+fn read_sample(open: &Open) -> Result<Sample<IMFSample>, ()> {
+    open.opening.take();
     let mut flags = 0u32;
     let mut stamp = 0i64;
     let mut sample: Option<IMFSample> = None;
@@ -265,7 +288,9 @@ fn next_sample(open: &Open, max_edge: u32) -> Result<Sample, ()> {
     diagnostics::sample_times(stamp, &sample);
     // Preserve valid zero and signed preroll. A successfully decoded frame is
     // then mapped through the reader's once-established video presentation origin.
-    let frame = copy_sample(&sample, &open.reader, open.stream, max_edge)?;
     let time = open.clip_time(stamp);
-    Ok(Sample::Frame { time, frame })
+    Ok(Sample::Frame {
+        time,
+        frame: sample,
+    })
 }

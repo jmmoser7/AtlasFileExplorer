@@ -2,13 +2,20 @@ use super::*;
 
 impl SlateApp {
     pub(in crate::app) fn grasshopper_frame(&mut self, ctx: &egui::Context) {
+        self.maintain_grasshopper_animation(ctx);
         if self.grasshopper.views.is_empty() && self.grasshopper.background.is_none() {
             return;
         }
         let active_doc = self.tab().id;
         self.request_grasshopper_dependencies(ctx);
         let mut links_changed = std::mem::take(&mut self.grasshopper.links_dirty);
-        links_changed |= self.grasshopper.poll_sources(ctx, active_doc);
+        if self.grasshopper.poll_sources(ctx, active_doc) {
+            links::image::refresh_card_previews(
+                &mut self.tabs[self.active_tab],
+                &self.grasshopper.image_revisions,
+            );
+            links_changed = true;
+        }
         let keys: Vec<_> = self.grasshopper.views.keys().copied().collect();
         for key in keys {
             let image = self
@@ -66,13 +73,27 @@ impl SlateApp {
                     if completion.was_bake {
                         ctx.request_repaint();
                     }
+                    let sample = (!completion.was_bake).then_some((
+                        completion.viewer,
+                        completion.instance,
+                        completion.generation,
+                    ));
+                    let solved_frame = completion.result.as_ref().is_ok_and(|solved| {
+                        solved.output.response.status == "ready"
+                            && matches!(solved.preview, Some(Ok(_)))
+                    });
                     self.complete_grasshopper(*completion);
+                    if let Some((key, instance, generation)) = sample {
+                        self.grasshopper_animation_solved(key, instance, generation, solved_frame);
+                    }
                     finished = true;
                 }
             }
         }
         if finished {
             self.update_grasshopper_links();
+            // The model/poster pump runs before this solve pump on each frame.
+            ctx.request_repaint();
         }
         for (id, bake) in self.grasshopper.take_completed_bakes(active_doc) {
             self.place_grasshopper_bake(id, bake);
@@ -138,6 +159,7 @@ impl SlateApp {
             retry_startup: std::mem::take(&mut view.retry_startup),
             local_plugins: std::mem::take(&mut view.local_plugins),
         };
+        let sample = job.bake.is_none().then_some((job.instance, job.generation));
         let background = self
             .grasshopper
             .background
@@ -147,6 +169,9 @@ impl SlateApp {
         } else {
             view.status = Some("The Grasshopper worker stopped. Retry to start it again.".into());
             self.grasshopper.background = None;
+            if let Some((instance, generation)) = sample {
+                self.grasshopper_animation_solved(key, instance, generation, false);
+            }
         }
     }
 

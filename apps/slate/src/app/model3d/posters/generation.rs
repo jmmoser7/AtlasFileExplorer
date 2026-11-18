@@ -38,6 +38,35 @@ impl ModelSpace {
 }
 
 impl SlateApp {
+    /// An explicit export needs the exact artifact even if automatic refinement
+    /// or its PNG writer has just started.
+    pub(crate) fn finish_requested_poster_export(
+        &mut self,
+        info: &ModelNodeInfo,
+        cam: &ModelCamera,
+        aspect: u32,
+        path: &Path,
+    ) {
+        let name = poster_file_name(&info.cache_key, cam, aspect);
+        if let Some(pixels) = self.model3d.cached_poster_pixels(&name) {
+            save_poster(path, &pixels);
+            return;
+        }
+        if !self.model3d.software_refines(&info.cache_key) {
+            return;
+        }
+        let Some(gl) = self.gl.clone() else {
+            return;
+        };
+        let (w, h) = poster_size(aspect);
+        if let Some(image) = self
+            .model3d
+            .render_image(&gl, &info.cache_key, cam, w, h, None)
+        {
+            save_poster(path, &image);
+        }
+    }
+
     pub(in crate::app::model3d) fn model_poster_visible(
         &self,
         id: NodeId,
@@ -85,11 +114,17 @@ impl SlateApp {
         let cam = resolve_camera(&info.cam, min, max);
         let aq = aspect_q(info.rect.w, info.rect.h);
         let (pw, ph) = poster_size(aq);
-        match self
-            .model3d
-            .render_image(&gl, &info.cache_key, &cam, pw, ph, None)
-        {
-            Some(img) => {
+        let request = ViewRequest::Poster((self.tab().id, id));
+        match self.model3d.background_image(
+            &gl,
+            &info.cache_key,
+            &cam,
+            (pw, ph),
+            request,
+            self.frame_no,
+        ) {
+            BackgroundImage::Pending => PosterGeneration::Rendered(false),
+            BackgroundImage::Ready(img) => {
                 self.model3d.store_poster(
                     poster_file_name(&info.cache_key, &cam, aq),
                     poster_path(&info.cache_key, &cam, aq),
@@ -97,7 +132,9 @@ impl SlateApp {
                 );
                 PosterGeneration::Rendered(true)
             }
-            None => PosterGeneration::Rendered(matches!(self.model3d.engine, EngineSlot::Failed)),
+            BackgroundImage::Failed => {
+                PosterGeneration::Rendered(matches!(self.model3d.engine, EngineSlot::Failed))
+            }
         }
     }
 

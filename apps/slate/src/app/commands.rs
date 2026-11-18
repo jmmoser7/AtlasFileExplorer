@@ -1451,7 +1451,7 @@ pub static SPECS: &[CommandSpec] = &[
         BOARD,
         &[],
     ),
-    model::DISPLAY, model::MATERIALS, model::MEASURE, model::GRASSHOPPER_BAKE,
+    model::DISPLAY, model::MATERIALS, model::MEASURE, model::ZOOM_WINDOW, model::ZOOM_EXTENTS, model::GRASSHOPPER_BAKE,
     capture::MENU, capture::STILL_CANVAS,
     capture::STILL_FILE, capture::VIDEO_CANVAS,
     capture::VIDEO_FILE, capture::STOP,

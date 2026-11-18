@@ -16,9 +16,15 @@ using Rhino.Runtime;
 
 internal sealed partial class GrasshopperHost
 {
-    private sealed class PortTree
+    private class PortTree
     {
         public PortBranch[] branches { get; set; }
+    }
+
+    private sealed class InputTree : PortTree
+    {
+        // Changes the solve cache key while the input itself stays a normal file path.
+        public string source_revision { get; set; }
     }
 
     private sealed class PortBranch
@@ -132,14 +138,14 @@ internal sealed partial class GrasshopperHost
         }
     }
 
-    private List<Action> PrepareInputs(Viewer viewer, Dictionary<string, PortTree> inputs)
+    private List<Action> PrepareInputs(Viewer viewer, Dictionary<string, InputTree> inputs)
     {
         var known = new HashSet<string>();
         var actions = new List<Action>();
         foreach (var port in viewer.Ports.Where(port => port.Input))
         {
             known.Add(port.Id);
-            PortTree tree = null;
+            InputTree tree = null;
             if (inputs != null)
                 inputs.TryGetValue(port.Id, out tree);
             string key = tree == null ? null : json.Serialize(tree);

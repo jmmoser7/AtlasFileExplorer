@@ -24,6 +24,14 @@ pub(super) fn input(
         modifiers,
     };
     let (events, phase) = match step {
+        0 if !live_model => (vec![egui::Event::PointerMoved(center)], Some("baseline")),
+        1 if !live_model => (
+            vec![
+                middle(true),
+                egui::Event::PointerMoved(center + Vec2::new(12.5, -7.25)),
+            ],
+            Some("pan"),
+        ),
         0 => (vec![egui::Event::PointerMoved(center), middle(true)], None),
         1..=40 => (
             vec![egui::Event::PointerMoved(
@@ -65,20 +73,20 @@ pub(super) fn input(
                 .collect();
             targets.sort_by(|a, b| a.distance_sq(center).total_cmp(&b.distance_sq(center)));
             let p = if targets.len() >= 2 {
-                targets[(step - 82) / 2 % 2]
+                targets[(step - 82) % 2]
             } else {
                 center
             };
+            // The observer may take longer than a human click. Deliver a
+            // complete click before waiting for its selected pixels.
+            let click = |pressed| egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Default::default(),
+            };
             (
-                vec![
-                    egui::Event::PointerMoved(p),
-                    egui::Event::PointerButton {
-                        pos: p,
-                        button: egui::PointerButton::Primary,
-                        pressed: step % 2 == 0,
-                        modifiers: Default::default(),
-                    },
-                ],
+                vec![egui::Event::PointerMoved(p), click(true), click(false)],
                 Some("selection"),
             )
         }
@@ -110,6 +118,11 @@ impl Driver {
         let thread = std::thread::spawn(move || {
             let mut index = 0u64;
             while let Ok((events, phase, modifiers)) = jobs.recv() {
+                // Let the native window return to its ordinary idle policy
+                // before the first board transform and first wheel input.
+                if index == 1 || index == 42 {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                }
                 // Deterministic jitter exercises arrival during existing work;
                 // it is outside the measured request->capture interval.
                 std::thread::sleep(std::time::Duration::from_millis(5 + index * 7 % 17));

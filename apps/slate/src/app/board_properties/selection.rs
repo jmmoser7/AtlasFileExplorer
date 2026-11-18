@@ -288,7 +288,11 @@ impl SlateApp {
     /// of the selected simple line, or any anchor or knob Direct Select
     /// paints on its target, including selected closed-form vertices.
     pub(crate) fn property_grip_under(&self, screen: Pos2) -> bool {
-        if self.curve_subselect_under(screen) || self.tiny_body_owns_pointer(screen).is_some() {
+        if self.curve_subselect_under(screen)
+            || self
+                .tiny_body_owns_pointer(screen)
+                .is_some_and(|id| self.board_sel.contains(&id))
+        {
             return true;
         }
         match self.board_tool {

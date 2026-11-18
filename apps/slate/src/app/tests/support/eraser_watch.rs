@@ -11,13 +11,20 @@ pub(crate) fn shot_settling(
     prepare: impl FnOnce(&mut egui::RawInput),
     when: &str,
 ) {
-    shot(h, raster, prepare);
+    let out = capture_frame(h, raster, prepare);
+    let far = cross + EVec2::new(500.0, -3.0);
+    if h.app.erase_settling() || !h.app.brush_tiles.last.settled {
+        let samples = cut_points(cross).into_iter().chain([far]);
+        draw_eraser_samples(h, raster, out, samples);
+    } else {
+        // The final frame is also compared over the full 300 × 300 cut area.
+        draw_now(h, raster, out);
+    }
     let xf = h.app.board_xf();
     for p in cut_points(cross) {
         let r = redness(raster, &xf, p);
         assert!(r < lit, "{when}: {p:?} shows the uncut bar ({r:.2})");
     }
-    let far = cross + EVec2::new(500.0, -3.0);
     let r = redness(raster, &xf, far);
     assert!(
         r > lit,

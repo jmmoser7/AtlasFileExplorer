@@ -3,10 +3,10 @@ use crate::video::{timebase::Timeline, STRIP_EDGE};
 use std::path::Path;
 use windows::core::{Interface, PCWSTR};
 use windows::Win32::Media::MediaFoundation::{
-    IMFAttributes, IMFByteStream, IMFMediaType, IMFSourceReader, MFCreateAttributes, MFCreateFile,
-    MFCreateMediaType, MFCreateSourceReaderFromByteStream, MFMediaType_Video, MFVideoFormat_RGB32,
-    MF_ACCESSMODE_READ, MF_FILEFLAGS_NONE, MF_MT_FRAME_RATE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE,
-    MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_PD_DURATION, MF_PD_PLAYBACK_BOUNDARY_TIME,
+    IMFAttributes, IMFByteStream, IMFMediaType, IMFSample, IMFSourceReader, MFCreateAttributes,
+    MFCreateFile, MFCreateMediaType, MFCreateSourceReaderFromByteStream, MFMediaType_Video,
+    MFVideoFormat_RGB32, MF_ACCESSMODE_READ, MF_FILEFLAGS_NONE, MF_MT_FRAME_RATE, MF_MT_MAJOR_TYPE,
+    MF_MT_SUBTYPE, MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_PD_DURATION, MF_PD_PLAYBACK_BOUNDARY_TIME,
     MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SOURCE_READER_ALL_STREAMS,
     MF_SOURCE_READER_CURRENT_TYPE_INDEX, MF_SOURCE_READER_DISABLE_DXVA,
     MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, MF_SOURCE_READER_FIRST_VIDEO_STREAM,
@@ -22,6 +22,7 @@ pub struct Open {
     pub(super) duration: f32,
     pub(super) stream: u32,
     timeline: std::cell::Cell<Option<Timeline>>,
+    pub(super) opening: std::cell::Cell<Option<(f32, IMFSample)>>,
 }
 
 impl Open {
@@ -97,13 +98,18 @@ impl Open {
             duration,
             stream,
             timeline: std::cell::Cell::new(None),
+            opening: std::cell::Cell::new(None),
         };
         // Establish one video-only origin before any user trim/resume seek.
-        // A bounded small-frame calibration never retains a full source copy.
+        // Reuse the first decoded surface when playback begins at the source origin.
         seek(&open, 0.0)?;
         for _ in 0..120 {
-            match super::next_sample(&open, STRIP_EDGE)? {
-                super::Sample::Frame { .. } if open.timeline.get().is_some() => break,
+            match super::read_sample(&open)? {
+                super::Sample::Frame { time, frame } if open.timeline.get().is_some() => {
+                    super::copy_sample(&frame, &open.reader, open.stream, STRIP_EDGE)?;
+                    open.opening.set(Some((time, frame)));
+                    break;
+                }
                 super::Sample::Eos => return Err(()),
                 _ => {}
             }
@@ -163,6 +169,7 @@ fn prop_u64(var: &PROPVARIANT) -> Option<u64> {
 }
 
 pub(super) fn seek(open: &Open, secs: f32) -> Result<(), ()> {
+    open.opening.take();
     let hns = open
         .timeline
         .get()

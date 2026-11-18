@@ -5,8 +5,17 @@
 use super::*;
 use atlas_ai::packs::{PackHealth, OPENAI};
 
-const PACKS: [&str; 7] = [
-    "cursor", "codex", "ollama", "comfy", OPENAI, "sam", "pdfium",
+const PACKS: [&str; 10] = [
+    "cursor",
+    "cursor-cli",
+    "claude-code",
+    "codex",
+    "ollama",
+    "comfy",
+    OPENAI,
+    "sam",
+    "pdfium",
+    "org.slate.rhino-inside",
 ];
 
 /// A board whose packs answer Ok only for `ok`; the startup probe has landed.

@@ -27,6 +27,26 @@ Packaging recompiles this helper. Record the final packaged binary's SHA-256
 and verify an actual licensed SDK job from the installed location, outside the
 checkout, rather than carrying forward a development binary's acceptance.
 
+### Grasshopper plug-in recovery
+
+If the user's normal Grasshopper profile pauses on crash protection, Slate
+starts a factory-components worker. That worker skips GhPython and any factory
+assembly whose full path Grasshopper recorded in its plug-in crash tracker.
+Definitions that depend on one of those assemblies require the user to resolve
+the corresponding warning in Rhino.
+
+On Windows, check the effective component list of a packaged helper with the
+.NET Framework 4.8 compiler and the installed Rhino SDK. The last switch checks
+the case where the vendor tracker already names a factory assembly. Omit it
+to inspect an installation with a clean tracker.
+
+```powershell
+$compiler = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+$probe = Join-Path $env:TEMP 'Slate-RecoveryScopeProof.exe'
+& $compiler /nologo /platform:x64 "/out:$probe" tools/headless-rhino/RecoveryScopeProof.cs
+& $probe 'C:\Program Files\Rhino 8\System' '<installed Slate directory>\HeadlessRhino.exe' --require-tracked-stock
+```
+
 ## Build
 
 Run `./tools/headless-rhino/build.ps1` from the repository. Optional

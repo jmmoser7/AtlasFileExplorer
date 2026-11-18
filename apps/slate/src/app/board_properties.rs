@@ -129,6 +129,7 @@ pub struct ShapeProperties {
     pub panel: Option<Panel>,
     grasshopper_draft: Option<grasshopper::Draft>,
     grasshopper_expanded: Option<scene::GrasshopperControlId>,
+    grasshopper_reveal_hidden: bool,
     grasshopper_drop_area: Option<(NodeId, Rect)>,
     /// One click-away timer for image/Artifact panels and their generator menus; never rearms a tool.
     pub(super) remembered_image_panels: selection::ObjectPanelMemory,
@@ -545,6 +546,7 @@ impl SlateApp {
         if close {
             self.close_grasshopper_draft();
             self.shape_properties.grasshopper_expanded = None;
+            self.shape_properties.grasshopper_reveal_hidden = false;
             self.shape_properties.panel = None;
             self.shape_properties.color = Default::default();
         }

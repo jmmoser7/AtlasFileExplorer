@@ -13,8 +13,13 @@ impl SlateApp {
                 duration,
             } => {
                 let id = NodeId(id);
+                let active_play = self
+                    .video
+                    .play
+                    .as_ref()
+                    .is_some_and(|play| play.id == id && play.token == token);
                 if let Some(strip) = self.video.strips.get_mut(&id) {
-                    if strip.token == token {
+                    if strip.token == token || active_play {
                         strip.duration = duration.max(0.0);
                         strip.probed = true;
                     }
@@ -142,13 +147,6 @@ impl SlateApp {
                     self.video.paused.insert(id, t);
                     if let Some(pool) = self.video.pool.as_ref() {
                         pool.stop();
-                    }
-                    // A filmstrip that already opened the file can still scrub.
-                    if self.video.strips.get(&id).is_some_and(|s| !s.probed) {
-                        if let Some(strip) = self.video.strips.get_mut(&id) {
-                            strip.failed = true;
-                            strip.inflight = false;
-                        }
                     }
                     return;
                 }

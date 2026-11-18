@@ -21,7 +21,7 @@ foreach ($file in @('slate.exe', 'native-file-atlas.exe', 'slate-video-worker.ex
     'runtime/software-gl/opengl32.dll', 'runtime/software-gl/libgallium_wgl.dll', 'runtime/software-gl/Mesa-LICENSE.rst',
     'runtime/software-gl/LLVM-LICENSE.txt', 'runtime/software-gl/NOTICE.txt', 'runtime/software-gl/licenses/MIT',
     'runtime/LICENSE', 'cursor-sidecar/index.mjs', 'cursor-sidecar/artifacts.mjs', 'cursor-sidecar/artifact-generation-v1.md', 'cursor-sidecar/board-link.mjs', 'cursor-sidecar/board-link-v1.md', 'cursor-sidecar/attachments.mjs', 'cursor-sidecar/models.mjs', 'cursor-sidecar/activity.mjs', 'cursor-sidecar/policy.mjs',
-    'cursor-sidecar/install.mjs', 'cursor-sidecar/supervise.mjs', 'cursor-sidecar/package-lock.json', 'PDFium-LICENSE', 'DEJAVU-LICENSE.txt', 'install-shortcuts.ps1')) {
+    'cursor-sidecar/install.mjs', 'cursor-sidecar/supervise.mjs', 'cursor-sidecar/package-lock.json', 'PDFium-LICENSE', 'DEJAVU-LICENSE.txt', 'Rust-licenses/meshopt-notices.txt', 'install-shortcuts.ps1')) {
     if (-not (Test-Path -LiteralPath (Join-Path $AppDirectory $file) -PathType Leaf)) { throw "Package is missing $file" }
 }
 $fonts = @(Get-ChildItem -LiteralPath (Join-Path $AppDirectory 'Rust-licenses') -Directory -Filter 'epaint_default_fonts-*')

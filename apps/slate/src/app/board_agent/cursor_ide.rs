@@ -1,39 +1,7 @@
-//! Cursor IDE pump and failure labels.
+//! Agent connection and failure labels.
 
 use super::*;
 
-impl SlateApp {
-    pub(super) fn pump_cursor_ide(&mut self, ctx: &egui::Context) {
-        if let Some(rx) = &self.agents.ide_rx {
-            match rx.try_recv() {
-                Ok(status) => {
-                    self.agents.ide = status;
-                    self.agents.ide_rx = None;
-                    self.agents.ide_inflight = false;
-                    self.agents.ide_next = Some(Instant::now() + Duration::from_secs(2));
-                    ctx.request_repaint();
-                }
-                Err(crossbeam_channel::TryRecvError::Empty) => {}
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                    self.agents.ide_rx = None;
-                    self.agents.ide_inflight = false;
-                }
-            }
-        }
-        if self.agents.ide_inflight {
-            return;
-        }
-        if self.agents.ide_next.is_some_and(|t| Instant::now() < t) {
-            return;
-        }
-        let (tx, rx) = unbounded();
-        self.agents.ide_rx = Some(rx);
-        self.agents.ide_inflight = true;
-        std::thread::spawn(move || {
-            let _ = tx.send(atlas_ai::launch::probe_cursor_ide());
-        });
-    }
-}
 pub(super) fn recover_label(action: &AgentRecover) -> &'static str {
     match action {
         AgentRecover::OpenUrl { label, .. } | AgentRecover::OpenPath { label, .. } => label,
@@ -147,8 +115,6 @@ pub(super) fn model_fallback(provider: &str) -> &'static str {
 }
 
 pub(super) fn agent_status_chip(
-    provider: &str,
-    ide: CursorIdeStatus,
     sidecar: Option<&AgentStatus>,
     awaiting: Option<&AgentAwait>,
     accent: Color32,
@@ -167,20 +133,17 @@ pub(super) fn agent_status_chip(
         }
         None => {}
     }
-    let (color, label) = agent_live_chip(provider, ide, sidecar, accent, sub, danger);
+    let (color, label) = agent_live_chip(sidecar, accent, sub, danger);
     let pulse = matches!(sidecar, Some(AgentStatus::Thinking));
     (color, label, pulse)
 }
 
 fn agent_live_chip(
-    provider: &str,
-    ide: CursorIdeStatus,
     sidecar: Option<&AgentStatus>,
     accent: Color32,
     sub: Color32,
     danger: Color32,
 ) -> (Color32, &'static str) {
-    let _ = (provider, ide);
     match sidecar {
         Some(AgentStatus::Thinking) => (accent, "Working"),
         Some(AgentStatus::Idle) => (sub, "Ready"),

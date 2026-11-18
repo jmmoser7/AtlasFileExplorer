@@ -430,4 +430,5 @@ fn remove_duplicate_scalar_neighbors(polygon: &mut Vec<([f64; 2], f64)>) {
 #[cfg(test)]
 mod tests {
     include!("coverage_tests.rs");
+    include!("chord_coverage_tests.rs");
 }

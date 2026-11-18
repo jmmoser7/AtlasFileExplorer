@@ -14,7 +14,7 @@ fn media_refinement_video_fixture() {
         VideoEncoder::start_at(dir.join("sample.mp4"), 320, 180, 30, started).unwrap();
     for index in 0..30 {
         let mut rgba = vec![255; 320 * 180 * 4];
-        for (pixel, color) in rgba.chunks_exact_mut(4).enumerate() {
+        for (pixel, color) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             color[0] = (pixel % 320) as u8;
             color[1] = (pixel / 320) as u8;
             color[2] = index * 7;

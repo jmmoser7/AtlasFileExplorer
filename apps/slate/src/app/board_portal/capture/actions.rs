@@ -114,6 +114,7 @@ impl SlateApp {
             return;
         }
         if self.portal_chrome.capture.session.is_some()
+            || self.grasshopper_animation_active()
             || self.portal_capture_active_status().is_some()
         {
             self.toast("Stop or cancel the current capture first.");

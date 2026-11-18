@@ -274,11 +274,32 @@ fn legitimate_image_event_above_old_limit_is_accepted_and_oversize_is_private() 
             std::time::Instant::now() + std::time::Duration::from_secs(10),
         )
         .unwrap();
+    // Start the transfer clock after PowerShell has initialized. Write raw bytes in
+    // blocks so the test measures the line limit without paying console text conversion.
     let script = format!(
-        "[Console]::Out.Write(('PRIVATE_DATA'+'A'*{})); Start-Sleep -Seconds 30",
+        r#"
+        $out = [Console]::OpenStandardOutput()
+        $prefix = [Text.Encoding]::ASCII.GetBytes('PRIVATE_DATA')
+        $block = [Text.Encoding]::ASCII.GetBytes('A' * 65536)
+        [Console]::Out.WriteLine('{{"ready":true}}')
+        [Console]::Out.Flush()
+        $out.Write($prefix, 0, $prefix.Length)
+        for ($remaining = {}; $remaining -gt 0; $remaining -= $block.Length) {{
+            $out.Write($block, 0, [Math]::Min($remaining, $block.Length))
+        }}
+        $out.Flush()
+        Start-Sleep -Seconds 30
+        "#,
         process::MAX_EVENT_BYTES
     );
     let mut oversized = fixed_child(&script);
+    let ready = oversized
+        .receive(
+            &stop,
+            std::time::Instant::now() + std::time::Duration::from_secs(60),
+        )
+        .unwrap();
+    assert_eq!(ready, json!({"ready": true}));
     let error = oversized
         .receive(
             &stop,

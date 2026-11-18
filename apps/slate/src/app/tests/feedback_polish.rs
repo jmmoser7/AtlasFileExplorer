@@ -172,6 +172,31 @@ fn single_palette_hides_selection_and_dimensions_but_multi_selection_keeps_them(
 }
 
 #[test]
+fn stationary_hover_stays_fully_visible_without_another_repaint() {
+    let mut h = grip_board("stationary_hover");
+    let id = NodeId(1);
+    let ctx = egui::Context::default();
+    for frame in 0..180 {
+        let out = ctx.run(Default::default(), |ctx| {
+            h.app.tick_hover_preview(Some(id), 1.0 / 60.0, ctx);
+        });
+        if frame > 150 {
+            assert_eq!(h.app.board_hover_glow.get(&id), Some(&1.0));
+            assert!(
+                out.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+                    > std::time::Duration::from_secs(1)
+            );
+        }
+    }
+    for _ in 0..180 {
+        let _ = ctx.run(Default::default(), |ctx| {
+            h.app.tick_hover_preview(None, 1.0 / 60.0, ctx);
+        });
+    }
+    assert!(h.app.board_hover_glow.is_empty());
+}
+
+#[test]
 fn filled_path_hover_follows_its_boundary_instead_of_the_bounding_box() {
     let mut h = grip_board("feedback_path_hover_boundary");
     let id = commit_polyline(

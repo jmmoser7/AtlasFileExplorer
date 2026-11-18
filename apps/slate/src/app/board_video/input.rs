@@ -98,6 +98,7 @@ impl SlateApp {
         });
         self.ensure_strip(id);
         if self.video.strips.get(&id).is_some_and(|s| s.failed) {
+            self.video.failed_play = Some(id);
             self.video.play = None;
             return;
         }

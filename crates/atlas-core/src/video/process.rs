@@ -1,5 +1,5 @@
 use super::protocol;
-use super::{Job, VideoEvent};
+use super::Job;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -12,7 +12,7 @@ mod job_object;
 /// never on the caller's frame loop. Killing also unblocks both pipe threads.
 pub(super) struct Decoder {
     child: Child,
-    events: Option<crossbeam_channel::Receiver<io::Result<VideoEvent>>>,
+    events: Option<crossbeam_channel::Receiver<io::Result<protocol::Output>>>,
     pipes: Vec<JoinHandle<()>>,
     #[cfg(windows)]
     _job: Option<job_object::JobObject>,
@@ -20,6 +20,7 @@ pub(super) struct Decoder {
 impl Decoder {
     pub fn launch(job: Job, fault: Option<&str>) -> io::Result<Self> {
         let mut command = Command::new(worker_path()?);
+        command.arg("--report-opening");
         command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(
             if std::env::var_os("ATLAS_VIDEO_DIAGNOSTICS").is_some_and(|value| value == "1") {
                 Stdio::inherit()
@@ -85,7 +86,7 @@ impl Decoder {
             std::thread::Builder::new()
                 .name("video-output".into())
                 .spawn(move || loop {
-                    let event = protocol::read_event(&mut output);
+                    let event = protocol::read_output(&mut output);
                     let failed = event.is_err();
                     if sender.send(event).is_err() || failed {
                         break;
@@ -97,7 +98,39 @@ impl Decoder {
     pub fn id(&self) -> u32 {
         self.child.id()
     }
-    pub fn receive(&self) -> Result<io::Result<VideoEvent>, crossbeam_channel::TryRecvError> {
+    #[cfg(windows)]
+    pub fn cpu_time(&self) -> Option<std::time::Duration> {
+        use std::os::windows::io::AsRawHandle;
+        use windows::Win32::Foundation::{FILETIME, HANDLE};
+        use windows::Win32::System::Threading::GetProcessTimes;
+        let (mut created, mut exited, mut kernel, mut user) = (
+            FILETIME::default(),
+            FILETIME::default(),
+            FILETIME::default(),
+            FILETIME::default(),
+        );
+        unsafe {
+            GetProcessTimes(
+                HANDLE(self.child.as_raw_handle()),
+                &mut created,
+                &mut exited,
+                &mut kernel,
+                &mut user,
+            )
+        }
+        .ok()?;
+        let ticks = |t: FILETIME| (u64::from(t.dwHighDateTime) << 32) | u64::from(t.dwLowDateTime);
+        Some(std::time::Duration::from_nanos(
+            ticks(kernel)
+                .saturating_add(ticks(user))
+                .saturating_mul(100),
+        ))
+    }
+    #[cfg(not(windows))]
+    pub fn cpu_time(&self) -> Option<std::time::Duration> {
+        None
+    }
+    pub fn receive(&self) -> Result<io::Result<protocol::Output>, crossbeam_channel::TryRecvError> {
         self.events
             .as_ref()
             .expect("live decoder event receiver")

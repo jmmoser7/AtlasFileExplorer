@@ -24,6 +24,21 @@ accessible labels, resize behavior, and the requested interactions work.
 Page JavaScript runs only in the isolated browser: it cannot invoke Slate
 commands, host objects, secrets, filesystem access, or source write-back.
 
+For a requested Grasshopper dashboard, publish its current named outputs in
+one top-level HTML element, initialized with valid JSON when the page opens:
+
+<script id="slate-outputs" type="application/slate-outputs+json">
+{"version":1,"outputs":[{"id":"1b993386-89d8-4b25-b102-452ea7120eb4","name":"Weights","type":"number","access":"list","value":[0.2,0.8]}]}
+</script>
+
+Give each output its own stable UUID and preserve it when editing a revision.
+On changes, assign the JSON.stringify result for the full declaration to
+the element's textContent. Use number, integer, boolean, text, point or color.
+Use item for a single value, list for an ordered array, or tree for an array
+of {"path":[0],"items":[...]} branches. Points are XYZ arrays and colors are
+RGBA bytes. For a receiver expecting CSV, publish a text item with the CSV
+string. Slate exposes these output names as wire grips on the HTML component.
+
 Visual fidelity is a requirement. Preserve the wired reference's composition,
 palette, typography, spacing, proportions, background, label positions, and
 legend. Keep the initial view faithful while adding the requested interaction.

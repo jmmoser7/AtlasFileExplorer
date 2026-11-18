@@ -4,7 +4,7 @@
 //! on the `ImageNode` chooses the view. Readers in `model-preview` return
 //! one [`model_preview::PreviewScene`]. The lifecycle keeps big models cheap:
 //!
-//! - **Locked (default).** The node paints a *poster* — a PNG rendered from
+//! - **Locked (default).** The node paints a *poster* â€” a PNG rendered from
 //!   the saved camera pose, cached on disk next to the thumbnail cache. No
 //!   mesh, no GPU buffers, no per-frame work. Duplicating the node and
 //!   changing each copy's camera is how one model appears from several
@@ -24,14 +24,14 @@
 //!
 //! Rendering happens **offscreen inside `update`** (the glow GL context is
 //! current there): the scene is drawn into an MSAA framebuffer, resolved,
-//! sampled directly by egui as a native texture — so model nodes go
+//! sampled directly by egui as a native texture â€” so model nodes go
 //! through the exact same `textured_polygon` path as every other board
 //! image (stroke, corners, opacity all apply), and the headless test
 //! harness (no GL) simply never sees a live viewport.
 //!
 //! Files without cached render meshes ("Save Small", wireframe-only saves)
 //! degrade to the embedded-preview thumbnail the thumb pool already
-//! extracts — same look as before this feature existed.
+//! extracts â€” same look as before this feature existed.
 
 use std::collections::{HashMap, VecDeque};
 use std::io::Read;
@@ -54,6 +54,7 @@ use super::SlateApp;
 mod gpu;
 mod grasshopper;
 pub(super) use grasshopper::parse_grasshopper_preview;
+mod live_slots;
 mod materials;
 mod nodes;
 mod posters;
@@ -93,7 +94,7 @@ const ORBIT_PER_PX: f32 = 0.008;
 pub enum ModelViewportTool {
     #[default]
     Navigate,
-    /// Rhino `Distance` — direct line between two picked surface points.
+    /// Rhino `Distance` â€” direct line between two picked surface points.
     MeasureDistance,
 }
 
@@ -207,7 +208,7 @@ fn view_depth_range(view: &[f32; 16], min: [f32; 3], max: [f32; 3]) -> (f32, f32
     (near, far)
 }
 
-/// Capture size near 512² at the node's aspect, in multiples of 8.
+/// Capture size near 512Â² at the node's aspect, in multiples of 8.
 pub fn capture_size(w: f32, h: f32) -> (u32, u32) {
     let aspect = (w / h.max(1.0)).clamp(0.5, 2.0);
     let area = 512.0 * 512.0;
@@ -317,7 +318,7 @@ pub fn world_per_px(cam: &ModelCamera, viewport_px_h: f32) -> f32 {
 
 // ---------- picking (CPU raycast against render meshes) ----------
 
-/// Normalized viewport coordinates (0..1, origin top-left) → world-space ray.
+/// Normalized viewport coordinates (0..1, origin top-left) â†’ world-space ray.
 pub fn ray_from_viewport_uv(
     u: f32,
     v: f32,
@@ -341,7 +342,7 @@ pub fn ray_from_viewport_uv(
     (eye, dir)
 }
 
-/// Closest triangle hit along a ray (Möller–Trumbore). Returns world hit point.
+/// Closest triangle hit along a ray (MÃ¶llerâ€“Trumbore). Returns world hit point.
 pub fn raycast_model(model: &PreviewScene, origin: [f32; 3], dir: [f32; 3]) -> Option<[f32; 3]> {
     let mut best_t = f32::INFINITY;
     let mut best = None;
@@ -494,7 +495,7 @@ pub(crate) fn live_frame_size(screen_w: f32, screen_h: f32, ppp: f32) -> (u32, u
     (w, h, screen_w / screen_h.max(1.0))
 }
 
-/// Pixel size of a viewport screenshot for a node of `w` x `h`: about 512²
+/// Pixel size of a viewport screenshot for a node of `w` x `h`: about 512Â²
 /// at the node's own aspect.
 pub(crate) fn screenshot_size(w: f32, h: f32) -> (u32, u32) {
     let aspect = (w / h.max(1.0)).clamp(1.0 / 16.0, 16.0);
@@ -630,15 +631,23 @@ pub struct ViewTween {
     pub started: Instant,
 }
 
+#[derive(Clone, Copy, Default)]
+struct ZoomWindow {
+    start: Option<egui::Pos2>,
+}
+
 /// One live (unlocked) viewport.
 pub struct LiveViewport {
     /// The item cache key of the model file this node shows.
     pub cache_key: String,
     /// Live camera (resolved: `distance > 0` once the mesh is known).
     pub cam: ModelCamera,
-    /// Document pose at unlock — the `before` of the single patch on lock.
+    /// Document pose at unlock â€” the `before` of the single patch on lock.
     pub before: ModelCamera,
     pub last_interact: Instant,
+    last_navigation: Option<Instant>,
+    pub(crate) navigating_frame: bool,
+    zoom_window: Option<ZoomWindow>,
     /// An egui-managed copy of the displayed frame, only where no GL exists
     /// (the headless harness). GPU viewports paint their live slot instead.
     tex: Option<TextureHandle>,
@@ -660,10 +669,16 @@ pub struct LiveViewport {
 }
 
 impl LiveViewport {
+    pub(crate) fn zoom_window_armed(&self) -> bool {
+        self.zoom_window.is_some()
+    }
+
     fn idle(&self) -> bool {
         // Loading is not inactivity. Give the user a full idle interval
         // after the first successful frame, even on a slow source.
-        (self.tex.is_some() || self.shown) && self.last_interact.elapsed() >= AUTO_LOCK
+        !self.navigating_frame
+            && (self.tex.is_some() || self.shown)
+            && self.last_interact.elapsed() >= AUTO_LOCK
     }
 }
 
@@ -702,7 +717,7 @@ pub struct ModelSpace {
     poster_residency: posters::Residency,
     /// Nodes whose poster needs (re)generation once mesh + GL are ready.
     want_poster: HashMap<ModelNodeKey, u64>,
-    /// Bounds by cache key (kept even after CPU mesh eviction — needed to
+    /// Bounds by cache key (kept even after CPU mesh eviction â€” needed to
     /// resolve auto-fit cameras cheaply, e.g. for artifact export).
     pub bounds: HashMap<String, ([f32; 3], [f32; 3])>,
     /// SHA-256 hex of model file bytes, keyed by item cache key.
@@ -736,6 +751,8 @@ pub struct ModelSpace {
     /// Live viewport GPU frames, claimed by node; never more than
     /// [`MAX_LIVE`].
     live_slots: Vec<LiveSlot>,
+    refinement_frame: Option<(u64, Instant)>,
+    background_jobs: [Option<posters::BackgroundJob>; 2],
     /// Screenshot frame, created on the first screenshot and parked between.
     capture_target: Option<LiveTarget>,
     /// Headless tests enter viewports without GL (nothing renders).
@@ -746,6 +763,8 @@ pub struct ModelSpace {
 struct LiveSlot {
     target: LiveTarget,
     node: Option<NodeId>,
+    /// Existing display while the frozen-camera poster is rendering.
+    frozen: Option<(u64, String, u64)>,
 }
 
 struct EnscapeGrab {
@@ -766,7 +785,7 @@ enum EnscapePhase {
         rx: Receiver<Result<super::enscape_host::Started, super::enscape_host::LaunchError>>,
     },
     #[cfg(windows)]
-    Ready(super::enscape_host::Live),
+    Ready(Box<super::enscape_host::Live>),
     #[cfg(not(windows))]
     #[allow(dead_code)] // No Enscape session starts off Windows.
     Absent,
@@ -812,6 +831,8 @@ impl Default for ModelSpace {
             view_wire_meta: HashMap::new(),
             poster_pixels: HashMap::new(),
             live_slots: Vec::new(),
+            refinement_frame: None,
+            background_jobs: [None, None],
             capture_target: None,
             #[cfg(test)]
             headless_live: false,
@@ -820,154 +841,6 @@ impl Default for ModelSpace {
 }
 
 impl ModelSpace {
-    /// Draw a live pose into the node's slot (claiming a free slot, or
-    /// creating one up to [`MAX_LIVE`], on first use). `true` once drawn.
-    #[allow(clippy::too_many_arguments)]
-    fn render_live(
-        &mut self,
-        gl: &Arc<glow::Context>,
-        id: NodeId,
-        cache_key: &str,
-        cam: &ModelCamera,
-        frame: (u32, u32, f32),
-        adjust: Option<&ImageAdjust>,
-    ) -> bool {
-        if !self.ensure_gpu(gl, cache_key) {
-            return false;
-        }
-        let slot = match self.live_slots.iter().position(|s| s.node == Some(id)) {
-            Some(i) => i,
-            None => match self.live_slots.iter().position(|s| s.node.is_none()) {
-                Some(i) => i,
-                None if self.live_slots.len() < MAX_LIVE => {
-                    let EngineSlot::Ready(engine) = &self.engine else {
-                        return false;
-                    };
-                    let Some(target) = engine.new_live_target() else {
-                        return false;
-                    };
-                    self.live_slots.push(LiveSlot { target, node: None });
-                    self.live_slots.len() - 1
-                }
-                None => return false,
-            },
-        };
-        let (EngineSlot::Ready(engine), Some(gpu)) = (&self.engine, self.gpu.get(cache_key)) else {
-            return false;
-        };
-        let slot = &mut self.live_slots[slot];
-        slot.node = Some(id);
-        engine.render_live(&mut slot.target, &gpu.model, cam, frame, adjust)
-    }
-
-    /// A viewport screenshot: the live pass (display mode, filter, MSAA,
-    /// background, projection at `aspect`) drawn into the pooled capture
-    /// target and read back, top row first.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn render_view_screenshot(
-        &mut self,
-        gl: &Arc<glow::Context>,
-        cache_key: &str,
-        cam: &ModelCamera,
-        frame: (u32, u32, f32),
-        adjust: Option<&ImageAdjust>,
-    ) -> Option<egui::ColorImage> {
-        if !self.ensure_gpu(gl, cache_key) {
-            return None;
-        }
-        let (EngineSlot::Ready(engine), Some(gpu)) = (&self.engine, self.gpu.get(cache_key)) else {
-            return None;
-        };
-        if self.capture_target.is_none() {
-            self.capture_target = engine.new_live_target();
-        }
-        let target = self.capture_target.as_mut()?;
-        let image = engine
-            .render_live(target, &gpu.model, cam, frame, adjust)
-            .then(|| engine.read_target(target))
-            .flatten();
-        engine.park_live_target(target);
-        image
-    }
-
-    /// The egui texture a live viewport paints, once its slot is drawn and
-    /// registered.
-    pub(crate) fn live_texture_id(&self, id: NodeId) -> Option<egui::TextureId> {
-        self.live_slots
-            .iter()
-            .find(|s| s.node == Some(id))
-            .and_then(|s| s.target.egui_id)
-    }
-
-    /// Give each new live slot's display texture to egui's painter. Needs the
-    /// frame (only `eframe::App::update` has one); a slot drawn this frame
-    /// shows from the next.
-    pub(crate) fn register_live_textures(&mut self, frame: &mut eframe::Frame) {
-        if frame.gl().is_none() {
-            return;
-        }
-        for slot in &mut self.live_slots {
-            if slot.target.egui_id.is_none() {
-                slot.target.egui_id = Some(frame.register_native_glow_texture(slot.target.display));
-            }
-        }
-    }
-
-    /// Release slots whose viewport stopped being live.
-    fn park_idle_live_slots(&mut self) {
-        let EngineSlot::Ready(engine) = &self.engine else {
-            return;
-        };
-        for slot in &mut self.live_slots {
-            if slot.node.is_some_and(|n| !self.live.contains_key(&n)) {
-                slot.node = None;
-                engine.park_live_target(&mut slot.target);
-            }
-        }
-    }
-
-    /// Queue one low-res render per display mode for the stringer. Returns the
-    /// generation tag textures must match.
-    fn queue_display_swatches(&mut self, doc: u64, id: NodeId, cam_hash: u64) -> u64 {
-        let key = (doc, id);
-        if self.display_swatch_stamp.get(&key) == Some(&cam_hash) {
-            return *self.display_swatch_gen.get(&key).unwrap_or(&0);
-        }
-        let gen = self.display_swatch_gen.entry(key).or_insert(0);
-        *gen += 1;
-        let tag = *gen;
-        self.display_swatch_stamp.insert(key, cam_hash);
-        self.display_swatch_queue
-            .retain(|(queued_doc, node, _, _)| (*queued_doc, *node) != key);
-        self.display_swatch_pixels
-            .retain(|(queued_doc, node, _, _), _| (*queued_doc, *node) != key);
-        for mode in DISPLAY_SWATCH_MODES {
-            self.display_swatch_queue.push_back((doc, id, tag, mode));
-        }
-        tag
-    }
-
-    fn display_swatch_generation(&self, doc: u64, id: NodeId) -> u64 {
-        self.display_swatch_gen
-            .get(&(doc, id))
-            .copied()
-            .unwrap_or(0)
-    }
-
-    fn take_display_swatch_job(&mut self, doc: u64) -> Option<(u64, NodeId, u64, ModelDisplay)> {
-        for _ in 0..self.display_swatch_queue.len() {
-            let job = self.display_swatch_queue.pop_front()?;
-            if self.display_swatch_gen.get(&(job.0, job.1)) != Some(&job.2) {
-                continue;
-            }
-            if job.0 == doc {
-                return Some(job);
-            }
-            self.display_swatch_queue.push_back(job);
-        }
-        None
-    }
-
     /// Kick off (or re-poll) the off-thread parse of a model file.
     pub(crate) fn request_model(&mut self, cache_key: &str, path: &Path) {
         if self.external.contains(cache_key) || self.models.contains_key(cache_key) {
@@ -1121,7 +994,7 @@ impl ModelSpace {
     }
 
     /// Render a pose into an egui image (offscreen MSAA pass + readback).
-    fn render_image(
+    pub(crate) fn render_image(
         &mut self,
         gl: &Arc<glow::Context>,
         cache_key: &str,
@@ -1186,8 +1059,8 @@ impl ModelSpace {
     }
 
     /// Free GPU/CPU entries nothing is using (called once per frame).
-    fn evict(&mut self) {
-        self.park_idle_live_slots();
+    fn evict(&mut self, doc: u64) {
+        self.park_idle_live_slots(doc);
         let live_keys: std::collections::HashSet<&String> =
             self.live.values().map(|v| &v.cache_key).collect();
         let mut dead_gpu: Vec<String> = self
@@ -1303,6 +1176,9 @@ impl SlateApp {
                 cam,
                 before: info.cam,
                 last_interact: Instant::now(),
+                last_navigation: None,
+                navigating_frame: false,
+                zoom_window: None,
                 tex: None,
                 shown: false,
                 rendered: None,
@@ -1325,7 +1201,7 @@ impl SlateApp {
             return;
         };
         let Some(info) = self.model_node_info(id) else {
-            return; // node deleted while live — nothing to persist
+            return; // node deleted while live â€” nothing to persist
         };
 
         // Render the final pose at poster quality and cache it on disk.
@@ -1338,7 +1214,21 @@ impl SlateApp {
             if let Some(tex) = vp.tex {
                 self.model3d.cache_poster_texture(name.clone(), tex);
             }
-            if let Some(gl) = self.gl.clone() {
+            if self.model3d.software_refines(&info.cache_key) {
+                if let Some((pose, _, _, filter, _)) = vp.rendered {
+                    if pose == cam.cache_hash() {
+                        if let Some(slot) = self
+                            .model3d
+                            .live_slots
+                            .iter_mut()
+                            .find(|s| s.node == Some(id))
+                        {
+                            slot.frozen = Some((doc, name.clone(), filter));
+                        }
+                    }
+                }
+                self.model3d.want_poster.insert((doc, id), self.frame_no);
+            } else if let Some(gl) = self.gl.clone() {
                 let (pw, ph) = poster_size(aq);
                 if let Some(img) =
                     self.model3d
@@ -1349,7 +1239,7 @@ impl SlateApp {
                     self.model3d.want_poster.remove(&(doc, id));
                 }
             }
-            // Commit the pose (skip when untouched, e.g. unlock → instant
+            // Commit the pose (skip when untouched, e.g. unlock â†’ instant
             // relock before the mesh even loaded).
             if cam != vp.before {
                 self.last_board_edit = None;
@@ -1526,12 +1416,15 @@ impl SlateApp {
             let _span = atlas_core::session_log::span("slate.model3d.posters");
             let doc = self.tab().id;
             let view = self.board_paint_view(self.canvas_rect);
-            let wanted: Vec<_> = self
+            let mut wanted: Vec<_> = self
                 .model3d
                 .want_poster
                 .iter()
                 .filter_map(|(&key, &requested_at)| (key.0 == doc).then_some((key, requested_at)))
                 .collect();
+            if let Some(active) = self.model3d.active_poster() {
+                wanted.sort_unstable_by_key(|(key, _)| *key != active);
+            }
             for (key @ (_, id), requested_at) in wanted {
                 if !self.model_poster_visible(id, &view, requested_at)
                     || self.model3d.live.contains_key(&id)
@@ -1563,7 +1456,9 @@ impl SlateApp {
 
         {
             let _span = atlas_core::session_log::span("slate.model3d.evict");
-            self.model3d.evict();
+            let doc = self.tab().id;
+            self.model3d.cancel_unused_views(doc);
+            self.model3d.evict(doc);
         }
 
         if !self.model3d.live.is_empty() {
@@ -1610,18 +1505,59 @@ impl SlateApp {
             adjust.cache_hash(),
             aspect.to_bits(),
         );
-        let up_to_date = self
+        let settling = self
             .model3d
             .live
-            .get(&id)
-            .is_some_and(|vp| vp.rendered == Some(stamp) && vp.shown);
+            .get(&id)?
+            .last_navigation
+            .and_then(|at| Duration::from_millis(135).checked_sub(at.elapsed()))
+            .filter(|_| {
+                self.model3d
+                    .gpu
+                    .get(&cache_key)
+                    .is_some_and(|entry| entry.model.large_scene())
+            });
+        if let Some(remaining) = settling {
+            ctx.request_repaint_after(remaining);
+        }
+        let navigating = settling.is_some();
+        let up_to_date = self.model3d.live.get(&id).is_some_and(|vp| {
+            vp.rendered == Some(stamp) && vp.shown && vp.navigating_frame == navigating
+        });
         if !up_to_date {
             let adjust = (!adjust.is_identity()).then_some(adjust);
-            if !self
+            let quality = if navigating {
+                gpu::FrameQuality::Navigating
+            } else {
+                gpu::FrameQuality::Final
+            };
+            let matching = self
                 .model3d
-                .render_live(&gl, id, &cache_key, &cam, (w, h, aspect), adjust)
-            {
-                return None;
+                .live
+                .get(&id)
+                .is_some_and(|vp| vp.navigating_frame && vp.rendered == Some(stamp));
+            if matching && !navigating && !self.model3d.refinement_time_available(self.frame_no) {
+                ctx.request_repaint();
+                return self.model3d.live_texture_id(id);
+            }
+            let result = self.model3d.render_live(
+                &gl,
+                id,
+                &cache_key,
+                &cam,
+                (w, h, aspect),
+                adjust,
+                quality,
+                matching,
+            );
+            match result {
+                gpu::LiveDraw::Failed => return None,
+                gpu::LiveDraw::Pending => {
+                    ctx.request_repaint();
+                    return self.model3d.live_texture_id(id);
+                }
+                gpu::LiveDraw::Draft if !navigating => ctx.request_repaint(),
+                _ => {}
             }
             let vp = self.model3d.live.get_mut(&id)?;
             if !vp.shown {
@@ -1629,6 +1565,7 @@ impl SlateApp {
                 vp.shown = true;
             }
             vp.rendered = Some(stamp);
+            vp.navigating_frame = matches!(result, gpu::LiveDraw::Draft);
         }
         self.model3d.live_texture_id(id)
     }
@@ -1814,11 +1751,22 @@ impl SlateApp {
         };
         cam.display = mode;
         let edge = DISPLAY_SWATCH_EDGE;
-        let Some(img) = self
-            .model3d
-            .render_image(&gl, &info.cache_key, &cam, edge, edge, None)
-        else {
-            return false;
+        let img = match self.model3d.background_image(
+            &gl,
+            &info.cache_key,
+            &cam,
+            (edge, edge),
+            posters::ViewRequest::Swatch((doc, id), gen),
+            self.frame_no,
+        ) {
+            posters::BackgroundImage::Ready(img) => img,
+            posters::BackgroundImage::Pending => {
+                self.model3d
+                    .display_swatch_queue
+                    .push_front((doc, id, gen, mode));
+                return true;
+            }
+            posters::BackgroundImage::Failed => return false,
         };
         if self.model3d.display_swatch_gen.get(&(doc, id)) != Some(&gen) {
             return false;
@@ -1999,8 +1947,12 @@ impl SlateApp {
         };
         vp.last_interact = Instant::now();
         if vp.cam.distance <= 0.0 {
-            return; // mesh not in yet — nothing sensible to move
+            return; // mesh not in yet â€” nothing sensible to move
         }
+        if dx == 0.0 && dy == 0.0 {
+            return;
+        }
+        vp.last_navigation = Some(vp.last_interact);
         if pan_mode {
             let wpp = world_per_px(&vp.cam, viewport_h);
             pan(&mut vp.cam, dx, dy, wpp);
@@ -2018,6 +1970,10 @@ impl SlateApp {
         if vp.cam.distance <= 0.0 {
             return;
         }
+        if scroll == 0.0 {
+            return;
+        }
+        vp.last_navigation = Some(vp.last_interact);
         let factor = (1.0 - scroll * 0.0015).clamp(0.5, 2.0);
         let radius = if vp.radius > 0.0 {
             vp.radius
@@ -2318,7 +2274,7 @@ impl SlateApp {
         let session = self.model3d.enscape.as_mut()?;
         match incoming {
             Some(Ok(live)) => {
-                session.phase = EnscapePhase::Ready(live.into_live());
+                session.phase = EnscapePhase::Ready(Box::new(live.into_live()));
                 None
             }
             Some(Err(super::enscape_host::LaunchError::WrongMachine)) => {
@@ -2477,7 +2433,7 @@ impl SlateApp {
     pub fn note_engine_failure(&mut self) {
         if matches!(self.model3d.engine, EngineSlot::Failed) && !self.model3d.engine_toast_shown {
             self.model3d.engine_toast_shown = true;
-            self.toast("3D viewport unavailable — GPU shader setup failed");
+            self.toast("3D viewport unavailable â€” GPU shader setup failed");
         }
     }
 }
@@ -2521,14 +2477,22 @@ fn save_poster(path: &Path, img: &egui::ColorImage) {
     for p in &img.pixels {
         rgba.extend_from_slice(&p.to_srgba_unmultiplied());
     }
-    let _ = image::save_buffer_with_format(
-        path,
+    // A background writer and an immediate export may finish the same pose.
+    // Publish only a complete PNG so the exporter never reads a partial file.
+    static NEXT_WRITE: AtomicU64 = AtomicU64::new(0);
+    let sequence = NEXT_WRITE.fetch_add(1, Ordering::Relaxed);
+    let staged = path.with_extension(format!("{}.{}.tmp", std::process::id(), sequence));
+    let written = image::save_buffer_with_format(
+        &staged,
         &rgba,
         w,
         h,
         image::ColorType::Rgba8,
         image::ImageFormat::Png,
     );
+    if written.is_err() || std::fs::rename(&staged, path).is_err() {
+        let _ = std::fs::remove_file(staged);
+    }
 }
 
 fn color_image_from_readback(rgba: &[u8], w: i32, h: i32, flip_rows: bool) -> egui::ColorImage {
@@ -2556,6 +2520,8 @@ fn bytemuck_u32_slice(v: &[u32]) -> &[u8] {
 #[cfg(test)]
 #[path = "model3d/input_tests.rs"]
 mod input_tests;
+
+mod zoom_window;
 
 #[cfg(test)]
 mod tests {
@@ -2597,6 +2563,10 @@ mod tests {
         h.app.zoom_to_rect(info.rect);
         h.frame();
         let cam = resolve_camera(&info.cam, model.bounds_min, model.bounds_max);
+        h.app
+            .model3d
+            .bounds
+            .insert(info.cache_key.clone(), (model.bounds_min, model.bounds_max));
         h.app.model3d.live.insert(
             id,
             LiveViewport {
@@ -2604,6 +2574,9 @@ mod tests {
                 cam,
                 before: info.cam,
                 last_interact: Instant::now(),
+                last_navigation: None,
+                navigating_frame: false,
+                zoom_window: None,
                 tex: Some(h.ctx.load_texture(
                     "test-model-frame",
                     egui::ColorImage::new([2, 2], egui::Color32::RED),
@@ -2997,11 +2970,16 @@ mod tests {
     /// Frames at real time (packet reads and tweens run on the clock) until
     /// `done`, or panic after three seconds.
     fn frames_until(h: &mut Harness, what: &str, done: impl Fn(&SlateApp) -> bool) {
-        let deadline = Instant::now() + Duration::from_secs(3);
+        // A loaded Windows worker can deliver the saved-view metadata after
+        // a scheduling pause. Pump it before checking the watchdog.
+        let deadline = Instant::now() + Duration::from_secs(15);
         while !done(&h.app) {
-            assert!(Instant::now() < deadline, "timed out waiting: {what}");
             std::thread::sleep(Duration::from_millis(8));
             h.frame();
+            assert!(
+                done(&h.app) || Instant::now() < deadline,
+                "timed out waiting: {what}"
+            );
         }
     }
 
@@ -3698,7 +3676,7 @@ mod tests {
         let mut c = cam(0.0, 0.0, 10.0);
         let before = c.target;
         pan(&mut c, 100.0, 0.0, 0.01);
-        // Eye on +X: screen-right is world -Y … the target must move, and
+        // Eye on +X: screen-right is world -Y â€¦ the target must move, and
         // stay at the same height for a horizontal pan.
         assert_ne!(before, c.target);
         assert!((c.target[2] - before[2]).abs() < 1e-4);

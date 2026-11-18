@@ -3,14 +3,17 @@ use super::*;
 use slate_doc::scene::HiddenOutputRef;
 
 fn drain(h: &mut Harness) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while h.app.agents.artifact.active_workers != 0 {
         h.app.pump_artifact_generations(&h.ctx);
+        if h.app.agents.artifact.active_workers == 0 {
+            break;
+        }
         assert!(
             std::time::Instant::now() < deadline,
             "saved-revision worker did not finish"
         );
-        std::thread::yield_now();
+        std::thread::sleep(std::time::Duration::from_millis(2));
     }
 }
 

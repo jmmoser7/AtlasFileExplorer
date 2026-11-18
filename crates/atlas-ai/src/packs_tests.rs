@@ -1,5 +1,15 @@
 use super::*;
 
+// Refresh scheduling and local credential tests have no dependency on external
+// subscription sign-in. Supply those two answers without launching host CLIs.
+fn local_session() -> PackSession {
+    let mut session = PackSession::new();
+    for id in ["cursor-cli", "claude-code"] {
+        session.set_health_override(id, PackHealth::Missing);
+    }
+    session
+}
+
 fn settle(session: &mut PackSession) {
     for _ in 0..400 {
         if !session.probe_pending() {
@@ -49,7 +59,7 @@ fn the_cursor_probe_is_registered_on_the_shipped_manifest() {
 
 #[test]
 fn an_install_is_picked_up_on_the_next_probe_without_a_restart() {
-    let mut session = PackSession::new();
+    let mut session = local_session();
     session.set_health_override("cursor", PackHealth::Missing);
     session.refresh(None);
     settle(&mut session);
@@ -66,7 +76,7 @@ fn an_install_is_picked_up_on_the_next_probe_without_a_restart() {
 
 #[test]
 fn a_refresh_during_a_probe_runs_after_it_instead_of_being_dropped() {
-    let mut session = PackSession::new();
+    let mut session = local_session();
     session.refresh(None);
     session.refresh(None);
     settle(&mut session);
@@ -75,7 +85,7 @@ fn a_refresh_during_a_probe_runs_after_it_instead_of_being_dropped() {
 
 #[test]
 fn an_answer_recorded_mid_probe_is_not_undone_by_the_older_probe() {
-    let mut session = PackSession::new();
+    let mut session = local_session();
     session.set_health_override(OPENAI, PackHealth::Missing);
     session.refresh(None);
     session.set_health_override(OPENAI, PackHealth::Ok);
@@ -109,7 +119,7 @@ fn workspace_programs_survive_and_never_launch() {
 fn a_stored_key_turns_add_api_key_into_a_normal_openai_option() {
     let secrets = temp_dir("secrets");
     std::env::set_var("ATLAS_SECRET_DIR", &secrets);
-    let mut session = PackSession::new();
+    let mut session = local_session();
     session.refresh(None);
     settle(&mut session);
     assert!(session.needs_key(OPENAI));
@@ -152,7 +162,7 @@ fn a_stored_key_turns_add_api_key_into_a_normal_openai_option() {
 
 #[test]
 fn credential_presence_lookup_is_a_cached_read_without_probing() {
-    let mut session = PackSession::new();
+    let mut session = local_session();
     session.credentials = [true, false];
     for _ in 0..1000 {
         assert_eq!(session.credential_present("openai-image"), Some(true));

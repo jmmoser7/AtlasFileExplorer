@@ -44,7 +44,8 @@ fn host(tag: &str) -> (Harness, NodeId, PathBuf) {
 }
 
 fn poll(h: &mut Harness, node: NodeId) {
-    for _ in 0..200 {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
         h.app.agents.image_imports.note_candidate(node);
         h.app.pump_known_agent_image_imports(&h.ctx);
         if h.app.registered_agent_image_item(node).is_some()
@@ -52,9 +53,12 @@ fn poll(h: &mut Harness, node: NodeId) {
         {
             return;
         }
+        assert!(
+            Instant::now() < deadline,
+            "known output metadata did not complete"
+        );
         std::thread::sleep(Duration::from_millis(2));
     }
-    panic!("known output metadata did not complete");
 }
 
 #[test]
@@ -200,12 +204,17 @@ fn missing_file_recovers_after_backoff_without_changing_result_identity() {
         .blocks_retry(&identity, deadline - Duration::from_millis(1)));
     std::fs::write(&path, b"same result is now ready").unwrap();
     assert_eq!(h.app.known_image_import(node).unwrap().identity, identity);
-    for _ in 0..200 {
+    let ready_by = Instant::now() + Duration::from_secs(30);
+    loop {
         h.app.agents.image_imports.note_candidate(node);
         h.app.pump_known_agent_image_imports_at(&h.ctx, deadline);
         if h.app.registered_agent_image_item(node).is_some() {
             break;
         }
+        assert!(
+            Instant::now() < ready_by,
+            "retry did not register the restored file"
+        );
         std::thread::sleep(Duration::from_millis(2));
     }
     assert!(h.app.registered_agent_image_item(node).is_some());

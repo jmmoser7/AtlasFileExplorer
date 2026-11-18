@@ -41,8 +41,36 @@ The local stack showed Intel's Windows OpenGL driver spinning in WGL
 time of the sample. The trigger for the earlier graphics corruption remains
 unknown.
 
+During the November 18 desktop test, closing a workbook with a live HTML
+dashboard produced two Rust panic records in one supervised exit. The first
+identified a borrow conflict in Slate's WebView2 completion callback. The
+second recorded the abort when the panic reached the native callback boundary.
+The local stderr and both panic records identified the initiating fault. The
+redacted summary's panic count alone could not distinguish that sequence from
+two unrelated caught panics.
+
+A separate Grasshopper worker stalled while loading installed components.
+Slate continued running and displayed the worker timeout on the model card.
+The worker's startup milestone, elapsed time and recovery profile were the
+relevant evidence for that incident. On a later retry, Rhino displayed its
+plug-in crash-protection dialog during both normal and built-in-only startup.
+Each helper exited with status 1 before accepting a Grasshopper job. Windows
+recorded no application error for the helper. We identified the cause by
+capturing its short-lived error file before cleanup.
+
 ## Follow-up work
 
+- In the local viewer, order panic records by their capture sequence and show
+  the first failing subsystem alongside the terminal process status. Exercise
+  this with a fixture containing an initial Rust panic and a follow-on abort
+  at a native callback boundary. A shareable summary could use fixed subsystem
+  identifiers while keeping source paths, payloads and stack traces local.
+- For a model-worker timeout, record which startup stage last made progress,
+  its elapsed time, whether recovery ran, and the recovery outcome. Preserve
+  a distinct plug-in-protection result and exit code before the worker mailbox
+  is removed. Exercise a timeout, a vendor protection dialog during recovery,
+  and a definition that fails after startup. Keep plug-in filenames and paths
+  local.
 - Separate build identity from the semantic version. Embed the source revision
   and package channel in release artifacts, retain matching symbol files for
   every public installer, and test symbol lookup against a generated native

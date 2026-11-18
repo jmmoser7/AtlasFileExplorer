@@ -200,6 +200,8 @@ struct Pending {
     attached: bool,
     cancelled: bool,
     document_generation: u64,
+    output_read: dashboard_outputs::Read,
+    control_read: dashboard_outputs::Read,
     navigation_id: Option<u64>,
     navigating: bool,
     /// Latest dashboard wire script. Re-run after each navigation.
@@ -210,10 +212,15 @@ struct Pending {
 
 impl Pending {
     fn begin_navigation(&mut self, id: Option<u64>) {
+        if self.cancelled {
+            return;
+        }
         self.document_generation = self.document_generation.wrapping_add(1);
         self.navigation_id = id;
         self.navigating = true;
         self.url = None;
+        self.output_read = Default::default();
+        self.control_read = Default::default();
     }
 
     fn finish_navigation(&mut self, id: Option<u64>, url: Option<String>, success: bool) -> bool {
@@ -270,7 +277,6 @@ pub struct Webview2Host {
     canvas_drops: Rc<RefCell<Vec<(NodeId, std::path::PathBuf)>>>,
     /// Page text read for an agent run, waiting to be taken.
     texts: Rc<RefCell<HashMap<NodeId, Result<String, String>>>>,
-    controls: Rc<RefCell<HashMap<NodeId, Option<Result<String, String>>>>>,
     /// Sign-in pop-up windows, by the portal whose page opened them.
     popups: Rc<RefCell<PopupBook<isize>>>,
     wake: egui::Context,
@@ -369,7 +375,6 @@ impl Webview2Host {
             escape: Rc::new(Cell::new(false)),
             canvas_drops: Rc::new(RefCell::new(Vec::new())),
             texts: Rc::new(RefCell::new(HashMap::new())),
-            controls: Rc::new(RefCell::new(HashMap::new())),
             popups: Rc::new(RefCell::new(PopupBook::default())),
             wake,
         })
@@ -549,9 +554,10 @@ impl Webview2Host {
         if view.size == (w, h) && view.scale == req.rasterization_scale() {
             return;
         }
+        let controller = view.shared.borrow().controller.clone();
         if view.size == (w, h) {
             view.scale = req.rasterization_scale();
-            if let Some(controller) = view.shared.borrow().controller.clone() {
+            if let Some(controller) = controller {
                 if let Ok(c3) = controller.cast::<ICoreWebView2Controller3>() {
                     let _ = unsafe { c3.SetRasterizationScale(req.rasterization_scale()) };
                 }
@@ -566,7 +572,7 @@ impl Webview2Host {
             X: w as f32,
             Y: h as f32,
         });
-        if let Some(controller) = view.shared.borrow().controller.clone() {
+        if let Some(controller) = controller {
             if let Ok(c3) = controller.cast::<ICoreWebView2Controller3>() {
                 let _ = unsafe { c3.SetRasterizationScale(req.rasterization_scale()) };
             }
@@ -639,57 +645,42 @@ impl Webview2Host {
     }
 }
 
+mod dashboard_outputs;
+
 impl WebHost for Webview2Host {
+    fn has_control_reply(&self, id: NodeId) -> bool {
+        self.views
+            .get(&id)
+            .is_some_and(|v| v.shared.borrow().control_read.ready())
+    }
+    fn request_dashboard_outputs(&mut self, id: NodeId) {
+        self.watch_dashboard(id, true);
+    }
+    fn take_dashboard_outputs(&mut self, id: NodeId) -> Option<Option<String>> {
+        self.views
+            .get(&id)?
+            .shared
+            .borrow_mut()
+            .output_read
+            .take(&self.wake)?
+            .ok()
+    }
     fn control_epoch(&self, id: NodeId) -> u64 {
         self.views
             .get(&id)
             .map_or(0, |view| view.shared.borrow().document_generation)
     }
     fn request_controls(&mut self, id: NodeId) -> bool {
-        if self.controls.borrow().contains_key(&id) {
-            return false;
-        }
-        let Some(webview) = self.webview(id) else {
-            return false;
-        };
-        let shared = self.views.get(&id).unwrap().shared.clone();
-        let generation = shared.borrow().document_generation;
-        let controls = self.controls.clone();
-        let wake = self.wake.clone();
-        self.controls.borrow_mut().insert(id, None);
-        let script = wide(atlas_agent::control::POLL_SCRIPT);
-        let handler = ExecuteScriptCompletedHandler::create(Box::new(
-            move |result: windows::core::Result<()>, json: String| {
-                let value = result.map_err(|e| e.to_string()).and_then(|()| {
-                    if shared.borrow().document_generation != generation
-                        || shared.borrow().cancelled
-                    {
-                        Err("Control page changed while polling".into())
-                    } else {
-                        serde_json::from_str::<String>(&json)
-                            .map_err(|_| "Invalid control reply".into())
-                    }
-                });
-                // Evicted pages cannot repopulate the completion cache.
-                if controls.borrow().contains_key(&id) {
-                    controls.borrow_mut().insert(id, Some(value));
-                }
-                wake.request_repaint();
-                Ok(())
-            },
-        ));
-        if unsafe { webview.ExecuteScript(PCWSTR(script.as_ptr()), &handler) }.is_err() {
-            self.controls.borrow_mut().remove(&id);
-            return false;
-        }
-        true
+        self.watch_dashboard(id, false)
     }
     fn take_controls(&mut self, id: NodeId) -> Option<Result<String, String>> {
-        if self.controls.borrow().get(&id).is_some_and(Option::is_some) {
-            self.controls.borrow_mut().remove(&id).flatten()
-        } else {
-            None
-        }
+        self.views
+            .get(&id)?
+            .shared
+            .borrow_mut()
+            .control_read
+            .take(&self.wake)
+            .map(|v| v.and_then(|s| s.ok_or_else(|| "Invalid control reply".into())))
     }
     fn control_state(&mut self, id: NodeId, state: &serde_json::Value) {
         let Some(webview) = self.webview(id) else {
@@ -835,7 +826,6 @@ impl WebHost for Webview2Host {
     }
 
     fn evict(&mut self, id: NodeId) {
-        self.controls.borrow_mut().remove(&id);
         self.deferred.remove(&id);
         // A pop-up without its opener can only fail; close it with the portal.
         let orphans = self.popups.borrow_mut().evicted(id);
@@ -845,14 +835,22 @@ impl WebHost for Webview2Host {
         let Some(view) = self.views.remove(&id) else {
             return;
         };
-        view.shared.borrow_mut().cancelled = true;
+        // Close can synchronously call navigation and script handlers. Drop
+        // the borrow and detach the per-document receivers before invoking COM.
+        let controller = {
+            let mut page = view.shared.borrow_mut();
+            page.cancelled = true;
+            page.output_read = Default::default();
+            page.control_read = Default::default();
+            page.controller.clone()
+        };
         if let Some(session) = &view.session {
             let _ = session.Close();
         }
         if let Some(pool) = &view.pool {
             let _ = pool.Close();
         }
-        if let Some(controller) = view.shared.borrow().controller.clone() {
+        if let Some(controller) = controller {
             let _ = unsafe { controller.Close() };
         }
         let _ = view.child.SetIsVisible(false);
@@ -1082,15 +1080,19 @@ fn attach(
     let source_wake = hooks.wake.clone();
     let source_changed = SourceChangedEventHandler::create(Box::new(move |sender, _| {
         if let (Some(pending), Some(sender)) = (source_sink.upgrade(), sender) {
+            // COM can deliver another callback while retrieving a property.
+            let mut source = windows::core::PWSTR::null();
+            let url = if unsafe { sender.Source(&mut source) }.is_ok() {
+                take_pwstr(source)
+            } else {
+                None
+            };
             let mut pending = pending.borrow_mut();
-            if !pending.navigating {
-                let mut source = windows::core::PWSTR::null();
-                pending.url = if unsafe { sender.Source(&mut source) }.is_ok() {
-                    take_pwstr(source)
-                } else {
-                    None
-                };
+            if !pending.navigating && !pending.cancelled {
+                pending.url = url;
                 pending.document_generation = pending.document_generation.wrapping_add(1);
+                pending.output_read = Default::default();
+                pending.control_read = Default::default();
             }
             source_wake.request_repaint();
         }
@@ -1122,18 +1124,19 @@ fn attach(
             let mut ok = windows::core::BOOL(0);
             let _ = unsafe { args.IsSuccess(&mut ok) };
             succeeded = ok.as_bool();
-            let mut pending = errors.borrow_mut();
-            if !pending.finish_navigation(navigation_id, source_url, succeeded) {
-                return Ok(());
-            }
-            link_script = pending.link_script.clone();
-            pending.error = if succeeded {
+            let error = if succeeded {
                 None
             } else {
                 let mut status = Default::default();
                 let _ = unsafe { args.WebErrorStatus(&mut status) };
                 Some(format!("the page did not load (error {})", status.0))
             };
+            let mut pending = errors.borrow_mut();
+            if !pending.finish_navigation(navigation_id, source_url, succeeded) {
+                return Ok(());
+            }
+            link_script = pending.link_script.clone();
+            pending.error = error;
         }
         // Following a link changes what the frame shows; saying so is what
         // keeps it honest about being a browser (Art. IV).

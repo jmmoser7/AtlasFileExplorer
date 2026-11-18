@@ -8,7 +8,6 @@ use atlas_ai::agent::{
     launch_provider, AgentContext, AgentRequest, AgentSession, AgentStatus, AgentTurn,
 };
 use atlas_ai::cursor_chats::CursorChat;
-use atlas_ai::launch::CursorIdeStatus;
 use atlas_shell::file_picker::{self, PickRequest};
 use atlas_shell::home::{image_album, AlbumImage};
 use atlas_shell::recent::{RecentEntry, RecentList};

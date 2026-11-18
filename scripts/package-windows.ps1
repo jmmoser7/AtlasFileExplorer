@@ -17,9 +17,12 @@ if (-not $SkipBuild) {
     cargo build --locked --release -p slate -p native-file-atlas -p atlas-core --bin slate --bin native-file-atlas --bin slate-video-worker
     if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
 }
+$metadata = cargo metadata --locked --format-version 1 | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0) { throw 'Dependency metadata failed.' }
+$binaryDirectory = Join-Path $metadata.target_directory 'release'
 # Even SkipBuild packages must include the helper; compile it from the local
 # SDK or the pinned compile-only reference. Neither source is redistributed.
-& (Join-Path $repo 'tools/headless-rhino/build.ps1') -OutputDirectory (Join-Path $repo 'target/release')
+& (Join-Path $repo 'tools/headless-rhino/build.ps1') -OutputDirectory $binaryDirectory
 # CI staging belongs outside Cargo's cached target tree; otherwise each release
 # adds another complete Node/runtime/installer copy to the next build's cache.
 $scratch = if ($env:RUNNER_TEMP) { Join-Path $env:RUNNER_TEMP 'atlas-distribution' } else { Join-Path $repo 'target/distribution' }
@@ -37,11 +40,11 @@ function Get-VerifiedArchive([string]$Url, [string]$Hash, [string]$Name) {
 }
 
 foreach ($exe in @('slate.exe', 'native-file-atlas.exe', 'slate-video-worker.exe')) {
-    Copy-Item -LiteralPath (Join-Path $repo "target/release/$exe") -Destination $stage
+    Copy-Item -LiteralPath (Join-Path $binaryDirectory $exe) -Destination $stage
 }
 # Our compiled bridge only. Rhino's commercial SDK/native DLLs
 # remain in the recipient's installed Rhino directory and are never packaged.
-$rhinoHelper=Join-Path $repo 'target/release/HeadlessRhino.exe'
+$rhinoHelper=Join-Path $binaryDirectory 'HeadlessRhino.exe'
 Copy-Item -LiteralPath $rhinoHelper -Destination $stage
 Copy-Item -LiteralPath (Join-Path $repo 'tools/headless-rhino/README.md') -Destination (Join-Path $stage 'HeadlessRhino-README.md')
 Copy-Item -LiteralPath (Join-Path $repo 'LICENSE') -Destination $stage
@@ -107,8 +110,6 @@ foreach ($file in @('index.mjs', 'artifacts.mjs', 'artifact-generation-v1.md', '
 
 # Carry license texts for compiled Rust dependencies as well as the lockfile.
 $licenses = New-Item -ItemType Directory -Path (Join-Path $stage 'Rust-licenses')
-$metadata = cargo metadata --locked --format-version 1 | ConvertFrom-Json
-if ($LASTEXITCODE -ne 0) { throw 'Dependency metadata failed.' }
 $metadata.packages | Select-Object name, version, license, repository | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $licenses 'index.json') -Encoding utf8
 foreach ($package in $metadata.packages) {
     $dir = Split-Path -Parent $package.manifest_path
@@ -128,6 +129,9 @@ foreach ($package in $metadata.packages) {
     }
 }
 Copy-Item -LiteralPath (Join-Path $repo 'Cargo.lock') -Destination $licenses.FullName
+# meshopt embeds the native license in a C++ header and omits the binding's
+# root license files from its published crate archive.
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'distribution/meshopt-notices.txt') -Destination $licenses.FullName
 
 $id = if ($Channel -eq 'preview') { 'AtlasSuitePreview' } else { 'AtlasSuite' }
 $title = if ($Channel -eq 'preview') { 'Slate Preview' } else { 'Slate' }

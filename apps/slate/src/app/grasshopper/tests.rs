@@ -130,3 +130,80 @@ fn only_blocked_grasshopper_viewers_consume_plugin_files_from_a_mixed_drop() {
     );
     assert!(!harness.app.grasshopper_accepts_plugin_drop(id));
 }
+
+#[test]
+fn grasshopper_hidden_controls_round_trip_without_changing_their_values() {
+    use slate_doc::scene::GrasshopperControlKind;
+    let mut harness = Harness::new("grasshopper-hide-controls");
+    let node = place_definition(&mut harness);
+    let id: GrasshopperControlId = "a4a3e1bc-c137-497e-8a0d-1e7f8ce60501".parse().unwrap();
+    let other: GrasshopperControlId = "a4a3e1bc-c137-497e-8a0d-1e7f8ce60502".parse().unwrap();
+    let controls = [id.clone(), other.clone()].map(|id| GrasshopperControl {
+        id,
+        name: "Angle".into(),
+        kind: GrasshopperControlKind::Slider,
+        value: Some(GrasshopperValue::Number(42.0)),
+        min: Some(0.0),
+        max: Some(90.0),
+        step: Some(1.0),
+        precision: None,
+        options: Vec::new(),
+        multiple: false,
+        status: None,
+    });
+    let key = (harness.app.tab().id, node);
+    harness.app.request_grasshopper(node, &harness.ctx);
+    harness
+        .app
+        .grasshopper
+        .views
+        .get_mut(&key)
+        .unwrap()
+        .controls = controls.to_vec();
+    harness.app.grasshopper_edit(
+        node,
+        id.clone(),
+        GrasshopperValue::Number(23.0),
+        EditPhase::Commit,
+    );
+    let second = place_definition(&mut harness);
+    assert_ne!(node, second);
+    let depth = harness.app.tab().journal.undo_depth();
+    harness.app.grasshopper_set_control_hidden(node, &id, true);
+    harness
+        .app
+        .grasshopper_set_control_hidden(node, &other, true);
+    harness.app.grasshopper_set_control_hidden(node, &id, false);
+    assert_eq!(harness.app.grasshopper_control_counts(node), (1, 1));
+    assert!(harness.app.grasshopper_control_hidden(node, &other));
+    assert!(!harness.app.grasshopper_control_hidden(node, &id));
+    assert_eq!(
+        harness.app.grasshopper_panel(node).unwrap().controls,
+        controls
+    );
+    let path = harness.base.join("scoped-controls.slate");
+    harness.app.doc().save_to(&path).unwrap();
+    let saved = slate_doc::SlateDoc::load_from(&path).unwrap();
+    let NodeKind::Image(reopened) = &saved.scene.node(node).unwrap().kind else {
+        panic!()
+    };
+    let NodeKind::Image(sibling) = &saved.scene.node(second).unwrap().kind else {
+        panic!()
+    };
+    assert!(sibling.grasshopper_hidden_controls.is_none());
+    assert!(sibling.grasshopper.is_none());
+    assert!(reopened
+        .grasshopper_hidden_controls
+        .as_ref()
+        .unwrap()
+        .contains(&other));
+    assert_eq!(
+        reopened.grasshopper.as_ref().unwrap().get(&id),
+        Some(&GrasshopperValue::Number(23.0))
+    );
+    assert_eq!(harness.app.tab().journal.undo_depth(), depth + 3);
+    harness.app.board_undo();
+    assert_eq!(harness.app.grasshopper_control_counts(key.1), (0, 2));
+    harness.app.board_redo();
+    assert_eq!(harness.app.grasshopper_control_counts(key.1), (1, 1));
+}

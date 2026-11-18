@@ -12,7 +12,7 @@ impl ModelEngine {
     pub(super) fn make_shadow(
         &self,
         vao: glow::VertexArray,
-        draws: &[DrawRange],
+        index_count: i32,
         min: [f32; 3],
         max: [f32; 3],
     ) -> Option<Shadow> {
@@ -101,9 +101,7 @@ impl ModelEngine {
                 &matrix,
             );
             gl.bind_vertex_array(Some(vao));
-            for draw in draws {
-                gl.draw_elements(glow::TRIANGLES, draw.count, glow::UNSIGNED_INT, draw.offset);
-            }
+            gl.draw_elements(glow::TRIANGLES, index_count, glow::UNSIGNED_INT, 0);
             gl.disable(glow::POLYGON_OFFSET_FILL);
             gl.disable(glow::DEPTH_TEST);
             gl.bind_vertex_array(None);

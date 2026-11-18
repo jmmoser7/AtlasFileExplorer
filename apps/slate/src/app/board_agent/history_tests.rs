@@ -278,8 +278,6 @@ fn the_chip_names_unreachable_on_failure() {
         actions: Vec::new(),
     };
     let (_, label, pulse) = agent_status_chip(
-        "cursor",
-        CursorIdeStatus::Running,
         Some(&AgentStatus::Idle),
         Some(&waiting),
         Color32::WHITE,
@@ -406,8 +404,6 @@ fn the_chip_pulses_while_thinking() {
         req_at: 1,
     };
     let (_, label, pulse) = agent_status_chip(
-        "cursor",
-        CursorIdeStatus::Running,
         None,
         Some(&waiting),
         Color32::WHITE,

@@ -57,6 +57,22 @@ pub(crate) fn shot(
     draw_now(h, raster, out);
 }
 
+/// Each redness reading covers 5 × 5 screen pixels. Sampling these pixels
+/// avoids charging a full CPU screen capture to the background-worker timeout.
+pub(crate) fn draw_eraser_samples(
+    h: &Harness,
+    raster: &mut FrameRaster,
+    out: egui::FullOutput,
+    samples: impl IntoIterator<Item = Pos2>,
+) {
+    let xf = h.app.board_xf();
+    let mut region = egui::Rect::NOTHING;
+    for point in samples {
+        region.extend_with(xf.w2s(point));
+    }
+    draw_region(h, raster, out, Some(region.expand(4.0)));
+}
+
 /// [`settle_brush`] with every frame fed to `raster`; the settled frame is
 /// drawn.
 pub(crate) fn settle_captured(
@@ -158,7 +174,13 @@ pub(crate) fn assert_never_uncut_after_release(
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     let mut frames = 0;
     loop {
-        shot(h, raster, |_| {});
+        let out = capture_frame(h, raster, |_| {});
+        let settled = h.app.brush_tiles.last.settled && !h.app.erase_settling();
+        if settled {
+            draw_now(h, raster, out);
+        } else {
+            draw_eraser_samples(h, raster, out, cut_points(cross));
+        }
         frames += 1;
         for p in cut_points(cross) {
             let r = redness(raster, &xf, p);
@@ -167,7 +189,7 @@ pub(crate) fn assert_never_uncut_after_release(
                 "frame {frames} after release: {p:?} shows the uncut bar ({r:.2})"
             );
         }
-        if h.app.brush_tiles.last.settled && !h.app.erase_settling() {
+        if settled {
             break;
         }
         assert!(

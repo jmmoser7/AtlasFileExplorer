@@ -34,12 +34,21 @@ impl SlateApp {
             .collect()
     }
 
+    #[cfg(test)]
     pub(super) fn web_pump_portals(&self) -> Vec<(NodeId, PortalNode, slate_doc::WorldRect)> {
+        self.web_pump_portals_for(&HashSet::new())
+    }
+
+    pub(super) fn web_pump_portals_for(
+        &self,
+        dashboards: &HashSet<NodeId>,
+    ) -> Vec<(NodeId, PortalNode, slate_doc::WorldRect)> {
         let mut demanded = self.web.painted.clone();
         let view = (!self.at_home
             && self.presenting.is_none()
             && self.doc().view.active_view == slate_doc::ViewKind::Board)
             .then(|| self.board_paint_view(self.canvas_rect).normalized());
+        demanded.extend(dashboards.iter().copied());
         demanded.extend(self.web.host_open.iter().copied());
         demanded.extend(self.web.focused);
         demanded.extend(self.portal_chrome.maximized);
@@ -134,6 +143,7 @@ impl SlateApp {
         let mut view = WebView::new(key);
         view.still_key = still_key_for(locator);
         if let Some(old) = self.web.views.remove(&id) {
+            self.dashboard_outputs_changed(true);
             view.width_px = old.width_px;
             view.height_px = old.height_px;
             view.area_px = old.area_px;

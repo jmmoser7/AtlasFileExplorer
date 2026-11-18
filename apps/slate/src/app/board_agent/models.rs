@@ -35,27 +35,25 @@ impl AgentRuntime {
 }
 
 impl SlateApp {
-    pub(super) fn pump_agent_models(&mut self) {
-        if let Some((provider, result)) = self
-            .agents
-            .models_rx
-            .as_ref()
-            .and_then(|rx| rx.try_recv().ok())
-        {
-            self.agents.models_rx = None;
-            match result {
-                Ok(models) => {
-                    self.agents.models.insert(provider.clone(), models);
-                    self.agents.models_error.remove(&provider);
+    pub(super) fn pump_agent_models(&mut self, ctx: &egui::Context) {
+        if let Some(rx) = &self.agents.models_rx {
+            match rx.try_recv() {
+                Ok((provider, result)) => {
+                    match result {
+                        Ok(models) => {
+                            self.agents.models.insert(provider.clone(), models);
+                            self.agents.models_error.remove(&provider);
+                        }
+                        Err(error) => {
+                            self.agents.models_error.insert(provider, error);
+                        }
+                    }
+                    self.agents.fit_revision = None;
                 }
-                Err(error) => {
-                    self.agents.models_error.insert(provider, error);
-                }
+                Err(crossbeam_channel::TryRecvError::Empty) => return,
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {}
             }
-            self.agents.fit_revision = None;
-        }
-        if self.agents.models_rx.is_some() {
-            return;
+            self.agents.models_rx = None;
         }
         #[cfg(test)]
         if self.agents.hold_catalog_probes {
@@ -87,6 +85,7 @@ impl SlateApp {
             self.agents.models_started.insert(provider.clone());
             let (tx, rx) = unbounded();
             self.agents.models_rx = Some(rx);
+            let wake = ctx.clone();
             std::thread::spawn(move || {
                 let result = match provider.as_str() {
                     "codex" => atlas_ai::runtime::codex_models(),
@@ -99,7 +98,9 @@ impl SlateApp {
                     "openai-text" => atlas_ai::runtime::openai_text_models(),
                     _ => atlas_ai::runtime::local_models(),
                 };
-                let _ = tx.send((provider, result));
+                if tx.send((provider, result)).is_ok() {
+                    wake.request_repaint();
+                }
             });
         }
     }

@@ -93,18 +93,13 @@ impl SlateApp {
         laid.paint(painter, origin + pad, Color32::WHITE);
     }
 
-    fn video_control_hint(&self, id: NodeId) -> &'static str {
-        if self.video.failed_play == Some(id)
-            || self.video.strips.get(&id).is_some_and(|strip| strip.failed)
-        {
+    pub(super) fn video_control_hint(&self, id: NodeId) -> &'static str {
+        if self.video.failed_play == Some(id) {
             "Video unavailable. Click Play to retry."
-        } else if self
-            .video
-            .pool
-            .as_ref()
-            .is_some_and(|pool| pool.health().status == atlas_core::video::VideoStatus::Unavailable)
+        } else if self.video.strips.get(&id).is_some_and(|strip| strip.failed)
+            && !self.video.paused_frames.contains_key(&id)
         {
-            "Video decoder unavailable. Click Play to retry."
+            "Preview unavailable. Click Play to open the video."
         } else {
             "Play"
         }

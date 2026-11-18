@@ -36,6 +36,13 @@ struct Sample {
     marker_clock_issue: Option<&'static str>,
 }
 
+type FrameSectionSample = (
+    u64,
+    Option<&'static str>,
+    Option<f32>,
+    Vec<(&'static str, f32)>,
+);
+
 struct NativeBench {
     h: Harness,
     capture: Option<WindowCapture>,
@@ -51,6 +58,7 @@ struct NativeBench {
     fit_scale: f32,
     start_zoom: Option<f32>,
     baseline_detail: bool,
+    gl_renderer: String,
     step: usize,
     scene: String,
     settle_until: Option<Instant>,
@@ -64,12 +72,7 @@ struct NativeBench {
     before_model: Option<slate_doc::scene::ModelCamera>,
     samples: Vec<Sample>,
     profile_sections: bool,
-    section_laps: Vec<(
-        u64,
-        Option<&'static str>,
-        Option<f32>,
-        Vec<(&'static str, f32)>,
-    )>,
+    section_laps: Vec<FrameSectionSample>,
     idle: Option<(Instant, usize, Option<f64>)>,
     output: Arc<Mutex<Option<serde_json::Value>>>,
     failure: Option<String>,
@@ -131,6 +134,15 @@ impl NativeBench {
             std::env::var_os("SLATE_MESH_LEGACY_COLORS").is_some(),
         );
         app.kits = crate::app::kits::KitState::builtin_only();
+        let session_log =
+            atlas_core::session_log::SessionLog::persist_at("slate", base.join("session-log"));
+        // Replay the former synchronous diagnostics against precisely the same
+        // gestures, renderer and scene when isolating the effect of persistence.
+        app.session_log = if std::env::var_os("SLATE_LATENCY_SYNC_LOG").is_some() {
+            session_log
+        } else {
+            session_log.with_background_writes()
+        };
         app.leave_home();
         app.ensure_work_tab();
         if baseline_detail {
@@ -183,6 +195,11 @@ impl NativeBench {
             fit_scale,
             start_zoom: None,
             baseline_detail,
+            gl_renderer: cc.gl.as_ref().map_or_else(String::new, |gl| {
+                use eframe::glow::{HasContext, RENDERER};
+                // eframe's creation callback owns the current OpenGL context.
+                unsafe { gl.get_parameter_string(RENDERER) }
+            }),
             step: 0,
             scene,
             settle_until: None,
@@ -344,7 +361,7 @@ impl eframe::App for NativeBench {
         }
         self.h.app.session_log.end_frame(
             started.elapsed(),
-            interval,
+            interval / 1000.0,
             atlas_core::session_log::FrameWake {
                 had_input: self.waiting.is_some(),
                 eager: false,

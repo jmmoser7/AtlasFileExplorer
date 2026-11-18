@@ -36,7 +36,12 @@ pub fn repaint_cause_summary(ctx: &egui::Context) -> String {
         if i > 0 {
             summary.push_str(" | ");
         }
-        let file = cause.file.rsplit(['/', '\\']).next().unwrap_or(cause.file);
+        let mut parts = cause.file.rsplit(['/', '\\']);
+        let file = parts.next().unwrap_or(cause.file);
+        if let Some(module) = parts.next().filter(|part| !part.is_empty()) {
+            summary.push_str(module);
+            summary.push('/');
+        }
         summary.push_str(file);
         summary.push(':');
         summary.push_str(&cause.line.to_string());

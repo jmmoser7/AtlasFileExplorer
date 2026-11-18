@@ -3127,11 +3127,16 @@ pub fn floating_dock(
     if let Some(label_id) = state.label_hover {
         if let Some(item) = visible.iter().find(|item| item.id == label_id) {
             // Linger: any icon with a description expands the chip after delay.
-            let target = if !item.description.is_empty()
-                && now - state.label_hover_since >= tokens.dashboard_describe_delay as f64
-            {
+            let until_description =
+                state.label_hover_since + tokens.dashboard_describe_delay as f64 - now;
+            let target = if !item.description.is_empty() && until_description <= 0.0 {
                 1.0
             } else {
+                if !item.description.is_empty() && until_description > 0.0 {
+                    ctx.request_repaint_after(std::time::Duration::from_secs_f64(
+                        until_description,
+                    ));
+                }
                 0.0
             };
             state.describe_blend = lerp_toward(
@@ -3140,8 +3145,10 @@ pub fn floating_dock(
                 dt,
                 tokens.describe_fade_duration,
             );
-            if target > 0.0 || state.describe_blend > 0.001 {
+            if (target - state.describe_blend).abs() > 0.001 {
                 ctx.request_repaint();
+            } else {
+                state.describe_blend = target;
             }
         }
     } else {
@@ -3165,6 +3172,9 @@ pub fn floating_dock(
         dt,
         tokens.panel_open_duration,
     );
+    if state.panel_open.values().any(|&open| 1.0 - open > 0.001) {
+        ctx.request_repaint();
+    }
 
     // Partition between icons and canvas.
     paint_partition(
@@ -3507,7 +3517,6 @@ pub fn floating_dock(
             state_id.with("tracer"),
         ));
         rounded_route(&painter, &pts, tokens.tracer_corner_radius, stroke);
-        ctx.request_repaint();
     }
 
     // ---- close behavior ----
@@ -3569,14 +3578,16 @@ pub fn floating_dock(
     } else if state.pan_hold {
         state.last_inside_time = now;
     } else if label_hover_candidate.is_none() {
-        let hover_expired = now - state.last_inside_time > tokens.close_delay as f64;
-        if hover_expired {
+        let until_close = state.last_inside_time + tokens.close_delay as f64 - now;
+        if until_close <= 0.0 {
             // Volatile bodies and title chips retire; pins stay.
             state.body_preview = None;
             state.label_hover = None;
             state.label_hover_since = 0.0;
             state.describe_blend = 0.0;
             state.pan_hold = false;
+        } else if state.body_preview.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(until_close));
         }
     }
 
@@ -3590,13 +3601,6 @@ pub fn floating_dock(
         state.pan_hold = false;
     }
 
-    if !state.pinned.is_empty()
-        || state.body_preview.is_some()
-        || state.label_hover.is_some()
-        || state.describe_blend > 0.001
-    {
-        ctx.request_repaint();
-    }
     state.hidden = hidden_from_ctx(ctx);
     state.order = order_from_ctx(ctx);
     if !inline::hosts(side, &visible) && !crate::tuning::dock_advanced_preview() {
@@ -4124,6 +4128,59 @@ fn panel_caption(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_settled_pinned_panel_does_not_schedule_another_frame() {
+        let ctx = egui::Context::default();
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 720.0));
+        let pin = "display";
+        let items = [super::DockItem {
+            id: pin,
+            label: "Display",
+            description: "Display controls",
+            icon: super::DockIcon::Display,
+            kind: super::DockItemKind::Tool,
+            active: false,
+            visible: true,
+            gap_before: false,
+        }];
+        let palette = crate::theme::Palette::dark();
+        for frame in 0..180 {
+            let input = egui::RawInput {
+                screen_rect: Some(rect),
+                time: Some(frame as f64 / 60.0),
+                ..Default::default()
+            };
+            let result = ctx.run(input, |ctx| {
+                super::floating_dock(
+                    ctx,
+                    pin,
+                    rect,
+                    &palette,
+                    super::DockSide::LeftCenter,
+                    &items,
+                    &[pin.to_owned()],
+                    &[],
+                    &[],
+                    &[],
+                    false,
+                    |ui, _| {
+                        ui.label("Static settings");
+                    },
+                );
+            });
+            if frame > 170 {
+                assert!(
+                    result.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+                        > std::time::Duration::from_secs(1)
+                );
+            }
+        }
+        assert!(super::pinned_ids(&ctx, pin)
+            .unwrap()
+            .iter()
+            .any(|id| id == pin));
+    }
+
     #[test]
     fn an_overflowing_palette_keeps_only_the_wheel_direction_it_can_still_move() {
         let down_only = super::ScrollGate {

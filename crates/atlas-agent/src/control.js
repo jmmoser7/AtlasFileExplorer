@@ -1,12 +1,14 @@
 (()=>{
   if(window.slateControl?.version===1)return;
   let sequence=0,queue=[];
-  const api={version:1,state:{ready:false,message:'Waiting for model wire'},
+  const api={version:1,__signalsIntents:true,state:{ready:false,message:'Waiting for model wire'},
     set(control_id,value){
       if(typeof control_id!=='string'||queue.length>=8)throw Error('Control queue is full');
       const intent={version:1,control_id,sequence:++sequence,value};
       if(JSON.stringify(intent).length>4096)throw Error('Control value is too large');
-      queue.push(intent);return intent.sequence;
+      queue.push(intent);
+      window.dispatchEvent(new Event('slate-control-queued'));
+      return intent.sequence;
     },
     __drain(){
       const tag=document.querySelector('script[type="application/slate-control+json"]');

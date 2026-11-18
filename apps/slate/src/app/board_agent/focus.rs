@@ -440,6 +440,7 @@ impl SlateApp {
         let used = self.agents.recents.clone();
         let (tx, rx) = unbounded();
         self.agents.recents_rx = Some(rx);
+        let wake = ctx.clone();
         std::thread::spawn(move || {
             let mut slate = used;
             if !cfg!(test) {
@@ -465,7 +466,9 @@ impl SlateApp {
                     (provider.to_string(), merged)
                 })
                 .collect();
-            let _ = tx.send(list);
+            if tx.send(list).is_ok() {
+                wake.request_repaint();
+            }
         });
     }
 }

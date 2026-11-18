@@ -104,10 +104,24 @@ pub(crate) fn red_around(raster: &FrameRaster, xf: &board::BoardXf, w: Pos2) -> 
 
 /// Tessellate `out` and draw it over black, with no more frames run.
 pub(crate) fn draw_now(h: &Harness, raster: &mut FrameRaster, out: egui::FullOutput) {
-    let prims = h.ctx.tessellate(out.shapes, out.pixels_per_point);
-    for p in raster.px.iter_mut() {
-        *p = [0.0, 0.0, 0.0, 1.0];
+    draw_region(h, raster, out, None);
+}
+
+/// A pixel probe can scissor the real frame after tessellation, preserving
+/// its geometry, draw order and texture uploads while sampling a smaller area.
+pub(crate) fn draw_region(
+    h: &Harness,
+    raster: &mut FrameRaster,
+    out: egui::FullOutput,
+    region: Option<egui::Rect>,
+) {
+    let mut prims = h.ctx.tessellate(out.shapes, out.pixels_per_point);
+    if let Some(region) = region {
+        for primitive in &mut prims {
+            primitive.clip_rect = primitive.clip_rect.intersect(region);
+        }
     }
+    raster.px.fill([0.0, 0.0, 0.0, 1.0]);
     raster.draw(&prims);
 }
 

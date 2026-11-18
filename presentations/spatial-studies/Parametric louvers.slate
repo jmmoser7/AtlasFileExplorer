@@ -1,0 +1,633 @@
+{
+  "format_version": 2,
+  "name": "Parametric louvers",
+  "groups": [],
+  "items": [
+    {
+      "id": 2,
+      "path": "definitions/White fins.ghx",
+      "file_name": "White fins.ghx",
+      "size": 40227,
+      "mtime": 1794998431,
+      "cache_key": "47c58710670ff9e7461e309b9d5a8257",
+      "pdf_page": 0,
+      "assignments": {}
+    },
+    {
+      "id": 4,
+      "path": "controllers/Relief field.png",
+      "file_name": "Relief field.png",
+      "size": 30862,
+      "mtime": 1794971381,
+      "cache_key": "2bc6408ed6b3ae6fc035064f8241909f",
+      "pdf_page": 0,
+      "assignments": {}
+    },
+    {
+      "id": 5,
+      "path": "definitions/Timber fins.ghx",
+      "file_name": "Timber fins.ghx",
+      "size": 107457,
+      "mtime": 1794988108,
+      "cache_key": "8da0aecae91c128017be38c29d171290",
+      "pdf_page": 0,
+      "assignments": {}
+    }
+  ],
+  "view": {
+    "active_view": "board",
+    "cam_x": 0,
+    "cam_y": 0,
+    "zoom": 0.75,
+    "recent_colors": [
+      [
+        0,
+        0,
+        0
+      ]
+    ],
+    "recent_color_used": [
+      3
+    ],
+    "recent_color_clock": 3,
+    "create_style": {}
+  },
+  "scene": {
+    "nodes": [
+      {
+        "id": 1,
+        "rect": {
+          "x": -650,
+          "y": -280,
+          "w": 1300,
+          "h": 556
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "frame": {
+            "title": "Wave louvers",
+            "order": 1,
+            "fill": [
+              243,
+              242,
+              237,
+              255
+            ],
+            "fill_authored": true
+          }
+        }
+      },
+      {
+        "id": 2,
+        "rect": {
+          "x": -610,
+          "y": -255,
+          "w": 1200,
+          "h": 57.6
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Wave louvers",
+            "size": 36,
+            "color": [
+              42,
+              47,
+              50,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 4,
+        "rect": {
+          "x": -610,
+          "y": -182,
+          "w": 470,
+          "h": 28.8
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Spline graph",
+            "size": 18,
+            "color": [
+              42,
+              47,
+              50,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 5,
+        "rect": {
+          "x": -32,
+          "y": -182,
+          "w": 600,
+          "h": 28.8
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Grasshopper model",
+            "size": 18,
+            "color": [
+              42,
+              47,
+              50,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 7,
+        "rect": {
+          "x": -610,
+          "y": -141,
+          "w": 486,
+          "h": 342
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "kind": "web",
+            "title": "Spline graph",
+            "source": {
+              "locator": "controllers/Spline graph.html"
+            },
+            "web": {
+              "viewport": {
+                "width_css": 540,
+                "zoom": "fit"
+              }
+            },
+            "fill": [
+              13,
+              24,
+              28,
+              255
+            ],
+            "class": "host"
+          }
+        }
+      },
+      {
+        "id": 8,
+        "rect": {
+          "x": -32,
+          "y": -141,
+          "w": 651,
+          "h": 342
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "image": {
+            "item": 2,
+            "crop": {
+              "x": 0.0,
+              "y": 0.0,
+              "w": 1.0,
+              "h": 1.0
+            },
+            "corner": {
+              "rounded": {
+                "radius": 8.0
+              }
+            },
+            "stroke": {
+              "width": 0.0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "adjust": {
+              "brightness": 1.0,
+              "contrast": 1.0,
+              "saturate": 1.0,
+              "grayscale": 0.0,
+              "sepia": 0.0,
+              "hue_deg": 0.0,
+              "overlay": null
+            },
+            "video": {
+              "start": 0.0,
+              "end": null,
+              "autoplay": true,
+              "looped": true,
+              "muted": true,
+              "controls": false
+            },
+            "model": {
+              "target": [
+                3136.472286963839,
+                -169.44794556524684,
+                1503.4574155617129
+              ],
+              "yaw": -1.91,
+              "pitch": 0.09,
+              "distance": 7640.966635814341,
+              "display": "shaded",
+              "materials": true
+            }
+          }
+        }
+      },
+      {
+        "id": 9,
+        "rect": {
+          "x": -124,
+          "y": 30.0,
+          "w": 92,
+          "h": 1
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "connector": {
+            "a": {
+              "anchored": {
+                "node": 7,
+                "side": "right",
+                "t": 0.5
+              }
+            },
+            "b": {
+              "anchored": {
+                "node": 8,
+                "side": "left",
+                "t": 0.5
+              }
+            },
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                27,
+                30,
+                34,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Round",
+              "join": "Round",
+              "profile": "Uniform"
+            },
+            "routing": "bezier",
+            "grasshopper": {
+              "source_port": "f2ca3d77-27e4-42b2-8771-814396130001",
+              "target_port": "f2ca3d77-27e4-42b2-8771-814396130002",
+              "kind": "text"
+            }
+          }
+        }
+      },
+      {
+        "id": 10,
+        "rect": {
+          "x": -610,
+          "y": 225,
+          "w": 840,
+          "h": 27.200000000000003
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Double-click the graph. Drag a handle or a curve to move a wave. Add another curve to overlap the waves.",
+            "size": 17,
+            "color": [
+              42,
+              47,
+              50,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 11,
+        "rect": {
+          "x": -650,
+          "y": 345,
+          "w": 1300,
+          "h": 556
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "frame": {
+            "title": "Timber relief",
+            "order": 2,
+            "fill": [
+              243,
+              242,
+              237,
+              255
+            ],
+            "fill_authored": true
+          }
+        }
+      },
+      {
+        "id": 12,
+        "rect": {
+          "x": -610,
+          "y": 370,
+          "w": 1200,
+          "h": 57.6
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Timber relief",
+            "size": 36,
+            "color": [
+              42,
+              47,
+              50,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 14,
+        "rect": {
+          "x": -610,
+          "y": 443,
+          "w": 470,
+          "h": 28.8
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Linked image",
+            "size": 18,
+            "color": [
+              42,
+              47,
+              50,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 15,
+        "rect": {
+          "x": -32,
+          "y": 443,
+          "w": 600,
+          "h": 28.8
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Grasshopper model",
+            "size": 18,
+            "color": [
+              42,
+              47,
+              50,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 17,
+        "rect": {
+          "x": -610.0,
+          "y": 564.8875,
+          "w": 486.0,
+          "h": 180.225
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "image": {
+            "item": 4,
+            "crop": {
+              "x": 0.0,
+              "y": 0.0,
+              "w": 1.0,
+              "h": 1.0
+            },
+            "corner": {
+              "rounded": {
+                "radius": 8.0
+              }
+            },
+            "stroke": {
+              "width": 0.0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "adjust": {
+              "brightness": 1.0,
+              "contrast": 1.0,
+              "saturate": 1.0,
+              "grayscale": 0.0,
+              "sepia": 0.0,
+              "hue_deg": 0.0,
+              "overlay": null
+            },
+            "video": {
+              "start": 0.0,
+              "end": null,
+              "autoplay": true,
+              "looped": true,
+              "muted": true,
+              "controls": false
+            },
+            "model": {
+              "target": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "yaw": -1.36,
+              "pitch": 0.16,
+              "distance": 0.0,
+              "display": "shaded",
+              "materials": true
+            }
+          }
+        }
+      },
+      {
+        "id": 18,
+        "rect": {
+          "x": -32,
+          "y": 484,
+          "w": 651,
+          "h": 342
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "image": {
+            "item": 5,
+            "crop": {
+              "x": 0.0,
+              "y": 0.0,
+              "w": 1.0,
+              "h": 1.0
+            },
+            "corner": {
+              "rounded": {
+                "radius": 8.0
+              }
+            },
+            "stroke": {
+              "width": 0.0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "adjust": {
+              "brightness": 1.0,
+              "contrast": 1.0,
+              "saturate": 1.0,
+              "grayscale": 0.0,
+              "sepia": 0.0,
+              "hue_deg": 0.0,
+              "overlay": null
+            },
+            "video": {
+              "start": 0.0,
+              "end": null,
+              "autoplay": true,
+              "looped": true,
+              "muted": true,
+              "controls": false
+            },
+            "model": {
+              "target": [
+                4067.222396464269,
+                -90.2689341251232,
+                1619.5392932484824
+              ],
+              "yaw": -1.91,
+              "pitch": 0.09,
+              "distance": 9917.804524006837,
+              "display": "shaded",
+              "materials": true
+            }
+          }
+        }
+      },
+      {
+        "id": 19,
+        "rect": {
+          "x": -124.0,
+          "y": 655.0,
+          "w": 92.0,
+          "h": 1
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "connector": {
+            "a": {
+              "anchored": {
+                "node": 17,
+                "side": "right",
+                "t": 0.5
+              }
+            },
+            "b": {
+              "anchored": {
+                "node": 18,
+                "side": "left",
+                "t": 0.5
+              }
+            },
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                27,
+                30,
+                34,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Round",
+              "join": "Round",
+              "profile": "Uniform"
+            },
+            "routing": "bezier",
+            "grasshopper": {
+              "source_port": "f2ca3d77-27e4-42b2-8771-814396130003",
+              "target_port": "f2ca3d77-27e4-42b2-8771-814396130004",
+              "kind": "text"
+            }
+          }
+        }
+      },
+      {
+        "id": 20,
+        "rect": {
+          "x": -610,
+          "y": 850,
+          "w": 792,
+          "h": 27.200000000000003
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "The image supplies the relief field. Its light and dark areas change the front edge of each timber fin.",
+            "size": 17,
+            "color": [
+              42,
+              47,
+              50,
+              255
+            ]
+          }
+        }
+      }
+    ],
+    "next_node_id": 41,
+    "next_group_key": 0
+  },
+  "lens_root": null,
+  "next_group_id": 1,
+  "next_tag_id": 1,
+  "next_item_id": 11
+}

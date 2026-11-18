@@ -267,15 +267,16 @@ impl SlateApp {
         };
         let x0 = first_dot(rect.left(), xf.center.x, xf.offset.x);
         let y0 = first_dot(rect.top(), xf.center.y, xf.offset.y);
-        let mut y = y0;
-        while y < rect.bottom() {
-            let mut x = x0;
-            while x < rect.right() {
-                painter.circle_filled(Pos2::new(x, y), 1.0, dot);
-                x += step;
-            }
-            y += step;
-        }
+        // One paint-list lock for the whole lattice. Indexing from the
+        // shared origin also avoids adding fractional-step error per column.
+        let columns = ((rect.right() - x0) / step).ceil() as usize;
+        let rows = ((rect.bottom() - y0) / step).ceil() as usize;
+        painter.extend((0..rows).flat_map(|row| {
+            let y = y0 + row as f32 * step;
+            (0..columns).map(move |column| {
+                egui::Shape::circle_filled(Pos2::new(x0 + column as f32 * step, y), 1.0, dot)
+            })
+        }));
     }
 
     /// Axis-aligned world bounds of the multi-selection (union of each

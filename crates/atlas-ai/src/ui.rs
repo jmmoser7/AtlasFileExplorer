@@ -53,9 +53,10 @@ impl AiPanel {
         self.packs.cursor_ok()
     }
 
-    /// Drain the async folder picker and the pack probe. Returns true while
-    /// the probe is still running so the caller can wake one more frame.
+    /// Drain the folder picker and pack probe. A completed probe wakes its host.
+    /// The return value indicates whether discovery is still running.
     pub fn poll(&mut self, ctx: &egui::Context) -> bool {
+        self.packs.wake_on_completion(ctx);
         self.packs.ensure_started(self.config.workspace_dir.clone());
         let probe_pending = self.packs.probe_pending();
         if let Some(Some(dir)) = self.picker.poll(ctx) {
@@ -108,20 +109,20 @@ impl AiPanel {
     /// Whether [`AiPanel::update_context`] would build a beacon now. Lets the
     /// app skip gathering selection and file lists on the frames in between.
     pub fn beacon_due(&self) -> bool {
-        self.last_beacon
-            .is_none_or(|t| t.elapsed() >= BEACON_INTERVAL)
+        self.config.workspace_dir.is_some()
+            && self
+                .last_beacon
+                .is_none_or(|t| t.elapsed() >= BEACON_INTERVAL)
     }
 
     pub fn update_context(&mut self, build: impl FnOnce() -> AiAppContext) {
-        if let Some(t) = self.last_beacon {
-            if t.elapsed() < BEACON_INTERVAL {
-                return;
-            }
+        if !self.beacon_due() {
+            return;
         }
+        self.last_beacon = Some(Instant::now());
         let Some(ws) = self.config.valid_workspace().map(PathBuf::from) else {
             return;
         };
-        self.last_beacon = Some(Instant::now());
         let mut ctx = build();
         ctx.generated_at = now_secs();
         let fp = ctx.fingerprint();

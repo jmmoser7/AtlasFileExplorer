@@ -315,10 +315,6 @@ pub struct AgentRuntime {
     pub(crate) dispatched: Vec<(NodeId, atlas_agent::AgentRequest)>,
     /// Contents focus — selection is not this (P1.portal.contents-focus).
     pub focused: Option<NodeId>,
-    pub(super) ide: CursorIdeStatus,
-    pub(super) ide_rx: Option<Receiver<CursorIdeStatus>>,
-    pub(super) ide_inflight: bool,
-    pub(super) ide_next: Option<Instant>,
     pub(super) chats: HashMap<(String, PathBuf), Vec<CursorChat>>,
     pub(super) chats_rx: Option<Receiver<ChatsResult>>,
     pub(super) chats_inflight: HashMap<PathBuf, Instant>,

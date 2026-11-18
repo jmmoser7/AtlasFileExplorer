@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Facade attractor</title>
+<style>
+* { box-sizing:border-box }
+html, body { height:100%; margin:0 }
+body { display:grid; grid-template-rows:auto minmax(90px,1fr) auto; gap:12px; padding:18px; background:#122826; color:#f2f5e9; font:15px/1.35 "Segoe UI",sans-serif }
+header, footer { display:flex; justify-content:space-between; align-items:baseline; gap:12px }
+h1 { font-size:22px; font-weight:600; margin:0 }
+small,output { color:#bdd4c7; font-size:13px }
+canvas { width:100%; height:100%; display:block; border:1px solid #60867a; border-radius:5px; touch-action:none; cursor:crosshair }
+canvas:focus-visible { outline:2px solid ivory }
+footer { align-items:center }
+label { display:flex; align-items:center; gap:6px }
+input { width:6em; accent-color:#e3b96d }
+</style>
+<header><h1>Facade attractor</h1><small>12 columns × 8 rows</small></header>
+<canvas tabindex="0" aria-label="Gaussian influence field. Drag the attractor or use the arrow keys."></canvas>
+<footer><label>Spread <input id="spread" type="range" min="0.6" max="3.2" step="0.1" value="1.8"></label><output id="position"></output></footer>
+<script id="slate-outputs" data-slate-controller="d7436103-4e1b-46c7-a2ab-983d454fc102" type="application/slate-outputs+json">{"version":1,"outputs":[{"id":"1b993386-89d8-4b25-b102-452ea7120eb4","name":"Module weights (CSV)","type":"text","access":"item","value":""}]}</script>
+<script>
+const field = document.querySelector("canvas");
+const spread = document.querySelector("#spread");
+const position = document.querySelector("#position");
+const output = document.querySelector("#slate-outputs");
+const manifest = JSON.parse(output.textContent);
+const columns = 12, rows = 8;
+let u = 0.38, v = 0.52;
+const clamp = x => Math.max(0, Math.min(1, x));
+function render() {
+  const box = field.getBoundingClientRect();
+  if (!box.width || !box.height) return;
+  const ratio = window.devicePixelRatio || 1;
+  field.width = Math.round(box.width * ratio);
+  field.height = Math.round(box.height * ratio);
+  const ctx = field.getContext("2d");
+  ctx.scale(ratio, ratio);
+  const w = box.width / columns, h = box.height / rows;
+  const values = [];
+  const sigma = Number(spread.value);
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < columns; x++) {
+      const squared = (x + 0.5 - columns * u) ** 2 + (y + 0.5 - rows * v) ** 2;
+      const weight = Math.exp(-squared / (2 * sigma ** 2));
+      values.push(weight.toFixed(4));
+      ctx.fillStyle = weight < 0.5
+        ? 'rgb(' + [27 + 96*weight, 71 + 151*weight, 73 + 58*weight].join(',') + ')'
+        : 'rgb(' + [75 + 340*(weight-.5), 146 + 80*(weight-.5), 102 - 60*(weight-.5)].join(',') + ')';
+      ctx.fillRect(x*w+1, y*h+1, Math.max(1,w-2), Math.max(1,h-2));
+    }
+  }
+  const px = box.width*u, py = box.height*v;
+  ctx.beginPath(); ctx.arc(px, py, 8, 0, 2*Math.PI);
+  ctx.strokeStyle = "#152a28"; ctx.lineWidth = 5; ctx.stroke();
+  ctx.strokeStyle = "#fff4d6"; ctx.lineWidth = 2.5; ctx.stroke();
+  position.value = "X " + (u*columns).toFixed(1) + " · Y " + (v*rows).toFixed(1);
+  manifest.outputs[0].value = values.join(",");
+  output.textContent = JSON.stringify(manifest);
+}
+function commit() {
+  output.dispatchEvent(new CustomEvent('slate-controller-edit', {detail: {u,v,spread:Number(spread.value)}}));
+}
+output.addEventListener('slate-controller-restore', event => {
+  const value=event.detail ?? {u:.38,v:.52,spread:1.8};
+  if (![value.u,value.v,value.spread].every(Number.isFinite)
+      || value.u<0 || value.u>1 || value.v<0 || value.v>1 || value.spread<.6 || value.spread>3.2) return;
+  u=value.u; v=value.v; spread.value=String(value.spread); render();
+});
+function place(event) {
+  const box = field.getBoundingClientRect();
+  u = clamp((event.clientX-box.left)/box.width);
+  v = clamp((event.clientY-box.top)/box.height);
+  render();
+}
+field.addEventListener("pointerdown", event => {field.setPointerCapture(event.pointerId); place(event)});
+field.addEventListener("pointerup", event => {if (field.hasPointerCapture(event.pointerId)) commit()});
+field.addEventListener("pointermove", event => {if (field.hasPointerCapture(event.pointerId)) place(event)});
+field.addEventListener("keydown", event => {
+  const shift = {ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1]}[event.key];
+  if (!shift) return;
+  event.preventDefault();
+  u=clamp(u+shift[0]/columns/4); v=clamp(v+shift[1]/rows/4); render(); commit();
+});
+spread.addEventListener("input",render);
+spread.addEventListener("change",commit);
+new ResizeObserver(render).observe(field);
+render();
+</script>
+</html>

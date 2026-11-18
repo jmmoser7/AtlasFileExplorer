@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -109,18 +110,31 @@ internal sealed class GrasshopperStartup : IDisposable
 
     private static string TrackedPluginNames()
     {
+        return String.Join(", ", TrackedPluginPaths()
+            .Select(Path.GetFileName).Distinct(StringComparer.OrdinalIgnoreCase).Take(8));
+    }
+
+    internal static HashSet<string> TrackedPluginPaths()
+    {
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var root = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         var path = Path.Combine(root, "Grasshopper", "PluginLoading.txt");
         try
         {
             if (new FileInfo(path).Length > 16384)
-                return null;
-            return String.Join(", ", File.ReadLines(path).Take(8).Select(line => Path.GetFileName(line.Trim()))
-                .Where(name => !String.IsNullOrEmpty(name)).Distinct(StringComparer.OrdinalIgnoreCase));
+                return paths;
+            foreach (var line in File.ReadLines(path))
+            {
+                var file = line.Trim();
+                if (Path.IsPathRooted(file))
+                    paths.Add(Path.GetFullPath(file));
+            }
         }
-        catch (IOException) { return null; }
-        catch (UnauthorizedAccessException) { return null; }
-        catch (ArgumentException) { return null; }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        catch (ArgumentException) { }
+        catch (NotSupportedException) { }
+        return paths;
     }
 
     private static bool HasCrashDialog(int processId)

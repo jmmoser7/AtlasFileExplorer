@@ -223,6 +223,8 @@ impl SlateApp {
             }
             "board.model_display" => self.dispatch_model_display(detail.as_deref()),
             "board.model_materials" => self.dispatch_model_materials(detail.as_deref()),
+            "board.model_zoom_window" => self.zoom_model_command(detail.as_deref(), false),
+            "board.model_zoom_extents" => self.zoom_model_command(detail.as_deref(), true),
             "board.model_measure" => self.dispatch_model_measure(detail.as_deref()),
             "board.model_grasshopper_bake" => self.dispatch_grasshopper_bake(detail.as_deref()),
             command if capture::owns_command(command) => {
@@ -362,7 +364,7 @@ impl SlateApp {
                 true
             }
             "canvas.fit" => {
-                self.fit_active_view();
+                self.fit_board();
                 true
             }
             // ----- board tools ------------------------------------------------------
@@ -594,7 +596,7 @@ impl SlateApp {
                     board::BoardTool::Smooth => "smooth",
                     _ => "brush",
                 };
-                detail = detail.or(Some(format!("{label} → {w:.1}u")));
+                detail = detail.or(Some(format!("{label} â†’ {w:.1}u")));
                 true
             }
             "board.brush.softness_down" | "board.brush.softness_up" => {
@@ -752,7 +754,7 @@ impl SlateApp {
             }
             "board.dock.advanced" => {
                 // Retired from palette chrome; the id stays on the command
-                // surface so Advanced → Commands does not go stale.
+                // surface so Advanced â†’ Commands does not go stale.
                 true
             }
             "dock.bar.toggle" => {
@@ -912,7 +914,7 @@ impl SlateApp {
                     });
                     self.last_board_edit = None; // toggles never coalesce
                     detail = detail.or(Some(format!(
-                        "{} → {}",
+                        "{} â†’ {}",
                         images.len(),
                         if target > 0.0 { "on" } else { "off" }
                     )));
@@ -970,11 +972,6 @@ impl SlateApp {
         ran
     }
 
-    /// Fit the active view (used by the palette's `canvas.fit`). Board uses
-    fn fit_active_view(&mut self) {
-        self.fit_board();
-    }
-
     // ---------- the keyboard front-end ----------
 
     fn hotkeys(&mut self, ctx: &egui::Context, space_interrupted: bool) {
@@ -1005,7 +1002,7 @@ impl SlateApp {
         // A focused web portal is a keyboard sink, like an inline editor: bare
         // letters, digits, Tab, and arrows belong to the page, so typing in a
         // form cannot switch tools (D22). Ctrl chords except clipboard stay
-        // Slate's — save/undo work — and Escape stays out so it can still peel
+        // Slate's â€” save/undo work â€” and Escape stays out so it can still peel
         // the focus back off.
         let web_focus = board && self.web.focused.is_some();
         let agent_focus = board && self.agents.focused.is_some();
@@ -1041,9 +1038,12 @@ impl SlateApp {
             && !self.text_compose_active()
             && !self.search.open;
 
+        if command_typing_ok && self.model_zoom_keys(ctx) {
+            return;
+        }
         struct Keys {
             matched: Vec<CommandId>,
-            /// Bare A–Z chords deferred for the type-to-command hold window.
+            /// Bare Aâ€“Z chords deferred for the type-to-command hold window.
             bare_letter: Option<(CommandId, char)>,
             /// Printable text typed this frame (lowercase), for command entry.
             typed: String,
@@ -1145,7 +1145,7 @@ impl SlateApp {
 
             // The platform integration may deliver Ctrl+C/X/V as
             // Copy/Cut/Paste events (with the OS clipboard payload) instead
-            // of — or as well as — key events. Map them onto the same
+            // of â€” or as well as â€” key events. Map them onto the same
             // commands; `push_unique` keeps double delivery harmless.
             if !wants_kb && !typing_sink && !palette_open {
                 for e in &i.events {
@@ -1320,7 +1320,7 @@ impl SlateApp {
         } else if command_typing_ok {
             if let Some((id, ch)) = keys.bare_letter {
                 // Same frame may already carry more than the first letter
-                // (fast typists) — go straight to command entry.
+                // (fast typists) â€” go straight to command entry.
                 let mut buf = String::new();
                 if keys.typed.is_empty() {
                     buf.push(ch);
@@ -1385,7 +1385,7 @@ impl SlateApp {
         }
         self.pending_paste_text = None;
 
-        // --- line draft numeric entry (typed digits set length — D08) ---
+        // --- line draft numeric entry (typed digits set length â€” D08) ---
         if board && self.line_draft.is_some() && !wants_kb && !editing && !palette_open {
             let (typed, backspaces) = ctx.input(|i| {
                 let mut typed = String::new();
@@ -1466,7 +1466,7 @@ impl SlateApp {
                     self.expand_with_members(&self.board_sel.iter().copied().collect::<Vec<_>>());
                 self.patch_nodes(&ids, move |n| n.rect = n.rect.translated(mx, my));
             } else {
-                // Pan: a comfortable screen-space step, Shift = ×4.
+                // Pan: a comfortable screen-space step, Shift = Ã—4.
                 let px = if keys.shift { 240.0 } else { 60.0 };
                 let z = self.tab().cam.z.max(f32::EPSILON);
                 self.tab_mut().cam.offset += egui::Vec2::new(dx * px, dy * px) / z;

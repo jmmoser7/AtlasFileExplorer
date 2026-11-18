@@ -944,7 +944,7 @@ impl SlateApp {
             view_drop_preview: None,
             shape_fill_preview: None,
             pending_view_wire_cache: Vec::new(),
-            video: board_video::VideoBoard::default(),
+            video: board_video::VideoBoard::new(egui_ctx),
             board_snap_guides: Vec::new(),
             board_forcefield: board_forcefield::Forcefield::default(),
             board_show_grid: true,
@@ -977,7 +977,7 @@ impl SlateApp {
             session_log: if cfg!(test) {
                 atlas_core::session_log::SessionLog::memory("slate")
             } else {
-                atlas_core::session_log::SessionLog::new("slate")
+                atlas_core::session_log::SessionLog::new("slate").with_background_writes()
             },
             crash_feedback: crash_feedback::Review::default(),
             feedback: {
@@ -1790,7 +1790,9 @@ impl SlateApp {
     /// same model can appear from several saved perspectives). Best effort:
     /// nodes whose poster was never rendered (model never seen on the
     /// board) fall back to the item thumbnail card.
-    fn export_model_poster_map(&self) -> std::collections::BTreeMap<slate_doc::NodeId, PathBuf> {
+    fn export_model_poster_map(
+        &mut self,
+    ) -> std::collections::BTreeMap<slate_doc::NodeId, PathBuf> {
         let mut map = std::collections::BTreeMap::new();
         for info in self.model_nodes() {
             let cam = if info.cam.distance > 0.0 {
@@ -1804,6 +1806,9 @@ impl SlateApp {
             };
             let aq = model3d::aspect_q(info.rect.w, info.rect.h);
             let poster = model3d::poster_path(&info.cache_key, &cam, aq);
+            if !poster.exists() {
+                self.finish_requested_poster_export(&info, &cam, aq, &poster);
+            }
             if poster.exists() {
                 map.insert(info.node, poster);
             }
@@ -1999,9 +2004,7 @@ impl SlateApp {
             let _span = atlas_core::session_log::span("slate.ai");
             {
                 let _poll = atlas_core::session_log::span("slate.ai.poll");
-                if self.ai.poll(ctx) {
-                    ctx.request_repaint_after(std::time::Duration::from_millis(50));
-                }
+                self.ai.poll(ctx);
             }
             let _beacon = atlas_core::session_log::span("slate.ai.beacon");
             self.ai_context_frame();
@@ -2202,14 +2205,16 @@ impl SlateApp {
             return;
         }
         let tab = self.tab();
-        let selection = self.selection.clone();
         let doc = &tab.doc;
-        let selection_paths: Vec<PathBuf> = doc
-            .items
-            .iter()
-            .filter(|it| selection.contains(&it.id))
-            .map(|it| it.path.clone())
-            .collect();
+        let selection_paths: Vec<PathBuf> = if self.selection.is_empty() {
+            Vec::new()
+        } else {
+            doc.items
+                .iter()
+                .filter(|it| self.selection.contains(&it.id))
+                .map(|it| it.path.clone())
+                .collect()
+        };
         let truncated = doc.items.len() > atlas_ai::context::MAX_FILES;
         let files: Vec<PathBuf> = doc
             .items

@@ -110,13 +110,17 @@ impl VideoEncoder {
         true
     }
 
+    pub(crate) fn can_queue_frame(&self) -> bool {
+        self.frames.as_ref().is_some_and(|sender| !sender.is_full())
+    }
+
     /// Drain accepted frames, hold the last image until this instant, finalize.
     #[cfg(test)]
     pub(crate) fn finish(&mut self) {
         self.finish_at(Instant::now());
     }
 
-    pub(super) fn finish_at(&mut self, stopped: Instant) {
+    pub(crate) fn finish_at(&mut self, stopped: Instant) {
         if self.frames.is_some() {
             let _ = self.stop.try_send(stopped);
             self.frames.take();

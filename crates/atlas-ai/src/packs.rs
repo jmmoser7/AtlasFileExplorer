@@ -23,6 +23,7 @@ struct Probed {
 pub struct PackSession {
     catalog: Catalog,
     rx: Option<Receiver<Probed>>,
+    wake: std::sync::Arc<std::sync::OnceLock<eframe::egui::Context>>,
     /// A refresh asked for while a probe was in flight. The older answer is
     /// dropped and this one runs, so a key saved mid-probe is not undone.
     again: Option<Option<PathBuf>>,
@@ -46,6 +47,7 @@ impl PackSession {
         Self {
             catalog: Catalog::from_manifests(Vec::new()),
             rx: None,
+            wake: Default::default(),
             again: None,
             workspace: None,
             started: false,
@@ -59,6 +61,10 @@ impl PackSession {
             pending_programs: None,
             credentials: [false; 2],
         }
+    }
+
+    pub(crate) fn wake_on_completion(&self, ctx: &eframe::egui::Context) {
+        self.wake.get_or_init(|| ctx.clone());
     }
 
     pub fn ensure_started(&mut self, workspace: Option<PathBuf>) {
@@ -254,6 +260,7 @@ impl PackSession {
         self.probes += 1;
         self.workspace.clone_from(&workspace);
         let overrides = self.overrides.clone();
+        let wake = self.wake.clone();
         std::thread::spawn(move || {
             let catalog = probe_catalog(workspace.as_deref(), &overrides);
             let programs = programs_of(&catalog, workspace.as_deref());
@@ -262,11 +269,18 @@ impl PackSession {
                     == atlas_core::secrets::SecretHealth::Ok,
                 crate::cursor_key::is_configured(),
             ];
-            let _ = tx.send(Probed {
-                catalog,
-                programs,
-                credentials,
-            });
+            if tx
+                .send(Probed {
+                    catalog,
+                    programs,
+                    credentials,
+                })
+                .is_ok()
+            {
+                if let Some(ctx) = wake.get() {
+                    ctx.request_repaint();
+                }
+            }
         });
     }
 }
@@ -285,6 +299,11 @@ fn probe_catalog(workspace: Option<&Path>, overrides: &[(String, PackHealth)]) -
         ("cursor-cli", atlas_subscription::Provider::Cursor),
         ("claude-code", atlas_subscription::Provider::ClaudeCode),
     ] {
+        // A pinned subscription has an explicit answer. Starting its external
+        // sign-in probe here would still depend on software installed on the host.
+        if overrides.iter().any(|(name, _)| name == id) {
+            continue;
+        }
         let (health, detail) = match atlas_subscription::discover(provider) {
             Ok(found) if found.auth == atlas_subscription::AuthStatus::LoggedIn => (
                 PackHealth::Ok,

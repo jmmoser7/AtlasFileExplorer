@@ -1,5 +1,8 @@
 use super::*;
 
+#[cfg(test)]
+mod tests;
+
 pub(in crate::app) fn parse_grasshopper_preview(
     path: &Path,
 ) -> Result<(PreviewScene, String), String> {
@@ -32,6 +35,9 @@ impl SlateApp {
                 view.rendered = None;
                 view.tex = None;
                 view.radius = bounds_sphere(bounds.0, bounds.1).1;
+            } else {
+                // The previous frozen frame stays visible until this solved pose has rendered.
+                self.model3d.want_poster.insert((doc, id), self.frame_no);
             }
             self.model3d.display_swatch_stamp.remove(&(doc, id));
         }

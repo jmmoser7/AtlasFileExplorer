@@ -42,6 +42,9 @@ pub fn feature_edges(
     let key = |p: [f32; 3]| -> PointKey {
         std::array::from_fn(|i| ((p[i] as f64 - min[i] as f64) / tolerance).round() as i64)
     };
+    // Indexed meshes reuse each vertex across many triangles. Quantize its
+    // position once, preserving the existing weld tolerance and edge order.
+    let keys: Vec<_> = positions.iter().copied().map(key).collect();
     let mut map: HashMap<EdgeKey, Adjacent> = HashMap::new();
     for tri in indices.as_chunks::<3>().0 {
         let Some(a) = positions.get(tri[0] as usize).copied() else {
@@ -57,8 +60,8 @@ pub fn feature_edges(
             continue;
         }
         let n = face_normal(a, b, c);
-        for [p, q] in [[a, b], [b, c], [c, a]] {
-            let [kp, kq] = [key(p), key(q)];
+        let [ka, kb, kc] = tri.map(|idx| keys[idx as usize]);
+        for ((kp, p), (kq, q)) in [((ka, a), (kb, b)), ((kb, b), (kc, c)), ((kc, c), (ka, a))] {
             if kp == kq {
                 continue;
             }

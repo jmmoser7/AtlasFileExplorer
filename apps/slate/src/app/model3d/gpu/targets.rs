@@ -1,9 +1,21 @@
 use super::surface::FrameCamera;
 use super::*;
 
+impl LiveTarget {
+    pub(in crate::app::model3d) fn register_displays(&mut self, frame: &mut eframe::Frame) {
+        self.egui_id
+            .get_or_insert_with(|| frame.register_native_glow_texture(self.display));
+        if let Some(buffer) = self.standby.as_mut() {
+            buffer
+                .egui_id
+                .get_or_insert_with(|| frame.register_native_glow_texture(buffer.texture));
+        }
+    }
+}
+
 /// Preserve full-detail AO for normal portals; large views use a filtered
 /// half-size field so pixel cost stays bounded on the reference Intel GPU.
-fn ao_size(w: i32, h: i32) -> (i32, i32) {
+pub(super) fn ao_size(w: i32, h: i32) -> (i32, i32) {
     if w * h > 1_200_000 {
         ((w + 1) / 2, (h + 1) / 2)
     } else {
@@ -17,6 +29,9 @@ impl ModelEngine {
         unsafe {
             self.gl_creates.fetch_add(12, Ordering::Relaxed);
             let target = LiveTarget {
+                refinement: None,
+                standby: None,
+                lower_motion_resolution: false,
                 msaa_fbo: gl.create_framebuffer().ok()?,
                 color_rb: gl.create_renderbuffer().ok()?,
                 depth_rb: gl.create_renderbuffer().ok()?,
@@ -110,7 +125,14 @@ impl ModelEngine {
                     glow::DEPTH_COMPONENT,
                     glow::UNSIGNED_INT,
                 ),
-            ] {
+            ]
+            .into_iter()
+            .chain(
+                target
+                    .standby
+                    .iter()
+                    .map(|buffer| (buffer.texture, display, glow::RGBA, glow::UNSIGNED_BYTE)),
+            ) {
                 gl.bind_texture(glow::TEXTURE_2D, Some(tex));
                 let (tw, th) = if tex == target.ao_tex {
                     ao_size(w, h)
@@ -154,17 +176,60 @@ impl ModelEngine {
         size: (u32, u32, f32),
         adjust: Option<&ImageAdjust>,
     ) -> bool {
-        self.render_frame(target, model, cam, size, adjust, false)
+        self.render_frame(target, model, cam, size, adjust, FrameQuality::Final)
     }
 
-    pub(super) fn render_frame(
+    pub(in crate::app::model3d) fn render_frame(
+        &self,
+        target: &mut LiveTarget,
+        model: &GpuModel,
+        cam: &ModelCamera,
+        size: (u32, u32, f32),
+        adjust: Option<&ImageAdjust>,
+        quality: FrameQuality,
+    ) -> bool {
+        target.refinement = None;
+        let adaptive = self.software
+            && quality == FrameQuality::Navigating
+            && model.large_scene()
+            && size.0.max(size.1) >= 960
+            && size.0.min(size.1) >= 400
+            && matches!(cam.display, ModelDisplay::Shaded | ModelDisplay::Arctic);
+        if !adaptive {
+            target.lower_motion_resolution = false;
+        }
+        let started = adaptive.then(Instant::now);
+        let result = self.render_batch(
+            target,
+            model,
+            cam,
+            size,
+            adjust,
+            quality,
+            refinement::Batch::ALL,
+        );
+        if let Some(started) = started {
+            // Separate thresholds avoid alternating raster scales near the budget.
+            let elapsed = started.elapsed();
+            if elapsed > std::time::Duration::from_millis(34) {
+                target.lower_motion_resolution = true;
+            } else if elapsed < std::time::Duration::from_millis(11) {
+                target.lower_motion_resolution = false;
+            }
+        }
+        result
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn render_batch(
         &self,
         target: &mut LiveTarget,
         model: &GpuModel,
         cam: &ModelCamera,
         (w, h, aspect): (u32, u32, f32),
         adjust: Option<&ImageAdjust>,
-        capture_ground: bool,
+        quality: FrameQuality,
+        batch: refinement::Batch<'_>,
     ) -> bool {
         self.render_passes.fetch_add(1, Ordering::Relaxed);
         let (w, h) = (w.clamp(16, 4096) as i32, h.clamp(16, 4096) as i32);
@@ -172,11 +237,17 @@ impl ModelEngine {
             self.size_live_target(target, w, h);
             target.size = (w, h);
         }
-        let ground = capture_ground || cam.display == ModelDisplay::Arctic;
+        let navigating = quality == FrameQuality::Navigating;
+        let ground = quality == FrameQuality::CaptureGround || cam.display == ModelDisplay::Arctic;
         let camera = FrameCamera::new(model, cam, aspect, ground);
         let gl = &self.gl;
         unsafe {
-            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(target.msaa_fbo));
+            let surface = if navigating {
+                target.resolve_fbo
+            } else {
+                target.msaa_fbo
+            };
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(surface));
             if gl.check_framebuffer_status(glow::FRAMEBUFFER) != glow::FRAMEBUFFER_COMPLETE {
                 gl.bind_framebuffer(glow::FRAMEBUFFER, None);
                 return false;
@@ -184,28 +255,99 @@ impl ModelEngine {
             if self.srgb_framebuffer {
                 gl.disable(glow::FRAMEBUFFER_SRGB);
             }
-            self.draw_scene(model, &camera, w, h, ground);
-            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(target.msaa_fbo));
-            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(target.resolve_fbo));
-            gl.blit_framebuffer(
-                0,
-                0,
-                w,
-                h,
-                0,
-                0,
-                w,
-                h,
-                glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT,
-                glow::NEAREST,
+            let reduced = navigating && self.software && w.max(h) >= 640;
+            let scene_size = if reduced {
+                let divisor = if target.lower_motion_resolution { 3 } else { 2 };
+                ((w + divisor - 1) / divisor, (h + divisor - 1) / divisor)
+            } else {
+                (w, h)
+            };
+            self.draw_scene(
+                model,
+                &camera,
+                (scene_size.0, scene_size.1, h),
+                navigating,
+                ground,
+                batch,
             );
-            let source = if cam.display == ModelDisplay::Arctic {
-                self.ambient_occlusion(target, &camera, aspect, w, h);
+            if !batch.complete {
+                gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+                return true;
+            }
+            if !navigating {
+                gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(target.msaa_fbo));
+                gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(target.resolve_fbo));
+                gl.blit_framebuffer(
+                    0,
+                    0,
+                    w,
+                    h,
+                    0,
+                    0,
+                    w,
+                    h,
+                    glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT,
+                    glow::NEAREST,
+                );
+            }
+            if reduced && adjust.is_none_or(ImageAdjust::is_identity) {
+                // Flip the staged scene and scale it into the display in one pass.
+                gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(target.resolve_fbo));
+                gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(target.out_fbo));
+                gl.blit_framebuffer(
+                    0,
+                    scene_size.1,
+                    scene_size.0,
+                    0,
+                    0,
+                    0,
+                    w,
+                    h,
+                    glow::COLOR_BUFFER_BIT,
+                    glow::LINEAR,
+                );
+                gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+                return true;
+            }
+            let source = if reduced {
+                // Reuse the full-size targets. Changing the camera never reallocates
+                // textures or renderbuffers when the pointer starts or stops.
+                gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(target.resolve_fbo));
+                gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(target.compose_fbo));
+                gl.blit_framebuffer(
+                    0,
+                    0,
+                    scene_size.0,
+                    scene_size.1,
+                    0,
+                    0,
+                    w,
+                    h,
+                    glow::COLOR_BUFFER_BIT,
+                    glow::LINEAR,
+                );
+                target.compose_tex
+            } else if !navigating && cam.display == ModelDisplay::Arctic {
+                self.ambient_occlusion(target, &camera, aspect, (w, h), None);
                 target.compose_tex
             } else {
                 target.resolve_tex
             };
-            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(target.out_fbo));
+            self.filter_frame(source, target.out_fbo, (w, h), adjust);
+        }
+        true
+    }
+
+    pub(super) fn filter_frame(
+        &self,
+        source: glow::Texture,
+        output: glow::Framebuffer,
+        (w, h): (i32, i32),
+        adjust: Option<&ImageAdjust>,
+    ) {
+        let gl = &self.gl;
+        unsafe {
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(output));
             gl.viewport(0, 0, w, h);
             gl.disable(glow::DEPTH_TEST);
             gl.use_program(Some(self.fx_program));
@@ -221,71 +363,74 @@ impl ModelEngine {
             gl.use_program(None);
             gl.bind_framebuffer(glow::FRAMEBUFFER, None);
         }
-        true
     }
 
-    fn ambient_occlusion(
+    pub(super) fn ambient_occlusion(
         &self,
         target: &LiveTarget,
         cam: &FrameCamera,
         aspect: f32,
-        w: i32,
-        h: i32,
+        (w, h): (i32, i32),
+        stage: Option<refinement::Post>,
     ) {
         let gl = &self.gl;
         let (aw, ah) = ao_size(w, h);
         unsafe {
             gl.disable(glow::DEPTH_TEST);
             gl.bind_vertex_array(Some(self.bg_vao));
-            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(target.ao_fbo));
-            gl.viewport(0, 0, aw, ah);
-            gl.use_program(Some(self.ao_program));
-            gl.active_texture(glow::TEXTURE0);
-            gl.bind_texture(glow::TEXTURE_2D, Some(target.depth_tex));
-            gl.uniform_1_i32(self.uniform(self.ao_program, "u_depth_tex").as_ref(), 0);
-            gl.uniform_4_f32(
-                self.uniform(self.ao_program, "u_projection").as_ref(),
-                cam.near,
-                cam.far,
-                (FOV_Y * 0.5).tan(),
-                aspect,
-            );
-            gl.uniform_2_f32(
-                self.uniform(self.ao_program, "u_size").as_ref(),
-                aw as f32,
-                ah as f32,
-            );
-            gl.uniform_1_f32(
-                self.uniform(self.ao_program, "u_radius").as_ref(),
-                cam.radius * 0.12,
-            );
-            gl.draw_arrays(glow::TRIANGLES, 0, 3);
-            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(target.compose_fbo));
-            gl.viewport(0, 0, w, h);
-            gl.use_program(Some(self.compose_program));
-            for (slot, name, tex) in [
-                (0, "u_color_tex", target.resolve_tex),
-                (1, "u_ao_tex", target.ao_tex),
-                (2, "u_depth_tex", target.depth_tex),
-            ] {
-                gl.active_texture(glow::TEXTURE0 + slot);
-                gl.bind_texture(glow::TEXTURE_2D, Some(tex));
-                gl.uniform_1_i32(
-                    self.uniform(self.compose_program, name).as_ref(),
-                    slot as i32,
+            if stage != Some(refinement::Post::Compose) {
+                gl.bind_framebuffer(glow::FRAMEBUFFER, Some(target.ao_fbo));
+                gl.viewport(0, 0, aw, ah);
+                gl.use_program(Some(self.ao_program));
+                gl.active_texture(glow::TEXTURE0);
+                gl.bind_texture(glow::TEXTURE_2D, Some(target.depth_tex));
+                gl.uniform_1_i32(self.uniform(self.ao_program, "u_depth_tex").as_ref(), 0);
+                gl.uniform_4_f32(
+                    self.uniform(self.ao_program, "u_projection").as_ref(),
+                    cam.near,
+                    cam.far,
+                    (FOV_Y * 0.5).tan(),
+                    aspect,
                 );
+                gl.uniform_2_f32(
+                    self.uniform(self.ao_program, "u_size").as_ref(),
+                    aw as f32,
+                    ah as f32,
+                );
+                gl.uniform_1_f32(
+                    self.uniform(self.ao_program, "u_radius").as_ref(),
+                    cam.radius * 0.12,
+                );
+                gl.draw_arrays(glow::TRIANGLES, 0, 3);
             }
-            gl.uniform_2_f32(
-                self.uniform(self.compose_program, "u_size").as_ref(),
-                aw as f32,
-                ah as f32,
-            );
-            gl.uniform_2_f32(
-                self.uniform(self.compose_program, "u_clip").as_ref(),
-                cam.near,
-                cam.far,
-            );
-            gl.draw_arrays(glow::TRIANGLES, 0, 3);
+            if stage != Some(refinement::Post::Occlusion) {
+                gl.bind_framebuffer(glow::FRAMEBUFFER, Some(target.compose_fbo));
+                gl.viewport(0, 0, w, h);
+                gl.use_program(Some(self.compose_program));
+                for (slot, name, tex) in [
+                    (0, "u_color_tex", target.resolve_tex),
+                    (1, "u_ao_tex", target.ao_tex),
+                    (2, "u_depth_tex", target.depth_tex),
+                ] {
+                    gl.active_texture(glow::TEXTURE0 + slot);
+                    gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+                    gl.uniform_1_i32(
+                        self.uniform(self.compose_program, name).as_ref(),
+                        slot as i32,
+                    );
+                }
+                gl.uniform_2_f32(
+                    self.uniform(self.compose_program, "u_size").as_ref(),
+                    aw as f32,
+                    ah as f32,
+                );
+                gl.uniform_2_f32(
+                    self.uniform(self.compose_program, "u_clip").as_ref(),
+                    cam.near,
+                    cam.far,
+                );
+                gl.draw_arrays(glow::TRIANGLES, 0, 3);
+            }
             for slot in 0..3 {
                 gl.active_texture(glow::TEXTURE0 + slot);
                 gl.bind_texture(glow::TEXTURE_2D, None);
@@ -307,11 +452,16 @@ impl ModelEngine {
         }
     }
     pub(in crate::app::model3d) fn park_live_target(&self, target: &mut LiveTarget) {
+        target.refinement = None;
         self.size_live_target(target, LIVE_TARGET_IDLE_PX, LIVE_TARGET_IDLE_PX);
         target.size = (LIVE_TARGET_IDLE_PX, LIVE_TARGET_IDLE_PX);
     }
-    pub(super) fn free_target(&self, target: LiveTarget) {
+    pub(in crate::app::model3d) fn free_target(&self, target: LiveTarget) {
         unsafe {
+            if let Some(standby) = target.standby {
+                self.gl.delete_framebuffer(standby.fbo);
+                self.gl.delete_texture(standby.texture);
+            }
             for fbo in [
                 target.msaa_fbo,
                 target.resolve_fbo,

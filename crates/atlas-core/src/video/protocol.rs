@@ -216,7 +216,19 @@ pub(super) fn write_event(out: &mut impl Write, event: &VideoEvent) -> io::Resul
     }
 }
 
-pub(super) fn read_event(input: &mut impl Read) -> io::Result<VideoEvent> {
+pub(super) enum Output {
+    Opening { id: u64, token: u64 },
+    Event(VideoEvent),
+}
+
+pub(super) fn write_opening(out: &mut impl Write, id: u64, token: u64) -> io::Result<()> {
+    let mut header = [8u8; 17];
+    header[1..9].copy_from_slice(&id.to_le_bytes());
+    header[9..].copy_from_slice(&token.to_le_bytes());
+    record(out, &header, &[])
+}
+
+pub(super) fn read_output(input: &mut impl Read) -> io::Result<Output> {
     let mut bytes = read_record(input)?;
     let mut fields = Fields {
         bytes: &bytes,
@@ -224,6 +236,9 @@ pub(super) fn read_event(input: &mut impl Read) -> io::Result<VideoEvent> {
     };
     let kind = fields.byte()?;
     let (id, token) = (fields.u64()?, fields.u64()?);
+    if kind == 8 && fields.offset == bytes.len() {
+        return Ok(Output::Opening { id, token });
+    }
     let event = match kind {
         2 => VideoEvent::Probed {
             id,
@@ -249,7 +264,7 @@ pub(super) fn read_event(input: &mut impl Read) -> io::Result<VideoEvent> {
             )?;
             bytes.drain(..offset);
             let frame = VideoFrame { w, h, rgba: bytes };
-            return Ok(if kind == 3 {
+            return Ok(Output::Event(if kind == 3 {
                 VideoEvent::Strip {
                     id,
                     token,
@@ -264,14 +279,22 @@ pub(super) fn read_event(input: &mut impl Read) -> io::Result<VideoEvent> {
                     time,
                     frame,
                 }
-            });
+            }));
         }
         _ => return Err(invalid()),
     };
     if fields.offset != bytes.len() {
         return Err(invalid());
     }
-    Ok(event)
+    Ok(Output::Event(event))
+}
+
+#[cfg(test)]
+fn read_event(input: &mut impl Read) -> io::Result<VideoEvent> {
+    match read_output(input)? {
+        Output::Event(event) => Ok(event),
+        Output::Opening { .. } => Err(invalid()),
+    }
 }
 
 fn validate_frame(w: u32, h: u32, len: usize, edge: u32) -> io::Result<()> {

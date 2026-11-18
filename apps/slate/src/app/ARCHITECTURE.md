@@ -229,6 +229,14 @@ selected mesh model adds two squircles to the shared selection strip:
 - **Measure** (Ruler) — `board.model_measure` enters the viewport if needed
   and arms point to point (Rhino `Distance`). Navigate is the resting tool.
 
+Large live scenes use a single-sample target with a single shadow lookup while
+the camera moves. Large meshes have bounded-error navigation indices built on the parse worker. Shaded and Arctic can select these when their estimated screen error is below 1.5 pixels. Textured and translucent materials keep their original geometry. When only part of the model fits the viewport, large full-detail surfaces outside the camera frustum are omitted from motion and exact refinements. Tests compare every pixel against uncropped submissions. The software renderer draws moving frames at half resolution. A large Shaded or Arctic view can temporarily switch to one-third resolution when software draw time exceeds 34 ms and recover at 11 ms. A plain view scales directly into its display buffer. Shaded sorts partially opaque material meshes behind-to-front after opaque depth and ground. The last movement schedules a full-quality redraw after
+135 ms. On large software-rendered views, that refinement uses adaptive geometry batches and scanline bands for resolve, AO, composition and filters. The display retains its last complete frame while the replacement is built. A pair of registered display textures lets the finished image become visible without copying a full-resolution frame. Camera, source mesh, filters and output size identify each cancellable job. Auto-lock and explicit lock retain the displayed live texture while the frozen poster finishes. Poster and display-chip jobs share the same frame budget. An explicit export completes a requested full-quality poster before packaging it. Captures, posters and the settled live view use MSAA and the full
+display-mode effects. The shaded pass batches contiguous equal surface
+materials, while the material-mask pass retains the object colors. Zoom
+Window and Zoom Extents route to the live viewport under the pointer, with
+the window gesture retaining ownership through release.
+
 Measure mode owns primary clicks inside the viewport: raycast against the
 cached render mesh (`model3d::raycast_model`) and draw a rubber-band line
 with a length label. The second pick completes the measurement and returns

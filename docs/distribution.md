@@ -28,6 +28,10 @@ through Home/recents. Open tab layout is not restored by the updater.
   package on the Windows desktop. Then publish it as latest with
   `gh release edit vX.Y.Z --draft=false --latest`. Installed stable copies
   receive it on their next launch. Set the next workspace version before tagging again.
+  Publish the matching downloads-page entry using the [website release checklist](../website/README.md).
+  Verify that Release notes beside the version opens the newest entry, that every earlier entry
+  remains available below it, and that the download under each heading points to that version.
+  Record verified patches, regression fixes and feature additions in their respective categories.
 - **Preview:** every successful `main` build publishes `X.Y.Z-preview.RUN_NUMBER`
   to the reserved rolling `preview` release. Install its Setup.exe to opt in.
   Preview has a separate installation ID and shortcuts. It does not replace the

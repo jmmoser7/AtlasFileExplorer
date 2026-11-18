@@ -1,32 +1,7 @@
 //! Production frame pixels for rotated and mirrored human crop gestures.
 use super::*;
-use crate::app::{
-    board_crop::{self, CropGesture},
-    preview::{PreviewEntry, PX_EXACT},
-};
+use crate::app::board_crop::{self, CropGesture};
 use slate_doc::scene::ImageNode;
-
-fn ready_image(h: &mut Harness, item: slate_doc::ItemId, name: &str) {
-    let (key, path, _, _) = h.app.resolved_item_preview(item).unwrap();
-    let decoded = image::open(path).unwrap().to_rgba8();
-    let pixels = egui::ColorImage::from_rgba_unmultiplied(
-        [decoded.width() as usize, decoded.height() as usize],
-        decoded.as_raw(),
-    );
-    let tex = h
-        .ctx
-        .load_texture(name, pixels.clone(), egui::TextureOptions::LINEAR);
-    h.app.preview_cache.insert(
-        key,
-        PreviewEntry {
-            tex,
-            bytes: pixels.pixels.len() * 4,
-            pixels: std::sync::Arc::new(pixels),
-            px: PX_EXACT,
-            last_used: 0,
-        },
-    );
-}
 
 fn sample(raster: &FrameRaster, screen: Pos2) -> [f32; 3] {
     let (x, y) = (screen.x.round() as usize, screen.y.round() as usize);

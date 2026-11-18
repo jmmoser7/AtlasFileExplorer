@@ -28,10 +28,6 @@ impl AgentRuntime {
         swap(&mut self.provider_recents, &mut other.provider_recents);
         swap(&mut self.recents_rx, &mut other.recents_rx);
         swap(&mut self.recents_started, &mut other.recents_started);
-        swap(&mut self.ide, &mut other.ide);
-        swap(&mut self.ide_rx, &mut other.ide_rx);
-        swap(&mut self.ide_inflight, &mut other.ide_inflight);
-        swap(&mut self.ide_next, &mut other.ide_next);
         swap(&mut self.pending, &mut other.pending);
         swap(&mut self.stage, &mut other.stage);
         swap(&mut self.full_access, &mut other.full_access);

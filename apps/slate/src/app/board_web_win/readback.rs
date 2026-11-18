@@ -232,7 +232,9 @@ mod tests {
             let mut source = vec![0u8; pitch * height];
             for y in 0..height {
                 for (x, pixel) in source[y * pitch..y * pitch + width * 4]
-                    .chunks_exact_mut(4)
+                    .as_chunks_mut::<4>()
+                    .0
+                    .iter_mut()
                     .enumerate()
                 {
                     pixel.copy_from_slice(&[(x % 256) as u8, (y % 256) as u8, 127, 255]);

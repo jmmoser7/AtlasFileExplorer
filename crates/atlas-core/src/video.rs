@@ -253,23 +253,33 @@ pub enum VideoWorkerFault {
 
 impl VideoPool {
     pub fn spawn() -> Self {
-        Self::spawn_inner(None)
+        Self::spawn_inner(None, None)
+    }
+
+    /// Wake the UI when its empty event queue receives a result.
+    pub fn spawn_with_wake(wake: impl Fn() + Send + Sync + 'static) -> Self {
+        Self::spawn_inner(None, Some(Box::new(wake)))
     }
 
     #[cfg(debug_assertions)]
     #[doc(hidden)]
     pub fn spawn_with_diagnostic_fault(fault: VideoWorkerFault) -> Self {
-        Self::spawn_inner(Some(match fault {
-            VideoWorkerFault::Hang => "hang",
-            VideoWorkerFault::Crash => "crash",
-            VideoWorkerFault::Malformed => "malformed",
-            VideoWorkerFault::Exit => "exit",
-        }))
+        Self::spawn_inner(
+            Some(match fault {
+                VideoWorkerFault::Hang => "hang",
+                VideoWorkerFault::Crash => "crash",
+                VideoWorkerFault::Malformed => "malformed",
+                VideoWorkerFault::Exit => "exit",
+            }),
+            None,
+        )
     }
 
-    fn spawn_inner(fault: Option<&'static str>) -> Self {
+    fn spawn_inner(fault: Option<&'static str>, wake: Option<Box<dyn Fn() + Send + Sync>>) -> Self {
         let (tx, jobs) = crossbeam_channel::bounded(64);
-        let events = std::sync::Arc::new(events::Events::new());
+        let mut events = events::Events::new();
+        events.wake = wake;
+        let events = std::sync::Arc::new(events);
         let control = std::sync::Arc::new(runtime::Control::new());
         let (output, state) = (events.clone(), control.clone());
         if std::thread::Builder::new()

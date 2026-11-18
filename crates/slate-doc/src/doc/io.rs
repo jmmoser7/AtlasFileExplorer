@@ -55,6 +55,12 @@ impl SlateDoc {
         // Older documents upgrade in place: the next save writes CURRENT.
         doc.format_version = Self::CURRENT;
         doc.view.active_view = doc.view.active_view.normalized();
+        // Imported workbooks can have a counter behind their linked items.
+        // Advance the counter without changing IDs referenced from the scene.
+        let highest_item_id = doc.items.iter().map(|item| item.id.0).max().unwrap_or(0);
+        if let Some(next_unused_item_id) = highest_item_id.checked_add(1) {
+            doc.next_item_id = doc.next_item_id.max(next_unused_item_id);
+        }
         // Legacy bbox lines convert to parametric two-point paths
         // (contracts/line.md migration decision).
         doc.scene.migrate_legacy_lines();

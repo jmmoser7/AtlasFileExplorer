@@ -1,17 +1,62 @@
 use super::*;
 
+/// Each run covers contiguous indices. Only the diagnostic material view
+/// distinguishes the generated per-object mask colors.
+pub(super) fn append_draw(runs: &mut Vec<DrawRange>, draw: DrawRange, use_mask: bool) {
+    if let Some(last) = runs.last_mut() {
+        if last.offset + last.count * 4 == draw.offset
+            && (!use_mask || last.mask == draw.mask)
+            && last.opacity == draw.opacity
+            && last.color == draw.color
+            && last.roughness == draw.roughness
+            && last.metallic == draw.metallic
+            && last.emission == draw.emission
+            && last.texture == draw.texture
+        {
+            last.count += draw.count;
+            return;
+        }
+    }
+    runs.push(draw);
+}
+
 impl ModelEngine {
     pub fn upload(&self, scene: &PreviewScene) -> Option<GpuModel> {
         let gl = &self.gl;
-        let mut vertices = Vec::<f32>::new();
-        let mut indices = Vec::<u32>::new();
-        let mut edges = Vec::<f32>::new();
+        // Keep admission to one allocation per packed stream even on models
+        // containing thousands of separate Rhino objects.
+        let (vertices, indices, edges) = scene
+            .meshes
+            .iter()
+            .filter(|m| !m.positions.is_empty() && !m.indices.is_empty())
+            .fold((4, 6, 0), |(v, i, e), m| {
+                (
+                    v + m.positions.len(),
+                    i + m.indices.len(),
+                    e + m.feature_edges.len(),
+                )
+            });
+        let mut vertices = Vec::<f32>::with_capacity(vertices * 8);
+        let mut indices = Vec::<u32>::with_capacity(indices);
+        let mut edges = Vec::<f32>::with_capacity(edges * 13);
         let mut draws = Vec::<DrawRange>::new();
+        let mut surface_draws = Vec::new();
+        let mut bounded_draws = Vec::new();
+        let build_navigation = scene
+            .meshes
+            .iter()
+            .any(|mesh| !mesh.navigation_indices.is_empty());
+        let mut navigation_indices = Vec::new();
+        let mut navigation_draws = Vec::new();
+        let mut navigation_error = 0.0f32;
+        let mut translucent = Vec::new();
+        let mut opaque_indices = 0;
         let mut texture_cache = HashMap::new();
         let mut order: Vec<_> = (0..scene.meshes.len()).collect();
         order.sort_by_key(|&i| {
             let m = &scene.meshes[i];
             (
+                m.material.as_ref().is_some_and(|m| m.base_color[3] < 1.0),
                 m.color,
                 m.material.as_ref().map(|m| {
                     (
@@ -29,7 +74,12 @@ impl ModelEngine {
             }
             let offset = (indices.len() * 4) as i32;
             let base = (vertices.len() / 8) as u32;
+            let (mut min, mut max) = (mesh.positions[0], mesh.positions[0]);
             for (j, p) in mesh.positions.iter().enumerate() {
+                for axis in 0..3 {
+                    min[axis] = min[axis].min(p[axis]);
+                    max[axis] = max[axis].max(p[axis]);
+                }
                 vertices.extend_from_slice(p);
                 vertices.extend_from_slice(mesh.normals.get(j).unwrap_or(&[0.0, 0.0, 1.0]));
                 vertices.extend_from_slice(mesh.texcoords.get(j).unwrap_or(&[0.0, 0.0]));
@@ -62,25 +112,46 @@ impl ModelEngine {
                 offset,
                 count: mesh.indices.len() as i32,
                 color,
+                opacity: mat.map_or(1.0, |m| m.base_color[3].clamp(0.0, 1.0)),
                 mask: mesh.color.map(|_| rgb).unwrap_or_else(|| mask_palette(i)),
                 roughness: mat.map_or(0.75, |m| m.roughness),
                 metallic: mat.map_or(0.0, |m| m.metallic),
                 emission: mat.map_or([0.0; 3], |m| m.emissive),
                 texture,
             };
-            match draws.last_mut() {
-                Some(last)
-                    if last.color == draw.color
-                        && last.mask == draw.mask
-                        && last.roughness == draw.roughness
-                        && last.metallic == draw.metallic
-                        && last.emission == draw.emission
-                        && last.texture == texture =>
-                {
-                    last.count += draw.count
+            let center = std::array::from_fn(|axis| (min[axis] + max[axis]) * 0.5);
+            bounded_draws.push(BoundedDraw {
+                center,
+                half: std::array::from_fn(|axis| (max[axis] - min[axis]) * 0.5),
+                draw: draw.clone(),
+            });
+            if draw.opacity < 1.0 {
+                if draw.opacity > 0.0 {
+                    translucent.push(TranslucentDraw {
+                        draw: draw.clone(),
+                        center,
+                    });
                 }
-                _ => draws.push(draw),
+            } else {
+                opaque_indices += draw.count;
+                if build_navigation {
+                    let lod = if mesh.navigation_indices.is_empty() {
+                        &mesh.indices
+                    } else {
+                        &mesh.navigation_indices
+                    };
+                    let mut range = draw.clone();
+                    range.offset = (navigation_indices.len() * 4) as i32;
+                    range.count = lod.len() as i32;
+                    append_draw(&mut navigation_draws, range, false);
+                    navigation_indices.extend(lod.iter().map(|index| index + base));
+                    if !mesh.navigation_indices.is_empty() {
+                        navigation_error = navigation_error.max(mesh.navigation_error);
+                    }
+                }
             }
+            append_draw(&mut surface_draws, draw.clone(), false);
+            append_draw(&mut draws, draw, true);
             for edge in &mesh.feature_edges {
                 edges.extend_from_slice(&edge.positions[0]);
                 edges.extend_from_slice(&edge.positions[1]);
@@ -109,6 +180,20 @@ impl ModelEngine {
             ]);
         }
         indices.extend([0, 1, 2, 0, 2, 3].map(|i| i + base));
+        let navigation = (!navigation_indices.is_empty()).then(|| {
+            let offset = (indices.len() * 4) as i32;
+            let count = navigation_indices.len() as i32;
+            for draw in &mut navigation_draws {
+                draw.offset += offset;
+            }
+            indices.append(&mut navigation_indices);
+            NavigationMesh {
+                draws: navigation_draws,
+                offset,
+                count,
+                error: navigation_error,
+            }
+        });
         unsafe {
             self.gl_creates.fetch_add(5, Ordering::Relaxed);
             let vao = gl.create_vertex_array().ok()?;
@@ -154,12 +239,20 @@ impl ModelEngine {
             }
             gl.bind_vertex_array(None);
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
-            let shadow = self.make_shadow(vao, &draws, scene.bounds_min, scene.bounds_max)?;
+            let shadow =
+                self.make_shadow(vao, opaque_indices, scene.bounds_min, scene.bounds_max)?;
+            static GENERATION: AtomicU64 = AtomicU64::new(1);
             Some(GpuModel {
+                generation: GENERATION.fetch_add(1, Ordering::Relaxed),
                 vao,
                 vbo,
                 ebo,
                 draws,
+                surface_draws,
+                bounded_draws,
+                opaque_indices,
+                navigation,
+                translucent,
                 textures: texture_cache.into_values().flatten().collect(),
                 ground_offset,
                 edge_vao,

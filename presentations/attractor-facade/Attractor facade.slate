@@ -1,0 +1,195 @@
+{
+  "format_version": 2,
+  "name": "Attractor facade",
+  "groups": [],
+  "items": [
+    {
+      "id": 1,
+      "path": "Mullion field.ghx",
+      "file_name": "Mullion field.ghx",
+      "size": 22898,
+      "mtime": 1794998432,
+      "cache_key": "f16551829e4a2cb2d4e4950df4ba7d02",
+      "pdf_page": 0,
+      "assignments": {}
+    }
+  ],
+  "view": {
+    "active_view": "board",
+    "cam_x": 0.0,
+    "cam_y": 0.0,
+    "zoom": 0.88,
+    "recent_colors": [
+      [
+        0,
+        0,
+        0
+      ]
+    ],
+    "recent_color_used": [
+      3
+    ],
+    "recent_color_clock": 3,
+    "create_style": {}
+  },
+  "scene": {
+    "nodes": [
+      {
+        "id": 2,
+        "rect": {
+          "x": -570,
+          "y": -196,
+          "w": 520,
+          "h": 392
+        },
+        "rotation_deg": 0,
+        "opacity": 1,
+        "kind": {
+          "portal": {
+            "kind": "web",
+            "title": "Attractor field",
+            "source": {
+              "locator": "Attractor.html"
+            },
+            "web": {
+              "viewport": {
+                "width_css": 520,
+                "zoom": "fit"
+              }
+            },
+            "fill": [
+              13,
+              24,
+              28,
+              255
+            ],
+            "class": "host"
+          }
+        }
+      },
+      {
+        "id": 1,
+        "rect": {
+          "x": 90,
+          "y": -196,
+          "w": 486,
+          "h": 392
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "image": {
+            "item": 1,
+            "crop": {
+              "x": 0.0,
+              "y": 0.0,
+              "w": 1.0,
+              "h": 1.0
+            },
+            "corner": {
+              "rounded": {
+                "radius": 8.0
+              }
+            },
+            "stroke": {
+              "width": 0.0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "adjust": {
+              "brightness": 1.0,
+              "contrast": 1.0,
+              "saturate": 1.0,
+              "grayscale": 0.0,
+              "sepia": 0.0,
+              "hue_deg": 0.0,
+              "overlay": null
+            },
+            "video": {
+              "start": 0.0,
+              "end": null,
+              "autoplay": true,
+              "looped": true,
+              "muted": true,
+              "controls": false
+            },
+            "model": {
+              "target": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "yaw": -1.36,
+              "pitch": 0.16,
+              "distance": 0.0,
+              "display": "shaded",
+              "materials": true
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "rect": {
+          "x": -50,
+          "y": 0,
+          "w": 140,
+          "h": 1
+        },
+        "rotation_deg": 0,
+        "opacity": 1,
+        "kind": {
+          "connector": {
+            "a": {
+              "anchored": {
+                "node": 2,
+                "side": "right",
+                "t": 0.5
+              }
+            },
+            "b": {
+              "anchored": {
+                "node": 1,
+                "side": "left",
+                "t": 0.5
+              }
+            },
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                27,
+                30,
+                34,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Round",
+              "join": "Round",
+              "profile": "Uniform"
+            },
+            "routing": "bezier",
+            "grasshopper": {
+              "source_port": "1b993386-89d8-4b25-b102-452ea7120eb4",
+              "target_port": "0a78afe2-7657-53ad-a4b5-e2849e25f9ca",
+              "kind": "text"
+            }
+          }
+        }
+      }
+    ],
+    "next_node_id": 3,
+    "next_group_key": 0
+  },
+  "lens_root": null,
+  "next_group_id": 1,
+  "next_tag_id": 1,
+  "next_item_id": 1
+}

@@ -44,8 +44,9 @@ fn open_agent(h: &mut Harness, id: NodeId) {
 }
 fn send(h: &mut Harness, id: NodeId, words: &str) -> AgentRequest {
     let mut hit = None;
+    let mut previous = None;
     let key = Id::new(("painted-generator-composer-hit", id.0));
-    for _ in 0..30 {
+    for _ in 0..90 {
         h.ctx
             .data_mut(|data| data.remove::<(Id, Rect, egui::LayerId, bool)>(key));
         let output = h.frame_output(|_| {});
@@ -58,8 +59,14 @@ fn send(h: &mut Harness, id: NodeId, words: &str) -> AgentRequest {
                     && h.ctx.layer_id_at(visible.center()) == Some(*layer)
                     && label(&output, "Message…").is_some()
             });
-        if hit.is_some() {
+        if hit.is_some() && hit == previous {
             break;
+        }
+        previous = hit.take();
+        if let Some((_, rect, _, _)) = previous {
+            // A real pointer reaches the field before pressing it. Wait for
+            // the panel to finish laying out around that hovered position.
+            h.frame_with(pointer_to(rect.center(), false));
         }
     }
     let (editor, visible, layer, _) =

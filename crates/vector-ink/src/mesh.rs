@@ -167,8 +167,14 @@ pub(crate) fn tessellate_run(
         return;
     }
     let colors = colors.filter(|c| c.len() == points.len());
-    let (points, widths, colors) =
-        limit_chords(points, widths, colors, chord_limit(tolerance, feather));
+    let uniform = widths.is_none() && colors.is_none() && style.taper.is_none();
+    let (points, widths, colors) = limit_chords(
+        points,
+        widths,
+        colors,
+        chord_limit(tolerance, feather),
+        uniform,
+    );
     let mut sections = stations(
         &points,
         widths.as_deref(),
@@ -314,6 +320,7 @@ fn limit_chords(
     widths: Option<&[f32]>,
     colors: Option<&[[f32; 4]]>,
     max_len: f32,
+    uniform: bool,
 ) -> Chords {
     let widths = widths.filter(|w| w.len() == points.len());
     let colors = colors.filter(|c| c.len() == points.len());
@@ -333,7 +340,14 @@ fn limit_chords(
         let delta = sub(b, a);
         let len = (delta[0] * delta[0] + delta[1] * delta[1]).sqrt();
         let steps = (len / max_len).ceil() as usize;
-        if steps > 1 {
+        if uniform && steps > 3 {
+            // Preserve the short transition from each endpoint's join normal to
+            // the chord normal. Between those two stations both feather rails
+            // are straight, parallel and constant in alpha. Subdividing their
+            // identical cross-section adds no coverage, even for a long wire.
+            out.push(add(a, scale(delta, 1.0 / steps as f32)));
+            out.push(add(a, scale(delta, (steps - 1) as f32 / steps as f32)));
+        } else if steps > 1 {
             for i in 1..steps {
                 let t = i as f32 / steps as f32;
                 out.push(add(a, scale(delta, t)));

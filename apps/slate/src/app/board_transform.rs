@@ -454,7 +454,7 @@ impl SlateApp {
             } else {
                 tokens.highlight_out
             };
-            let next = if span < 0.001 {
+            let next = if goal == *progress || span < 0.001 {
                 goal
             } else if goal > *progress {
                 (*progress + dt / span).min(1.0)

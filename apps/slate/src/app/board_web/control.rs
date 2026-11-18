@@ -32,7 +32,6 @@ struct Slot {
     invalidated: bool,
     model: Option<(NodeId, BindingKey)>,
     sequence: u64,
-    next_poll: Instant,
     pending: Option<PendingControl>,
     state: Value,
 }
@@ -48,7 +47,6 @@ impl Slot {
             invalidated: false,
             model: None,
             sequence: 0,
-            next_poll: Instant::now(),
             pending: None,
             state: json!({"version":1,"ready":false,"connection_generation":0,"message":"Connect a model wire","replies":[]}),
         }
@@ -322,6 +320,11 @@ impl SlateApp {
             .controls
             .next_tick
             .is_some_and(|next| Instant::now() < next)
+            && !self
+                .web
+                .host_open
+                .iter()
+                .any(|id| self.web.host.has_control_reply(*id))
         {
             return;
         }
@@ -438,13 +441,16 @@ impl SlateApp {
             if slot.state != before {
                 self.web.host.control_state(id, &slot.state);
             }
-            if Instant::now() >= slot.next_poll {
-                self.web.host.request_controls(id);
-                slot.next_poll = Instant::now() + Duration::from_millis(125);
-            }
+            self.web.host.request_controls(id);
             self.web.controls.slots.insert(id, slot);
         }
-        if !self.web.controls.slots.is_empty() {
+        if self
+            .web
+            .controls
+            .slots
+            .values()
+            .any(|slot| slot.pending.is_some())
+        {
             ctx.request_repaint_after(Duration::from_millis(125));
         }
     }

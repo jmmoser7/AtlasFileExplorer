@@ -1,132 +1,74 @@
 //! Typed inputs share Slate's wire journal and the viewer's solve scheduler.
+mod graph;
+pub(super) mod image;
+mod literals;
 use super::*;
+pub(super) use graph::Graph;
+use literals::{literal_kind, literal_packet};
 use slate_doc::scene::{
     grasshopper_wire, ConnectorEnd, GrasshopperPort, GrasshopperPortAccess,
     GrasshopperPortDirection, GrasshopperPortId, GrasshopperPortType, GrasshopperWire,
     GrasshopperWirePorts, Side,
 };
-use std::collections::{HashSet, VecDeque};
-
-#[derive(Default)]
-pub(super) struct Graph {
-    revision: Option<(u64, u64, u64)>,
-    incoming: HashMap<NodeId, Vec<GrasshopperWire>>,
-    downstream: HashMap<NodeId, Vec<NodeId>>,
-}
-
-impl Graph {
-    fn read(tab: &SlateTab, revision: (u64, u64, u64)) -> Self {
-        let mut graph = Self {
-            revision: Some(revision),
-            ..Self::default()
-        };
-        for node in &tab.doc.scene.nodes {
-            if let NodeKind::Connector(conn) = &node.kind {
-                if let Some(wire) = grasshopper_wire(conn) {
-                    graph
-                        .downstream
-                        .entry(wire.source)
-                        .or_default()
-                        .push(wire.target);
-                    graph.incoming.entry(wire.target).or_default().push(wire);
-                }
-            }
-        }
-        graph
-    }
-
-    fn reaches(&self, start: NodeId, target: NodeId) -> bool {
-        let mut stack = vec![start];
-        let mut seen = HashSet::new();
-        while let Some(node) = stack.pop() {
-            if node == target {
-                return true;
-            }
-            if seen.insert(node) {
-                stack.extend(self.downstream.get(&node).into_iter().flatten().copied());
-            }
-        }
-        false
-    }
-
-    fn order(&self, ids: impl Iterator<Item = NodeId>) -> (Vec<NodeId>, Vec<NodeId>) {
-        let mut degrees: HashMap<_, _> = ids
-            .map(|id| (id, self.incoming.get(&id).map_or(0, Vec::len)))
-            .collect();
-        let mut pending: VecDeque<_> = degrees
-            .iter()
-            .filter_map(|(&id, &degree)| (degree == 0).then_some(id))
-            .collect();
-        let mut order = Vec::with_capacity(degrees.len());
-        while let Some(id) = pending.pop_front() {
-            degrees.remove(&id);
-            order.push(id);
-            for target in self.downstream.get(&id).into_iter().flatten() {
-                if let Some(degree) = degrees.get_mut(target) {
-                    *degree -= 1;
-                    if *degree == 0 {
-                        pending.push_back(*target);
-                    }
-                }
-            }
-        }
-        (order, degrees.into_keys().collect())
-    }
-}
-
-fn literal_kind(value: &GrasshopperValue) -> Option<GrasshopperPortType> {
-    Some(match value {
-        GrasshopperValue::Number(n)
-            if n.is_finite()
-                && n.fract() == 0.0
-                && *n >= f64::from(i32::MIN)
-                && *n <= f64::from(i32::MAX) =>
-        {
-            GrasshopperPortType::Integer
-        }
-        GrasshopperValue::Number(n) if n.is_finite() => GrasshopperPortType::Number,
-        GrasshopperValue::Bool(_) => GrasshopperPortType::Boolean,
-        GrasshopperValue::Text(_) => GrasshopperPortType::Text,
-        GrasshopperValue::Color(_) => GrasshopperPortType::Color,
-        _ => return None,
-    })
-}
-
-fn literal_packet(
-    value: &GrasshopperValue,
-    target: GrasshopperPortType,
-) -> Option<serde_json::Value> {
-    let kind = literal_kind(value)?;
-    if !target.accepts(kind) {
-        return None;
-    }
-    let value = match value {
-        GrasshopperValue::Number(n) if kind == GrasshopperPortType::Integer => {
-            serde_json::json!(*n as i32)
-        }
-        GrasshopperValue::Number(n) => serde_json::json!(n),
-        GrasshopperValue::Bool(b) => serde_json::json!(b),
-        GrasshopperValue::Text(s) => serde_json::json!(s),
-        GrasshopperValue::Color(rgba) => serde_json::json!(rgba),
-        GrasshopperValue::Choice(_) => return None,
-    };
-    Some(serde_json::json!({"branches":[{"path":[0],"items":[{"kind":kind,"value":value}]}]}))
-}
+use std::collections::HashSet;
 
 impl SlateApp {
-    fn grasshopper_graph_revision(&self) -> (u64, u64, u64) {
-        (self.tab().id, self.scene_gen, self.doc().scene.scene_gen())
+    pub(crate) fn dashboard_outputs_changed(&mut self, ports_changed: bool) {
+        self.grasshopper.links_dirty = true;
+        if ports_changed {
+            self.connector_pick_bounds = None;
+        }
+    }
+
+    pub(crate) fn unsampled_grasshopper_dashboards(&self) -> HashSet<NodeId> {
+        let tab = self.tab().id;
+        let graph = &self.grasshopper.graph;
+        graph
+            .dashboards
+            .iter()
+            .copied()
+            .filter(|id| {
+                !self.dashboard_was_sampled(*id)
+                    && graph.downstream.get(id).is_some_and(|targets| {
+                        targets
+                            .iter()
+                            .any(|t| self.grasshopper.views.contains_key(&(tab, *t)))
+                    })
+            })
+            .collect()
+    }
+
+    fn is_dashboard_source(&self, id: NodeId) -> bool {
+        self.doc().scene.node(id).is_some_and(|node| matches!(&node.kind, NodeKind::Portal(portal) if portal.kind == slate_doc::scene::PortalKind::Web))
+    }
+
+    fn grasshopper_graph_revision(&self) -> (u64, u64, u64, u64) {
+        (
+            self.tab().id,
+            self.scene_gen,
+            self.doc().scene.scene_gen(),
+            self.doc().item_paths_revision(),
+        )
     }
 
     fn sync_grasshopper_graph(&mut self) {
         let revision = self.grasshopper_graph_revision();
-        if self.grasshopper.graph.revision != Some(revision) {
+        if self.grasshopper.graph.revision != Some(revision)
+            || self.grasshopper.graph.workbook.as_deref() != self.tab().path.as_deref()
+        {
             self.grasshopper.graph = Graph::read(self.tab(), revision);
+            self.grasshopper.refresh_source_watch(self.tab().id);
             self.grasshopper.links_dirty = true;
         }
     }
 
     pub(crate) fn grasshopper_ports(&self, id: NodeId) -> &[GrasshopperPort] {
+        if let Some(output) = self.dashboard_output_snapshot(id) {
+            return &output.ports;
+        }
+        if !self.grasshopper.views.is_empty() && self.is_grasshopper_image_source(id) {
+            return std::slice::from_ref(image::file_port());
+        }
         self.grasshopper
             .views
             .get(&(self.tab().id, id))
@@ -168,13 +110,15 @@ impl SlateApp {
         target_t: f32,
     ) -> Result<NodeId, String> {
         if self.tab().read_only
-            || !self.grasshopper_viewer(source)
+            || !(self.grasshopper_viewer(source)
+                || self.dashboard_output_snapshot(source).is_some()
+                || self.is_grasshopper_image_source(source))
             || !self.grasshopper_viewer(target)
             || [source, target]
                 .iter()
                 .any(|id| self.doc().scene.node(*id).is_some_and(|node| node.locked))
         {
-            return Err("Both Grasshopper viewers must be editable.".into());
+            return Err("Both connected components must be editable.".into());
         }
         let output = self
             .grasshopper_ports(source)
@@ -313,8 +257,15 @@ impl SlateApp {
             .views
             .keys()
             .filter_map(|(doc, id)| (*doc == tab).then_some(*id));
-        let (order, blocked) = graph.order(ids);
+        let external_sources =
+            graph.downstream.keys().copied().filter(|id| {
+                self.is_dashboard_source(*id) || self.is_grasshopper_image_source(*id)
+            });
+        let (order, blocked) = graph.order(ids.chain(external_sources));
         for id in order {
+            if !self.grasshopper.views.contains_key(&(tab, id)) {
+                continue;
+            }
             let inputs = self.grasshopper_inputs(tab, id);
             self.grasshopper
                 .views
@@ -323,6 +274,9 @@ impl SlateApp {
                 .update_linked(inputs);
         }
         for id in blocked {
+            if !self.grasshopper.views.contains_key(&(tab, id)) {
+                continue;
+            }
             // Authored commands prevent loops, but malformed/legacy scene
             // imports must still keep dependent solves out of the worker.
             let missing = graph
@@ -391,6 +345,37 @@ impl SlateApp {
             }
             if schema_known && target.is_none() {
                 return Err(format!("Grasshopper input {port_label} is unavailable."));
+            }
+            if self.is_grasshopper_image_source(wire.source) {
+                inputs.insert(
+                    wire.target_port.clone(),
+                    self.grasshopper_image_packet(wire, target)?,
+                );
+                continue;
+            }
+            if self.is_dashboard_source(wire.source) {
+                let dashboard = self.dashboard_output_snapshot(wire.source).ok_or_else(|| {
+                    self.dashboard_output_error(wire.source)
+                        .unwrap_or("Waiting for the connected HTML dashboard.")
+                        .to_owned()
+                })?;
+                let output = dashboard
+                    .ports
+                    .iter()
+                    .find(|p| p.id == wire.source_port)
+                    .ok_or_else(|| {
+                        format!("Dashboard output feeding {port_label} is unavailable.")
+                    })?;
+                if target.is_some_and(|p| !p.kind.accepts(output.kind)) {
+                    return Err(format!(
+                        "Dashboard output feeding {port_label} has an incompatible type."
+                    ));
+                }
+                inputs.insert(
+                    wire.target_port.clone(),
+                    dashboard.packets[&output.id].clone(),
+                );
+                continue;
             }
             let source = &self.grasshopper.views[&(tab, wire.source)];
             let outputs = source.outputs.as_ref().ok_or_else(|| {

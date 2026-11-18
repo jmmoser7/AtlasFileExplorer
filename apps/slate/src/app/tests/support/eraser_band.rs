@@ -65,13 +65,21 @@ pub(crate) fn band_holds_at_the_edge(
     shot(h, raster, |i| {
         i.events.push(egui::Event::PointerMoved(away))
     });
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut released = None;
     let mut frames = 0;
     loop {
         if frames == 6 {
             h.app.brush_tiles.hold_rasters = false;
+            released = Some(std::time::Instant::now());
         }
-        shot(h, raster, |_| {});
+        let out = capture_frame(h, raster, |_| {});
+        let current = stamp_of(h, id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
+        let done = frames >= 6 && current && !h.app.erase_settling();
+        if done {
+            draw_now(h, raster, out);
+        } else {
+            draw_eraser_samples(h, raster, out, seen);
+        }
         let xf = h.app.board_xf();
         for p in seen {
             let r = redness(raster, &xf, p);
@@ -80,12 +88,11 @@ pub(crate) fn band_holds_at_the_edge(
                 "{what}: frame {frames} after release: {p:?} shows the uncut bar ({r:.2})"
             );
         }
-        let current = stamp_of(h, id).is_some_and(|(k, g)| g.exact && Some(*k) == key);
-        if frames >= 6 && current && !h.app.erase_settling() {
+        if done {
             break;
         }
         assert!(
-            std::time::Instant::now() < deadline,
+            released.is_none_or(|start| start.elapsed() < std::time::Duration::from_secs(20)),
             "{what}: the erased bar never settled"
         );
         std::thread::sleep(std::time::Duration::from_millis(5));

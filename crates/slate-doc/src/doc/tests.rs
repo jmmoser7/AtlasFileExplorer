@@ -368,3 +368,49 @@ fn link_status_reflects_filesystem() {
 
     let _ = fs::remove_dir_all(dir);
 }
+
+#[test]
+fn load_advances_stale_item_counter_past_existing_scene_links() {
+    use crate::scene::{ImageNode, NodeKind, SceneCmd, WorldRect};
+    use std::path::Path;
+
+    let mut original = SlateDoc::new("Imported workbook");
+    original.add_item("base.ghx".into(), "base.ghx", 0, 0, "");
+    let linked_path = Path::new("details.ghx");
+    let linked_id = original.add_item(linked_path.to_path_buf(), "details.ghx", 0, 0, "");
+    let linked_node = original.scene.build_node(
+        WorldRect::new(0.0, 0.0, 100.0, 100.0),
+        NodeKind::Image(ImageNode::new(linked_id)),
+    );
+    let node_id = linked_node.id;
+    assert!(original.scene.apply(&SceneCmd::Add {
+        index: 0,
+        node: linked_node,
+    }));
+
+    let capture_path = Path::new("slider-animation.mp4");
+    let next = linked_id.0 + 1;
+    for (stored, expected) in [(0, next), (linked_id.0, next), (next, next), (40, 40)] {
+        let mut saved = serde_json::to_value(&original).unwrap();
+        saved["next_item_id"] = serde_json::json!(stored);
+        let bytes = serde_json::to_vec(&saved).unwrap();
+        let mut loaded = SlateDoc::decode_bytes(&bytes, Path::new("imported.slate")).unwrap();
+
+        let planned = loaded.planned_item_id(capture_path, 0);
+        let captured =
+            loaded.add_item(capture_path.to_path_buf(), "slider-animation.mp4", 0, 0, "");
+        assert_eq!(planned, ItemId(expected));
+        assert_eq!(captured, planned);
+        assert_eq!(loaded.item(captured).unwrap().path, capture_path);
+        assert_eq!(loaded.item(linked_id).unwrap().path, linked_path);
+        assert!(matches!(
+            &loaded.scene.node(node_id).unwrap().kind,
+            NodeKind::Image(image) if image.item == linked_id
+        ));
+    }
+
+    let mut saved = serde_json::to_value(&original).unwrap();
+    saved["next_item_id"] = serde_json::json!(u64::MAX);
+    let bytes = serde_json::to_vec(&saved).unwrap();
+    assert!(SlateDoc::decode_bytes(&bytes, Path::new("imported.slate")).is_ok());
+}

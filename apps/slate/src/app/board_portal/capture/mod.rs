@@ -20,8 +20,7 @@ mod tests;
 mod video;
 
 use clock::RecordingClock;
-pub(crate) use encode::CapturedFrame;
-use encode::VideoEncoder;
+pub(crate) use encode::{CapturedFrame, VideoEncoder};
 use gpu::GpuCapture;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -159,7 +158,12 @@ impl SlateApp {
                 if self.model_has_viewport(node) || self.application_connector_active(node) =>
             {
                 let model = self.model_node_info(node)?;
-                format!("model:{}:{}", model.cache_key, model.path.display())
+                if self.grasshopper_viewer(node) {
+                    let definition = self.image_item_path(node)?;
+                    format!("grasshopper:{}", definition.display())
+                } else {
+                    format!("model:{}:{}", model.cache_key, model.path.display())
+                }
             }
             _ => return None,
         };
