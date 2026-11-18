@@ -1,6 +1,8 @@
 use super::SlateApp;
 use eframe::egui::{self, Pos2, Rect, Vec2};
 
+pub(super) mod background;
+
 pub(crate) struct ZoomGesture {
     pub(crate) origin: Pos2,
     tab: u64,
@@ -346,7 +348,7 @@ impl SlateApp {
         let _span = atlas_core::session_log::span("slate.canvas");
         let rect = ui.available_rect_before_wrap();
         self.canvas_rect = rect;
-        // The enclosing CentralPanel already fills this area with the board color.
+        // The enclosing panel provides the background before the first board layer.
         self.flush_grid_fade_armed(ui.ctx().input(|i| i.time));
         self.board_canvas(ui, rect);
         self.mini_menu(ui.ctx(), rect, None);

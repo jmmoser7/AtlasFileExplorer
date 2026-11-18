@@ -1,6 +1,7 @@
 //! Measure the actual workbook draw list, separately from the Windows compositor.
 
 use super::*;
+use crate::app::canvas::background;
 use eframe::egui_glow::Painter;
 use eframe::glow::{self, HasContext};
 use std::sync::Arc;
@@ -45,7 +46,12 @@ fn bench_workbook_composition() {
         options,
         Box::new(move |cc| {
             let ctx = h.ctx.clone();
-            compare(cc.gl.as_ref().unwrap(), &ctx, |ppp| {
+            let gl = cc.gl.as_ref().unwrap();
+            assert!(gl.version().major >= 3);
+            h.app.gl = Some(gl.clone());
+            let software = background::supported(gl);
+            h.app.software_board_clear = software;
+            compare(gl, &ctx, software, |ppp| {
                 let output = h.frame_output(|input| {
                     input
                         .viewports
@@ -64,13 +70,19 @@ fn bench_workbook_composition() {
 fn compare(
     gl: &Arc<glow::Context>,
     ctx: &egui::Context,
+    software: bool,
     mut frame: impl FnMut(f32) -> (egui::FullOutput, egui::Rect, egui::Color32),
 ) {
     // Both painters replay the same tessellation and texture history. A fenced
     // offscreen draw measures completed software/GPU work without SwapBuffers.
     let mut painters =
         [true, false].map(|dither| Painter::new(gl.clone(), "", None, dither).unwrap());
-    let size = [2880u32, 1800u32];
+    let ppp = std::env::var("SLATE_BENCH_PIXELS_PER_POINT")
+        .ok()
+        .map(|v| v.parse::<f32>().expect("pixel scale"))
+        .unwrap_or(2.0);
+    assert!((0.5..=4.0).contains(&ppp));
+    let size = [(1440.0 * ppp).round() as u32, (900.0 * ppp).round() as u32];
     let (fbo, color) = unsafe {
         let fbo = gl.create_framebuffer().unwrap();
         let color = gl.create_renderbuffer().unwrap();
@@ -100,7 +112,7 @@ fn compare(
     };
     let mut last = None;
     for _ in 0..48 {
-        let (out, rect, bg) = frame(2.0);
+        let (out, rect, bg) = frame(ppp);
         for p in &mut painters {
             for (id, delta) in &out.textures_delta.set {
                 p.set_texture(*id, delta);
@@ -109,34 +121,50 @@ fn compare(
                 p.free_texture(*id);
             }
         }
-        assert_eq!(out.pixels_per_point, 2.0);
+        assert_eq!(out.pixels_per_point, ppp);
         last = Some((out, rect, bg));
         // Give asynchronous source decoding and thumbnail queues a chance to run.
         std::thread::sleep(Duration::from_millis(20));
     }
     let (out, rect, bg) = last.unwrap();
-    let mut previous = out.shapes.clone();
-    // The retired canvas fill was emitted immediately inside the CentralPanel.
-    let bg_index = previous
+    let current = out.shapes;
+    let index = current
         .iter()
-        .position(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.fill == bg && r.rect == rect))
-        .expect("the CentralPanel must cover the entire board");
-    previous.insert(
-        bg_index + 1,
+        .position(|s| match &s.shape {
+            egui::Shape::Callback(c) => software && c.rect == rect,
+            egui::Shape::Rect(r) => !software && r.rect == rect && r.fill == bg,
+            _ => false,
+        })
+        .expect("the actual app must emit the designated board background");
+    let mut single = current.clone();
+    single[index].shape = egui::Shape::rect_filled(rect, 0., bg);
+    let mut duplicate = single.clone();
+    duplicate.insert(
+        index + 1,
         egui::epaint::ClippedShape {
             clip_rect: rect,
             shape: egui::Shape::rect_filled(rect, 0., bg),
         },
     );
-    let captured = [previous, out.shapes].map(|shapes| ctx.tessellate(shapes, 2.0));
-    println!("workbook {} clipped primitives", captured[1].len());
+    let mut cleared = current;
+    if !software {
+        cleared[index] = egui::epaint::ClippedShape {
+            clip_rect: rect,
+            shape: background::clear(rect, bg).into(),
+        };
+    }
+    let captured = [duplicate, single, cleared].map(|shapes| ctx.tessellate(shapes, ppp));
+    println!(
+        "workbook {} clipped primitives, scale {}",
+        captured[1].len(),
+        ppp
+    );
     let mut snapshots: [Vec<u8>; 4] = Default::default();
     for pass in 0..12 {
         // Rotate draw order to share shader warmup and background load.
         for next in 0..4 {
             let variant = (pass + next) % 4;
-            let dither = variant < 2;
-            let duplicate = variant % 2 == 0;
+            let dither = variant < 3;
             let started = Instant::now();
             unsafe {
                 gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fbo));
@@ -144,14 +172,10 @@ fn compare(
                 gl.clear_color(0., 0., 0., 1.);
                 gl.clear(glow::COLOR_BUFFER_BIT);
             }
-            painters[usize::from(!dither)].paint_primitives(
-                size,
-                2.0,
-                &captured[usize::from(!duplicate)],
-            );
+            painters[usize::from(!dither)].paint_primitives(size, ppp, &captured[variant.min(2)]);
             unsafe { gl.finish() };
             let ms = started.elapsed().as_secs_f64() * 1000.;
-            println!("workbook draw pass={pass} dither={dither} duplicate={duplicate} ms={ms:.3}");
+            println!("workbook draw pass={pass} dither={dither} variant={variant} ms={ms:.3}");
             if pass == 11 {
                 snapshots[variant].resize((size[0] * size[1] * 4) as usize, 0);
                 unsafe {
@@ -181,11 +205,11 @@ fn compare(
             deltas[3..].iter().sum::<usize>(),
             deltas.iter().rposition(|v| *v > 0).unwrap()
         );
-        if variant == 1 {
+        if variant < 3 {
             assert_eq!(
                 deltas[0],
                 snapshots[0].len(),
-                "removing duplicate fill changed pixels"
+                "the replacement board background changed pixels"
             );
         }
     }

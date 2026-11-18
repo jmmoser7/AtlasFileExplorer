@@ -454,6 +454,7 @@ pub struct SlateApp {
     /// The glow GL context, for offscreen 3D viewport rendering. `None` in
     /// the headless test harness (3D stays poster/thumbnail-only there).
     pub gl: Option<std::sync::Arc<eframe::glow::Context>>,
+    software_board_clear: bool,
     /// Native frame window. `0` in the headless harness. Enscape's walkthrough
     /// is parented here on double-click.
     frame_hwnd: isize,
@@ -725,6 +726,7 @@ impl SlateApp {
             association::ensure_file_association();
         }
         app.gl = cc.gl.clone();
+        app.software_board_clear = app.gl.as_deref().is_some_and(canvas::background::supported);
         {
             let _attach = app.session_log.attach();
             diagnostics::record_graphics(app.gl.as_deref());
@@ -933,6 +935,7 @@ impl SlateApp {
             shift_down: false,
             ctrl_down: false,
             gl: None,
+            software_board_clear: false,
             frame_hwnd: 0,
             connectors: Default::default(),
             production: production::ProductionRuntime::from_args(),
@@ -2062,11 +2065,18 @@ impl SlateApp {
         // Full bleed against the top bar / readout — same as File Atlas.
         // egui's default CentralPanel frame insets and strokes the canvas,
         // which clips the dock blister's shoulders at the seam.
-        let mut central =
-            egui::CentralPanel::default().frame(egui::Frame::new().fill(self.palette().bg));
-        if portal_max {
-            central = central.frame(egui::Frame::NONE);
-        }
+        let bg = self.palette().bg;
+        let clear_board = self.software_board_clear
+            && bg.is_opaque()
+            && !self.at_home
+            && self.presenting.is_none()
+            && !portal_max;
+        let frame = if portal_max || clear_board {
+            egui::Frame::NONE
+        } else {
+            egui::Frame::new().fill(bg)
+        };
+        let central = egui::CentralPanel::default().frame(frame);
         central.show(ctx, |ui| {
             if self.presenting.is_some() {
                 return;
@@ -2078,6 +2088,9 @@ impl SlateApp {
                 let _span = atlas_core::session_log::span("slate.home");
                 self.home_screen(ui);
             } else {
+                if clear_board {
+                    canvas::background::paint(ui, bg);
+                }
                 self.canvas(ui);
             }
         });
