@@ -67,8 +67,26 @@ pub(super) struct Panel {
     pub(super) wires: Vec<GrasshopperWire>,
     text: Option<Arc<str>>,
     admitted: bool,
-    // A new solve invalidates its old result before publishing the next packet.
-    versions: Vec<Option<(u64, u64, bool, Option<String>)>>,
+    versions: Vec<Option<OutputRevision>>,
+}
+
+/// A new solve invalidates its old result before publishing the next packet.
+struct OutputRevision {
+    instance: u64,
+    generation: u64,
+    ready: bool,
+    status: Option<String>,
+}
+
+impl OutputRevision {
+    fn borrowed(&self) -> (u64, u64, bool, Option<&str>) {
+        (
+            self.instance,
+            self.generation,
+            self.ready,
+            self.status.as_deref(),
+        )
+    }
 }
 
 impl Panel {
@@ -165,24 +183,29 @@ impl SlateApp {
                         v.instance,
                         v.generation,
                         v.outputs.is_some(),
-                        v.status
-                            .as_deref()
-                            .filter(|_| v.outputs.is_none())
-                            .map(str::to_owned),
+                        v.status.as_deref().filter(|_| v.outputs.is_none()),
                     )
                 })
             };
             if panel.text.is_some()
-                && panel
-                    .wires
+                && panel.wires.iter().map(version).eq(panel
+                    .versions
                     .iter()
-                    .map(version)
-                    .eq(panel.versions.iter().cloned())
+                    .map(|prior| prior.as_ref().map(OutputRevision::borrowed)))
             {
                 continue;
             }
             panel.versions.clear();
-            panel.versions.extend(panel.wires.iter().map(version));
+            panel
+                .versions
+                .extend(panel.wires.iter().map(version).map(|revision| {
+                    revision.map(|(instance, generation, ready, status)| OutputRevision {
+                        instance,
+                        generation,
+                        ready,
+                        status: status.map(str::to_owned),
+                    })
+                }));
             let mut text = PanelText::default();
             for (i, wire) in panel.wires.iter().enumerate() {
                 let view = views.get(&(tab, wire.source));
