@@ -39,6 +39,16 @@ of {"path":[0],"items":[...]} branches. Points are XYZ arrays and colors are
 RGBA bytes. For a receiver expecting CSV, publish a text item with the CSV
 string. Slate exposes these output names as wire grips on the HTML component.
 
+When the dashboard has editable controls, put a stable schema UUID in the
+output script's data-slate-controller attribute. Slate saves these controls
+per placed Web component. On that script element, listen for the
+slate-controller-restore event. Apply event.detail as the saved controls,
+or use the initial defaults when it is null, then publish the outputs again.
+When the user finishes changing a control, dispatch a CustomEvent named
+slate-controller-edit on the same element with the new controls in detail.
+Keep this JSON within 8 KiB. For a slider, update the output on input and
+dispatch the edit on change. Only a user edit should emit the edit event.
+
 Visual fidelity is a requirement. Preserve the wired reference's composition,
 palette, typography, spacing, proportions, background, label positions, and
 legend. Keep the initial view faithful while adding the requested interaction.

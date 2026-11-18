@@ -26,6 +26,10 @@ fn artifact_profile_replaces_conflicting_generic_guides() {
     for instruction in [
         "Artifact generation profile v1",
         "self-contained offline HTML",
+        "application/slate-outputs+json",
+        "data-slate-controller",
+        "slate-controller-restore",
+        "slate-controller-edit",
         "Never edit an upstream revision",
         "Identify estimated",
         "Do not install packages",
