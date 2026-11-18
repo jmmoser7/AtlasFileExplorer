@@ -50,7 +50,7 @@ fn a_drop_while_the_picker_is_open_lands_and_dismisses_the_dialog() {
 }
 
 #[test]
-fn media_menu_has_four_registered_families() {
+fn media_menu_lists_frame_and_routes_each_registered_media_tool() {
     let mut h = Harness::new("media_menu");
     h.app.ensure_work_tab();
     h.app.leave_home();
@@ -58,9 +58,10 @@ fn media_menu_has_four_registered_families() {
     let items = ui::tools::palette_strip_items(&h.app, "tool.media", &[]);
     assert_eq!(
         items.iter().map(|i| i.label).collect::<Vec<_>>(),
-        vec!["Image", "3D", "Video", "Text"]
+        vec!["Frame", "Text", "Image", "Video", "3D"]
     );
     for id in [
+        "board.tool.frame",
         "board.media.image",
         "board.media.model",
         "board.media.video",
@@ -86,6 +87,7 @@ fn media_menu_has_four_registered_families() {
     let (_tx, rx) = crossbeam_channel::unbounded();
     h.app.picker.adopt(rx);
     for (icon, command) in [
+        ("media.frame", "board.tool.frame"),
         ("media.image", "board.media.image"),
         ("media.model", "board.media.model"),
         ("media.video", "board.media.video"),
