@@ -67,6 +67,16 @@ jobs:
       - name: Test workspace on Windows
         id: workspace_tests
         run: cargo test --locked --workspace --no-fail-fast
+      - name: Verify AI workflows on Windows
+        id: ai_workflows
+        run: python scripts/test-ai-workflows.py
+      - name: Preserve AI workflow results on failure
+        if: failure() && steps.ai_workflows.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-ai-workflows-${{ github.run_attempt }}
+          path: target/ai-workflows/
+          retention-days: 7
       - name: Verify video PR test stability (20 fixed runs)
         if: github.event_name == 'pull_request' && github.head_ref == 'codex/video-studio-recovery' && steps.workspace_tests.outcome == 'success'
         timeout-minutes: 5
