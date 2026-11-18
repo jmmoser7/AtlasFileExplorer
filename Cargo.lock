@@ -414,6 +414,7 @@ name = "atlas-agent"
 version = "1.0.14"
 dependencies = [
  "image",
+ "jpeg-decoder",
  "png",
  "serde",
  "serde_json",

@@ -38,7 +38,20 @@ fn validate(path: &Path) -> Result<(), String> {
             {}
             png.finish().map_err(|e| e.to_string())
         }
-        Some(ImageFormat::Jpeg | ImageFormat::WebP) => {
+        Some(ImageFormat::Jpeg) => {
+            // The canvas decoder tolerates incomplete scans and fills missing
+            // pixels. A finished provider result must reach its outer EOI marker.
+            input.rewind().map_err(|e| e.to_string())?;
+            let mut jpeg = jpeg_decoder::Decoder::new(input);
+            jpeg.set_max_decoding_buffer_size(MAX_DECODE_BYTES as usize);
+            jpeg.read_info().map_err(|e| e.to_string())?;
+            let info = jpeg.info().ok_or("Missing generated JPEG dimensions")?;
+            if u64::from(info.width) * u64::from(info.height) > MAX_PIXELS {
+                return Err("Generated image exceeds the canvas preview size limit".into());
+            }
+            jpeg.decode().map(|_| ()).map_err(|e| e.to_string())
+        }
+        Some(ImageFormat::WebP) => {
             let mut limits = image::Limits::default();
             limits.max_alloc = Some(MAX_DECODE_BYTES);
             reader.limits(limits);
@@ -79,6 +92,38 @@ pub fn publish_generated_image(
 mod tests {
     use super::*;
     use image::{DynamicImage, Rgb, RgbImage};
+
+    #[test]
+    fn incomplete_jpeg_and_webp_results_never_replace_the_last_good_picture() {
+        let root = std::env::temp_dir().join(crate::request_id());
+        let target = root.join("picture.png");
+        let pixels = DynamicImage::ImageRgb8(RgbImage::from_fn(48, 32, |x, y| {
+            let i = x + 48 * y;
+            Rgb([(i * 37) as u8, (i * 71) as u8, (i * 19) as u8])
+        }));
+        for format in [ImageFormat::Jpeg, ImageFormat::WebP] {
+            let mut encoded = std::io::Cursor::new(Vec::new());
+            pixels.write_to(&mut encoded, format).unwrap();
+            let good = encoded.into_inner();
+            let publish = |bytes: &[u8]| {
+                publish_generated_image(&target, |p| {
+                    std::fs::write(p, bytes).map_err(|e| e.to_string())
+                })
+            };
+            publish(&good).unwrap();
+            for length in [good.len() * 85 / 100, good.len() - 2] {
+                assert!(publish(&good[..length]).is_err(), "{format:?} at {length}");
+                assert_eq!(std::fs::read(&target).unwrap(), good);
+            }
+            if format == ImageFormat::Jpeg {
+                let mut with_trailer = good;
+                with_trailer.extend_from_slice(b"trailing metadata");
+                publish(&with_trailer).unwrap();
+            }
+        }
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn generated_outputs_preserve_color_alpha_and_legitimate_black_pixels() {
