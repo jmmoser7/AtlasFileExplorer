@@ -70,11 +70,26 @@ fn dashboard_outputs_feed_existing_grasshopper_wires_and_survive_schema_reorderi
     h.app.update_grasshopper_links();
     let data = &h.app.grasshopper.views[&key].linked.as_ref().unwrap()[&port(2)];
     assert_eq!(data["branches"][0]["items"][1]["value"], 0.8);
+    let generation = h.app.grasshopper.views[&key].generation;
+    h.app.grasshopper.views.get_mut(&key).unwrap().due = None;
+    for _ in 0..60 {
+        // Re-publishing the same authored value, even in a different list of
+        // declarations, must not start another native solve while the UI paints.
+        h.app.set_dashboard_test_document(
+            source,
+            &raw(vec![toggle.clone(), weights(serde_json::json!([0.2, 0.8]))]),
+        );
+        h.app.update_grasshopper_links();
+    }
+    assert_eq!(h.app.grasshopper.views[&key].generation, generation);
+    assert!(h.app.grasshopper.views[&key].due.is_none());
     h.app.set_dashboard_test_document(
         source,
         &raw(vec![toggle, weights(serde_json::json!([0.6]))]),
     );
     h.app.update_grasshopper_links();
+    assert!(h.app.grasshopper.views[&key].due.is_some());
+    assert!(h.app.grasshopper.views[&key].generation > generation);
     let data = &h.app.grasshopper.views[&key].linked.as_ref().unwrap()[&port(2)];
     assert_eq!(data["branches"][0]["items"][0]["value"], 0.6);
     h.app.set_dashboard_test_document(source, &raw(vec![]));

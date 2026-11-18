@@ -30,6 +30,8 @@ try {
         'HeadlessRhino.exe', 'HeadlessRhino-README.md', 'pdfium.dll', 'PDFium-LICENSE',
         'DEJAVU-LICENSE.txt', 'install-shortcuts.ps1', 'runtime/node.exe', 'runtime/LICENSE',
         'runtime/software-gl/opengl32.dll', 'runtime/software-gl/libgallium_wgl.dll', 'runtime/software-gl/Mesa-LICENSE.rst',
+        'runtime/software-gl/dxcompiler.dll', 'runtime/software-gl/dxil.dll', 'runtime/software-gl/licenses/DXC/LICENSE-LLVM.txt',
+        'runtime/software-gl/licenses/DXC/LICENSE-MS.txt', 'runtime/software-gl/licenses/DXC/LICENSE-MIT.txt', 'runtime/software-gl/licenses/DXC/ReleaseNotes.md',
         'runtime/software-gl/LLVM-LICENSE.txt', 'runtime/software-gl/NOTICE.txt', 'runtime/software-gl/licenses/MIT',
         'runtime/node_modules/npm/bin/npm-cli.js', 'cursor-sidecar/index.mjs',
         'cursor-sidecar/artifacts.mjs', 'cursor-sidecar/artifact-generation-v1.md',
@@ -55,6 +57,7 @@ try {
         Verify $channel
         $checks++
         foreach ($required in @('HeadlessRhino.exe', 'HeadlessRhino-README.md', 'slate-video-worker.exe',
+            'runtime/software-gl/dxcompiler.dll', 'runtime/software-gl/dxil.dll', 'runtime/software-gl/licenses/DXC/LICENSE-LLVM.txt',
             'runtime/software-gl/opengl32.dll', 'runtime/software-gl/libgallium_wgl.dll', 'Rust-licenses/meshopt-notices.txt')) {
             $path = Join-Path $stage $required
             Remove-Item -LiteralPath $path

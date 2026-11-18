@@ -58,42 +58,46 @@ impl SlateApp {
         let now = Instant::now();
         let asynchronous = self.web.host.frame_requests_are_async();
         for &id in &pending {
-            let interval = self.web.focused_frame_interval(id);
-            let remaining = self.web.views[&id]
-                .last_frame_probe
-                .map_or(Duration::ZERO, |last| {
-                    interval.saturating_sub(now.saturating_duration_since(last))
-                });
-            if remaining.is_zero() {
-                if requests < READS_PER_FRAME
-                    && (asynchronous
-                        || (readbacks < READS_PER_FRAME
-                            && self.web.uploads_this_frame < UPLOADS_PER_FRAME))
-                {
-                    requests += 1;
-                    serviced[serviced_count] = Some(id);
-                    serviced_count += 1;
-                    self.web.views.get_mut(&id).unwrap().last_frame_probe = Some(now);
-                    let started = Instant::now();
-                    let frame = self.web.host.request_frame(id);
-                    debug_assert!(
-                        !asynchronous || frame.is_none(),
-                        "async requests only queue copies"
-                    );
-                    self.web.pixel_ms += started.elapsed().as_secs_f32() * 1000.0;
-                    // Immediate/fake hosts retain the original take_frame
-                    // seam. Their returned pixels spend the same budgets.
-                    if let Some(image) = frame {
-                        readbacks += 1;
-                        self.upload_poster(ctx, id, image);
-                        self.web.uploads_this_frame += 1;
+            if self.web.host.has_new_frame(id) {
+                let interval = self.web.focused_frame_interval(id);
+                let remaining = self.web.views[&id]
+                    .last_frame_probe
+                    .map_or(Duration::ZERO, |last| {
+                        interval.saturating_sub(now.saturating_duration_since(last))
+                    });
+                if remaining.is_zero() {
+                    if requests < READS_PER_FRAME
+                        && (asynchronous
+                            || (readbacks < READS_PER_FRAME
+                                && self.web.uploads_this_frame < UPLOADS_PER_FRAME))
+                    {
+                        requests += 1;
+                        serviced[serviced_count] = Some(id);
+                        serviced_count += 1;
+                        self.web.views.get_mut(&id).unwrap().last_frame_probe = Some(now);
+                        let started = Instant::now();
+                        let frame = self.web.host.request_frame(id);
+                        debug_assert!(
+                            !asynchronous || frame.is_none(),
+                            "async requests only queue copies"
+                        );
+                        self.web.pixel_ms += started.elapsed().as_secs_f32() * 1000.0;
+                        // Immediate/fake hosts retain the original take_frame
+                        // seam. Their returned pixels spend the same budgets.
+                        if let Some(image) = frame {
+                            readbacks += 1;
+                            self.upload_poster(ctx, id, image);
+                            self.web.uploads_this_frame += 1;
+                        }
+                        if self.web.host.has_new_frame(id) {
+                            wake_after(interval);
+                        }
+                    } else {
+                        wake_after(Duration::ZERO);
                     }
-                    wake_after(interval);
                 } else {
-                    wake_after(Duration::ZERO);
+                    wake_after(remaining);
                 }
-            } else {
-                wake_after(remaining);
             }
             if self.web.host.has_pending_frame(id) {
                 let fps = if self.web.focused == Some(id) {
@@ -136,6 +140,7 @@ mod tests {
     struct Log {
         pending: HashSet<NodeId>,
         ready: HashSet<NodeId>,
+        quiet: HashSet<NodeId>,
         unavailable: HashSet<NodeId>,
         polls: Vec<NodeId>,
         requests: Vec<NodeId>,
@@ -154,6 +159,9 @@ mod tests {
         }
         fn has_pending_frame(&self, id: NodeId) -> bool {
             self.0.borrow().pending.contains(&id)
+        }
+        fn has_new_frame(&self, id: NodeId) -> bool {
+            !self.0.borrow().quiet.contains(&id)
         }
         fn poll_frame(&mut self, id: NodeId) -> Option<WebFrame> {
             let mut log = self.0.borrow_mut();
@@ -286,6 +294,25 @@ mod tests {
             LIVE_POOL,
             "background dashboards do not starve"
         );
+    }
+
+    #[test]
+    fn unchanged_event_driven_portals_wait_for_pixels_and_still_retire_pending_copies() {
+        let (ctx, mut app, log, ids) = fixture(2);
+        log.borrow_mut().quiet.extend(ids.iter().copied());
+        for _ in 0..60 {
+            app.pump_web_pixels(&ctx, ids.clone());
+        }
+        assert!(log.borrow().requests.is_empty());
+        assert!(log.borrow().polls.is_empty());
+        log.borrow_mut().quiet.remove(&ids[1]);
+        app.pump_web_pixels(&ctx, ids.clone());
+        assert_eq!(log.borrow().requests, [ids[1]]);
+        log.borrow_mut().quiet.insert(ids[1]);
+        log.borrow_mut().ready.insert(ids[1]);
+        app.pump_web_pixels(&ctx, ids.clone());
+        assert_eq!(log.borrow().polls, [ids[1]]);
+        assert!(app.web.views[&ids[1]].poster.is_some());
     }
 
     #[test]

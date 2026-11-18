@@ -239,6 +239,7 @@ struct View {
     child: ContainerVisual,
     item: Option<GraphicsCaptureItem>,
     pool: Option<Direct3D11CaptureFramePool>,
+    frame_arrivals: Option<readback::FrameArrivals>,
     session: Option<GraphicsCaptureSession>,
     staging: [Option<ID3D11Texture2D>; 2],
     pending_copy: readback::PendingCopies,
@@ -482,6 +483,7 @@ impl Webview2Host {
                 child,
                 item: None,
                 pool: None,
+                frame_arrivals: None,
                 session: None,
                 staging: [None, None],
                 pending_copy: readback::PendingCopies::default(),
@@ -531,6 +533,7 @@ impl Webview2Host {
         if session.StartCapture().is_err() {
             return;
         }
+        view.frame_arrivals = readback::FrameArrivals::subscribe(&pool, &self.wake);
         view.item = Some(item);
         view.pool = Some(pool);
         view.session = Some(session);
@@ -832,7 +835,7 @@ impl WebHost for Webview2Host {
         for window in orphans {
             destroy_popup(window);
         }
-        let Some(view) = self.views.remove(&id) else {
+        let Some(mut view) = self.views.remove(&id) else {
             return;
         };
         // Close can synchronously call navigation and script handlers. Drop
@@ -844,6 +847,7 @@ impl WebHost for Webview2Host {
             page.control_read = Default::default();
             page.controller.clone()
         };
+        drop(view.frame_arrivals.take());
         if let Some(session) = &view.session {
             let _ = session.Close();
         }
@@ -870,6 +874,13 @@ impl WebHost for Webview2Host {
         self.views
             .get(&id)
             .is_some_and(|view| view.pending_copy.has_pending())
+    }
+
+    fn has_new_frame(&self, id: NodeId) -> bool {
+        self.views
+            .get(&id)
+            .and_then(|view| view.frame_arrivals.as_ref())
+            .is_none_or(readback::FrameArrivals::ready)
     }
 
     fn frame_requests_are_async(&self) -> bool {

@@ -346,8 +346,7 @@ impl SlateApp {
         let _span = atlas_core::session_log::span("slate.canvas");
         let rect = ui.available_rect_before_wrap();
         self.canvas_rect = rect;
-        ui.painter_at(rect)
-            .rect_filled(rect, 0.0, self.palette().bg);
+        // The enclosing CentralPanel already fills this area with the board color.
         self.flush_grid_fade_armed(ui.ctx().input(|i| i.time));
         self.board_canvas(ui, rect);
         self.mini_menu(ui.ctx(), rect, None);

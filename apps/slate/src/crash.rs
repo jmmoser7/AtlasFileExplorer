@@ -12,6 +12,9 @@ mod graphics_mode;
 mod native;
 mod stderr;
 
+#[cfg(windows)]
+pub(crate) use graphics_mode::graphics_probe;
+
 const CHILD_REPORT: &str = "SLATE_CRASH_REPORT_CHILD";
 const VERSION: &str = match option_env!("ATLAS_RELEASE_VERSION") {
     Some(version) => version,

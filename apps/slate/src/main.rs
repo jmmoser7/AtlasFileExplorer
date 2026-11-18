@@ -4,6 +4,10 @@ mod crash;
 
 fn main() -> std::process::ExitCode {
     let args: Vec<String> = std::env::args().collect();
+    #[cfg(windows)]
+    if let Some(result) = crash::graphics_probe(&args) {
+        return result;
+    }
     // Private stdio mode must precede logging, updates, crash relaunch and GUI.
     if let Some(result) = atlas_ai::subscription_cli::host_tools::run_if_requested(
         &args,

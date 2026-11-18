@@ -274,6 +274,11 @@ pub trait WebHost {
     fn has_pending_frame(&self, _id: NodeId) -> bool {
         false
     }
+    /// Event-driven hosts wake Slate when new browser pixels are ready.
+    /// Polling hosts keep probing on the selected capture cadence.
+    fn has_new_frame(&self, _id: NodeId) -> bool {
+        true
+    }
     /// Queue-only hosts return true: `request_frame` never returns CPU pixels,
     /// so acquisition can proceed after this frame's upload budget is spent.
     fn frame_requests_are_async(&self) -> bool {
@@ -1061,6 +1066,7 @@ impl SlateApp {
             self.web_pump_portals_for(&dashboards)
         };
         if portals.is_empty() {
+            self.web.source_polls.finish(ctx);
             self.web.painted.clear();
             return;
         }
@@ -1128,7 +1134,7 @@ impl SlateApp {
                 }
             }
             let (state, renderable) =
-                self.resolve_web_state(ctx, *id, portal, workbook.as_deref(), host_ok, demanded);
+                self.resolve_web_state(*id, portal, workbook.as_deref(), host_ok, demanded);
             let view = self.web.views.get_mut(id).expect("view inserted above");
             // A portal that already has pixels keeps saying `poster` rather
             // than regressing to `unknown` while it waits for its slot.
@@ -1148,6 +1154,7 @@ impl SlateApp {
                 pinned,
             });
         }
+        self.web.source_polls.finish(ctx);
         drop(state_span);
 
         let admit_span = atlas_core::session_log::span("slate.web.admit");
@@ -1359,7 +1366,6 @@ impl SlateApp {
     /// What state a portal is in right now, and whether it is worth a webview.
     fn resolve_web_state(
         &mut self,
-        ctx: &egui::Context,
         id: NodeId,
         portal: &PortalNode,
         workbook: Option<&Path>,
@@ -1406,7 +1412,7 @@ impl SlateApp {
             // the window. `Missing` keeps the last poster and names the path.
             if demanded {
                 let path = resolve_web_source(workbook, &locator);
-                if let Some(stamp) = self.web.source_polls.request(ctx, path) {
+                if let Some(stamp) = self.web.source_polls.request(path) {
                     if let Some(view) = self.web.views.get_mut(&id) {
                         view.reload_pending |=
                             view.source_mtime.is_some() && view.source_mtime != stamp.mtime;
@@ -1414,7 +1420,6 @@ impl SlateApp {
                         view.source_mtime = stamp.mtime;
                     }
                 }
-                ctx.request_repaint_after(Duration::from_secs_f32(POLL_SECS));
             }
             if self.web.views.get(&id).and_then(|v| v.source_exists) == Some(false) {
                 return (WebState::Missing { locator }, false);

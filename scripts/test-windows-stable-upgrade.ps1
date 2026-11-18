@@ -148,7 +148,8 @@ $hashes = @{}
 $zip = [IO.Compression.ZipFile]::OpenRead($package)
 try {
     foreach ($name in @('slate.exe', 'native-file-atlas.exe', 'slate-video-worker.exe',
-        'runtime/software-gl/opengl32.dll', 'runtime/software-gl/libgallium_wgl.dll')) {
+        'runtime/software-gl/opengl32.dll', 'runtime/software-gl/libgallium_wgl.dll',
+        'runtime/software-gl/dxcompiler.dll', 'runtime/software-gl/dxil.dll')) {
         $entry = $zip.GetEntry("lib/app/$name")
         if (!$entry) { throw "The candidate update archive does not contain $name." }
         $stream = $entry.Open()

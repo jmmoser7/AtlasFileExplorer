@@ -408,16 +408,26 @@ fn run_checks(gl: Arc<glow::Context>, directory: &Path) -> Result<String, String
         ),
     )
     .map_err(|e| e.to_string())?;
+    let size = (256, 192, 256.0 / 192.0);
+    let mut live = engine.new_live_target().ok_or("mode target unavailable")?;
     for display in ModelDisplay::ALL {
         let cam = ModelCamera {
             display,
             ..Default::default()
         };
         let image = engine
-            .render(&model, &cam, 256, 192, None)
+            .render(&model, &cam, size.0, size.1, None)
             .ok_or("mode reference unavailable")?;
-        check_refinement(&engine, &model, cam, (256, 192, 256.0 / 192.0), &image)?;
+        if !engine.render_live(&mut live, &model, &cam, size, None)
+            || engine.read_target(&live).as_ref() != Some(&image)
+        {
+            return Err(format!("{display:?}: live frame differs from its poster"));
+        }
+        if engine.software {
+            check_refinement(&engine, &model, cam, size, &image)?;
+        }
     }
+    engine.free_target(live);
     let outcome = render_cases(&engine, &model, directory);
     engine.free(model);
     check_gl(&gl, "cleanup")?;

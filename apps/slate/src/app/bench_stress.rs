@@ -22,6 +22,7 @@ mod cache_probe;
 mod imports;
 mod input;
 mod reporting;
+mod workbook;
 use reporting::{persist, report};
 
 #[derive(serde::Serialize)]

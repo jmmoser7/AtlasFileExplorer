@@ -19,6 +19,8 @@ foreach ($commercial in Get-ChildItem -LiteralPath $AppDirectory -File -Recurse 
 }
 foreach ($file in @('slate.exe', 'native-file-atlas.exe', 'slate-video-worker.exe', 'pdfium.dll', 'runtime/node.exe', 'runtime/node_modules/npm/bin/npm-cli.js',
     'runtime/software-gl/opengl32.dll', 'runtime/software-gl/libgallium_wgl.dll', 'runtime/software-gl/Mesa-LICENSE.rst',
+    'runtime/software-gl/dxcompiler.dll', 'runtime/software-gl/dxil.dll', 'runtime/software-gl/licenses/DXC/LICENSE-LLVM.txt',
+    'runtime/software-gl/licenses/DXC/LICENSE-MS.txt', 'runtime/software-gl/licenses/DXC/LICENSE-MIT.txt', 'runtime/software-gl/licenses/DXC/ReleaseNotes.md',
     'runtime/software-gl/LLVM-LICENSE.txt', 'runtime/software-gl/NOTICE.txt', 'runtime/software-gl/licenses/MIT',
     'runtime/LICENSE', 'cursor-sidecar/index.mjs', 'cursor-sidecar/artifacts.mjs', 'cursor-sidecar/artifact-generation-v1.md', 'cursor-sidecar/board-link.mjs', 'cursor-sidecar/board-link-v1.md', 'cursor-sidecar/attachments.mjs', 'cursor-sidecar/models.mjs', 'cursor-sidecar/activity.mjs', 'cursor-sidecar/policy.mjs',
     'cursor-sidecar/install.mjs', 'cursor-sidecar/supervise.mjs', 'cursor-sidecar/package-lock.json', 'PDFium-LICENSE', 'DEJAVU-LICENSE.txt', 'Rust-licenses/meshopt-notices.txt', 'install-shortcuts.ps1')) {

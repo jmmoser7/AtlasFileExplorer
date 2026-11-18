@@ -10,3 +10,7 @@ https://github.com/pal1000/mesa-dist-win/releases/tag/25.2.8
 The llvmpipe CPU renderer includes LLVM 21.1.7. Its license and related
 third-party notices are in LLVM-LICENSE.txt.
 https://github.com/llvm/llvm-project/tree/llvmorg-21.1.7
+
+The D3D12 renderer uses the Microsoft DirectX Shader Compiler redistributable
+v1.8.2505.1. Its license texts and release notes accompany it in licenses/DXC.
+https://github.com/microsoft/DirectXShaderCompiler/releases/tag/v1.8.2505.1

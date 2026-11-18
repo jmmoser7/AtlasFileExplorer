@@ -58,13 +58,21 @@ both after a clean install and after applying the update.
 
 ### Windows graphics compatibility
 
-Slate automatically uses the bundled CPU renderer for Intel graphics build
-`30.0.101.3118`, which was observed distorting frames and hanging in the driver.
-**Slate (Software graphics)** in the Windows Start menu starts with the same
-renderer on other computers. Software graphics may run slower on complex 3D
-boards and uses zero window multisampling by default to reduce CPU load. Pass
-`--native-graphics` to prefer the Windows graphics driver for one launch. The
-software renderer loads from Slate's installation directory.
+On Intel graphics build `30.0.101.3118`, Slate uses its packaged Mesa runtime
+to avoid the OpenGL driver that distorted frames and hung during shutdown.
+Slate tests Direct3D 12 on the Intel GPU in a separate hidden process at
+startup. If the render check fails or times out, Slate uses Mesa's CPU
+renderer. **Slate (Software graphics)** in the Windows Start menu forces CPU
+rendering. Both Mesa modes use zero window multisampling by default. Pass
+`--native-graphics` to select the native OpenGL driver for one launch.
+
+When verifying a graphics or navigation change, open the same workbook and
+camera view in both installed builds. Record the renderer from `slate.graphics`
+in the session log and the window's physical pixel dimensions. After a few
+seconds of idle time, measure the first visible response and the frame intervals
+during a held pan and a sequence of wheel events. State whether timings came
+from the application, the GPU, or captured desktop frames. Repeat on the
+Software graphics shortcut when qualifying the fallback.
 
 ## Artifact reuse and promotion
 

@@ -1,4 +1,5 @@
 use std::io;
+use std::path::PathBuf;
 use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIDevice, IDXGIFactory1};
 use windows_core::Interface as _;
 
@@ -7,6 +8,14 @@ const OVERRIDE: &str = "ATLAS_SOFTWARE_GL";
 const RESOURCE: &str = "runtime/software-gl/opengl32.dll";
 const INTEL_VENDOR: u32 = 0x8086;
 const IRIS_PLUS_DRIVER: [u16; 4] = [30, 0, 101, 3118];
+
+mod d3d12;
+pub(crate) use d3d12::graphics_probe;
+
+fn packaged_provider() -> Option<PathBuf> {
+    let path = std::env::current_exe().ok()?.parent()?.join(RESOURCE);
+    path.is_file().then_some(path)
+}
 
 enum GraphicsMode {
     Automatic,
@@ -31,18 +40,13 @@ pub(super) fn prepare() -> io::Result<()> {
     // An updater restarted by the window inherits its environment. Only the
     // current launch's own selection may point at its packaged renderer.
     std::env::remove_var(PROVIDER);
-    let available = || {
-        let exe = std::env::current_exe().ok()?;
-        let path = exe.parent()?.join(RESOURCE);
-        path.is_file().then_some(path)
-    };
     let selected = match mode {
         GraphicsMode::Native => {
             std::env::set_var(OVERRIDE, "0");
             return Ok(());
         }
-        GraphicsMode::Automatic => available().filter(|_| affected_graphics_adapter()),
-        GraphicsMode::Software => Some(available().ok_or_else(|| {
+        GraphicsMode::Automatic => packaged_provider().filter(|_| affected_graphics_adapter()),
+        GraphicsMode::Software => Some(packaged_provider().ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
                 "This Slate installation is missing its software graphics runtime. Reinstall the Windows package.",
@@ -54,8 +58,13 @@ pub(super) fn prepare() -> io::Result<()> {
         if matches!(mode, GraphicsMode::Software) {
             std::env::set_var(OVERRIDE, "1");
         }
+        let driver = if matches!(mode, GraphicsMode::Automatic) && d3d12::available(&provider) {
+            "d3d12"
+        } else {
+            "llvmpipe"
+        };
         std::env::set_var(PROVIDER, provider);
-        std::env::set_var("GALLIUM_DRIVER", "llvmpipe");
+        std::env::set_var("GALLIUM_DRIVER", driver);
     }
     Ok(())
 }

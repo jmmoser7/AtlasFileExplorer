@@ -183,6 +183,48 @@ fn a_local_page_paints_into_a_texture() {
     assert!(host.load_error(id).is_none(), "{:?}", host.load_error(id));
     assert!(frames > 0, "the capture session never produced a frame");
     assert!(red, "frames arrived but the page never painted");
+
+    assert!(
+        host.views[&id].frame_arrivals.is_some(),
+        "WGC event subscription failed"
+    );
+    // Startup can paint more than once. After the last arrival a static
+    // browser must let the window sleep until the next real page change.
+    let deadline = Instant::now() + Duration::from_secs(8);
+    let mut quiet_since = Instant::now();
+    while quiet_since.elapsed() < Duration::from_millis(750) && Instant::now() < deadline {
+        pump();
+        if host.has_new_frame(id) {
+            let _ = host.request_frame(id);
+            quiet_since = Instant::now();
+        }
+        let _ = host.poll_frame(id);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        quiet_since.elapsed() >= Duration::from_millis(750),
+        "static browser kept producing frames"
+    );
+    assert!(eval(
+        &host,
+        id,
+        "document.body.style.backgroundColor='#0000ff'",
+        10
+    )
+    .is_some());
+    assert!(
+        pump_until(&mut host, id, &req, 10, |h| h.has_new_frame(id)),
+        "changing the page did not signal WGC"
+    );
+    assert!(
+        run_until(&mut host, id, &req, 10, |img| img.pixels.iter().any(|p| p
+            .b()
+            > 200
+            && p.r() < 80
+            && p.g() < 80))
+        .1,
+        "changed pixels failed to reach the board"
+    );
 }
 
 /// Browser parity: an arbitrary public page loads and paints. Needs the
@@ -223,23 +265,24 @@ fn an_arbitrary_public_page_loads_and_paints() {
 fn eviction_releases_the_view() {
     let mut host = host("evict").expect("no WebView2 runtime on this machine");
     let id = NodeId(3);
-    let req = WebRequest {
-        target: "about:blank".into(),
-        kind: WebSourceKind::Remote,
-        width_css: 200,
-        height_css: 120,
-        raster_w: 200,
-        raster_h: 120,
-        link_script: String::new(),
-        anchor_px: None,
-        profile: "local".into(),
-    };
-    let (frames, _) = run_until(&mut host, id, &req, 30, |_| true);
-    assert!(frames > 0);
+    // about:blank is intentionally rejected by the blank-poster guard. Use a
+    // visible local page to exercise eviction and the next on-screen admission.
+    let page = std::env::temp_dir().join(format!("slate-web-eviction-{}.html", std::process::id()));
+    std::fs::write(&page, "<body style='background:#32be78'></body>").unwrap();
+    let req = local_request(&page);
+    let green = |img: &egui::ColorImage| img.pixels.iter().any(|p| p.g() > 150 && p.r() < 90);
+    assert!(run_until(&mut host, id, &req, 30, green).1);
     host.evict(id);
     pump();
     assert!(host.views.is_empty(), "the view outlived its slot");
+    assert!(!host.has_pending_frame(id));
     assert!(host.take_frame(id).is_none());
+    assert!(
+        run_until(&mut host, id, &req, 30, green).1,
+        "re-admission lost the first visible frame"
+    );
+    host.evict(id);
+    std::fs::remove_file(page).unwrap();
 }
 
 /// Run a fixed expression in the portal's page and wait for its JSON.

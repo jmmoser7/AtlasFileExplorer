@@ -1,108 +1,170 @@
-//! Local metadata probes follow the source path shared by its placements.
+//! Local metadata probes share a bounded pool. Only a changed source wakes the board.
 
 use super::*;
+use std::sync::{Arc, Condvar, Mutex};
 
 const MAX_SOURCE_POLLS: usize = 4;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct SourceStamp {
     pub(super) exists: bool,
     pub(super) mtime: Option<SystemTime>,
 }
 
-struct SourceEntry {
-    last_used: Instant,
-    pending: bool,
-    completed: Option<(Instant, SourceStamp)>,
+struct Entry {
+    id: u64,
+    due: Option<Instant>,
+    stamp: Option<SourceStamp>,
 }
 
+#[derive(Default)]
+struct Schedule {
+    entries: HashMap<PathBuf, Entry>,
+    stopped: bool,
+}
+
+type Shared = Arc<(Mutex<Schedule>, Condvar)>;
+
 pub(super) struct SourcePolls {
-    entries: HashMap<PathBuf, SourceEntry>,
-    finished: crossbeam_channel::Receiver<(PathBuf, SourceStamp)>,
-    ready: crossbeam_channel::Sender<(PathBuf, SourceStamp)>,
-    pending: usize,
-    last_prune: Instant,
+    requested: HashSet<PathBuf>,
+    watching: HashSet<PathBuf>,
+    schedule: Shared,
+    next_id: u64,
+    workers: usize,
+    // Snapshot changed observations once per board frame, shared by all placements.
+    stamps: HashMap<PathBuf, SourceStamp>,
+    changed: crossbeam_channel::Receiver<()>,
+    sender: crossbeam_channel::Sender<()>,
 }
 
 impl Default for SourcePolls {
     fn default() -> Self {
-        let (ready, finished) = crossbeam_channel::unbounded();
+        let (sender, changed) = crossbeam_channel::bounded(1);
         Self {
-            entries: HashMap::new(),
-            finished,
-            ready,
-            pending: 0,
-            last_prune: Instant::now(),
+            requested: HashSet::new(),
+            watching: HashSet::new(),
+            schedule: Shared::default(),
+            next_id: 0,
+            workers: 0,
+            stamps: HashMap::new(),
+            changed,
+            sender,
         }
     }
 }
 
 impl SourcePolls {
     pub(super) fn drain(&mut self) {
-        let now = Instant::now();
-        while let Ok((path, stamp)) = self.finished.try_recv() {
-            self.pending -= 1;
-            if let Some(entry) = self.entries.get_mut(&path) {
-                entry.pending = false;
-                entry.last_used = now;
-                // Slow sources must yield the freed worker slot to other
-                // paths before they can become due for another refresh.
-                entry.completed = Some((now, stamp));
+        self.requested.clear();
+        if self.changed.try_recv().is_ok() {
+            // Changes coalesce while the board is asleep. One frame observes
+            // the latest stamp of every registered path, even after re-admission.
+            let schedule = self.schedule.0.lock().unwrap();
+            for (path, entry) in &schedule.entries {
+                if let Some(stamp) = entry.stamp {
+                    self.stamps.insert(path.clone(), stamp);
+                }
             }
-        }
-        if self.last_prune.elapsed() >= Duration::from_secs(30) {
-            self.entries.retain(|_, entry| {
-                entry.pending || entry.last_used.elapsed() < Duration::from_secs(30)
-            });
-            self.last_prune = now;
         }
     }
 
-    pub(super) fn request(&mut self, ctx: &egui::Context, path: PathBuf) -> Option<SourceStamp> {
-        let now = Instant::now();
-        if let Some(entry) = self.entries.get_mut(&path) {
-            entry.last_used = now;
-            if entry.pending
-                || entry
-                    .completed
-                    .is_some_and(|(at, _)| at.elapsed().as_secs_f32() < POLL_SECS)
-            {
-                return entry.completed.map(|(_, stamp)| stamp);
+    pub(super) fn request(&mut self, path: PathBuf) -> Option<SourceStamp> {
+        let stamp = self.stamps.get(&path).copied();
+        self.requested.insert(path);
+        stamp
+    }
+
+    pub(super) fn finish(&mut self, ctx: &egui::Context) {
+        if self.watching != self.requested {
+            let mut schedule = self.schedule.0.lock().unwrap();
+            for path in self.watching.difference(&self.requested) {
+                schedule.entries.remove(path);
+                self.stamps.remove(path);
             }
+            for path in self.requested.difference(&self.watching) {
+                self.next_id += 1;
+                schedule.entries.insert(
+                    path.clone(),
+                    Entry {
+                        id: self.next_id,
+                        due: Some(Instant::now()),
+                        stamp: None,
+                    },
+                );
+            }
+            std::mem::swap(&mut self.requested, &mut self.watching);
+            self.schedule.1.notify_all();
         }
-        let completed = self.entries.get(&path).and_then(|entry| entry.completed);
-        let stamp = completed.map(|(_, stamp)| stamp);
-        if self.pending >= MAX_SOURCE_POLLS {
-            return stamp;
+        let target = self.watching.len().min(MAX_SOURCE_POLLS);
+        while self.workers < target {
+            let sender = self.sender.clone();
+            let schedule = self.schedule.clone();
+            let wake = ctx.clone();
+            if std::thread::Builder::new()
+                .name("slate-web-source".into())
+                .spawn(move || watch_sources(schedule, sender, wake))
+                .is_err()
+            {
+                ctx.request_repaint_after(Duration::from_secs_f32(POLL_SECS));
+                break;
+            }
+            self.workers += 1;
         }
-        let ready = self.ready.clone();
-        let worker_path = path.clone();
-        let ctx = ctx.clone();
-        if std::thread::Builder::new()
-            .name("slate-web-source".into())
-            .spawn(move || {
-                let metadata = std::fs::metadata(&worker_path).ok();
-                let stamp = SourceStamp {
-                    exists: metadata.is_some(),
-                    mtime: metadata.and_then(|value| value.modified().ok()),
-                };
-                if ready.send((worker_path, stamp)).is_ok() {
+    }
+}
+
+impl Drop for SourcePolls {
+    fn drop(&mut self) {
+        self.schedule.0.lock().unwrap().stopped = true;
+        self.schedule.1.notify_all();
+    }
+}
+
+fn watch_sources(shared: Shared, changed: crossbeam_channel::Sender<()>, ctx: egui::Context) {
+    let (schedule, wake) = &*shared;
+    let mut state = schedule.lock().unwrap();
+    loop {
+        if state.stopped {
+            return;
+        }
+        let next = state
+            .entries
+            .iter_mut()
+            .filter_map(|(path, entry)| Some((entry.due?, path, entry)))
+            .min_by_key(|(due, _, _)| *due);
+        let Some((due, path, entry)) = next else {
+            state = wake.wait(state).unwrap();
+            continue;
+        };
+        let delay = due.saturating_duration_since(Instant::now());
+        if !delay.is_zero() {
+            state = wake.wait_timeout(state, delay).unwrap().0;
+            continue;
+        }
+        let path = path.clone();
+        let id = entry.id;
+        entry.due = None;
+        drop(state);
+        // Never hold the queue lock across filesystem or egui work.
+        let metadata = std::fs::metadata(&path).ok();
+        let stamp = SourceStamp {
+            exists: metadata.is_some(),
+            mtime: metadata.and_then(|m| m.modified().ok()),
+        };
+        state = schedule.lock().unwrap();
+        if state.stopped {
+            return;
+        }
+        if let Some(entry) = state.entries.get_mut(&path).filter(|entry| entry.id == id) {
+            entry.due = Some(Instant::now() + Duration::from_secs_f32(POLL_SECS));
+            if entry.stamp.replace(stamp) != Some(stamp) {
+                drop(state);
+                if changed.try_send(()).is_ok() {
                     ctx.request_repaint();
                 }
-            })
-            .is_ok()
-        {
-            self.pending += 1;
-            self.entries.insert(
-                path,
-                SourceEntry {
-                    last_used: now,
-                    pending: true,
-                    completed,
-                },
-            );
+                state = schedule.lock().unwrap();
+            }
         }
-        stamp
     }
 }
 
@@ -116,30 +178,59 @@ mod tests {
         let ctx = egui::Context::default();
         let base = std::env::temp_dir().join(format!("slate-source-polls-{}", std::process::id()));
         for _ in 0..2_400 {
-            let _ = polls.request(&ctx, base.join("shared.html"));
+            polls.request(base.join("shared.html"));
         }
-        assert_eq!(polls.pending, 1);
         for index in 0..100 {
-            let _ = polls.request(&ctx, base.join(format!("source-{index}.html")));
+            polls.request(base.join(format!("source-{index}.html")));
         }
-        assert_eq!(polls.pending, MAX_SOURCE_POLLS);
-        assert_eq!(polls.entries.len(), MAX_SOURCE_POLLS);
+        polls.finish(&ctx);
+        assert_eq!(polls.workers, MAX_SOURCE_POLLS);
+        let end = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < end && polls.stamps.len() < 101 {
+            polls.drain();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(polls.stamps.len(), 101);
+    }
 
-        let finished = (0..MAX_SOURCE_POLLS)
-            .map(|_| polls.finished.recv_timeout(Duration::from_secs(5)).unwrap())
-            .collect::<Vec<_>>();
-        std::thread::sleep(Duration::from_secs_f32(POLL_SECS) + Duration::from_millis(25));
-        for result in &finished {
-            polls.ready.send(result.clone()).unwrap();
-        }
-        polls.drain();
-        for (path, _) in finished {
-            assert!(polls.request(&ctx, path).is_some());
-        }
-        assert_eq!(polls.pending, 0, "a slow probe must yield its slot");
-        let later = base.join("source-99.html");
-        assert!(!polls.entries.contains_key(&later));
-        assert!(polls.request(&ctx, later).is_none());
-        assert_eq!(polls.pending, 1);
+    #[test]
+    fn static_file_stays_quiet_and_external_edits_wake_without_a_board_frame() {
+        let path = std::env::temp_dir().join(format!(
+            "slate-quiet-web-source-{}.html",
+            std::process::id()
+        ));
+        std::fs::write(&path, "first").unwrap();
+        let mut polls = SourcePolls::default();
+        let ctx = egui::Context::default();
+        polls.request(path.clone());
+        polls.finish(&ctx);
+        let observe = |polls: &mut SourcePolls| {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while polls.changed.is_empty() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            assert!(
+                !polls.changed.is_empty(),
+                "file change did not wake the board"
+            );
+            polls.drain();
+            polls.stamps[&path].exists
+        };
+        assert!(observe(&mut polls));
+        assert!(polls
+            .changed
+            .recv_timeout(Duration::from_secs_f32(POLL_SECS * 2.5))
+            .is_err());
+        std::fs::remove_file(&path).unwrap();
+        assert!(!observe(&mut polls));
+        std::fs::write(&path, "replacement").unwrap();
+        assert!(observe(&mut polls));
+        // The last placement left the worklist. Its later removal is silent.
+        polls.finish(&ctx);
+        std::fs::remove_file(&path).unwrap();
+        assert!(polls
+            .changed
+            .recv_timeout(Duration::from_secs_f32(POLL_SECS * 1.2))
+            .is_err());
     }
 }

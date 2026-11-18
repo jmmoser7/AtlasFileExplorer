@@ -2,12 +2,56 @@
 //! an older copy has finished, and retirement prefers the newest ready copy.
 
 use super::*;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_CPU_ACCESS_READ, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP_FLAG_DO_NOT_WAIT, D3D11_MAP_READ,
     D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
 };
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
 use windows::Win32::System::WinRT::Direct3D11::IDirect3DDxgiInterfaceAccess;
+
+/// WGC signals only the availability of pixels. All capture and staging stays
+/// on the UI owner and uses the existing focused/idle frame budget.
+pub(super) struct FrameArrivals {
+    pool: Direct3D11CaptureFramePool,
+    token: i64,
+    available: Arc<AtomicBool>,
+}
+
+impl FrameArrivals {
+    pub(super) fn subscribe(
+        pool: &Direct3D11CaptureFramePool,
+        ctx: &egui::Context,
+    ) -> Option<Self> {
+        use windows::Foundation::TypedEventHandler;
+        let available = Arc::new(AtomicBool::new(true));
+        let ready = Arc::clone(&available);
+        let wake = ctx.clone();
+        let handler = TypedEventHandler::new(move |_, _| {
+            if !ready.swap(true, Ordering::AcqRel) {
+                wake.request_repaint();
+            }
+            Ok(())
+        });
+        let token = pool.FrameArrived(&handler).ok()?;
+        Some(Self {
+            pool: pool.clone(),
+            token,
+            available,
+        })
+    }
+
+    pub(super) fn ready(&self) -> bool {
+        self.available.load(Ordering::Acquire)
+    }
+}
+
+impl Drop for FrameArrivals {
+    fn drop(&mut self) {
+        let _ = self.pool.RemoveFrameArrived(self.token);
+    }
+}
 
 #[derive(Default)]
 pub(super) struct PendingCopies {
@@ -110,6 +154,9 @@ impl Webview2Host {
         };
         // WGC keeps two frames. Close the older one and copy only the newest;
         // stale frames from a previous resolution never enter staging.
+        if let Some(arrivals) = &view.frame_arrivals {
+            arrivals.available.store(false, Ordering::Release);
+        }
         let mut newest = pool.TryGetNextFrame().ok();
         if let Ok(frame) = pool.TryGetNextFrame() {
             if let Some(old) = newest.replace(frame) {

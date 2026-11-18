@@ -88,6 +88,19 @@ Copy-Item -LiteralPath (Join-Path $build 'mesa-25.2.8/docs/license.rst') -Destin
 Copy-Item -LiteralPath (Join-Path $build 'mesa-25.2.8/src/util/xxhash.h') -Destination (Join-Path $mesaRuntime.FullName 'licenses/Mesa-xxhash-NOTICE.txt')
 Copy-Item -LiteralPath $llvmLicense -Destination (Join-Path $mesaRuntime.FullName 'LLVM-LICENSE.txt')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'distribution/mesa-graphics-notice.txt') -Destination (Join-Path $mesaRuntime.FullName 'NOTICE.txt')
+# The protected GPU backend uses the matching shader compiler and validator.
+$dxc = Get-VerifiedArchive 'https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.8.2505.1/dxc_2025_07_14.zip' '9ad895a6b039e3a8f8c22a1009f866800b840a74b50db9218d13319e215ea8a4' 'dxc_2025_07_14.zip'
+$shaderRuntime = New-Item -ItemType Directory -Path (Join-Path $build 'dxc')
+$shaderNotices = @('LICENSE-LLVM.txt', 'LICENSE-MIT.txt', 'LICENSE-MS.txt', 'ReleaseNotes.md')
+& tar.exe -xf $dxc -C $shaderRuntime.FullName 'bin/x64/dxcompiler.dll' 'bin/x64/dxil.dll' @shaderNotices
+if ($LASTEXITCODE -ne 0) { throw 'DirectX shader runtime extraction failed.' }
+foreach ($dll in @('dxcompiler.dll', 'dxil.dll')) {
+    Copy-Item -LiteralPath (Join-Path $shaderRuntime.FullName "bin/x64/$dll") -Destination $mesaRuntime.FullName
+}
+$dxcLicenses = New-Item -ItemType Directory -Path (Join-Path $mesaRuntime.FullName 'licenses/DXC')
+foreach ($notice in $shaderNotices) {
+    Copy-Item -LiteralPath (Join-Path $shaderRuntime.FullName $notice) -Destination $dxcLicenses.FullName
+}
 $mesaNotices = @(
     @{ Name='zlib-1.3.1-LICENSE'; Url='https://raw.githubusercontent.com/madler/zlib/v1.3.1/LICENSE'; Sha='845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243' },
     @{ Name='zstd-1.5.7-LICENSE'; Url='https://raw.githubusercontent.com/facebook/zstd/v1.5.7/LICENSE'; Sha='7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8' },
