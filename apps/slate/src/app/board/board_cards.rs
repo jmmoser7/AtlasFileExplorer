@@ -60,15 +60,25 @@ impl SlateApp {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let selected = match self.resolved_selected_text_output(node) {
-            Ok(text) => text,
-            Err(_) => Some("Selected text output unavailable — waiting for its source.".into()),
-        };
-        match selected
-            .map(std::borrow::Cow::Owned)
-            .or_else(|| text_override.map(std::borrow::Cow::Borrowed))
-            .or_else(|| self.snippet_for(item, path).map(std::borrow::Cow::Owned))
-        {
+        let panel = (!self.slate_nesting())
+            .then(|| self.grasshopper_panel_text(node))
+            .flatten();
+        let shown = panel
+            .as_deref()
+            .map(std::borrow::Cow::Borrowed)
+            .or_else(|| {
+                let selected = match self.resolved_selected_text_output(node) {
+                    Ok(text) => text,
+                    Err(_) => {
+                        Some("Selected text output unavailable — waiting for its source.".into())
+                    }
+                };
+                selected
+                    .map(std::borrow::Cow::Owned)
+                    .or_else(|| text_override.map(std::borrow::Cow::Borrowed))
+                    .or_else(|| self.snippet_for(item, path).map(std::borrow::Cow::Owned))
+            });
+        match shown {
             Some(snippet) => {
                 let inner = if source != srect {
                     source
@@ -89,14 +99,22 @@ impl SlateApp {
                         palette.ink,
                         z,
                     );
-                    let offset = if self.text_review_visible(node) {
+                    let offset = if panel.is_some() {
+                        self.grasshopper_panel_scroll(ui, node, inner, galley.size().y, z, true)
+                    } else if self.text_review_visible(node) {
                         self.text_sheet_scroll(ui, node, (inner, galley.size().y), z, false, true)
                     } else {
                         0.0
                     };
                     let origin = inner.min - egui::vec2(0.0, offset);
                     clip.galley(origin, galley.clone(), palette.ink);
-                    if let Some(node) = self.doc().scene.node(node).cloned() {
+                    if let Some(node) = self
+                        .doc()
+                        .scene
+                        .node(node)
+                        .filter(|_| panel.is_none())
+                        .cloned()
+                    {
                         self.paint_text_answer_links(
                             ui,
                             &clip,

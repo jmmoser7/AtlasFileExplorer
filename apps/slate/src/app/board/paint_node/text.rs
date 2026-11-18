@@ -47,10 +47,16 @@ impl SlateApp {
             return;
         }
         // An agent note shows its reply until it is edited.
-        let reply = self.agent_note_reply(node.id);
-        let shown = reply.as_deref().unwrap_or(&t.text);
+        let panel = (!self.slate_nesting())
+            .then(|| self.grasshopper_panel_text(node.id))
+            .flatten();
+        let reply = panel
+            .is_none()
+            .then(|| self.agent_note_reply(node.id))
+            .flatten();
+        let shown = panel.as_deref().or(reply.as_deref()).unwrap_or(&t.text);
         let sticky = t.fill.is_some();
-        let draw_size = if sticky {
+        let draw_size = if sticky && panel.is_none() {
             self.sticky_font_size(
                 painter.ctx(),
                 node.id,
@@ -86,7 +92,9 @@ impl SlateApp {
             } else {
                 0.0
             };
-            let scroll = if self.text_review_visible(node.id) {
+            let scroll = if panel.is_some() {
+                self.grasshopper_panel_scroll(ui, node.id, source, galley.size().y, z, chrome)
+            } else if self.text_review_visible(node.id) {
                 self.text_sheet_scroll(ui, node.id, (source, galley.size().y), z, false, chrome)
             } else {
                 0.0
@@ -97,17 +105,19 @@ impl SlateApp {
             } else {
                 painter.with_clip_rect(source.intersect(painter.clip_rect()))
             };
-            self.paint_text_answer_links(
-                ui,
-                &source_painter,
-                node,
-                text_pos,
-                srect.center(),
-                &galley,
-                shown,
-                z,
-                chrome,
-            );
+            if panel.is_none() {
+                self.paint_text_answer_links(
+                    ui,
+                    &source_painter,
+                    node,
+                    text_pos,
+                    srect.center(),
+                    &galley,
+                    shown,
+                    z,
+                    chrome,
+                );
+            }
             if let Some(clip) = &node.clip {
                 paint_clipped_galley(&source_painter, xf, node, clip, text_pos, &galley);
             } else {

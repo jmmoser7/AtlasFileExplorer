@@ -35,7 +35,7 @@ struct LiteralEdit {
 
 impl SlateApp {
     pub(super) fn grasshopper_rail_sizes(&self, node: NodeId) -> (usize, usize) {
-        let ports = self.grasshopper_ports(node);
+        let ports = self.grasshopper_component_ports(node);
         let inputs = ports_on(ports, Side::Left).count();
         (inputs, ports.len() - inputs)
     }
@@ -46,7 +46,8 @@ impl SlateApp {
         side: Side,
         t: f32,
     ) -> Option<&GrasshopperPort> {
-        ports_on(self.grasshopper_ports(node), side).nth(grasshopper_port_row(t)?)
+        let row = grasshopper_port_row(t)?;
+        ports_on(self.grasshopper_ports(node), side).nth(row)
     }
 
     pub(super) fn grasshopper_wire_ports(&self, node: &Node, ports: &mut Vec<slate_doc::WirePort>) {
@@ -67,13 +68,28 @@ impl SlateApp {
         }
     }
 
+    /// An image shares its native right output with Grasshopper. Interpret it
+    /// as a file only when the other endpoint is an exposed definition input.
+    pub(super) fn grasshopper_image_at_output(
+        &self,
+        (id, side, t): (NodeId, Side, f32),
+    ) -> Option<&'static GrasshopperPort> {
+        if side == Side::Right && t == slate_doc::agent_inputs::OUTPUT_T {
+            self.grasshopper_image_file_output(id)
+        } else {
+            None
+        }
+    }
+
     pub(super) fn grasshopper_wire_snap(
         &self,
         world: Pos2,
-        (source, side, t): (NodeId, Side, f32),
+        origin: (NodeId, Side, f32),
         reach: f32,
     ) -> Option<(NodeId, Side, f32)> {
-        let from = self.grasshopper_grip(source, side, t)?;
+        let (source, side, t) = origin;
+        let image = self.grasshopper_image_at_output(origin);
+        let from = image.or_else(|| self.grasshopper_grip(source, side, t))?;
         let target_side = if side == Side::Right {
             Side::Left
         } else {
@@ -83,34 +99,60 @@ impl SlateApp {
         let scene = &self.doc().scene;
         for id in self.wire_grip_candidates(world, &xf).into_iter().rev() {
             let Some(node) = scene.node(id) else { continue };
-            if node.hidden || node.locked || id == source || self.portal_capture_owns_viewport(id) {
+            if node.hidden || id == source || matches!(&node.kind, NodeKind::Connector(_)) {
                 continue;
             }
+            let inside = !node.is_frame()
+                && node
+                    .rect
+                    .contains_rotated(world.x, world.y, node.rotation_deg);
+            if node.locked || self.portal_capture_owns_viewport(id) {
+                if inside {
+                    return None;
+                }
+                continue;
+            }
+
             let host = self.wire_input_host(node);
-            let snap = ports_on(self.grasshopper_ports(id), target_side)
+            let close = |t| Pos2::from(host.anchor(target_side, t)).distance(world);
+            // These receivers share the body and existing connector of the
+            // ordinary canvas card. Neither needs an additional resting grip.
+            if target_side == Side::Left
+                && self.can_connect_grasshopper_output_to_panel(source, from, id)
+            {
+                let panel_t = grasshopper_port_t(0);
+                if inside || close(panel_t) <= reach {
+                    return Some((id, target_side, panel_t));
+                }
+            } else if target_side == Side::Right
+                && self
+                    .grasshopper_image_output_for_input(id, source, from)
+                    .is_some()
+            {
+                let image_t = slate_doc::agent_inputs::OUTPUT_T;
+                if inside || close(image_t) <= reach {
+                    return Some((id, target_side, image_t));
+                }
+            }
+            let snap = ports_on(self.grasshopper_component_ports(id), target_side)
                 .enumerate()
-                .filter(|(_, port)| {
-                    if target_side == Side::Left {
-                        port.kind.accepts(from.kind)
-                    } else {
-                        from.kind.accepts(port.kind)
-                    }
+                .filter(|(_, port)| match (target_side, image) {
+                    (Side::Left, Some(_)) => self
+                        .grasshopper_image_output_for_input(source, id, port)
+                        .is_some(),
+                    (Side::Left, None) => port.kind.accepts(from.kind),
+                    _ => from.kind.accepts(port.kind),
                 })
                 .map(|(row, _)| {
                     let t = grasshopper_port_t(row);
-                    let p = Pos2::from(host.anchor(target_side, t));
-                    (t, p.distance(world))
+                    (t, close(t))
                 })
-                .filter(|(_, dist)| *dist <= reach)
+                .filter(|(_, distance)| *distance <= reach)
                 .min_by(|a, b| a.1.total_cmp(&b.1));
             if let Some((t, _)) = snap {
                 return Some((id, target_side, t));
             }
-            if !node.is_frame()
-                && node
-                    .rect
-                    .contains_rotated(world.x, world.y, node.rotation_deg)
-            {
+            if inside {
                 return None;
             }
         }
@@ -128,7 +170,8 @@ impl SlateApp {
             (to, from)
         };
         let Some(output) = self
-            .grasshopper_grip(source.0, source.1, source.2)
+            .grasshopper_image_at_output(source)
+            .or_else(|| self.grasshopper_grip(source.0, source.1, source.2))
             .map(|p| p.id.clone())
         else {
             return;
@@ -152,7 +195,7 @@ impl SlateApp {
         painter: &egui::Painter,
         xf: &BoardXf,
     ) {
-        let ports = self.grasshopper_ports(node.id);
+        let ports = self.grasshopper_component_ports(node.id);
         if ports.is_empty() || node.hidden || self.portal_capture_owns_viewport(node.id) {
             return;
         }
@@ -161,13 +204,18 @@ impl SlateApp {
             .ctx()
             .pointer_latest_pos()
             .is_some_and(|p| body.expand(24.0).contains(p));
-        if !near
-            && !self.board_sel.contains(&node.id)
-            && !matches!(
-                self.board_drag,
-                Some(super::super::board::BoardDrag::Wire(_))
-            )
-        {
+        let wire_origin = match &self.board_drag {
+            Some(super::super::board::BoardDrag::Wire(wire)) => match wire.mode {
+                WireMode::Add { from } => Some(from),
+                _ => return,
+            },
+            _ => None,
+        };
+        if wire_origin.is_some_and(|origin| origin.0 != node.id) {
+            if !near {
+                return;
+            }
+        } else if !near && !self.board_sel.contains(&node.id) && wire_origin.is_none() {
             return;
         }
         let Some(presentation) = Self::flow_port_presentation(node, xf) else {
@@ -183,6 +231,26 @@ impl SlateApp {
             let index = usize::from(side == Side::Right);
             let t = grasshopper_port_t(rows[index]);
             rows[index] += 1;
+            if let Some(origin) = wire_origin.filter(|origin| origin.0 != node.id) {
+                let available =
+                    if let Some(from) = self.grasshopper_grip(origin.0, origin.1, origin.2) {
+                        side != origin.1
+                            && if side == Side::Left {
+                                port.kind.accepts(from.kind)
+                            } else {
+                                from.kind.accepts(port.kind)
+                            }
+                    } else {
+                        side == Side::Left
+                            && self.grasshopper_image_at_output(origin).is_some()
+                            && self
+                                .grasshopper_image_output_for_input(origin.0, node.id, port)
+                                .is_some()
+                    };
+                if !available {
+                    continue;
+                }
+            }
             let at = xf.w2s(Pos2::from(host.anchor(side, t)));
             let hovered = self
                 .wire_grips
@@ -221,7 +289,8 @@ impl SlateApp {
         let Some(port) = self.grasshopper_grip(node, side, t) else {
             return false;
         };
-        let literal = side == Side::Left
+        let literal = self.grasshopper_viewer(node)
+            && side == Side::Left
             && matches!(
                 port.kind,
                 GrasshopperPortType::Integer
@@ -357,6 +426,12 @@ impl SlateApp {
         };
         for (end, port) in ends.iter_mut().zip([&wire.source_port, &wire.target_port]) {
             if let ConnectorEnd::Anchored { node, side, t } = end {
+                if *side == Side::Right {
+                    if let Some(native) = self.grasshopper_image_wire_anchor(*node, port) {
+                        *t = native;
+                        continue;
+                    }
+                }
                 if let Some(row) =
                     ports_on(self.grasshopper_ports(*node), *side).position(|p| &p.id == port)
                 {

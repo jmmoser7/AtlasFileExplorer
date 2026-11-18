@@ -172,20 +172,26 @@ fn payload_bounds(payload: &[Node]) -> Option<(f32, f32, f32, f32)> {
 pub(crate) fn clipboard_text_fallback(
     payload: &[Node],
     is_picture: impl Fn(&Node) -> bool,
+    panel_text: impl Fn(NodeId) -> Option<std::sync::Arc<str>>,
 ) -> Option<String> {
     if payload.iter().all(&is_picture) {
         return None;
     }
-    let words: Vec<&str> = payload
+    let words: Vec<String> = payload
         .iter()
-        .filter_map(|n| match &n.kind {
-            NodeKind::Text(t) => Some(t.text.as_str()),
-            NodeKind::Shape(s) => s.text.as_ref().map(|t| t.body.as_str()),
-            NodeKind::Image(image) => image.text_override.as_deref(),
-            _ => None,
+        .filter_map(|n| {
+            if let Some(live) = panel_text(n.id) {
+                return Some(live.to_string());
+            }
+            let authored = match &n.kind {
+                NodeKind::Text(t) => Some(t.text.as_str()),
+                NodeKind::Shape(s) => s.text.as_ref().map(|t| t.body.as_str()),
+                NodeKind::Image(image) => image.text_override.as_deref(),
+                _ => None,
+            }?
+            .trim();
+            (!authored.is_empty()).then(|| authored.to_owned())
         })
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
         .collect();
     if !words.is_empty() {
         return Some(words.join("\n\n"));

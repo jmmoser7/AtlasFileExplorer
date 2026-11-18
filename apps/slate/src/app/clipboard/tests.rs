@@ -350,16 +350,30 @@ fn the_text_fallback_is_never_the_node_json() {
     );
     let no_pictures = |_: &Node| false;
     assert_eq!(
-        clipboard_text_fallback(&[words.clone(), rect.clone()], no_pictures).as_deref(),
+        clipboard_text_fallback(&[words.clone(), rect.clone()], no_pictures, |_| None).as_deref(),
         Some("t")
     );
-    let shapes = clipboard_text_fallback(&[rect.clone(), rect.clone()], no_pictures).unwrap();
+    let live = " {0;1}\n0  12\n1  14 ";
+    let mixed = [rect.clone(), words.clone()];
+    let json_before = serde_json::to_string(&mixed).unwrap();
+    assert_eq!(
+        clipboard_text_fallback(&mixed, no_pictures, |id| (id == words.id)
+            .then(|| live.into()))
+        .as_deref(),
+        Some(live),
+    );
+    assert_eq!(serde_json::to_string(&mixed).unwrap(), json_before);
+    let shapes =
+        clipboard_text_fallback(&[rect.clone(), rect.clone()], no_pictures, |_| None).unwrap();
     assert_eq!(shapes, "Slate selection: 2 shapes");
     let json = serde_json::to_string(std::slice::from_ref(&rect)).unwrap();
     assert_ne!(shapes, json);
     assert!(!shapes.trim_start().starts_with('['));
     let all_pictures = |_: &Node| true;
-    assert_eq!(clipboard_text_fallback(&[rect], all_pictures), None);
+    assert_eq!(
+        clipboard_text_fallback(&[rect], all_pictures, |_| None),
+        None
+    );
 }
 
 #[test]

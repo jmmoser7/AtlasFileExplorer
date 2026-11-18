@@ -259,7 +259,8 @@ fn linked_plain_text_double_click_edits_authored_words_without_writing_source() 
     assert_eq!(
         crate::app::clipboard::clipboard_text_fallback(
             &[h.app.doc().scene.node(id).unwrap().clone()],
-            |_| { false }
+            |_| false,
+            |_| None
         ),
         Some(words.clone())
     );

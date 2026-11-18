@@ -11,7 +11,7 @@ impl SlateApp {
         if payload.is_empty() {
             return 0;
         }
-        let job = clipboard_job(ctx, payload, doc, self.tab().path.clone());
+        let job = clipboard_job(ctx, payload, doc, self.tab().path.clone(), |_| None);
         if let Some(job) = job {
             self.os_clipboard.submit(job);
         }
@@ -23,7 +23,9 @@ impl SlateApp {
     /// One OS clipboard write for a copy: Slate's node format, plus a bitmap
     /// and file list for pictures or plain text for anything else.
     pub(super) fn offer_os_clipboard(&mut self, ctx: &eframe::egui::Context, payload: &[Node]) {
-        let job = clipboard_job(ctx, payload, self.doc(), self.tab().path.clone());
+        let job = clipboard_job(ctx, payload, self.doc(), self.tab().path.clone(), |id| {
+            self.grasshopper_panel_text(id)
+        });
         if let Some(job) = job {
             self.os_clipboard.submit(job);
         }
@@ -35,6 +37,7 @@ fn clipboard_job(
     payload: &[Node],
     doc: &SlateDoc,
     workbook: Option<PathBuf>,
+    panel_text: impl Fn(NodeId) -> Option<std::sync::Arc<str>>,
 ) -> Option<ClipboardJob> {
     let picture_paths: Vec<Option<PathBuf>> = payload
         .iter()
@@ -46,7 +49,7 @@ fn clipboard_job(
             .position(|n| n.id == node.id)
             .is_some_and(|i| picture_paths[i].is_some())
     };
-    let text = clipboard_text_fallback(payload, is_picture);
+    let text = clipboard_text_fallback(payload, is_picture, panel_text);
     if !cfg!(windows) {
         if let Some(text) = &text {
             ctx.copy_text(text.clone());

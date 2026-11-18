@@ -209,3 +209,26 @@ fn an_empty_generator_keeps_a_body_press_coalesced_with_motion_outside_its_frame
     h.app.board_undo();
     assert_eq!(h.app.doc().scene.node(generator).unwrap().rect, before);
 }
+
+#[test]
+fn a_generator_with_no_result_displays_its_own_failure_on_the_canvas() {
+    let (mut h, _, generator, _) = empty_wired_frame(false);
+    h.app.board_sel.clear();
+    let pointer = Pos2::new(10.0, 10.0);
+    let visible = |h: &mut Harness| crate::app::tests::painted(h, pointer).join("\n");
+    assert!(!visible(&mut h).contains("incomplete PNG"));
+    h.app.agents.sessions.insert(
+        generator,
+        std::sync::Arc::new(AgentSession {
+            status: AgentStatus::Error("Provider returned an incomplete PNG".into()),
+            ..Default::default()
+        }),
+    );
+    let labels = visible(&mut h);
+    assert!(
+        labels.contains("incomplete PNG"),
+        "{labels}"
+    );
+    h.app.agents.sessions.remove(&generator);
+    assert!(!visible(&mut h).contains("incomplete PNG"));
+}

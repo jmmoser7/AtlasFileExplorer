@@ -390,6 +390,11 @@ impl SlateApp {
         let Some(node) = self.doc().scene.node(id).cloned() else {
             return;
         };
+        if self.grasshopper_panel_text(id).is_some() {
+            self.board_sel.clear();
+            self.board_sel.insert(id);
+            return;
+        }
         match &node.kind {
             NodeKind::Text(t) => {
                 self.shape_properties.panel = None;

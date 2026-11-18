@@ -52,6 +52,12 @@ Inherits: P0.*, P1.node, P2.GhostPlace — deviations flagged below.
 8. GP8: Double-click a linked plain-text document → edit its authored words, finish → board/export/copy use the override and the linked source remains unchanged.
 9. GP9: Open Text → the first faces are Replica, Arial, Courier New; enable B/I/U, accept, re-enter the caret → style persists, export has the same emphasis, and undo restores the original block.
 
+## Inspect a Grasshopper wire
+
+Drag a named output on a Grasshopper component to the body or left input of a Text box, Sticky note, or linked `.txt` card. The card shows the result of each solve. A single value appears directly, list entries have indices, and data trees show their branch paths. Multiple wires on the same card are grouped by output name.
+
+Select the card to scroll through values that extend below its bounds. Copy the card to paste the displayed values into another application. Disconnect its last Grasshopper wire to return to the authored text. Undo reconnects the wire.
+
 ## Open Questions
 
 Rows D05, D06, and D08 remain proposed.

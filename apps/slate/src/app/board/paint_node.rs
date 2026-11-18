@@ -11,6 +11,9 @@ impl SlateApp {
         node: &Node,
         chrome: bool,
     ) {
+        if !self.slate_nesting() && matches!(&node.kind, NodeKind::Text(_) | NodeKind::Image(_)) {
+            self.request_visible_grasshopper_panel(node.id, ui.ctx());
+        }
         let field_node = self.field_paint_node(node);
         let node = field_node.as_deref().unwrap_or(node);
         if chrome {
@@ -146,7 +149,8 @@ impl SlateApp {
                 };
                 let show_excerpt = !nested
                     && kind == slate_doc::MediaKind::Text
-                    && (sheet.is_some()
+                    && (self.grasshopper_panel_text(node.id).is_some()
+                        || sheet.is_some()
                         || (canvas_text::legible(canvas_scale::px(TEXT_CARD_BODY_PX, z))
                             && self.snippet_for(img.item, &path).is_some())
                         || !slate_doc::media::structured_text_package(&path));

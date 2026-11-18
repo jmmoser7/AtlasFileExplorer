@@ -32,7 +32,9 @@ Publish the full current state in one script element in the top-level document. 
 
 Set `access` to `item` for one typed value or `list` for an array of such values. Use `tree` with an array of branches such as `[{"path":[0,2],"items":[0.4,0.9]}]`. Paths contain 1â€“64 nonnegative 32-bit indices and must be unique within an output. A declaration supports 32 outputs, 1,024 branches per output, 10,000 values in total, and 256 KiB of UTF-8 JSON. Unknown types, invalid values, and duplicate IDs invalidate the entire declaration. A connected viewer waits until a valid declaration restores its output.
 
-A placed image also exposes an **Image file** output when a Grasshopper viewer is loaded. Connect it directly to a Grasshopper text or file-path input. The receiver gets the local file path. Slate watches wired images in the background, and an overwrite or relink triggers a new solve. The timber study reads image luminance at each fin and height. Its embedded image supplies a standalone Grasshopper default.
+To use a placed image, drag its ordinary right-side output to a Grasshopper text or file-path input. You can also drag backward from that named input onto the image. The receiver gets the local file path. Slate watches wired images in the background, and an overwrite or relink triggers a new solve. The timber study reads image luminance at each fin and height. Its embedded image supplies a standalone Grasshopper default.
+
+To inspect the result on the board, drag a named output from the Grasshopper component to a Text box, Sticky note, or linked `.txt` card. The card displays live values, including indexed lists and data tree paths. A second wire adds its values under its output name. Disconnecting the last wire restores the card’s original text.
 
 The Grasshopper receiver can expose a contextual input or an unlocked typed parameter in an `RH_IN` group. Slate passes the typed data tree to that parameter's stable Grasshopper InstanceGuid. Compatible connections include integer to number and point to geometry. Grasshopper applies its normal item, list or tree matching at the destination.
 

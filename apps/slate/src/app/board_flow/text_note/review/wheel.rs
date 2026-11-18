@@ -39,13 +39,37 @@ impl SlateApp {
         pointer.is_some_and(|p| viewport.contains(p) && self.text_review_wheel_owned(ctx, id, p))
             && self.claim_text_wheel(ctx, id, false)
     }
+    pub(crate) fn grasshopper_panel_scroll(
+        &self,
+        ui: &egui::Ui,
+        id: NodeId,
+        viewport: Rect,
+        content_height: f32,
+        zoom: f32,
+        interactive: bool,
+    ) -> f32 {
+        if !interactive || !self.board_sel.contains(&id) {
+            return 0.0;
+        }
+        let key = Id::new(("grasshopper-panel-scroll-hit", self.tab().id, id.0));
+        if content_height <= viewport.height() {
+            ui.ctx()
+                .data_mut(|d| d.remove::<(egui::LayerId, Rect)>(key));
+            return 0.0;
+        }
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(key, (ui.layer_id(), viewport.intersect(ui.clip_rect())));
+        });
+        self.text_sheet_scroll(ui, id, (viewport, content_height), zoom, false, true)
+    }
+
     pub(crate) fn text_review_wheel_owned(
         &self,
         ctx: &egui::Context,
         id: NodeId,
         pointer: Pos2,
     ) -> bool {
-        self.text_review_visible(id) && self.text_review_wheel_owner(ctx, pointer) == Some(id)
+        self.text_review_wheel_owner(ctx, pointer) == Some(id)
     }
     /// Resolve once, before any painter consumes wheel input. Native picking
     /// supplies ordinary occluders; transient review hits use that same scene
@@ -83,7 +107,21 @@ impl SlateApp {
                     (Some(h.source_layer) == layer && h.source.contains(pointer))
                         || (Some(h.section_layer) == layer && h.section.contains(pointer))
                 });
-            if hit {
+            let panel_hit = picked == Some(node.id)
+                && self.board_sel.contains(&node.id)
+                && self.grasshopper_panel_text(node.id).is_some()
+                && ctx
+                    .data(|d| {
+                        d.get_temp::<(egui::LayerId, Rect)>(Id::new((
+                            "grasshopper-panel-scroll-hit",
+                            self.tab().id,
+                            node.id.0,
+                        )))
+                    })
+                    .is_some_and(|(hit_layer, rect)| {
+                        Some(hit_layer) == layer && rect.contains(pointer)
+                    });
+            if hit || panel_hit {
                 owner = Some(node.id);
                 break;
             }

@@ -19,6 +19,11 @@ impl SlateApp {
         {
             return self.grasshopper_wire_snap(world, from, snap_w);
         }
+        if let Some(origin) = from.filter(|f| self.grasshopper_image_at_output(*f).is_some()) {
+            if let Some(target) = self.grasshopper_wire_snap(world, origin, snap_w) {
+                return Some(target);
+            }
+        }
         let exclude = from.map(|f| f.0);
         let doc = self.doc();
         let scene = &doc.scene;
@@ -195,6 +200,13 @@ impl SlateApp {
                 }
             }
             WireMode::Add { from } => match wd.snap {
+                Some(to)
+                    if to.1 == Side::Left
+                        && slate_doc::wire_host::grasshopper_port_row(to.2).is_some()
+                        && self.grasshopper_image_at_output(from).is_some() =>
+                {
+                    self.finish_grasshopper_wire(from, to);
+                }
                 Some((node, side, t)) => {
                     self.add_connector(
                         ConnectorEnd::Anchored {
