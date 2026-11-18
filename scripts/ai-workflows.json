@@ -101,6 +101,9 @@
     "atlas-core": [
       "png_webp_and_webp_named_png_preserve_alpha_across_local_and_shared_cache_reopens"
     ],
+    "atlas-ollama": [
+      "ordinary_chat_and_its_followup_send_the_actual_words_without_file_guides"
+    ],
     "atlas-codex": [
       "an_image_run_names_count_shape_and_roles_and_collects_finished_files"
     ],

@@ -16,6 +16,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod messages;
+use messages::chat_messages;
+
 static GPU: Mutex<()> = Mutex::new(());
 // Background service is process-wide, never owned by one conversation.
 static SERVER: Mutex<Option<Child>> = Mutex::new(None);
@@ -125,35 +128,6 @@ fn request_images(request: &AgentRequest) -> Vec<&str> {
         .map(String::as_str)
         .filter(|p| !p.is_empty())
         .collect()
-}
-
-/// History (the runtime empties it for a text block), then this turn. A text
-/// block sends its instruction under [`ONESHOT_SYSTEM`], without transport
-/// guides.
-fn chat_messages(turns: &[AgentTurn], request: &AgentRequest, images: Vec<String>) -> Vec<Value> {
-    let mut messages: Vec<Value> = Vec::new();
-    if request.oneshot {
-        messages.push(json!({"role": "system", "content": ONESHOT_SYSTEM}));
-    }
-    if !(request.oneshot && (request.text_source.is_some() || !request.history.is_empty())) {
-        messages.extend(
-            turns
-                .iter()
-                .filter(|t| matches!(t.role.as_str(), "user" | "assistant"))
-                .map(|t| json!({"role": t.role, "content": t.text})),
-        );
-    }
-    let content = if request.oneshot {
-        request.prompt_with_history()
-    } else {
-        request.input_text()
-    };
-    let mut user = json!({"role": "user", "content": content});
-    if !images.is_empty() {
-        user["images"] = json!(images);
-    }
-    messages.push(user);
-    messages
 }
 
 pub struct Client {
