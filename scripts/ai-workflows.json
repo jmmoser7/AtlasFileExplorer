@@ -1,0 +1,367 @@
+{
+  "adapter_crates": {
+    "atlas-agent": "Typed requests, advertised model capabilities, frozen inputs, produced assets and conversation history",
+    "atlas-ai": "Provider selection, dispatch queues, model settings, history replay, file links, staged artifacts, retry and cancellation",
+    "atlas-codex": "Codex and ChatGPT sign-in, supervised chat, vision, image creation/variation, tool replies and artifact collection",
+    "atlas-openai": "Stored-key OpenAI text, image generation and reference edits, response validation and partial failures",
+    "atlas-subscription": "Cursor CLI and Claude Code, supervised text/vision, model tools, isolated workspaces and errors",
+    "atlas-comfy": "Local ComfyUI image generation, reference workflows, partial previews and completed image acquisition",
+    "atlas-ollama": "Local Ollama chat, vision attachments, model filtering and cancellation",
+    "atlas-packs": "Installed, missing and unavailable provider capabilities",
+    "atlas-connector": "Typed, scoped tool requests and native replies",
+    "atlas-connector-runtime": "Native model generation, read/edit scopes and Grasshopper worker recovery",
+    "atlas-segment": "Local segmentation of image content"
+  },
+  "slate": {
+    "Agent chat, inputs, images, variations, history, model and artifact dispatch": [
+      "app::board_agent::"
+    ],
+    "Node creation, prompts, image and video sources, graph results and editors": [
+      "app::board_flow::"
+    ],
+    "Participants, scoped board access, consent, activity and hand-off": [
+      "app::agent_presence::"
+    ],
+    "Normal board gestures, binding, selections, history and undo": [
+      "app::tests::agent::"
+    ],
+    "HTML portals, generated dashboards and typed outputs": [
+      "app::board_web::agent_access",
+      "app::board_web::outputs",
+      "app::board_web::package"
+    ],
+    "Native model/Grasshopper tools, streaming controls, output wires and animation": [
+      "app::application_connector::",
+      "app::grasshopper::",
+      "app::model3d::grasshopper::"
+    ],
+    "Smart image segmentation and cutout": [
+      "app::board_image_segment::"
+    ]
+  },
+  "node_tests": "docs/agent/cursor-sidecar/*.test.mjs",
+  "live_cases": {
+    "atlas-codex": [
+      "live_image_run_collects_a_chatgpt_picture"
+    ],
+    "atlas-ai": [
+      "live_codex_sequential_history_steer_interrupt_and_retry",
+      "live_openai_text_through_the_stored_key",
+      "live_gpt_image_through_the_stored_key"
+    ],
+    "slate": [
+      "native_grasshopper_panel_wires_follow_the_slider_and_reopen_with_their_text",
+      "native_slider_exports_an_animated_mp4_and_reopens_its_workbook",
+      "installed_codex_reads_proposes_and_visibly_applies_one_scoped_move",
+      "dashboard_outputs_real_spline_pointer_drag_add_remove_and_whole_curve"
+    ],
+    "atlas-ollama": [
+      "live_text_block_describes_a_picture"
+    ],
+    "atlas-comfy": [
+      "live_server_accepts_the_event_socket",
+      "live_run_makes_each_picture_in_the_chosen_aspect"
+    ],
+    "atlas-segment": [
+      "local_model_round_trip_reuses_the_image_for_another_object"
+    ]
+  },
+  "integrations": {
+    "atlas-connector": [
+      "artifact_profile",
+      "capture_meta",
+      "draft_authority",
+      "framing_params",
+      "lifecycle",
+      "negotiation",
+      "session_policy",
+      "surface_discovery",
+      "view_capture"
+    ]
+  },
+  "required_tests": {
+    "slate": [
+      "reversed_frame_completions_keep_their_owner_when_an_album_pick_changes",
+      "pending_completion_stays_with_its_requesting_tab_across_switches",
+      "completion_rejects_stale_binding_output_request_path_and_cancelled_run",
+      "older_live_reply_never_overwrites_a_newer_texture",
+      "malformed_and_oversized_ready_dimensions_never_allocate_a_texture",
+      "fresh_generation_registers_without_a_human_pick_then_places_with_one_undo",
+      "returns_only_the_staged_grasshopper_archive_and_preserves_source",
+      "self_followup_seeds_frozen_displayed_content_for_both_count_branches_independently_of_memory",
+      "generator_and_picked_result_upload_the_same_colored_and_translucent_pixels",
+      "a_generator_with_no_result_displays_its_own_failure_on_the_canvas",
+      "images_and_text_keep_their_own_handles_when_a_grasshopper_model_is_present"
+    ],
+    "atlas-agent": [
+      "generated_outputs_preserve_color_alpha_and_legitimate_black_pixels"
+    ],
+    "atlas-codex": [
+      "an_image_run_names_count_shape_and_roles_and_collects_finished_files"
+    ],
+    "atlas-openai": [
+      "mixed_invalid_response_keeps_valid_images_before_and_after_the_bad_item"
+    ]
+  },
+  "separate_process": [
+    "save_then_load_from_the_override_path",
+    "saving_an_api_key_clears_the_failure",
+    "a_stored_key_turns_add_api_key_into_a_normal_openai_option"
+  ],
+  "providers": {
+    "cursor": "cursor-sidecar",
+    "cursor-cli": "atlas-subscription",
+    "claude-code": "atlas-subscription",
+    "codex": "atlas-codex",
+    "codex-text": "atlas-codex",
+    "ollama": "atlas-ollama",
+    "openai-text": "atlas-openai",
+    "codex-image": "atlas-codex",
+    "openai-image": "atlas-openai",
+    "comfy": "atlas-comfy",
+    "sam": "atlas-segment",
+    "local": "atlas-ai",
+    "image-link": "atlas-ai"
+  },
+  "entrypoints": {
+    "chat": {
+      "description": "Chat, follow-up, steering, stop/retry and active history where supported.",
+      "app": [
+        "::board_agent::(chat|stop_tests|history_tests|unbound_chat_tests|session::text_answer)"
+      ],
+      "adapters": [
+        "cursor",
+        "cursor-cli",
+        "claude-code",
+        "codex",
+        "codex-text",
+        "ollama",
+        "openai-text"
+      ],
+      "transport": {
+        "cursor-sidecar": [
+          "text|session|history|turn"
+        ],
+        "atlas-subscription": [
+          "text|cancellation|history"
+        ],
+        "atlas-codex": [
+          "steer|interrupt|history|thread"
+        ],
+        "atlas-ollama": [
+          "text|chat|response"
+        ],
+        "atlas-openai": [
+          "text|responses"
+        ]
+      }
+    },
+    "source-to-text": {
+      "description": "Text card, frozen source plus wired image/vision context. Vision depends on the selected advertised model.",
+      "app": [
+        "::board_agent::(input_prep|inputs|train_tests|session::text_answer)",
+        "::board_flow::(text_note|graph_inputs)"
+      ],
+      "adapters": [
+        "cursor",
+        "cursor-cli",
+        "claude-code",
+        "codex",
+        "codex-text",
+        "ollama",
+        "openai-text"
+      ],
+      "transport": {
+        "cursor-sidecar": [
+          "image|attachment|picture|vision"
+        ],
+        "atlas-subscription": [
+          "png|vision|capture|inline_source"
+        ],
+        "atlas-codex": [
+          "image_transport|oneshot|attachments"
+        ],
+        "atlas-ollama": [
+          "picture|wired"
+        ],
+        "atlas-openai": [
+          "text_block|text_payload"
+        ]
+      }
+    },
+    "create-image": {
+      "description": "Generate from text: image aspect, prompt projection, count and returned outputs.",
+      "app": [
+        "::board_agent::(generator|picture)",
+        "::board_flow::image_editor"
+      ],
+      "adapters": [
+        "codex-image",
+        "openai-image",
+        "comfy"
+      ],
+      "transport": {
+        "atlas-codex": [
+          "image_batch|an_image_run_"
+        ],
+        "atlas-openai": [
+          "aspect|image_response|prompt_alone"
+        ],
+        "atlas-comfy": [
+          "aspect|generation_payload|render_graph"
+        ]
+      }
+    },
+    "reference-edit": {
+      "description": "Wired source edit, style input, source transform, variations and supported depth/edge reference workflows.",
+      "app": [
+        "::board_agent::(picture|generator|input_prep)",
+        "::board_flow::image_workflow"
+      ],
+      "adapters": [
+        "codex-image",
+        "openai-image",
+        "comfy"
+      ],
+      "transport": {
+        "atlas-codex": [
+          "reference|role|attachment_order|image_batch"
+        ],
+        "atlas-openai": [
+          "prompt_alone|projected_image|image_payload"
+        ],
+        "atlas-comfy": [
+          "style|sources|depth|auto_keeps"
+        ]
+      }
+    },
+    "result-picker": {
+      "description": "Partial results and malformed payload handling, node-bound live preview, selected album texture, placement and undo.",
+      "app": [
+        "::board_agent::(session::image_import|generator_pump|picker_tests|results)",
+        "::board_flow::result_actions"
+      ],
+      "adapters": [
+        "codex-image",
+        "openai-image",
+        "comfy"
+      ],
+      "transport": {
+        "atlas-codex": [
+          "incomplete_pass|unique_collected_files|collects_finished_files"
+        ],
+        "atlas-openai": [
+          "image_response"
+        ],
+        "atlas-comfy": [
+          "live_run|socket_frames|fragments"
+        ]
+      }
+    },
+    "generate-html": {
+      "description": "Create HTML and dashboard revisions in owned staged artifacts, including follow-up context, review and approval.",
+      "app": [
+        "::board_agent::artifact::",
+        "::board_web::(package|agent_access|outputs)"
+      ],
+      "adapters": [
+        "codex",
+        "cursor",
+        "cursor-cli",
+        "claude-code"
+      ],
+      "transport": {
+        "atlas-codex": [
+          "oneshot|permission|history"
+        ],
+        "cursor-sidecar": [
+          "artifact|draft|staging"
+        ],
+        "atlas-subscription": [
+          "artifact"
+        ]
+      }
+    },
+    "native-model": {
+      "description": "Create, inspect or revise a model through a scoped native Rhino worker. Explicit Send permits the supported subscription file transports.",
+      "app": [
+        "::application_connector::headless::(blank|task)"
+      ],
+      "adapters": [
+        "codex",
+        "cursor-cli",
+        "claude-code"
+      ],
+      "transport": {
+        "atlas-codex": [
+          "board_tools|permission"
+        ],
+        "atlas-subscription": [
+          "model|native|capture"
+        ]
+      }
+    },
+    "author-grasshopper": {
+      "description": "Generate a named definition through the connected Codex authoring route; apply, solve, inspect typed outputs and leave the source intact.",
+      "app": [
+        "::board_agent::grasshopper::",
+        "::grasshopper::(panel|links|schedule)"
+      ],
+      "adapters": [
+        "codex"
+      ],
+      "transport": {
+        "atlas-codex": [
+          "board_tools|oneshot|permission"
+        ]
+      }
+    },
+    "board-collaboration": {
+      "description": "Scoped collaboration, receipts, consent, rejection of stale/revoked work and board membership.",
+      "app": [
+        "::agent_presence::(chat_train|consent_policy|tests|lifecycle_tests)"
+      ],
+      "adapters": [
+        "codex",
+        "cursor"
+      ],
+      "transport": {
+        "atlas-codex": [
+          "board_tools|board_permission"
+        ],
+        "cursor-sidecar": [
+          "board|scope|grant|tool"
+        ]
+      }
+    },
+    "smart-cutout": {
+      "description": "Local smart selection, mask refinement and image cutout.",
+      "app": [
+        "::board_image_segment::"
+      ],
+      "adapters": [
+        "sam"
+      ],
+      "transport": {
+        "atlas-segment": [
+          "mask|contour|point|resize|segment|decode"
+        ]
+      }
+    },
+    "external-file-link": {
+      "description": "Local agent and Image link exchange scoped request/session files with a separately configured agent.",
+      "app": [
+        "::board_agent::(session|results|chat_send|picture)"
+      ],
+      "adapters": [
+        "local",
+        "image-link"
+      ],
+      "transport": {
+        "atlas-ai": [
+          "request_and_session_round_trip|saved_link_directory|direct_file_sessions|worker_queue"
+        ]
+      }
+    }
+  }
+}
