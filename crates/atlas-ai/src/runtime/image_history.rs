@@ -2,6 +2,41 @@
 //! image APIs produce no assistant text; never fabricate a model reply for them.
 use crate::agent::{AgentRequest, AgentSession};
 
+pub(super) fn record_image_sidecars(session: &AgentSession, request: &AgentRequest) {
+    let Some(params) = request.image.as_ref() else {
+        return;
+    };
+    let created = crate::context::now_secs();
+    for image in session
+        .bundle
+        .images
+        .iter()
+        .filter(|image| image.request == request.id)
+    {
+        let path = std::path::Path::new(&image.source);
+        if image.source.is_empty() {
+            continue;
+        }
+        let mut sidecar_params = std::collections::BTreeMap::new();
+        if !image.task.is_empty() {
+            sidecar_params.insert("task".into(), image.task.clone());
+        }
+        sidecar_params.insert("aspect".into(), params.aspect.label().into());
+        if params.count > 1 {
+            sidecar_params.insert("count".into(), params.count.to_string());
+        }
+        let sidecar = atlas_core::workbook_assets::GeneratedSidecar {
+            prompt: image.prompt.clone(),
+            model: image.model.clone(),
+            seed: params.seed,
+            params: sidecar_params,
+            created,
+            source_run: request.id.clone(),
+        };
+        let _ = atlas_core::workbook_assets::write_generated_sidecar(path, &sidecar);
+    }
+}
+
 pub(super) fn prepare_request(request: &mut AgentRequest) {
     if request.image.is_some() && request.image_history.is_some() {
         request.oneshot = true;

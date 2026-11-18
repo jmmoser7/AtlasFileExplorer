@@ -128,41 +128,6 @@ pub(crate) fn image_output_dir(
     )
 }
 
-fn record_image_sidecars(session: &AgentSession, request: &AgentRequest) {
-    let Some(params) = request.image.as_ref() else {
-        return;
-    };
-    let created = crate::context::now_secs();
-    for image in session
-        .bundle
-        .images
-        .iter()
-        .filter(|image| image.request == request.id)
-    {
-        let path = Path::new(&image.source);
-        if image.source.is_empty() {
-            continue;
-        }
-        let mut sidecar_params = std::collections::BTreeMap::new();
-        if !image.task.is_empty() {
-            sidecar_params.insert("task".into(), image.task.clone());
-        }
-        sidecar_params.insert("aspect".into(), params.aspect.label().into());
-        if params.count > 1 {
-            sidecar_params.insert("count".into(), params.count.to_string());
-        }
-        let sidecar = atlas_core::workbook_assets::GeneratedSidecar {
-            prompt: image.prompt.clone(),
-            model: image.model.clone(),
-            seed: params.seed,
-            params: sidecar_params,
-            created,
-            source_run: request.id.clone(),
-        };
-        let _ = atlas_core::workbook_assets::write_generated_sidecar(path, &sidecar);
-    }
-}
-
 /// Credential Manager slot for the person's OpenAI API key.
 pub use atlas_openai::KEY_SLOT as OPENAI_KEY_SLOT;
 /// GPT Image models that stand in until the key's catalog arrives.
@@ -368,7 +333,7 @@ impl CodexLink {
                             );
                         },
                     )?;
-                    record_image_sidecars(&session, &request);
+                    image_history::record_image_sidecars(&session, &request);
                     Ok(())
                 })();
                 let result = result.map_err(|error| {
