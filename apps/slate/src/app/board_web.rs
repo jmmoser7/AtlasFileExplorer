@@ -128,7 +128,7 @@ pub const POPUP_MIN_CSS: (u32, u32) = (240, 160);
 // ---------------------------------------------------------------------------
 
 mod outputs;
-#[cfg(test)]
+#[cfg(all(test, windows))]
 pub(crate) use outputs::controller::install_script as controller_install_script;
 mod state;
 pub use state::{WebHealth, WebState};
