@@ -1,18 +1,23 @@
 use super::*;
 use crate::app::tests::Harness;
 use serde_json::json;
+use std::path::Path;
 
 mod isolation;
 
 fn host(tag: &str) -> (Harness, NodeId, PathBuf) {
-    host_with_format(tag, image::ImageFormat::Png)
+    host_with_format(tag, image::ImageFormat::Png, Path::new(""))
 }
 
-fn host_with_format(tag: &str, format: image::ImageFormat) -> (Harness, NodeId, PathBuf) {
+fn host_with_format(
+    tag: &str,
+    format: image::ImageFormat,
+    subfolder: &Path,
+) -> (Harness, NodeId, PathBuf) {
     let mut h = Harness::new(tag);
     h.app.leave_home();
     h.app.ensure_work_tab();
-    h.app.tab_mut().path = Some(h.base.join("board.slate"));
+    h.app.tab_mut().path = Some(h.base.join(subfolder).join("board.slate"));
     h.app.ai.config.workspace_dir = Some(h.base.clone());
     let prepared = h.app.prepare_targeted_command(
         "board.objects.create_generator", &[],
@@ -73,7 +78,7 @@ fn fresh_generation_registers_without_a_human_pick_then_places_with_one_undo() {
 }
 
 fn assert_generation_registers_and_places(format: image::ImageFormat) {
-    let (mut h, node, path) = host_with_format("fresh-output-place", format);
+    let (mut h, node, path) = host_with_format("fresh-output-place", format, Path::new(""));
     let scene = h.app.doc().scene.clone();
     let selection = h.app.board_sel.clone();
     let depth = h.app.tab().journal.undo_depth();
@@ -124,7 +129,12 @@ fn generator_and_picked_result_upload_the_same_colored_and_translucent_pixels() 
 }
 
 fn assert_generator_pixels(width: u32) {
-    let (mut h, node, path) = host("generated-pixel-roundtrip");
+    // Workbook locators are portable forward-slash strings. Picking a result
+    // resolves one inside a native directory even when the Windows path is deep.
+    let deep: PathBuf = std::iter::repeat_n("nested-workbook-directory", 12).collect();
+    let (mut h, node, path) =
+        host_with_format("generated-pixel-roundtrip", image::ImageFormat::Png, &deep);
+    assert!(path.as_os_str().len() > 260);
     let colors = [
         [240, 20, 72, 255],
         [34, 125, 213, 128],

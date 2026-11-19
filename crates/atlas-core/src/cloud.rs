@@ -41,19 +41,33 @@ pub fn attrs_are_dehydrated(attrs: u32) -> bool {
 /// characters, and only those — down the byte-reading path and downloaded them.
 #[cfg(windows)]
 fn extended_wide(path: &Path) -> Vec<u16> {
-    let raw = path.as_os_str().to_string_lossy();
-    // `\\?\` disables all path parsing, so it is only correct for a
-    // fully-qualified path: no relative components, no forward slashes.
-    let prefixed = if raw.starts_with("\\\\?\\") || raw.starts_with("\\\\.\\") {
-        raw.into_owned()
-    } else if let Some(unc) = raw.strip_prefix("\\\\") {
-        format!("\\\\?\\UNC\\{unc}")
-    } else if path.is_absolute() && !raw.contains('/') {
-        format!("\\\\?\\{raw}")
+    use std::os::windows::ffi::OsStrExt;
+
+    // Workbook-relative locators use '/'. Normalize their joined Win32 spelling
+    // before adding a verbatim prefix, which disables slash and dot processing.
+    // absolute() resolves the spelling without opening the file.
+    let normalized = if path.is_absolute() && path.as_os_str().as_encoded_bytes().contains(&b'/') {
+        std::path::absolute(path).ok()
     } else {
-        raw.into_owned()
+        None
     };
-    prefixed.encode_utf16().chain(std::iter::once(0)).collect()
+    let path = normalized.as_deref().unwrap_or(path);
+    let name = path.as_os_str();
+    let bytes = name.as_encoded_bytes();
+    let (prefix, skip) = if bytes.starts_with(br"\\?\") || bytes.starts_with(br"\\.\") {
+        ("", 0)
+    } else if bytes.starts_with(br"\\") {
+        (r"\\?\UNC\", 2)
+    } else if path.is_absolute() && !bytes.contains(&b'/') {
+        (r"\\?\", 0)
+    } else {
+        ("", 0)
+    };
+    prefix
+        .encode_utf16()
+        .chain(name.encode_wide().skip(skip))
+        .chain(Some(0))
+        .collect()
 }
 
 /// The file's attributes, or `None` if they could not be read.
@@ -317,23 +331,49 @@ mod tests {
             file.as_os_str().len()
         );
 
-        let attrs = file_attributes(&file);
-        assert!(
-            attrs.is_some(),
-            "could not read attributes of a {}-character path",
-            file.as_os_str().len()
-        );
-        assert!(
-            !is_dehydrated(&file),
-            "a local temp file is not a placeholder"
-        );
-        assert!(mark_offline(&file));
-        assert!(is_dehydrated(&file), "OFFLINE is the cloud gate");
-        assert_eq!(std::fs::metadata(&file).unwrap().len(), 1);
-        assert!(clear_offline(&file));
-        assert!(!is_dehydrated(&file));
+        let locator = file
+            .strip_prefix(&deep)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let joined = deep.join(locator);
+        let verbatim = std::fs::canonicalize(&file).unwrap();
+        for spelling in [&file, &joined, &verbatim] {
+            assert_eq!(file_attributes(spelling), file_attributes(&file));
+            assert!(!is_dehydrated(spelling), "local file {spelling:?}");
+            assert!(mark_offline(spelling));
+            assert!(is_dehydrated(spelling), "OFFLINE must still be protected");
+            assert_eq!(std::fs::metadata(&file).unwrap().len(), 1);
+            assert!(clear_offline(spelling));
+            assert!(!is_dehydrated(spelling));
+        }
+        assert!(is_dehydrated(&deep.join("missing/does-not-exist.png")));
 
         std::fs::remove_dir_all(&deep).ok();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn mixed_unc_and_verbatim_attribute_paths_keep_their_windows_namespaces() {
+        for (source, expected) in [
+            (
+                r"\\server\share\boards/assets/./image.png",
+                r"\\?\UNC\server\share\boards\assets\image.png",
+            ),
+            (
+                r"//server/share/board/../assets/image.png",
+                r"\\?\UNC\server\share\assets\image.png",
+            ),
+            (
+                r"\\?\UNC\server\share\image.png",
+                r"\\?\UNC\server\share\image.png",
+            ),
+            (r"\\?\C:\assets\image.png", r"\\?\C:\assets\image.png"),
+            (r"\\.\C:\assets\image.png", r"\\.\C:\assets\image.png"),
+        ] {
+            let expected: Vec<_> = expected.encode_utf16().chain(Some(0)).collect();
+            assert_eq!(extended_wide(Path::new(source)), expected, "{source}");
+        }
     }
 
     #[test]
