@@ -202,6 +202,7 @@ struct Pending {
     document_generation: u64,
     output_read: dashboard_outputs::Read,
     control_read: dashboard_outputs::Read,
+    local_resources: Option<Rc<local_resources::LocalResources>>,
     navigation_id: Option<u64>,
     navigating: bool,
     /// Latest dashboard wire script. Re-run after each navigation.
@@ -412,6 +413,7 @@ impl Webview2Host {
         let sink = shared.clone();
         let visual = child.clone();
         let target = req.target.clone();
+        let authored = req.authored.clone();
         let bounds = RECT {
             left: 0,
             top: 0,
@@ -453,6 +455,7 @@ impl Webview2Host {
                     bounds,
                     scale,
                     &target,
+                    authored.as_deref().unwrap_or(&target),
                     &sink,
                     escape.clone(),
                     hooks.clone(),
@@ -649,6 +652,8 @@ impl Webview2Host {
 }
 
 mod dashboard_outputs;
+mod local_resources;
+mod local_stream;
 
 impl WebHost for Webview2Host {
     fn has_control_reply(&self, id: NodeId) -> bool {
@@ -813,6 +818,13 @@ impl WebHost for Webview2Host {
         }
         if self.views.contains_key(&id) {
             // In-page navigation and camera zoom must not rebuild the webview.
+            let resources = self
+                .views
+                .get(&id)
+                .and_then(|view| view.shared.borrow().local_resources.clone());
+            if let Some(resources) = resources {
+                resources.drain();
+            }
             self.resize(id, req);
             self.refresh_link_script(id, &req.link_script);
             if let Some(view) = self.views.get(&id) {
@@ -840,6 +852,10 @@ impl WebHost for Webview2Host {
         };
         // Close can synchronously call navigation and script handlers. Drop
         // the borrow and detach the per-document receivers before invoking COM.
+        let resources = view.shared.borrow_mut().local_resources.take();
+        if let Some(resources) = resources {
+            resources.cancel();
+        }
         let controller = {
             let mut page = view.shared.borrow_mut();
             page.cancelled = true;
@@ -989,6 +1005,7 @@ fn attach(
     bounds: RECT,
     scale: f64,
     target: &str,
+    authored: &str,
     sink: &Rc<RefCell<Pending>>,
     escape: Rc<Cell<bool>>,
     hooks: PageHooks,
@@ -1068,6 +1085,10 @@ fn attach(
     }
     let webview = unsafe { controller.CoreWebView2() }?;
     apply_page_settings(&webview);
+
+    let resources =
+        local_resources::LocalResources::install(&webview, &hooks.env, authored, &hooks.wake);
+    sink.borrow_mut().local_resources = resources;
 
     let starting_sink = Rc::downgrade(sink);
     let starting_wake = hooks.wake.clone();

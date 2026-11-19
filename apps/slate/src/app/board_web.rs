@@ -189,6 +189,8 @@ fn ago(d: Duration) -> String {
 /// What a webview needs to exist: where to point it and how big to lay it out.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WebRequest {
+    /// Authored source when the browser resumes a different visited URL.
+    pub authored: Option<String>,
     /// Absolute path or `http(s)` URL, already resolved and permitted.
     pub target: String,
     pub kind: WebSourceKind,
@@ -1525,6 +1527,7 @@ impl SlateApp {
         };
         let anchor_px = self.web.views.get(&id).and_then(|v| v.anchor_px);
         Some(WebRequest {
+            authored: (authored != target).then_some(authored),
             target,
             kind,
             width_css,

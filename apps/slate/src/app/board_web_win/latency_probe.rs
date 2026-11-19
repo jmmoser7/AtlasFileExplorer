@@ -55,6 +55,7 @@ fn local_dashboard_pointer_latency() {
     }
     let id = NodeId(998);
     let req = WebRequest {
+        authored: None,
         target: page.to_string_lossy().into_owned(),
         kind: slate_doc::scene::WebSourceKind::LocalFile,
         width_css: 320,

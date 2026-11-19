@@ -1,3 +1,4 @@
+mod long_path;
 mod spline;
 
 #[test]
@@ -159,6 +160,7 @@ fn a_local_page_paints_into_a_texture() {
         host("local").expect("no WebView2 runtime, GPU device, or compositor on this machine");
     let id = NodeId(1);
     let req = WebRequest {
+        authored: None,
         // Artifact revisions use canonical Windows paths. URI conversion is
         // the host's job, including namespace removal and filename encoding.
         target: page.to_string_lossy().into_owned(),
@@ -235,6 +237,7 @@ fn an_arbitrary_public_page_loads_and_paints() {
     let mut host = host("remote").expect("no WebView2 runtime on this machine");
     let id = NodeId(2);
     let req = WebRequest {
+        authored: None,
         target: "https://example.com/".into(),
         kind: WebSourceKind::Remote,
         width_css: 1024,
@@ -326,6 +329,7 @@ fn pump_until(
 
 fn local_request(page: &std::path::Path) -> WebRequest {
     WebRequest {
+        authored: None,
         target: page.to_string_lossy().into_owned(),
         kind: WebSourceKind::LocalFile,
         width_css: 400,
@@ -452,6 +456,7 @@ fn google_sign_in_page_in_webview2() {
     let mut host = host("google").expect("no WebView2 runtime on this machine");
     let id = NodeId(10);
     let req = WebRequest {
+        authored: None,
         target: "https://accounts.google.com/".into(),
         kind: WebSourceKind::Remote,
         width_css: 1024,
