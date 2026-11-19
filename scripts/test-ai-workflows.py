@@ -141,9 +141,12 @@ def run_package(target, exe, out, threads, env):
     with log_path.open("w", encoding="utf-8") as log:
         for batch in batches(selected):
             run = subprocess.run([str(exe), "--exact", *batch, "--test-threads", str(threads)],
-                                 cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                 cwd=cwd, env=env, capture_output=True,
                                  text=True, encoding="utf-8", errors="replace")
+            # Native children can write diagnostics between libtest's name and result.
             log.write(run.stdout)
+            if run.stderr:
+                log.write("\n[stderr]\n" + run.stderr + "\n")
             code = code or run.returncode
             for name, result in re.findall(r"^test (\S+) \.\.\. (ok|FAILED)$", run.stdout, re.M):
                 (passed if result == "ok" else failed).add(name)
