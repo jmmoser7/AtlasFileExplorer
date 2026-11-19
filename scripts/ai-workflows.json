@@ -29,7 +29,9 @@
     "HTML portals, generated dashboards and typed outputs": [
       "app::board_web::agent_access",
       "app::board_web::outputs",
-      "app::board_web::package"
+      "app::board_web::package",
+      "app::board_web_win::local_resources::",
+      "app::board_web_win::local_stream::"
     ],
     "Native model/Grasshopper tools, streaming controls, output wires and animation": [
       "app::application_connector::",
@@ -54,7 +56,8 @@
       "native_grasshopper_panel_wires_follow_the_slider_and_reopen_with_their_text",
       "native_slider_exports_an_animated_mp4_and_reopens_its_workbook",
       "installed_codex_reads_proposes_and_visibly_applies_one_scoped_move",
-      "dashboard_outputs_real_spline_pointer_drag_add_remove_and_whole_curve"
+      "dashboard_outputs_real_spline_pointer_drag_add_remove_and_whole_curve",
+      "deep_local_dashboard_keeps_its_origin_relative_assets_and_typed_output"
     ],
     "atlas-ollama": [
       "live_text_block_describes_a_picture"
@@ -119,6 +122,10 @@
   "windows_required_tests": {
     "atlas-ai": [
       "long_windows_artifact_work_starts_the_provider_and_returns_to_its_original_owner"
+    ],
+    "slate": [
+      "deep_file_requests_stay_with_their_document_and_display_context",
+      "web_response_stream_reads_the_validated_handle_with_independent_seek_positions"
     ]
   },
   "providers": {
@@ -275,7 +282,8 @@
       "description": "Create HTML and dashboard revisions in owned staged artifacts, including follow-up context, review and approval.",
       "app": [
         "::board_agent::artifact::",
-        "::board_web::(package|agent_access|outputs)"
+        "::board_web::(package|agent_access|outputs)",
+        "::board_web_win::(local_resources|local_stream)::"
       ],
       "adapters": [
         "codex",
