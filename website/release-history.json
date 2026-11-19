@@ -1,5 +1,44 @@
 [
   {
+    "tag": "v1.0.14",
+    "date": "2026-11-19",
+    "download": "https://github.com/jmmoser7/AtlasFileExplorer/releases/download/v1.0.14/AtlasSuite-stable-Setup.exe",
+    "patches": [
+      "Static HTML cards wake the canvas when their source or displayed content changes. Panning skips a duplicate background draw, and software rendering clears the board in a single clipped operation.",
+      "Reduced pan and zoom work on mixed boards by caching wire geometry, drawing fewer grid vertices and moving diagnostic writes off the UI thread.",
+      "Large linked Rhino models batch compatible surfaces, skip offscreen geometry and use screen-space error to choose a moving mesh. Heavy views on software graphics progressively restore full-quality stationary frames.",
+      "Video playback can skip stale decoded samples before pixel conversion and deliver the next advancing frame under load."
+    ],
+    "regression_fixes": [
+      "Restored GPU rendering on the affected Intel graphics driver through Direct3D 12. Slate checks the GPU at startup and uses the bundled CPU renderer if the check fails. A busy Windows machine now has longer to complete a healthy GPU check.",
+      "Fast Hand and middle-button drags retain the full distance when Windows delivers the press, move and release together. Fractional motion is preserved, and stationary card highlights and idle dock labels now settle.",
+      "Fixed HTML control drags that arrived inside a single slow frame and a Windows shutdown crash when an outstanding WebView callback returned.",
+      "Translucent Rhino materials show the geometry behind them. Replacing an image input updates its board preview and the connected Grasshopper model.",
+      "Grasshopper keeps its initial solve when file watching starts and releases its startup lock on exit. Recovery can open compatible definitions when Rhino flags an installed or built-in component after an earlier plug-in crash.",
+      "Restored Hide and Reveal for Grasshopper controls and the slider-to-MP4 workflow from the November Windows QA build.",
+      "Playback recovers when a filmstrip request fails. Slate waits for the first decoded frame on a cold Windows video decoder and stops redrawing while it waits.",
+      "Grasshopper input controls respond when their toolbar overlaps the edge of another board item.",
+      "The Agent editor for ordinary videos sizes itself to fit its controls and preserves the selected model and settings when switching between text and image generation.",
+      "Grasshopper previews and generated models open from deeply nested Windows folders. Generated HTML dashboards return to the requesting card, and the embedded browser can load the page and its relative scripts, styles and images there.",
+      "Restored Frame to the Media palette ahead of Text, Image, Video and 3D. New frames start at 9:16. Right-click a placed frame to choose a preset or enter custom dimensions.",
+      "Image cards keep their ordinary output grip. Drag it to a named Grasshopper file-path input, or drag from that input onto the image to connect it.",
+      "Fixed empty image-generator cards when Slate and Codex use different Windows profiles. Slate now collects results from the active Codex thread, validates each picture before adding it and shows a provider error on the card when generation fails.",
+      "Smart image selection can recover an existing Windows segmentation environment after its Python interpreter moves. When compatible packages are already installed, setup reuses them and the downloaded model.",
+      "Small PNG and WebP images retain their colors and transparency when Slate reopens a workbook or reuses a shared thumbnail. Connected images report their actual dimensions even when a provider saves WebP content with a .png extension.",
+      "Partially downloaded JPEGs are rejected before they can replace an existing generator result.",
+      "Local Ollama chat and follow-ups now send your conversation without unrelated file-placement instructions.",
+      "Picked generator images and linked picture cards now display when a saved workbook uses Windows paths over 260 characters and mixed slashes. Cloud-only files retain their existing download protection."
+    ],
+    "feature_additions": [
+      "Use Z or Ctrl+W to draw a zoom window inside a live 3D viewport. Ctrl+Shift+E fits the model while preserving the surrounding canvas.",
+      "Connect named HTML outputs to Grasshopper parameters as typed values, lists or data trees. An image card can supply a replaceable file input. HTML dashboards can save their controls in the workbook and restore each copy independently.",
+      "The source repository includes working examples that control fin geometry with overlapping splines or image luminance.",
+      "A model card can turn a prompt for a new Grasshopper study into an editable Rhino 8 definition with named number, integer, Boolean and text controls. Review the staged result and choose Run definition to solve it.",
+      "Drag a named Grasshopper output onto a Text box, sticky note, or linked .txt card to display its solved value. When several outputs feed a card, each displays its name. Data trees show their branch paths.",
+      "The source repository includes a repeatable AI workflow test suite covering image generation and edits, chat, modeling, dashboards, connected inputs and agent actions."
+    ]
+  },
+  {
     "tag": "v1.0.13",
     "date": "2026-11-17",
     "download": "https://github.com/jmmoser7/AtlasFileExplorer/releases/download/v1.0.13/AtlasSuite-stable-Setup.exe",
